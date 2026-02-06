@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(git *)",
+      "Read(**)",
+      "Edit(**/*.ts)",
+      "Edit(**/*.tsx)",
+      "Edit(**/*.json)",
+      "Edit(**/*.md)",
+      "Edit(**/*.css)",
+      "Write(**)"
+    ],
+    "ask": [
+      "Bash(rm -rf *)",
+      "Edit(.env.local)"
+    ],
+    "deny": []
+  },
+
+  "hooks": {
+    "Edit": [{
+      "matcher": "**/*.{ts,tsx}",
+      "hooks": [{
+        "type": "command",
+        "command": "npx prettier --write \"$FILE\" 2>/dev/null || true"
+      }]
+    }]
+  },
+
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
