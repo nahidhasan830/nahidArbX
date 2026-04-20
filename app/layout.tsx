@@ -1,20 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Providers } from "@/components/providers/Providers";
+import { BRAND } from "@/lib/branding";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+// Force all pages to be dynamic (no static prerendering)
+// Required for: 1) Real-time arb data, 2) Auth context, 3) Next.js 16 SSG bug workaround
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "VenusEdge",
-  description: "Real-time arbitrage finder across betting providers",
+  title: BRAND.name,
+  description: BRAND.tagline,
 };
 
 export default function RootLayout({
@@ -23,11 +18,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
+    <html
+      lang="en"
+      className="dark"
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
+      <body className="font-sans antialiased" suppressHydrationWarning>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

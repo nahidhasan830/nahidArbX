@@ -6,32 +6,51 @@
       "Bash(npm *)",
       "Bash(npx *)",
       "Bash(git *)",
+      "Bash(curl *)",
+      "Bash(node *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(wc *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(which *)",
+      "Bash(echo *)",
+      "Bash(kill *)",
+      "Bash(lsof *)",
+      "Bash(chmod *)",
       "Read(**)",
       "Edit(**/*.ts)",
       "Edit(**/*.tsx)",
       "Edit(**/*.json)",
       "Edit(**/*.md)",
       "Edit(**/*.css)",
-      "Write(**)"
+      "Write(**)",
+      "WebSearch",
+      "WebFetch",
+      "mcp__context7__*",
+      "mcp__playwright__*",
+      "mcp__sequential-thinking__*"
     ],
-    "ask": [
-      "Bash(rm -rf *)",
-      "Edit(.env.local)"
-    ],
+    "ask": ["Bash(rm -rf *)", "Edit(.env.local)"],
     "deny": []
   },
 
   "hooks": {
-    "Edit": [{
-      "matcher": "**/*.{ts,tsx}",
-      "hooks": [{
-        "type": "command",
-        "command": "npx prettier --write \"$FILE\" 2>/dev/null || true"
-      }]
-    }]
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx prettier --write \"$FILE\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
   },
 
   "env": {
-    "NODE_ENV": "development"
+    "NODE_ENV": "development",
+    "MAX_MCP_OUTPUT_TOKENS": "25000"
   }
 }

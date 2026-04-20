@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  reactStrictMode: true,
+  // output: "standalone", // Incompatible with `next start`
+  compress: true,
+  experimental: {
+    prerenderEarlyExit: false,
+  },
 };
 
 export default nextConfig;

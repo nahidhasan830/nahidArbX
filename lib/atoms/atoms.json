@@ -1,0 +1,1701 @@
+{
+  "families": {
+    "ft_match_result": {
+      "id": "ft_match_result",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "MATCH_RESULT",
+      "atoms": ["ft_home_win", "ft_draw", "ft_away_win"]
+    },
+    "1h_match_result": {
+      "id": "1h_match_result",
+      "type": "group",
+      "time_scope": "1H",
+      "market_type": "MATCH_RESULT",
+      "atoms": ["1h_home_win", "1h_draw", "1h_away_win"]
+    },
+    "2h_match_result": {
+      "id": "2h_match_result",
+      "type": "group",
+      "time_scope": "2H",
+      "market_type": "MATCH_RESULT",
+      "atoms": ["2h_home_win", "2h_draw", "2h_away_win"]
+    },
+    "ft_total_0_5": {
+      "id": "ft_total_0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 0.5,
+      "atoms": ["ft_total_over_0_5", "ft_total_under_0_5"]
+    },
+    "ft_total_1_5": {
+      "id": "ft_total_1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.5,
+      "atoms": ["ft_total_over_1_5", "ft_total_under_1_5"]
+    },
+    "ft_total_2_5": {
+      "id": "ft_total_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 2.5,
+      "atoms": ["ft_total_over_2_5", "ft_total_under_2_5"]
+    },
+    "ft_total_3_5": {
+      "id": "ft_total_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 3.5,
+      "atoms": ["ft_total_over_3_5", "ft_total_under_3_5"]
+    },
+    "ft_total_4_5": {
+      "id": "ft_total_4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 4.5,
+      "atoms": ["ft_total_over_4_5", "ft_total_under_4_5"]
+    },
+    "ft_total_5_5": {
+      "id": "ft_total_5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 5.5,
+      "atoms": ["ft_total_over_5_5", "ft_total_under_5_5"]
+    },
+    "ft_total_6_5": {
+      "id": "ft_total_6_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 6.5,
+      "atoms": ["ft_total_over_6_5", "ft_total_under_6_5"]
+    },
+    "ft_total_0_75": {
+      "id": "ft_total_0_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 0.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_0_75", "ft_total_under_0_75"]
+    },
+    "ft_total_1": {
+      "id": "ft_total_1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 1,
+      "atoms": ["ft_total_over_1", "ft_total_under_1"]
+    },
+    "ft_total_1_25": {
+      "id": "ft_total_1_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_1_25", "ft_total_under_1_25"]
+    },
+    "ft_total_1_75": {
+      "id": "ft_total_1_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_1_75", "ft_total_under_1_75"]
+    },
+    "ft_total_2": {
+      "id": "ft_total_2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 2,
+      "atoms": ["ft_total_over_2", "ft_total_under_2"]
+    },
+    "ft_total_2_25": {
+      "id": "ft_total_2_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 2.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_2_25", "ft_total_under_2_25"]
+    },
+    "ft_total_2_75": {
+      "id": "ft_total_2_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 2.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_2_75", "ft_total_under_2_75"]
+    },
+    "ft_total_3": {
+      "id": "ft_total_3",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 3,
+      "atoms": ["ft_total_over_3", "ft_total_under_3"]
+    },
+    "ft_total_3_25": {
+      "id": "ft_total_3_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 3.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_3_25", "ft_total_under_3_25"]
+    },
+    "ft_total_3_75": {
+      "id": "ft_total_3_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 3.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_3_75", "ft_total_under_3_75"]
+    },
+    "ft_total_4": {
+      "id": "ft_total_4",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 4,
+      "atoms": ["ft_total_over_4", "ft_total_under_4"]
+    },
+    "ft_total_4_25": {
+      "id": "ft_total_4_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 4.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_4_25", "ft_total_under_4_25"]
+    },
+    "ft_total_4_75": {
+      "id": "ft_total_4_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 4.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_4_75", "ft_total_under_4_75"]
+    },
+    "ft_total_5": {
+      "id": "ft_total_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 5,
+      "atoms": ["ft_total_over_5", "ft_total_under_5"]
+    },
+    "ft_total_5_25": {
+      "id": "ft_total_5_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 5.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_5_25", "ft_total_under_5_25"]
+    },
+    "ft_total_5_75": {
+      "id": "ft_total_5_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 5.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_total_over_5_75", "ft_total_under_5_75"]
+    },
+    "ft_total_6": {
+      "id": "ft_total_6",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TOTAL_GOALS",
+      "line": 6,
+      "atoms": ["ft_total_over_6", "ft_total_under_6"]
+    },
+    "1h_total_0_5": {
+      "id": "1h_total_0_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 0.5,
+      "atoms": ["1h_total_over_0_5", "1h_total_under_0_5"]
+    },
+    "1h_total_1_5": {
+      "id": "1h_total_1_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.5,
+      "atoms": ["1h_total_over_1_5", "1h_total_under_1_5"]
+    },
+    "1h_total_2_5": {
+      "id": "1h_total_2_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 2.5,
+      "atoms": ["1h_total_over_2_5", "1h_total_under_2_5"]
+    },
+    "1h_total_0_75": {
+      "id": "1h_total_0_75",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 0.75,
+      "is_split_settlement": true,
+      "atoms": ["1h_total_over_0_75", "1h_total_under_0_75"]
+    },
+    "1h_total_1": {
+      "id": "1h_total_1",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 1,
+      "atoms": ["1h_total_over_1", "1h_total_under_1"]
+    },
+    "1h_total_1_25": {
+      "id": "1h_total_1_25",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.25,
+      "is_split_settlement": true,
+      "atoms": ["1h_total_over_1_25", "1h_total_under_1_25"]
+    },
+    "1h_total_1_75": {
+      "id": "1h_total_1_75",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.75,
+      "is_split_settlement": true,
+      "atoms": ["1h_total_over_1_75", "1h_total_under_1_75"]
+    },
+    "1h_total_2": {
+      "id": "1h_total_2",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "TOTAL_GOALS",
+      "line": 2,
+      "atoms": ["1h_total_over_2", "1h_total_under_2"]
+    },
+    "2h_total_0_5": {
+      "id": "2h_total_0_5",
+      "type": "pair",
+      "time_scope": "2H",
+      "market_type": "TOTAL_GOALS",
+      "line": 0.5,
+      "atoms": ["2h_total_over_0_5", "2h_total_under_0_5"]
+    },
+    "2h_total_1_5": {
+      "id": "2h_total_1_5",
+      "type": "pair",
+      "time_scope": "2H",
+      "market_type": "TOTAL_GOALS",
+      "line": 1.5,
+      "atoms": ["2h_total_over_1_5", "2h_total_under_1_5"]
+    },
+    "2h_total_2_5": {
+      "id": "2h_total_2_5",
+      "type": "pair",
+      "time_scope": "2H",
+      "market_type": "TOTAL_GOALS",
+      "line": 2.5,
+      "atoms": ["2h_total_over_2_5", "2h_total_under_2_5"]
+    },
+    "ft_ah_m3": {
+      "id": "ft_ah_m3",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -3,
+      "atoms": ["ft_home_ah_m3", "ft_away_ah_p3"]
+    },
+    "ft_ah_m2_75": {
+      "id": "ft_ah_m2_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -2.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_m2_75", "ft_away_ah_p2_75"]
+    },
+    "ft_ah_m2_5": {
+      "id": "ft_ah_m2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -2.5,
+      "atoms": ["ft_home_ah_m2_5", "ft_away_ah_p2_5"]
+    },
+    "ft_ah_m2_25": {
+      "id": "ft_ah_m2_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -2.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_m2_25", "ft_away_ah_p2_25"]
+    },
+    "ft_ah_m2": {
+      "id": "ft_ah_m2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -2,
+      "atoms": ["ft_home_ah_m2", "ft_away_ah_p2"]
+    },
+    "ft_ah_m1_75": {
+      "id": "ft_ah_m1_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_m1_75", "ft_away_ah_p1_75"]
+    },
+    "ft_ah_m1_5": {
+      "id": "ft_ah_m1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1.5,
+      "atoms": ["ft_home_ah_m1_5", "ft_away_ah_p1_5"]
+    },
+    "ft_ah_m1_25": {
+      "id": "ft_ah_m1_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_m1_25", "ft_away_ah_p1_25"]
+    },
+    "ft_ah_m1": {
+      "id": "ft_ah_m1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1,
+      "atoms": ["ft_home_ah_m1", "ft_away_ah_p1"]
+    },
+    "ft_ah_m0_75": {
+      "id": "ft_ah_m0_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -0.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_m0_75", "ft_away_ah_p0_75"]
+    },
+    "ft_ah_m0_5": {
+      "id": "ft_ah_m0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -0.5,
+      "atoms": ["ft_home_ah_m0_5", "ft_away_ah_p0_5"]
+    },
+    "ft_ah_m0_25": {
+      "id": "ft_ah_m0_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -0.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_m0_25", "ft_away_ah_p0_25"]
+    },
+    "ft_ah_0": {
+      "id": "ft_ah_0",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0,
+      "atoms": ["ft_home_ah_0", "ft_away_ah_0"]
+    },
+    "ft_ah_p0_25": {
+      "id": "ft_ah_p0_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_p0_25", "ft_away_ah_m0_25"]
+    },
+    "ft_ah_p0_5": {
+      "id": "ft_ah_p0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0.5,
+      "atoms": ["ft_home_ah_p0_5", "ft_away_ah_m0_5"]
+    },
+    "ft_ah_p0_75": {
+      "id": "ft_ah_p0_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_p0_75", "ft_away_ah_m0_75"]
+    },
+    "ft_ah_p1": {
+      "id": "ft_ah_p1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1,
+      "atoms": ["ft_home_ah_p1", "ft_away_ah_m1"]
+    },
+    "ft_ah_p1_25": {
+      "id": "ft_ah_p1_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_p1_25", "ft_away_ah_m1_25"]
+    },
+    "ft_ah_p1_5": {
+      "id": "ft_ah_p1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1.5,
+      "atoms": ["ft_home_ah_p1_5", "ft_away_ah_m1_5"]
+    },
+    "ft_ah_p1_75": {
+      "id": "ft_ah_p1_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_p1_75", "ft_away_ah_m1_75"]
+    },
+    "ft_ah_p2": {
+      "id": "ft_ah_p2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 2,
+      "atoms": ["ft_home_ah_p2", "ft_away_ah_m2"]
+    },
+    "ft_ah_p2_25": {
+      "id": "ft_ah_p2_25",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 2.25,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_p2_25", "ft_away_ah_m2_25"]
+    },
+    "ft_ah_p2_5": {
+      "id": "ft_ah_p2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 2.5,
+      "atoms": ["ft_home_ah_p2_5", "ft_away_ah_m2_5"]
+    },
+    "ft_ah_p2_75": {
+      "id": "ft_ah_p2_75",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 2.75,
+      "is_split_settlement": true,
+      "atoms": ["ft_home_ah_p2_75", "ft_away_ah_m2_75"]
+    },
+    "ft_ah_p3": {
+      "id": "ft_ah_p3",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 3,
+      "atoms": ["ft_home_ah_p3", "ft_away_ah_m3"]
+    },
+    "1h_ah_m1_5": {
+      "id": "1h_ah_m1_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1.5,
+      "atoms": ["1h_home_ah_m1_5", "1h_away_ah_p1_5"]
+    },
+    "1h_ah_m1_25": {
+      "id": "1h_ah_m1_25",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1.25,
+      "is_split_settlement": true,
+      "atoms": ["1h_home_ah_m1_25", "1h_away_ah_p1_25"]
+    },
+    "1h_ah_m1": {
+      "id": "1h_ah_m1",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -1,
+      "atoms": ["1h_home_ah_m1", "1h_away_ah_p1"]
+    },
+    "1h_ah_m0_75": {
+      "id": "1h_ah_m0_75",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -0.75,
+      "is_split_settlement": true,
+      "atoms": ["1h_home_ah_m0_75", "1h_away_ah_p0_75"]
+    },
+    "1h_ah_m0_5": {
+      "id": "1h_ah_m0_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -0.5,
+      "atoms": ["1h_home_ah_m0_5", "1h_away_ah_p0_5"]
+    },
+    "1h_ah_m0_25": {
+      "id": "1h_ah_m0_25",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": -0.25,
+      "is_split_settlement": true,
+      "atoms": ["1h_home_ah_m0_25", "1h_away_ah_p0_25"]
+    },
+    "1h_ah_0": {
+      "id": "1h_ah_0",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0,
+      "atoms": ["1h_home_ah_0", "1h_away_ah_0"]
+    },
+    "1h_ah_p0_25": {
+      "id": "1h_ah_p0_25",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0.25,
+      "is_split_settlement": true,
+      "atoms": ["1h_home_ah_p0_25", "1h_away_ah_m0_25"]
+    },
+    "1h_ah_p0_5": {
+      "id": "1h_ah_p0_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0.5,
+      "atoms": ["1h_home_ah_p0_5", "1h_away_ah_m0_5"]
+    },
+    "1h_ah_p0_75": {
+      "id": "1h_ah_p0_75",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 0.75,
+      "is_split_settlement": true,
+      "atoms": ["1h_home_ah_p0_75", "1h_away_ah_m0_75"]
+    },
+    "1h_ah_p1": {
+      "id": "1h_ah_p1",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1,
+      "atoms": ["1h_home_ah_p1", "1h_away_ah_m1"]
+    },
+    "1h_ah_p1_25": {
+      "id": "1h_ah_p1_25",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1.25,
+      "is_split_settlement": true,
+      "atoms": ["1h_home_ah_p1_25", "1h_away_ah_m1_25"]
+    },
+    "1h_ah_p1_5": {
+      "id": "1h_ah_p1_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "ASIAN_HANDICAP",
+      "line": 1.5,
+      "atoms": ["1h_home_ah_p1_5", "1h_away_ah_m1_5"]
+    },
+    "ft_eh_m3": {
+      "id": "ft_eh_m3",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": -3,
+      "atoms": ["ft_home_eh_m3", "ft_draw_eh_m3", "ft_away_eh_m3"]
+    },
+    "ft_eh_m2": {
+      "id": "ft_eh_m2",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": -2,
+      "atoms": ["ft_home_eh_m2", "ft_draw_eh_m2", "ft_away_eh_m2"]
+    },
+    "ft_eh_m1": {
+      "id": "ft_eh_m1",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": -1,
+      "atoms": ["ft_home_eh_m1", "ft_draw_eh_m1", "ft_away_eh_m1"]
+    },
+    "ft_eh_0": {
+      "id": "ft_eh_0",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": 0,
+      "atoms": ["ft_home_eh_0", "ft_draw_eh_0", "ft_away_eh_0"]
+    },
+    "ft_eh_p1": {
+      "id": "ft_eh_p1",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": 1,
+      "atoms": ["ft_home_eh_p1", "ft_draw_eh_p1", "ft_away_eh_p1"]
+    },
+    "ft_eh_p2": {
+      "id": "ft_eh_p2",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": 2,
+      "atoms": ["ft_home_eh_p2", "ft_draw_eh_p2", "ft_away_eh_p2"]
+    },
+    "ft_eh_p3": {
+      "id": "ft_eh_p3",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "EUROPEAN_HANDICAP",
+      "line": 3,
+      "atoms": ["ft_home_eh_p3", "ft_draw_eh_p3", "ft_away_eh_p3"]
+    },
+    "ft_btts": {
+      "id": "ft_btts",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BTTS",
+      "atoms": ["ft_btts_yes", "ft_btts_no"]
+    },
+    "1h_btts": {
+      "id": "1h_btts",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "BTTS",
+      "atoms": ["1h_btts_yes", "1h_btts_no"]
+    },
+    "2h_btts": {
+      "id": "2h_btts",
+      "type": "pair",
+      "time_scope": "2H",
+      "market_type": "BTTS",
+      "atoms": ["2h_btts_yes", "2h_btts_no"]
+    },
+    "ft_double_chance": {
+      "id": "ft_double_chance",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "DOUBLE_CHANCE",
+      "atoms": ["ft_dc_1x", "ft_dc_12", "ft_dc_x2"]
+    },
+    "1h_double_chance": {
+      "id": "1h_double_chance",
+      "type": "group",
+      "time_scope": "1H",
+      "market_type": "DOUBLE_CHANCE",
+      "atoms": ["1h_dc_1x", "1h_dc_12", "1h_dc_x2"]
+    },
+    "2h_double_chance": {
+      "id": "2h_double_chance",
+      "type": "group",
+      "time_scope": "2H",
+      "market_type": "DOUBLE_CHANCE",
+      "atoms": ["2h_dc_1x", "2h_dc_12", "2h_dc_x2"]
+    },
+    "ft_dnb": {
+      "id": "ft_dnb",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "DNB",
+      "atoms": ["ft_dnb_home", "ft_dnb_away"]
+    },
+    "1h_dnb": {
+      "id": "1h_dnb",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "DNB",
+      "atoms": ["1h_dnb_home", "1h_dnb_away"]
+    },
+    "2h_dnb": {
+      "id": "2h_dnb",
+      "type": "pair",
+      "time_scope": "2H",
+      "market_type": "DNB",
+      "atoms": ["2h_dnb_home", "2h_dnb_away"]
+    },
+    "ft_home_total_0_5": {
+      "id": "ft_home_total_0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_TEAM_TOTAL",
+      "line": 0.5,
+      "atoms": ["ft_home_over_0_5", "ft_home_under_0_5"]
+    },
+    "ft_home_total_1_5": {
+      "id": "ft_home_total_1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_TEAM_TOTAL",
+      "line": 1.5,
+      "atoms": ["ft_home_over_1_5", "ft_home_under_1_5"]
+    },
+    "ft_home_total_2_5": {
+      "id": "ft_home_total_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_TEAM_TOTAL",
+      "line": 2.5,
+      "atoms": ["ft_home_over_2_5", "ft_home_under_2_5"]
+    },
+    "ft_home_total_3_5": {
+      "id": "ft_home_total_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_TEAM_TOTAL",
+      "line": 3.5,
+      "atoms": ["ft_home_over_3_5", "ft_home_under_3_5"]
+    },
+    "ft_away_total_0_5": {
+      "id": "ft_away_total_0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_TEAM_TOTAL",
+      "line": 0.5,
+      "atoms": ["ft_away_over_0_5", "ft_away_under_0_5"]
+    },
+    "ft_away_total_1_5": {
+      "id": "ft_away_total_1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_TEAM_TOTAL",
+      "line": 1.5,
+      "atoms": ["ft_away_over_1_5", "ft_away_under_1_5"]
+    },
+    "ft_away_total_2_5": {
+      "id": "ft_away_total_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_TEAM_TOTAL",
+      "line": 2.5,
+      "atoms": ["ft_away_over_2_5", "ft_away_under_2_5"]
+    },
+    "ft_away_total_3_5": {
+      "id": "ft_away_total_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_TEAM_TOTAL",
+      "line": 3.5,
+      "atoms": ["ft_away_over_3_5", "ft_away_under_3_5"]
+    },
+    "ft_corners_5": {
+      "id": "ft_corners_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 5,
+      "atoms": ["ft_corners_over_5", "ft_corners_under_5"]
+    },
+    "ft_corners_5_5": {
+      "id": "ft_corners_5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 5.5,
+      "atoms": ["ft_corners_over_5_5", "ft_corners_under_5_5"]
+    },
+    "ft_corners_6": {
+      "id": "ft_corners_6",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 6,
+      "atoms": ["ft_corners_over_6", "ft_corners_under_6"]
+    },
+    "ft_corners_6_5": {
+      "id": "ft_corners_6_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 6.5,
+      "atoms": ["ft_corners_over_6_5", "ft_corners_under_6_5"]
+    },
+    "ft_corners_7": {
+      "id": "ft_corners_7",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 7,
+      "atoms": ["ft_corners_over_7", "ft_corners_under_7"]
+    },
+    "ft_corners_7_5": {
+      "id": "ft_corners_7_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 7.5,
+      "atoms": ["ft_corners_over_7_5", "ft_corners_under_7_5"]
+    },
+    "ft_corners_8": {
+      "id": "ft_corners_8",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 8,
+      "atoms": ["ft_corners_over_8", "ft_corners_under_8"]
+    },
+    "ft_corners_8_5": {
+      "id": "ft_corners_8_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 8.5,
+      "atoms": ["ft_corners_over_8_5", "ft_corners_under_8_5"]
+    },
+    "ft_corners_9": {
+      "id": "ft_corners_9",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 9,
+      "atoms": ["ft_corners_over_9", "ft_corners_under_9"]
+    },
+    "ft_corners_9_5": {
+      "id": "ft_corners_9_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 9.5,
+      "atoms": ["ft_corners_over_9_5", "ft_corners_under_9_5"]
+    },
+    "ft_corners_10": {
+      "id": "ft_corners_10",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 10,
+      "atoms": ["ft_corners_over_10", "ft_corners_under_10"]
+    },
+    "ft_corners_10_5": {
+      "id": "ft_corners_10_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 10.5,
+      "atoms": ["ft_corners_over_10_5", "ft_corners_under_10_5"]
+    },
+    "ft_corners_11": {
+      "id": "ft_corners_11",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 11,
+      "atoms": ["ft_corners_over_11", "ft_corners_under_11"]
+    },
+    "ft_corners_11_5": {
+      "id": "ft_corners_11_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 11.5,
+      "atoms": ["ft_corners_over_11_5", "ft_corners_under_11_5"]
+    },
+    "ft_corners_12": {
+      "id": "ft_corners_12",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 12,
+      "atoms": ["ft_corners_over_12", "ft_corners_under_12"]
+    },
+    "ft_corners_12_5": {
+      "id": "ft_corners_12_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 12.5,
+      "atoms": ["ft_corners_over_12_5", "ft_corners_under_12_5"]
+    },
+    "ft_corners_13": {
+      "id": "ft_corners_13",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 13,
+      "atoms": ["ft_corners_over_13", "ft_corners_under_13"]
+    },
+    "ft_corners_13_5": {
+      "id": "ft_corners_13_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS",
+      "line": 13.5,
+      "atoms": ["ft_corners_over_13_5", "ft_corners_under_13_5"]
+    },
+    "1h_corners_3_5": {
+      "id": "1h_corners_3_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "CORNERS",
+      "line": 3.5,
+      "atoms": ["1h_corners_over_3_5", "1h_corners_under_3_5"]
+    },
+    "1h_corners_4_5": {
+      "id": "1h_corners_4_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "CORNERS",
+      "line": 4.5,
+      "atoms": ["1h_corners_over_4_5", "1h_corners_under_4_5"]
+    },
+    "1h_corners_5_5": {
+      "id": "1h_corners_5_5",
+      "type": "pair",
+      "time_scope": "1H",
+      "market_type": "CORNERS",
+      "line": 5.5,
+      "atoms": ["1h_corners_over_5_5", "1h_corners_under_5_5"]
+    },
+    "ft_corners_ah_m6_5": {
+      "id": "ft_corners_ah_m6_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -6.5,
+      "atoms": ["ft_corners_home_ah_m6_5", "ft_corners_away_ah_p6_5"]
+    },
+    "ft_corners_ah_m6": {
+      "id": "ft_corners_ah_m6",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -6,
+      "atoms": ["ft_corners_home_ah_m6", "ft_corners_away_ah_p6"]
+    },
+    "ft_corners_ah_m5_5": {
+      "id": "ft_corners_ah_m5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -5.5,
+      "atoms": ["ft_corners_home_ah_m5_5", "ft_corners_away_ah_p5_5"]
+    },
+    "ft_corners_ah_m5": {
+      "id": "ft_corners_ah_m5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -5,
+      "atoms": ["ft_corners_home_ah_m5", "ft_corners_away_ah_p5"]
+    },
+    "ft_corners_ah_m4_5": {
+      "id": "ft_corners_ah_m4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -4.5,
+      "atoms": ["ft_corners_home_ah_m4_5", "ft_corners_away_ah_p4_5"]
+    },
+    "ft_corners_ah_m4": {
+      "id": "ft_corners_ah_m4",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -4,
+      "atoms": ["ft_corners_home_ah_m4", "ft_corners_away_ah_p4"]
+    },
+    "ft_corners_ah_m3_5": {
+      "id": "ft_corners_ah_m3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -3.5,
+      "atoms": ["ft_corners_home_ah_m3_5", "ft_corners_away_ah_p3_5"]
+    },
+    "ft_corners_ah_m3": {
+      "id": "ft_corners_ah_m3",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -3,
+      "atoms": ["ft_corners_home_ah_m3", "ft_corners_away_ah_p3"]
+    },
+    "ft_corners_ah_m2_5": {
+      "id": "ft_corners_ah_m2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -2.5,
+      "atoms": ["ft_corners_home_ah_m2_5", "ft_corners_away_ah_p2_5"]
+    },
+    "ft_corners_ah_m2": {
+      "id": "ft_corners_ah_m2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -2,
+      "atoms": ["ft_corners_home_ah_m2", "ft_corners_away_ah_p2"]
+    },
+    "ft_corners_ah_m1_5": {
+      "id": "ft_corners_ah_m1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -1.5,
+      "atoms": ["ft_corners_home_ah_m1_5", "ft_corners_away_ah_p1_5"]
+    },
+    "ft_corners_ah_m1": {
+      "id": "ft_corners_ah_m1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -1,
+      "atoms": ["ft_corners_home_ah_m1", "ft_corners_away_ah_p1"]
+    },
+    "ft_corners_ah_m0_5": {
+      "id": "ft_corners_ah_m0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": -0.5,
+      "atoms": ["ft_corners_home_ah_m0_5", "ft_corners_away_ah_p0_5"]
+    },
+    "ft_corners_ah_0": {
+      "id": "ft_corners_ah_0",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 0,
+      "atoms": ["ft_corners_home_ah_0", "ft_corners_away_ah_0"]
+    },
+    "ft_corners_ah_p0_5": {
+      "id": "ft_corners_ah_p0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 0.5,
+      "atoms": ["ft_corners_home_ah_p0_5", "ft_corners_away_ah_m0_5"]
+    },
+    "ft_corners_ah_p1": {
+      "id": "ft_corners_ah_p1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 1,
+      "atoms": ["ft_corners_home_ah_p1", "ft_corners_away_ah_m1"]
+    },
+    "ft_corners_ah_p1_5": {
+      "id": "ft_corners_ah_p1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 1.5,
+      "atoms": ["ft_corners_home_ah_p1_5", "ft_corners_away_ah_m1_5"]
+    },
+    "ft_corners_ah_p2": {
+      "id": "ft_corners_ah_p2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 2,
+      "atoms": ["ft_corners_home_ah_p2", "ft_corners_away_ah_m2"]
+    },
+    "ft_corners_ah_p2_5": {
+      "id": "ft_corners_ah_p2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 2.5,
+      "atoms": ["ft_corners_home_ah_p2_5", "ft_corners_away_ah_m2_5"]
+    },
+    "ft_corners_ah_p3": {
+      "id": "ft_corners_ah_p3",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 3,
+      "atoms": ["ft_corners_home_ah_p3", "ft_corners_away_ah_m3"]
+    },
+    "ft_corners_ah_p3_5": {
+      "id": "ft_corners_ah_p3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 3.5,
+      "atoms": ["ft_corners_home_ah_p3_5", "ft_corners_away_ah_m3_5"]
+    },
+    "ft_corners_ah_p4": {
+      "id": "ft_corners_ah_p4",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 4,
+      "atoms": ["ft_corners_home_ah_p4", "ft_corners_away_ah_m4"]
+    },
+    "ft_corners_ah_p4_5": {
+      "id": "ft_corners_ah_p4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 4.5,
+      "atoms": ["ft_corners_home_ah_p4_5", "ft_corners_away_ah_m4_5"]
+    },
+    "ft_corners_ah_p5": {
+      "id": "ft_corners_ah_p5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 5,
+      "atoms": ["ft_corners_home_ah_p5", "ft_corners_away_ah_m5"]
+    },
+    "ft_corners_ah_p5_5": {
+      "id": "ft_corners_ah_p5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 5.5,
+      "atoms": ["ft_corners_home_ah_p5_5", "ft_corners_away_ah_m5_5"]
+    },
+    "ft_corners_ah_p6": {
+      "id": "ft_corners_ah_p6",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 6,
+      "atoms": ["ft_corners_home_ah_p6", "ft_corners_away_ah_m6"]
+    },
+    "ft_corners_ah_p6_5": {
+      "id": "ft_corners_ah_p6_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CORNERS_HANDICAP",
+      "line": 6.5,
+      "atoms": ["ft_corners_home_ah_p6_5", "ft_corners_away_ah_m6_5"]
+    },
+    "ft_corners_eh_m6": {
+      "id": "ft_corners_eh_m6",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": -6,
+      "atoms": [
+        "ft_corners_home_eh_m6",
+        "ft_corners_draw_eh_m6",
+        "ft_corners_away_eh_m6"
+      ]
+    },
+    "ft_corners_eh_m5": {
+      "id": "ft_corners_eh_m5",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": -5,
+      "atoms": [
+        "ft_corners_home_eh_m5",
+        "ft_corners_draw_eh_m5",
+        "ft_corners_away_eh_m5"
+      ]
+    },
+    "ft_corners_eh_m4": {
+      "id": "ft_corners_eh_m4",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": -4,
+      "atoms": [
+        "ft_corners_home_eh_m4",
+        "ft_corners_draw_eh_m4",
+        "ft_corners_away_eh_m4"
+      ]
+    },
+    "ft_corners_eh_m3": {
+      "id": "ft_corners_eh_m3",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": -3,
+      "atoms": [
+        "ft_corners_home_eh_m3",
+        "ft_corners_draw_eh_m3",
+        "ft_corners_away_eh_m3"
+      ]
+    },
+    "ft_corners_eh_m2": {
+      "id": "ft_corners_eh_m2",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": -2,
+      "atoms": [
+        "ft_corners_home_eh_m2",
+        "ft_corners_draw_eh_m2",
+        "ft_corners_away_eh_m2"
+      ]
+    },
+    "ft_corners_eh_m1": {
+      "id": "ft_corners_eh_m1",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": -1,
+      "atoms": [
+        "ft_corners_home_eh_m1",
+        "ft_corners_draw_eh_m1",
+        "ft_corners_away_eh_m1"
+      ]
+    },
+    "ft_corners_eh_0": {
+      "id": "ft_corners_eh_0",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 0,
+      "atoms": [
+        "ft_corners_home_eh_0",
+        "ft_corners_draw_eh_0",
+        "ft_corners_away_eh_0"
+      ]
+    },
+    "ft_corners_eh_p1": {
+      "id": "ft_corners_eh_p1",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 1,
+      "atoms": [
+        "ft_corners_home_eh_p1",
+        "ft_corners_draw_eh_p1",
+        "ft_corners_away_eh_p1"
+      ]
+    },
+    "ft_corners_eh_p2": {
+      "id": "ft_corners_eh_p2",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 2,
+      "atoms": [
+        "ft_corners_home_eh_p2",
+        "ft_corners_draw_eh_p2",
+        "ft_corners_away_eh_p2"
+      ]
+    },
+    "ft_corners_eh_p3": {
+      "id": "ft_corners_eh_p3",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 3,
+      "atoms": [
+        "ft_corners_home_eh_p3",
+        "ft_corners_draw_eh_p3",
+        "ft_corners_away_eh_p3"
+      ]
+    },
+    "ft_corners_eh_p4": {
+      "id": "ft_corners_eh_p4",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 4,
+      "atoms": [
+        "ft_corners_home_eh_p4",
+        "ft_corners_draw_eh_p4",
+        "ft_corners_away_eh_p4"
+      ]
+    },
+    "ft_corners_eh_p5": {
+      "id": "ft_corners_eh_p5",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 5,
+      "atoms": [
+        "ft_corners_home_eh_p5",
+        "ft_corners_draw_eh_p5",
+        "ft_corners_away_eh_p5"
+      ]
+    },
+    "ft_corners_eh_p6": {
+      "id": "ft_corners_eh_p6",
+      "type": "group",
+      "time_scope": "FT",
+      "market_type": "CORNERS_EUROPEAN_HANDICAP",
+      "line": 6,
+      "atoms": [
+        "ft_corners_home_eh_p6",
+        "ft_corners_draw_eh_p6",
+        "ft_corners_away_eh_p6"
+      ]
+    },
+    "ft_home_corners_0_5": {
+      "id": "ft_home_corners_0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 0.5,
+      "atoms": ["ft_home_corners_over_0_5", "ft_home_corners_under_0_5"]
+    },
+    "ft_home_corners_1_5": {
+      "id": "ft_home_corners_1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 1.5,
+      "atoms": ["ft_home_corners_over_1_5", "ft_home_corners_under_1_5"]
+    },
+    "ft_home_corners_2": {
+      "id": "ft_home_corners_2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 2,
+      "atoms": ["ft_home_corners_over_2", "ft_home_corners_under_2"]
+    },
+    "ft_home_corners_2_5": {
+      "id": "ft_home_corners_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 2.5,
+      "atoms": ["ft_home_corners_over_2_5", "ft_home_corners_under_2_5"]
+    },
+    "ft_home_corners_3_5": {
+      "id": "ft_home_corners_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 3.5,
+      "atoms": ["ft_home_corners_over_3_5", "ft_home_corners_under_3_5"]
+    },
+    "ft_home_corners_4_5": {
+      "id": "ft_home_corners_4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 4.5,
+      "atoms": ["ft_home_corners_over_4_5", "ft_home_corners_under_4_5"]
+    },
+    "ft_home_corners_5_5": {
+      "id": "ft_home_corners_5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 5.5,
+      "atoms": ["ft_home_corners_over_5_5", "ft_home_corners_under_5_5"]
+    },
+    "ft_home_corners_6_5": {
+      "id": "ft_home_corners_6_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 6.5,
+      "atoms": ["ft_home_corners_over_6_5", "ft_home_corners_under_6_5"]
+    },
+    "ft_home_corners_7": {
+      "id": "ft_home_corners_7",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 7,
+      "atoms": ["ft_home_corners_over_7", "ft_home_corners_under_7"]
+    },
+    "ft_home_corners_7_5": {
+      "id": "ft_home_corners_7_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "HOME_CORNERS_TOTAL",
+      "line": 7.5,
+      "atoms": ["ft_home_corners_over_7_5", "ft_home_corners_under_7_5"]
+    },
+    "ft_away_corners_0_5": {
+      "id": "ft_away_corners_0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 0.5,
+      "atoms": ["ft_away_corners_over_0_5", "ft_away_corners_under_0_5"]
+    },
+    "ft_away_corners_1_5": {
+      "id": "ft_away_corners_1_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 1.5,
+      "atoms": ["ft_away_corners_over_1_5", "ft_away_corners_under_1_5"]
+    },
+    "ft_away_corners_2": {
+      "id": "ft_away_corners_2",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 2,
+      "atoms": ["ft_away_corners_over_2", "ft_away_corners_under_2"]
+    },
+    "ft_away_corners_2_5": {
+      "id": "ft_away_corners_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 2.5,
+      "atoms": ["ft_away_corners_over_2_5", "ft_away_corners_under_2_5"]
+    },
+    "ft_away_corners_3_5": {
+      "id": "ft_away_corners_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 3.5,
+      "atoms": ["ft_away_corners_over_3_5", "ft_away_corners_under_3_5"]
+    },
+    "ft_away_corners_4_5": {
+      "id": "ft_away_corners_4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 4.5,
+      "atoms": ["ft_away_corners_over_4_5", "ft_away_corners_under_4_5"]
+    },
+    "ft_away_corners_5_5": {
+      "id": "ft_away_corners_5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 5.5,
+      "atoms": ["ft_away_corners_over_5_5", "ft_away_corners_under_5_5"]
+    },
+    "ft_away_corners_6_5": {
+      "id": "ft_away_corners_6_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 6.5,
+      "atoms": ["ft_away_corners_over_6_5", "ft_away_corners_under_6_5"]
+    },
+    "ft_away_corners_7": {
+      "id": "ft_away_corners_7",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 7,
+      "atoms": ["ft_away_corners_over_7", "ft_away_corners_under_7"]
+    },
+    "ft_away_corners_7_5": {
+      "id": "ft_away_corners_7_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "AWAY_CORNERS_TOTAL",
+      "line": 7.5,
+      "atoms": ["ft_away_corners_over_7_5", "ft_away_corners_under_7_5"]
+    },
+    "ft_cards_2_5": {
+      "id": "ft_cards_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CARDS",
+      "line": 2.5,
+      "atoms": ["ft_cards_over_2_5", "ft_cards_under_2_5"]
+    },
+    "ft_cards_3_5": {
+      "id": "ft_cards_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CARDS",
+      "line": 3.5,
+      "atoms": ["ft_cards_over_3_5", "ft_cards_under_3_5"]
+    },
+    "ft_cards_4_5": {
+      "id": "ft_cards_4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CARDS",
+      "line": 4.5,
+      "atoms": ["ft_cards_over_4_5", "ft_cards_under_4_5"]
+    },
+    "ft_cards_5_5": {
+      "id": "ft_cards_5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CARDS",
+      "line": 5.5,
+      "atoms": ["ft_cards_over_5_5", "ft_cards_under_5_5"]
+    },
+    "ft_bookings_2_5": {
+      "id": "ft_bookings_2_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 2.5,
+      "atoms": ["ft_bookings_over_2_5", "ft_bookings_under_2_5"]
+    },
+    "ft_bookings_3": {
+      "id": "ft_bookings_3",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 3,
+      "atoms": ["ft_bookings_over_3", "ft_bookings_under_3"]
+    },
+    "ft_bookings_3_5": {
+      "id": "ft_bookings_3_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 3.5,
+      "atoms": ["ft_bookings_over_3_5", "ft_bookings_under_3_5"]
+    },
+    "ft_bookings_4": {
+      "id": "ft_bookings_4",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 4,
+      "atoms": ["ft_bookings_over_4", "ft_bookings_under_4"]
+    },
+    "ft_bookings_4_5": {
+      "id": "ft_bookings_4_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 4.5,
+      "atoms": ["ft_bookings_over_4_5", "ft_bookings_under_4_5"]
+    },
+    "ft_bookings_5": {
+      "id": "ft_bookings_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 5,
+      "atoms": ["ft_bookings_over_5", "ft_bookings_under_5"]
+    },
+    "ft_bookings_5_5": {
+      "id": "ft_bookings_5_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS",
+      "line": 5.5,
+      "atoms": ["ft_bookings_over_5_5", "ft_bookings_under_5_5"]
+    },
+    "ft_bookings_ah_m1": {
+      "id": "ft_bookings_ah_m1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS_HANDICAP",
+      "line": -1,
+      "atoms": ["ft_bookings_home_ah_m1", "ft_bookings_away_ah_p1"]
+    },
+    "ft_bookings_ah_m0_5": {
+      "id": "ft_bookings_ah_m0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS_HANDICAP",
+      "line": -0.5,
+      "atoms": ["ft_bookings_home_ah_m0_5", "ft_bookings_away_ah_p0_5"]
+    },
+    "ft_bookings_ah_0": {
+      "id": "ft_bookings_ah_0",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS_HANDICAP",
+      "line": 0,
+      "atoms": ["ft_bookings_home_ah_0", "ft_bookings_away_ah_0"]
+    },
+    "ft_bookings_ah_p0_5": {
+      "id": "ft_bookings_ah_p0_5",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS_HANDICAP",
+      "line": 0.5,
+      "atoms": ["ft_bookings_home_ah_p0_5", "ft_bookings_away_ah_m0_5"]
+    },
+    "ft_bookings_ah_p1": {
+      "id": "ft_bookings_ah_p1",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "BOOKINGS_HANDICAP",
+      "line": 1,
+      "atoms": ["ft_bookings_home_ah_p1", "ft_bookings_away_ah_m1"]
+    },
+    "ft_odd_even": {
+      "id": "ft_odd_even",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "ODD_EVEN_GOALS",
+      "atoms": ["ft_goals_odd", "ft_goals_even"]
+    },
+    "ft_home_clean_sheet": {
+      "id": "ft_home_clean_sheet",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CLEAN_SHEET",
+      "atoms": ["ft_home_cs_yes", "ft_home_cs_no"]
+    },
+    "ft_away_clean_sheet": {
+      "id": "ft_away_clean_sheet",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "CLEAN_SHEET",
+      "atoms": ["ft_away_cs_yes", "ft_away_cs_no"]
+    },
+    "ft_home_win_to_nil": {
+      "id": "ft_home_win_to_nil",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "WIN_TO_NIL",
+      "atoms": ["ft_home_wtn_yes", "ft_home_wtn_no"]
+    },
+    "ft_away_win_to_nil": {
+      "id": "ft_away_win_to_nil",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "WIN_TO_NIL",
+      "atoms": ["ft_away_wtn_yes", "ft_away_wtn_no"]
+    },
+    "ft_home_to_score": {
+      "id": "ft_home_to_score",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TO_SCORE",
+      "atoms": ["ft_home_score_yes", "ft_home_score_no"]
+    },
+    "ft_away_to_score": {
+      "id": "ft_away_to_score",
+      "type": "pair",
+      "time_scope": "FT",
+      "market_type": "TO_SCORE",
+      "atoms": ["ft_away_score_yes", "ft_away_score_no"]
+    }
+  }
+}

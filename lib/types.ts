@@ -1,7 +1,13 @@
 // Extensible types - add new values as needed
 export type Sport = "football";
-export type Provider = "pslive" | "ninewickets";
-export type MarketType = "match_winner" | "totals" | "btts";
+export type OddsSource = "exchange" | "sportsbook";
+
+// Provider type derived from central registry
+export { type ProviderKey as Provider } from "./providers/registry";
+import type { ProviderKey } from "./providers/registry";
+type Provider = ProviderKey; // Local alias for use in this file
+
+import type { MatchSource } from "./matching/config";
 
 export interface NormalizedEvent {
   id: string;
@@ -11,42 +17,12 @@ export interface NormalizedEvent {
   competition: string;
   startTime: Date;
   providers: Partial<Record<Provider, { eventId: string; fetchedAt: Date }>>;
-}
-
-export interface Outcome {
-  label: string; // 'home' | 'draw' | 'away' | 'over' | 'under' | 'yes' | 'no'
-  odds: number;
-  provider: Provider;
-}
-
-export interface NormalizedMarket {
-  eventId: string;
-  type: MarketType;
-  param?: string; // e.g., "2.5" for totals
-  outcomes: Outcome[];
-}
-
-export interface Stake {
-  provider: Provider;
-  outcome: string;
-  amount: number;
-  return: number;
-}
-
-export interface Arbitrage {
-  id: string;
-  event: NormalizedEvent;
-  market: { type: MarketType; param?: string };
-  outcomes: Outcome[];
-  profitPct: number;
-  stakes: Stake[];
-  detectedAt: Date;
-}
-
-export interface ArbsResponse {
-  arbs: Arbitrage[];
-  count: number;
-  lastUpdate: string;
+  /** Event-level suspension (all markets blocked) - e.g., BetConstruct is_blocked */
+  suspended?: boolean;
+  /** How this event was matched (tier1-auto, tier2-deep, ai-confirmed, etc.) */
+  matchSource?: MatchSource;
+  /** Match confidence score (0-100) */
+  matchConfidence?: number;
 }
 
 export interface HealthResponse {
@@ -58,5 +34,4 @@ export interface HealthResponse {
 export interface ProviderAdapter {
   name: Provider;
   fetchEvents(): Promise<NormalizedEvent[]>;
-  fetchMarkets(eventId: string): Promise<NormalizedMarket[]>;
 }

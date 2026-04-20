@@ -1,0 +1,57 @@
+# Dependencies
+node_modules
+
+# Build output
+.next
+
+# Git
+.git
+.gitignore
+
+# Environment files (secrets - don't include in image)
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Session files (mounted as volume)
+sessions/
+
+# Database (mounted as volume)
+data/
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__/
+
+# Development files
+ecosystem.config.js
+docker-compose.yml
+.claude/
+
+# Raw data (development only)
+rawData/
+
+# Scripts (not needed at runtime)
+scripts/

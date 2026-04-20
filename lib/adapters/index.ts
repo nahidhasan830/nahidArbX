@@ -1,28 +1,47 @@
-import type { ProviderAdapter, Provider } from "../types";
-import { psliveAdapter } from "./pslive";
-import { ninewicketsAdapter } from "./ninewickets";
+/**
+ * Provider Adapters Registry
+ *
+ * Centralized registry for event-fetching adapters.
+ * Delegates to unified-registry.ts for both event and atoms adapters.
+ *
+ * NEW PROVIDER CHECKLIST (4 steps):
+ * 1. Add provider metadata       → lib/providers/registry.ts
+ * 2. Create adapter class        → lib/atoms/adapters/<provider>.ts (extend BaseAtomsAdapter)
+ * 3. Create mapping function     → lib/atoms/mappings/<provider>.ts
+ * 4. Register in unified registry → lib/adapters/unified-registry.ts
+ *
+ * Optional: Create event adapter (lib/adapters/<provider>.ts) if events come from
+ * a different source than existing providers.
+ *
+ * Key Utilities:
+ * - BaseAtomsAdapter     → lib/atoms/adapters/base.ts (extend this for new providers)
+ * - buildOddsEntry()     → lib/shared/odds-entry.ts (entry construction helper)
+ * - DebugFetcher         → lib/shared/debug-fetcher.ts (debug capture utility)
+ * - createProviderClient → lib/shared/http.ts (axios client factory)
+ * - validateAndParse()   → lib/shared/validation.ts (Zod validation wrapper)
+ */
 
-const adapters: Record<Provider, ProviderAdapter | null> = {
-  pslive: psliveAdapter,
-  ninewickets: ninewicketsAdapter,
-};
+import type { ProviderAdapter } from "../types";
+import type { ProviderKey } from "../providers/registry";
+import {
+  getEnabledEventAdapters,
+  getEventAdapter as getEventAdapterFromUnified,
+} from "./unified-registry";
 
+// ============================================
+// Re-exports from Unified Registry
+// ============================================
+
+/**
+ * Get all enabled adapters (enabled in registry AND has adapter implementation)
+ */
 export function getEnabledAdapters(): ProviderAdapter[] {
-  const enabled: ProviderAdapter[] = [];
-
-  // pslive - always try (will check for valid token internally)
-  if (adapters.pslive) {
-    enabled.push(adapters.pslive);
-  }
-
-  // Nine Wickets doesn't require auth - always enable if adapter exists
-  if (adapters.ninewickets) {
-    enabled.push(adapters.ninewickets);
-  }
-
-  return enabled;
+  return getEnabledEventAdapters();
 }
 
-export function getAdapter(provider: Provider): ProviderAdapter | null {
-  return adapters[provider];
+/**
+ * Get a specific adapter by provider ID
+ */
+export function getAdapter(provider: ProviderKey): ProviderAdapter | null {
+  return getEventAdapterFromUnified(provider);
 }

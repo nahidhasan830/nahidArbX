@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  arbimate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Betjili credentials (for Pinnacle token capture)
+      - BETJILI_USERNAME=${BETJILI_USERNAME}
+      - BETJILI_PASSWORD=${BETJILI_PASSWORD}
+      - BETJILI_URL=${BETJILI_URL:-https://betjili365.com/bd/en/account-login-quick}
+      - TOKEN_HEADLESS=true
+      # Auth
+      - JWT_SECRET=${JWT_SECRET}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      # Pinnacle config
+      - PINNACLE_DAYS_AHEAD=${PINNACLE_DAYS_AHEAD:-2}
+      - PINNACLE_PAGE_SIZE=${PINNACLE_PAGE_SIZE:-1000}
+      # App config
+      - FETCH_INTERVAL_MS=${FETCH_INTERVAL_MS:-60000}
+    volumes:
+      # Persistent storage for session files and database
+      - ./sessions:/app/sessions
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "curl", "-f", "http://localhost:3000/api/health?simple=true"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
