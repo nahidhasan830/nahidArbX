@@ -56,6 +56,11 @@ const ALGOS: Array<{ value: SearchAlgorithm; label: string; help: string }> = [
     label: "NSGA-II (multi-objective)",
     help: "Returns Pareto frontier directly. Slower.",
   },
+  {
+    value: "ml-xgboost",
+    label: "ML — XGBoost classifier",
+    help: "Trains a calibrated gradient-boosted classifier per CV fold; picks bets above its threshold. Goes through the same CPCV harness as rule-based — apples-to-apples comparison via DSR/PBO/Pareto.",
+  },
 ];
 
 // True if any filter would actually narrow the dataset.

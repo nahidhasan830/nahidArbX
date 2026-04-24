@@ -30,6 +30,7 @@ from .db import open_session
 from .evaluator import TrialResult, evaluate_trial
 from .loader import DataFilters, load_settled_bets
 from .pareto import ParetoCandidate, extract_pareto
+from .ml.evaluator import evaluate_ml_trial, ml_search_space
 from .samplers import build_study, is_multi_objective
 from .scoring import (
     composite_score,
@@ -41,6 +42,8 @@ from .scoring import (
 )
 from .search_space import DEFAULT_SEARCH_SPACE, SearchSpace
 from .walkforward import WalkForwardConfig, make_walkforward_splits
+
+ML_ALGORITHMS = {"ml-xgboost"}
 
 log = logging.getLogger("alphasearch.runner")
 
@@ -271,20 +274,30 @@ async def run_trial_loop(run_id: str) -> None:
                 run_id, df.height, len(splits), cv_cfg.n_groups, cv_cfg.n_test_groups,
             )
 
-        # Search space.
-        space_payload = run["search_space"] or {}
-        space = (
-            SearchSpace.from_json(space_payload)
-            if space_payload.get("dimensions")
-            else DEFAULT_SEARCH_SPACE
-        )
-
-        # Optuna study.
+        # Search space + algorithm. ML algorithms (e.g. 'ml-xgboost') get a
+        # default search space tuned for XGBoost hyperparams when the run row
+        # didn't specify one explicitly. The Optuna sampler tier (random / TPE
+        # / NSGA-II / ensemble) is orthogonal to whether the trial evaluator
+        # is rule-based or ML — both routes share the same study machinery.
         algorithm = run["search_algorithm"] or "tpe"
+        is_ml = algorithm in ML_ALGORITHMS
+
+        space_payload = run["search_space"] or {}
+        if space_payload.get("dimensions"):
+            space = SearchSpace.from_json(space_payload)
+        elif is_ml:
+            space = ml_search_space()
+        else:
+            space = DEFAULT_SEARCH_SPACE
+
+        # ML uses TPE for the Optuna sampler regardless of `algorithm` (since
+        # the algorithm field is overloaded — 'ml-xgboost' encodes both
+        # "evaluator = ML" and "use Bayesian search by default").
+        sampler_algo = "tpe" if is_ml else algorithm
         study = build_study(
-            algorithm=algorithm,
+            algorithm=sampler_algo,
             seed=int(run["rng_seed"]),
-            multi_objective=is_multi_objective(algorithm),
+            multi_objective=is_multi_objective(sampler_algo),
         )
 
         n_target = int(run["n_trials_target"])
@@ -306,8 +319,11 @@ async def run_trial_loop(run_id: str) -> None:
             config = space.suggest_config(trial)
 
             # CPU-bound — run in worker thread to keep the event loop free.
+            # Branch on algorithm: ML evaluator trains a model per CV fold;
+            # rule-based evaluator just applies filters + sizing.
+            evaluator_fn = evaluate_ml_trial if is_ml else evaluate_trial
             result: TrialResult = await asyncio.to_thread(
-                evaluate_trial, df, splits, config
+                evaluator_fn, df, splits, config
             )
 
             # Per-fold ROI series → bootstrap CI.

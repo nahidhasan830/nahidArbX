@@ -42,7 +42,9 @@ const createBody = z.object({
   timezone: z.string().optional(),
   frequency,
   nTrialsTarget: z.number().int().min(10).max(50_000).optional(),
-  searchAlgorithm: z.enum(["random", "tpe", "nsga2", "ensemble"]).optional(),
+  searchAlgorithm: z
+    .enum(["random", "tpe", "nsga2", "ensemble", "ml-xgboost"])
+    .optional(),
   searchSpace: z
     .object({ dimensions: z.array(z.record(z.string(), z.unknown())) })
     .optional(),

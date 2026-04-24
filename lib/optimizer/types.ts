@@ -13,7 +13,12 @@ export type OptimizationRunStatus =
   | "failed"
   | "cancelled";
 
-export type SearchAlgorithm = "random" | "tpe" | "nsga2" | "ensemble";
+export type SearchAlgorithm =
+  | "random"
+  | "tpe"
+  | "nsga2"
+  | "ensemble"
+  | "ml-xgboost";
 
 export type DimensionKind =
   | "continuous"

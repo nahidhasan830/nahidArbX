@@ -10,7 +10,7 @@ import { createRun, listRuns } from "@/lib/optimizer/repository";
 
 const createBody = z.object({
   name: z.string().min(1).max(120),
-  searchAlgorithm: z.enum(["random", "tpe", "nsga2", "ensemble"]),
+  searchAlgorithm: z.enum(["random", "tpe", "nsga2", "ensemble", "ml-xgboost"]),
   nTrialsTarget: z.number().int().min(10).max(50_000),
   rngSeed: z.number().int().optional(),
   cvStrategy: z

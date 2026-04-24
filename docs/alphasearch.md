@@ -388,6 +388,62 @@ First-match-wins by creation order. If two live strategies both match a detected
 
 ---
 
+## 8. ML alternative — XGBoost classifier <a id="ml-xgboost"></a>
+
+The rule-based optimizer asks: "What filters + sizing rules best fit my data?" The ML alternative asks a different question: "Can a learned classifier predict which bets will profit?"
+
+Pick **ML — XGBoost classifier** in the algorithm dropdown when submitting a run.
+
+### What it does
+
+For each CV fold:
+
+1. Builds features from the train rows: numerical (EV%, soft odds, sharp prob, commission, tick count) + one-hot encoded categoricals (market type, soft provider, time scope). Closing odds / CLV are excluded — no leakage.
+2. Trains an XGBoost classifier with isotonic calibration on a 3-fold internal split.
+3. Predicts calibrated `P(profitable)` on the test rows.
+4. Bets every row above the trial's `threshold`, sized by the trial's Kelly params.
+5. Computes per-fold ROI / Sortino / Sharpe / drawdown the same way the rule-based path does.
+
+### Why it goes through the same harness
+
+Same CPCV splits, same bootstrap CIs, same Pareto / DSR / PSR / PBO / WRC. **You can compare a rule-based config and an ML config head-to-head.** A trial in `optimization_trials` with `params.algorithm == 'ml-xgboost'` lives next to rule-based trials in the same run-detail table.
+
+### Hyperparameter space (sampled by Optuna)
+
+| Param              | Range                 |
+| ------------------ | --------------------- |
+| `n_estimators`     | 100 / 200 / 400 / 600 |
+| `max_depth`        | 3..8                  |
+| `learning_rate`    | 0.02..0.20            |
+| `subsample`        | 0.6..1.0              |
+| `colsample_bytree` | 0.6..1.0              |
+| `min_child_weight` | 1 / 5 / 10 / 20       |
+| `threshold`        | 0.45..0.75            |
+| `kelly_fraction`   | 0.10..0.50            |
+| `kelly_cap_pct`    | 2..15                 |
+
+ML mode forces TPE for sampling regardless of the algorithm pickerlabel — the search space is small enough that NSGA-II adds no value.
+
+### When ML helps (and when it doesn't)
+
+ML is most useful when:
+
+- You have ≥2,000 settled bets (XGBoost needs sample density per leaf).
+- Your data has interaction effects rule-based filters miss (e.g. "BTTS at NW-Sportsbook works only when sharp prob is between 0.55 and 0.65").
+- You want a calibrated probability estimate, not just a yes/no filter.
+
+ML is overkill (rule-based wins) when:
+
+- Sample size is small (<1k bets).
+- The signal is dominated by one or two clean features (EV% + odds range).
+- You care about interpretability — "trust this strategy because it filters X" is easier to defend than "trust this XGBoost model".
+
+### Failure mode
+
+If the optional ML deps aren't installed in the sidecar venv (`xgboost`, `scikit-learn`), the model returns uniform `0.5` predictions and you'll see all trials with `n=0` surviving bets at any threshold > 0.5. Fix: `cd services/optimizer && uv sync` (deps are in the main `[project.dependencies]` block as of Phase 4).
+
+---
+
 ## 11. Troubleshooting
 
 ### Run sits in `queued` forever

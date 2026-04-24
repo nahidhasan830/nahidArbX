@@ -171,6 +171,12 @@ export const GLOSSARY = {
     long: "Random gives baseline coverage; TPE refines; NSGA-II finds the frontier. The recommended default.",
     learnMoreHref: "/docs/alphasearch.md#ensemble",
   },
+  ml_xgboost: {
+    short:
+      "Trains an XGBoost classifier per CV fold and bets when its calibrated probability exceeds a threshold.",
+    long: "Optuna sweeps XGBoost hyperparams (n_estimators, max_depth, learning rate) + the decision threshold + Kelly sizing. Same CPCV harness as the rule-based path so DSR/PBO/Pareto are comparable apples-to-apples.",
+    learnMoreHref: "/docs/alphasearch.md#ml-xgboost",
+  },
 
   // ── Status + lifecycle ────────────────────────────────────────────────
   trial: {
