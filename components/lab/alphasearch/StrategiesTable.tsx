@@ -2,13 +2,22 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pause, Play, Trash2, Power, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Pause,
+  Play,
+  Power,
+  Trash2,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TermTooltip } from "@/components/ui/TermTooltip";
 import type { OptimizationStrategyRow } from "@/lib/optimizer/strategies";
+import { ValidationHistory } from "./ValidationHistory";
 
 const REFRESH_MS = 10_000;
 
@@ -34,6 +43,15 @@ const STATUS_STYLES: Record<string, string> = {
 
 export function StrategiesTable() {
   const qc = useQueryClient();
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["optimizer", "strategies"],
     queryFn: fetchStrategies,
@@ -86,6 +104,7 @@ export function StrategiesTable() {
       <table className="w-full text-xs">
         <thead className="bg-muted/40 text-muted-foreground">
           <tr className="text-left">
+            <th className="px-1 w-6"></th>
             <th className="px-3 py-2 font-medium">Name / status</th>
             <th className="px-3 py-2 font-medium text-right">
               <TermTooltip term="roi">OOS ROI</TermTooltip>{" "}
@@ -109,118 +128,143 @@ export function StrategiesTable() {
             const liveRoi = live["liveRoiPct"];
             const liveN = live["nTotal"];
             const drift = live["outsideOosCi"] === true;
+            const isOpen = expanded.has(s.id);
             return (
-              <tr
-                key={s.id}
-                className="border-t border-border/60 hover:bg-muted/20"
-              >
-                <td className="px-3 py-2">
-                  <div className="font-medium flex items-center gap-2">
-                    {s.name}
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] px-2 py-0.5 ${STATUS_STYLES[s.status] ?? ""}`}
-                    >
-                      {s.status}
-                    </Badge>
-                  </div>
-                  {s.description && (
-                    <div className="text-[10px] text-muted-foreground">
-                      {s.description}
+              <React.Fragment key={s.id}>
+                <tr
+                  className="border-t border-border/60 hover:bg-muted/20 cursor-pointer"
+                  onClick={() => toggleExpanded(s.id)}
+                >
+                  <td className="px-1 text-muted-foreground">
+                    {isOpen ? (
+                      <ChevronDown className="size-3.5" />
+                    ) : (
+                      <ChevronRight className="size-3.5" />
+                    )}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium flex items-center gap-2">
+                      {s.name}
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] px-2 py-0.5 ${STATUS_STYLES[s.status] ?? ""}`}
+                      >
+                        {s.status}
+                      </Badge>
                     </div>
-                  )}
-                </td>
-                <td className="px-3 py-2 tabular-nums text-right">
-                  {fmt(oosRoi)}%
-                  <span className="text-muted-foreground ml-1 text-[10px]">
-                    [{fmt(oosCiLow, 1)}, {fmt(oosCiHigh, 1)}]
-                  </span>
-                </td>
-                <td className="px-3 py-2 tabular-nums text-right">
-                  {liveRoi !== null && liveRoi !== undefined
-                    ? `${fmt(liveRoi)}%`
-                    : "—"}
-                </td>
-                <td className="px-3 py-2 tabular-nums text-right">
-                  {typeof liveN === "number" ? liveN : "—"}
-                </td>
-                <td className="px-3 py-2">
-                  {drift ? (
-                    <span className="inline-flex items-center gap-1 text-amber-600 text-[10px]">
-                      <AlertCircle className="size-3" />
-                      Outside CI
+                    {s.description && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {s.description}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-right">
+                    {fmt(oosRoi)}%
+                    <span className="text-muted-foreground ml-1 text-[10px]">
+                      [{fmt(oosCiLow, 1)}, {fmt(oosCiHigh, 1)}]
                     </span>
-                  ) : (
-                    <span className="text-muted-foreground text-[10px]">—</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-muted-foreground">
-                  {formatDistanceToNow(new Date(s.createdAt), {
-                    addSuffix: true,
-                  })}
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <div className="inline-flex gap-1">
-                    {s.status === "candidate" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-emerald-600"
-                        onClick={() =>
-                          setStatus.mutate({ id: s.id, status: "live" })
-                        }
-                        disabled={setStatus.isPending}
-                        title="Activate (go live)"
-                      >
-                        <Power className="size-3.5" />
-                      </Button>
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-right">
+                    {liveRoi !== null && liveRoi !== undefined
+                      ? `${fmt(liveRoi)}%`
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-right">
+                    {typeof liveN === "number" ? liveN : "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    {drift ? (
+                      <span className="inline-flex items-center gap-1 text-amber-600 text-[10px]">
+                        <AlertCircle className="size-3" />
+                        Outside CI
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground text-[10px]">
+                        —
+                      </span>
                     )}
-                    {s.status === "live" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-amber-600"
-                        onClick={() =>
-                          setStatus.mutate({ id: s.id, status: "paused" })
-                        }
-                        disabled={setStatus.isPending}
-                        title="Pause"
-                      >
-                        <Pause className="size-3.5" />
-                      </Button>
-                    )}
-                    {s.status === "paused" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-emerald-600"
-                        onClick={() =>
-                          setStatus.mutate({ id: s.id, status: "live" })
-                        }
-                        disabled={setStatus.isPending}
-                        title="Resume"
-                      >
-                        <Play className="size-3.5" />
-                      </Button>
-                    )}
-                    {s.status !== "retired" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-red-500"
-                        onClick={() => {
-                          if (confirm(`Retire "${s.name}"? Cannot undo.`))
-                            setStatus.mutate({ id: s.id, status: "retired" });
-                        }}
-                        disabled={setStatus.isPending}
-                        title="Retire"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </td>
-              </tr>
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {formatDistanceToNow(new Date(s.createdAt), {
+                      addSuffix: true,
+                    })}
+                  </td>
+                  <td
+                    className="px-3 py-2 text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="inline-flex gap-1">
+                      {s.status === "candidate" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-emerald-600"
+                          onClick={() =>
+                            setStatus.mutate({ id: s.id, status: "live" })
+                          }
+                          disabled={setStatus.isPending}
+                          title="Activate (go live)"
+                        >
+                          <Power className="size-3.5" />
+                        </Button>
+                      )}
+                      {s.status === "live" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-amber-600"
+                          onClick={() =>
+                            setStatus.mutate({ id: s.id, status: "paused" })
+                          }
+                          disabled={setStatus.isPending}
+                          title="Pause"
+                        >
+                          <Pause className="size-3.5" />
+                        </Button>
+                      )}
+                      {s.status === "paused" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-emerald-600"
+                          onClick={() =>
+                            setStatus.mutate({ id: s.id, status: "live" })
+                          }
+                          disabled={setStatus.isPending}
+                          title="Resume"
+                        >
+                          <Play className="size-3.5" />
+                        </Button>
+                      )}
+                      {s.status !== "retired" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-red-500"
+                          onClick={() => {
+                            if (confirm(`Retire "${s.name}"? Cannot undo.`))
+                              setStatus.mutate({ id: s.id, status: "retired" });
+                          }}
+                          disabled={setStatus.isPending}
+                          title="Retire"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr className="border-t border-border/40 bg-muted/10">
+                    <td className="px-1"></td>
+                    <td colSpan={6} className="px-3 py-3">
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <ValidationHistory strategyId={s.id} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             );
           })}
         </tbody>

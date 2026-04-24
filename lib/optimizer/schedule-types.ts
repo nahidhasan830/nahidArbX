@@ -26,7 +26,7 @@ export interface CreateScheduleRequest {
   timezone?: string;
   frequency: Frequency;
   nTrialsTarget?: number;
-  searchAlgorithm?: "random" | "tpe" | "nsga2" | "ensemble";
+  searchAlgorithm?: "random" | "tpe" | "nsga2" | "ensemble" | "ml-xgboost";
   searchSpace?: { dimensions: Array<Record<string, unknown>> };
   cvStrategy?: {
     type?: "cpcv" | "walkforward";

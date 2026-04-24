@@ -440,7 +440,51 @@ ML is overkill (rule-based wins) when:
 
 ### Failure mode
 
-If the optional ML deps aren't installed in the sidecar venv (`xgboost`, `scikit-learn`), the model returns uniform `0.5` predictions and you'll see all trials with `n=0` surviving bets at any threshold > 0.5. Fix: `cd services/optimizer && uv sync` (deps are in the main `[project.dependencies]` block as of Phase 4).
+ML deps live in the optional `[ml]` extras group. If they aren't installed in the sidecar venv (`xgboost`, `scikit-learn`), the model gracefully returns uniform `0.5` predictions and you'll see all ML trials with `n=0` surviving bets at any threshold > 0.5.
+
+Install: `cd services/optimizer && uv sync --extras ml`.
+
+---
+
+## 9. Auto-validation + drift-based auto-pause <a id="auto-validation"></a>
+
+Once a strategy goes live, the system watches it for edge decay and auto-pauses on persistent drift. No human intervention needed for the routine "this stopped working" case.
+
+### How it fires
+
+The Next.js scheduler tick checks once an hour: are any live strategies overdue for re-validation? Per-strategy cadence is **7 days** — every live strategy gets one validation row per week.
+
+### What it checks
+
+For each strategy due for validation:
+
+1. Count settled bets attributed to it (`bets WHERE strategy_id = X`).
+2. Compute live ROI from those rows.
+3. Compare to the OOS bootstrap CI captured at promotion time (in `metrics_snapshot`).
+4. **Drift flag = true** if live ROI is outside `[snapshotRoiCiLow, snapshotRoiCiHigh]` AND there are at least 50 settled bets.
+5. If drift this week + drift last week + drift the week before → **auto-pause**, write a note explaining why.
+
+The 50-bet floor avoids flagging noise. The 3-consecutive rule guards against the 5% false-positive rate baked into a 95% CI: under the null, P(3 in a row) ≈ 0.01% → strong signal.
+
+### What you see in the UI
+
+The Strategies tab is now expandable — click the chevron next to any row to see its **auto-validation history** as a green/amber/red dot timeline:
+
+- 🟢 green — passed (live ROI inside CI band, or sample too small to judge)
+- 🟡 amber — drift flagged (1 or 2 consecutive)
+- 🔴 red — auto-pause triggered, with the original CI band recorded
+
+Each row shows: timestamp, live ROI, OOS CI band, sample size, consecutive-drift counter, and the auto-pause note when applicable.
+
+### Resuming after a pause
+
+Auto-pauses are not retirements. You can investigate the validation history, decide the drift was a false positive (or accept the edge-decay diagnosis and retire), then click the resume button to flip back to **live**. The next validation cycle resets `consecutive_drifts` to 0 if the next check passes.
+
+### Implementation notes
+
+- Schema: `strategy_validations` (migration `0022`) — one row per check, FK on cascade so deleting a strategy cleans up its history.
+- Code: `lib/optimizer/auto-validation.ts` — pure logic, called from `lib/optimizer/scheduler.ts` every 120 ticks (~60min).
+- Cache invalidation: an auto-pause flips the cache so the value detector stops claiming new bets within the next tick (≤30s).
 
 ---
 

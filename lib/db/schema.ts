@@ -503,6 +503,47 @@ export type NewOptimizationStrategyRow =
   typeof optimizationStrategies.$inferInsert;
 
 /**
+ * AlphaSearch Phase 5 — periodic re-validation of a live strategy.
+ *
+ * Every ~7 days the auto-validator re-evaluates each live strategy's
+ * filters against the latest bet data and writes one row here. Three
+ * consecutive `drift_flag=true` rows for the same strategy → auto-pause.
+ *
+ * The history is the audit trail: a paused strategy's `strategy_validations`
+ * rows show why it was paused and when each drift was first detected.
+ */
+export const strategyValidations = pgTable(
+  "strategy_validations",
+  {
+    id: text().primaryKey(),
+    strategyId: text()
+      .notNull()
+      .references(() => optimizationStrategies.id, { onDelete: "cascade" }),
+    ranAt: tsNow(),
+    nSettled: integer().notNull().default(0),
+    liveRoiPct: numeric({ precision: 8, scale: 4, mode: "number" }),
+    snapshotRoiMean: numeric({ precision: 8, scale: 4, mode: "number" }),
+    snapshotRoiCiLow: numeric({ precision: 8, scale: 4, mode: "number" }),
+    snapshotRoiCiHigh: numeric({ precision: 8, scale: 4, mode: "number" }),
+    /** True if liveRoiPct sits outside [snapshotRoiCiLow, snapshotRoiCiHigh]. */
+    driftFlag: boolean().notNull().default(false),
+    /** Running counter — bumped each consecutive flagged check; reset to 0 on a clean check. */
+    consecutiveDrifts: integer().notNull().default(0),
+    /** Set when this validation triggered an auto-pause action. */
+    triggeredAutoPause: boolean().notNull().default(false),
+    /** Optional free-form note (used for "auto-paused after N consecutive drifts"). */
+    note: text(),
+  },
+  (t) => [
+    index("strategy_validations_strategy_idx").on(t.strategyId, t.ranAt.desc()),
+    index("strategy_validations_ran_idx").on(t.ranAt.desc()),
+  ],
+);
+
+export type StrategyValidationRow = typeof strategyValidations.$inferSelect;
+export type NewStrategyValidationRow = typeof strategyValidations.$inferInsert;
+
+/**
  * AlphaSearch — recurring optimization run.
  *
  * Defines a saved configuration that the optimizer scheduler will fire on
@@ -565,4 +606,5 @@ export const schema = {
   optimizationTrials,
   optimizationSchedules,
   optimizationStrategies,
+  strategyValidations,
 };

@@ -211,6 +211,12 @@ export const GLOSSARY = {
     long: "Comparing live since-promotion ROI vs the OOS bootstrap CI captured at promotion time. Outside the band = either the market has tightened around your edge, or the strategy was overfit to begin with. Investigate or pause.",
     learnMoreHref: "/docs/alphasearch.md#drift",
   },
+  auto_validation: {
+    short:
+      "Weekly automated drift check. Three consecutive flagged checks → auto-pause.",
+    long: "Once every 7 days the auto-validator re-evaluates each live strategy. If live ROI is outside the OOS confidence band AND the strategy has ≥50 settled bets, the check is flagged. Three consecutive flagged checks (~3 weeks) auto-pause the strategy and write a note explaining why. Resume manually after investigating.",
+    learnMoreHref: "/docs/alphasearch.md#auto-validation",
+  },
 } satisfies Record<string, GlossaryEntry>;
 
 export function getTerm(id: TermId): GlossaryEntry {

@@ -12,6 +12,7 @@
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
 import { startRun } from "./api-client";
+import { runAutoValidation } from "./auto-validation";
 import { recomputeLiveMetrics } from "./live-metrics-aggregator";
 import { createRun, listQueuedRuns } from "./repository";
 import {
@@ -90,6 +91,9 @@ async function fireDueSchedules(): Promise<void> {
 // Live-metrics aggregator runs every Nth tick (= every 30s × N). Defaults
 // to N=20 → roughly every 10 minutes.
 const METRICS_TICK_EVERY = 20;
+// Auto-validation runs roughly every hour from the scheduler's POV; the
+// validator itself enforces the 7-day per-strategy cadence in DB.
+const AUTO_VALIDATION_TICK_EVERY = 120; // 30s × 120 = 60 min
 let tickCounter = 0;
 
 async function tick(): Promise<void> {
@@ -111,7 +115,20 @@ async function tick(): Promise<void> {
     }
   }
 
-  // 3. Kick the sidecar for every queued run.
+  // 3. Auto-validation — checks if any live strategy has drifted past its
+  //    OOS confidence band, auto-pauses on 3 consecutive drift checks.
+  //    The validator itself enforces a per-strategy 7-day cadence in DB so
+  //    this hourly poll is just "see if anyone is due".
+  if (tickCounter % AUTO_VALIDATION_TICK_EVERY === 0) {
+    try {
+      await runAutoValidation();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(tag, `runAutoValidation failed: ${msg}`);
+    }
+  }
+
+  // 4. Kick the sidecar for every queued run.
   try {
     const queued = await listQueuedRuns();
     if (queued.length === 0) return;
