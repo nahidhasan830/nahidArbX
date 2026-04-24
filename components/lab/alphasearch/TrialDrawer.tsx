@@ -15,6 +15,7 @@ import {
 import { TermTooltip } from "@/components/ui/TermTooltip";
 import type { OptimizationTrialRow } from "@/lib/optimizer/repository";
 import type { FoldMetricJson } from "@/lib/optimizer/types";
+import { PromoteToStrategy } from "./PromoteToStrategy";
 
 const fmt = (n: number | null | string | undefined, digits = 2): string => {
   if (n === null || n === undefined) return "—";
@@ -169,16 +170,20 @@ export function TrialDrawer({
             </div>
           </section>
 
-          {/* Phase 3 placeholder for promote */}
-          <section className="rounded-md border border-dashed border-border/60 px-3 py-3 text-[11px] text-muted-foreground">
-            <p>
-              <span className="font-medium text-foreground">
+          {/* Promote to live strategy */}
+          <section className="rounded-md border border-border/60 bg-muted/30 px-3 py-3 space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              <strong className="text-foreground">
                 Promote to live strategy
-              </span>{" "}
-              — coming in Phase 3. The promoted strategy will be consulted by
-              the value detector on every tick and apply this trial&apos;s
-              sizing rules to matching bets.
+              </strong>{" "}
+              creates a saved configuration the value detector consults on every
+              tick. Matching bets get tagged with the strategy id so live
+              performance is attributed.
             </p>
+            <PromoteToStrategy
+              trialId={trial.id}
+              defaultName={`Trial #${trial.trialIndex} — ROI ${fmt(trial.oosRoiMean, 1)}%`}
+            />
           </section>
         </div>
       </SheetContent>

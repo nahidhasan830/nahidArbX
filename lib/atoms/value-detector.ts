@@ -175,6 +175,11 @@ export interface ValueBet {
   detectedAt: Date;
   timestamp: number; // Soft odds timestamp (for staleness)
   sharpOddsAgeMs: number | null; // Sharp odds age at detection (ms) — latency diagnostic
+
+  // AlphaSearch attribution (Phase 3) — set by `attachStrategyMatches()` when
+  // a live promoted strategy claims this detection. NULL when no strategy
+  // matches (the bet is still detected and surfaced; just unattributed).
+  strategyId?: string | null;
 }
 
 export interface ValueDetectionOptions {
@@ -294,7 +299,7 @@ export function detectValueForAtom(
     );
 
     valueBets.push({
-      id: `vb-${eventId}-${familyId}-${atomId}-${softProvider}-${now}`,
+      id: `${eventId}|${familyId}|${atomId}`,
       eventId,
       familyId,
       atomId,
@@ -317,7 +322,10 @@ export function detectValueForAtom(
     });
   }
 
-  return valueBets;
+  // Keep only the best value bet per atom across all soft providers
+  if (valueBets.length === 0) return [];
+  const best = valueBets.reduce((a, b) => (a.evPct > b.evPct ? a : b));
+  return [best];
 }
 
 /**

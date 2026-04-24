@@ -12,6 +12,7 @@
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
 import { startRun } from "./api-client";
+import { recomputeLiveMetrics } from "./live-metrics-aggregator";
 import { createRun, listQueuedRuns } from "./repository";
 import {
   listDueSchedules,
@@ -86,13 +87,31 @@ async function fireDueSchedules(): Promise<void> {
   }
 }
 
+// Live-metrics aggregator runs every Nth tick (= every 30s × N). Defaults
+// to N=20 → roughly every 10 minutes.
+const METRICS_TICK_EVERY = 20;
+let tickCounter = 0;
+
 async function tick(): Promise<void> {
   state.lastTickAt = Date.now();
+  tickCounter += 1;
+
   // 1. Fire any schedules whose time has come — they create rows that the
   //    queue step below picks up in the same tick.
   await fireDueSchedules();
 
-  // 2. Kick the sidecar for every queued run.
+  // 2. Recompute per-strategy live metrics every Nth tick. Cheap query but
+  //    not worth doing every 30s when 10min granularity is plenty.
+  if (tickCounter % METRICS_TICK_EVERY === 0) {
+    try {
+      await recomputeLiveMetrics();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(tag, `recomputeLiveMetrics failed: ${msg}`);
+    }
+  }
+
+  // 3. Kick the sidecar for every queued run.
   try {
     const queued = await listQueuedRuns();
     if (queued.length === 0) return;

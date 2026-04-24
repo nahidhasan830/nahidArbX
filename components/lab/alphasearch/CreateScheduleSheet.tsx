@@ -27,7 +27,7 @@ import {
 import { TermTooltip } from "@/components/ui/TermTooltip";
 import { DataFiltersSection } from "./DataFiltersSection";
 import { FrequencyPicker } from "./FrequencyPicker";
-import type { Frequency } from "@/lib/optimizer/schedules";
+import type { Frequency } from "@/lib/optimizer/schedule-types";
 import type { DataFiltersJson, SearchAlgorithm } from "@/lib/optimizer/types";
 
 interface CreatePayload {

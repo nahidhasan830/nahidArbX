@@ -11,7 +11,7 @@ import {
   describeFrequency,
   type Frequency,
   type OptimizationScheduleRow,
-} from "@/lib/optimizer/schedules";
+} from "@/lib/optimizer/schedule-types";
 
 const REFRESH_MS = 10_000;
 

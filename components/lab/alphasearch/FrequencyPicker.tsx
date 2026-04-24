@@ -16,7 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { describeFrequency, type Frequency } from "@/lib/optimizer/schedules";
+import {
+  describeFrequency,
+  type Frequency,
+} from "@/lib/optimizer/schedule-types";
 
 const HOUR_OPTIONS = [1, 2, 4, 6, 12] as const;
 const DAYS_OF_WEEK = [

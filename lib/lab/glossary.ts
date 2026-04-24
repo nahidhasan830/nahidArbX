@@ -196,7 +196,14 @@ export const GLOSSARY = {
   strategy: {
     short:
       "A configuration promoted from a trial to live use — claims matching value bets in real time.",
-    long: "Strategies have status: candidate → live → paused → retired. Phase 3.",
+    long: "Strategies have status: candidate → live → paused → retired. Live strategies are consulted by the value detector on every detection tick — matching bets are tagged with the strategy id so live performance is tracked separately and compared to the OOS estimate.",
+    learnMoreHref: "/docs/alphasearch.md#strategies",
+  },
+  strategy_drift: {
+    short:
+      "Live ROI has fallen outside the strategy's OOS confidence interval — the edge may have decayed.",
+    long: "Comparing live since-promotion ROI vs the OOS bootstrap CI captured at promotion time. Outside the band = either the market has tightened around your edge, or the strategy was overfit to begin with. Investigate or pause.",
+    learnMoreHref: "/docs/alphasearch.md#drift",
   },
 } satisfies Record<string, GlossaryEntry>;
 

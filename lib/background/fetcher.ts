@@ -16,7 +16,10 @@ import {
   detectAllValueBetsIncremental,
   resetValueCache,
 } from "../atoms/value-detector";
-import { persistValueBets } from "../db/repositories/value-bets";
+import { persistValueBets } from "../db/repositories/bets";
+import { attachStrategyMatches } from "../optimizer/attach-strategies";
+import { getBettingSettings } from "../db/repositories/betting-settings";
+import { maybeAutoPlace } from "../betting/auto-placer";
 import {
   getStoreStats,
   consumeDirtyFamilies,
@@ -373,7 +376,13 @@ export async function syncOddsOnly(
     const dirty = consumeDirtyFamilies();
     const dirtyCount = dirty.size;
 
-    const valueBets = detectAllValueBetsIncremental(preMatchEventIds, dirty);
+    // Pull Kelly multiplier from the user's strategy so Kelly-fraction values
+    // stored on detected bets match whatever the placer will apply at
+    // placement time. The repo caches this for 30s in-process.
+    const { row: bettingSettings } = await getBettingSettings();
+    const valueBets = detectAllValueBetsIncremental(preMatchEventIds, dirty, {
+      kellyFraction: bettingSettings.kellyFraction,
+    });
 
     if (dirtyCount > 0) {
       logger.debug(
@@ -390,6 +399,10 @@ export async function syncOddsOnly(
 
     if (valueBets.length > 0) {
       try {
+        // Attach matching live-strategy IDs (from /lab/alphasearch). This
+        // tags each detected bet with the strategy that "claimed" it so
+        // we can compute since-promotion metrics + detect drift later.
+        await attachStrategyMatches(valueBets);
         const persistResult = await persistValueBets(valueBets);
         logger.info(
           "Sync",
@@ -404,6 +417,15 @@ export async function syncOddsOnly(
         logger.error(
           "Sync",
           `DB persistence failed: ${(err as Error).message} — sync continues`,
+        );
+      }
+
+      for (const vb of valueBets) {
+        maybeAutoPlace(vb).catch((err) =>
+          logger.error(
+            "Sync",
+            `AutoPlace failed for ${vb.id}: ${(err as Error).message}`,
+          ),
         );
       }
     }
@@ -454,15 +476,6 @@ export async function syncOddsOnly(
         "Sync",
         `Closing-odds capture failed: ${(err as Error).message}`,
       );
-    }
-
-    // Apply live strategies: match detected value bets against each strategy's
-    // filters and record executions. Idempotent — safe to run every cycle.
-    try {
-      const { runStrategyMatcher } = await import("./strategy-matcher");
-      await runStrategyMatcher();
-    } catch (err) {
-      logger.warn("Sync", `Strategy matcher failed: ${(err as Error).message}`);
     }
   } catch (error) {
     logger.error("Sync", "Error fetching odds:", error);

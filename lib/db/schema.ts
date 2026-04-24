@@ -103,6 +103,11 @@ export const bets = pgTable(
     settleAttempts: integer().notNull().default(0),
     lastSettleAttemptAt: ts(),
 
+    // AlphaSearch strategy attribution (Phase 3) — set at detection time
+    // when a live strategy claims this bet. Lets us compute since-promotion
+    // metrics per strategy and detect drift vs OOS estimate.
+    strategyId: text(),
+
     // Timestamps
     createdAt: tsNow(),
     updatedAt: tsNow(),
@@ -112,6 +117,9 @@ export const bets = pgTable(
     index("bets_market_idx").on(t.marketType, t.timeScope),
     index("bets_soft_provider_idx").on(t.softProvider),
     index("bets_event_start_idx").on(t.eventStartTime),
+    index("bets_strategy_idx")
+      .on(t.strategyId)
+      .where(sql`${t.strategyId} IS NOT NULL`),
     // Settled non-pending rows (backtest queries)
     index("bets_outcome_idx")
       .on(t.outcome)
@@ -431,6 +439,70 @@ export type OptimizationTrialRow = typeof optimizationTrials.$inferSelect;
 export type NewOptimizationTrialRow = typeof optimizationTrials.$inferInsert;
 
 /**
+ * AlphaSearch — promoted live strategy.
+ *
+ * A strategy is a configuration that the value-detector consults on every
+ * tick. When a detected value bet matches the strategy's `filters`, the
+ * bet is tagged with `strategy_id` and the strategy's `sizing` overrides
+ * the global Kelly settings.
+ *
+ * Lifecycle: candidate → live → paused → retired.
+ *
+ * `filters` JSON shape mirrors the search-space dimension naming so a
+ * trial config can be promoted directly:
+ *   {
+ *     min_ev_pct?: number,
+ *     max_odds_age_sec?: number,
+ *     min_sharp_prob?: number,
+ *     odds_lo?: number, odds_hi?: number,
+ *     min_tick_count?: number,
+ *     pre_match_only?: boolean,
+ *     soft_providers?: string[],   // include-only
+ *     market_types?: string[],     // include-only
+ *   }
+ *
+ * `sizing` JSON: { kelly_fraction, kelly_cap_pct, staking_scheme }
+ *
+ * `metrics_snapshot` is the OOS metrics + CI captured at promotion time.
+ * `live_metrics` is recomputed nightly from `bets WHERE strategy_id = X`.
+ */
+export const optimizationStrategies = pgTable(
+  "optimization_strategies",
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    description: text(),
+    source: text().notNull().default("optimizer"), // optimizer | manual
+    sourceRunId: text(),
+    sourceTrialId: text(),
+    filters: jsonb().notNull(),
+    sizing: jsonb().notNull(),
+    status: text().notNull().default("candidate"), // candidate | live | paused | retired
+    metricsSnapshot: jsonb().notNull(),
+    liveMetrics: jsonb(),
+    activatedAt: ts(),
+    pausedAt: ts(),
+    retiredAt: ts(),
+    createdBy: text(),
+    createdAt: tsNow(),
+    updatedAt: tsNow(),
+  },
+  (t) => [
+    index("optimization_strategies_status_idx").on(t.status),
+    // Hot path for value-detector: filter to live strategies only.
+    index("optimization_strategies_live_idx")
+      .on(t.id)
+      .where(sql`${t.status} = 'live'`),
+    index("optimization_strategies_created_idx").on(t.createdAt.desc()),
+  ],
+);
+
+export type OptimizationStrategyRow =
+  typeof optimizationStrategies.$inferSelect;
+export type NewOptimizationStrategyRow =
+  typeof optimizationStrategies.$inferInsert;
+
+/**
  * AlphaSearch — recurring optimization run.
  *
  * Defines a saved configuration that the optimizer scheduler will fire on
@@ -492,4 +564,5 @@ export const schema = {
   optimizationRuns,
   optimizationTrials,
   optimizationSchedules,
+  optimizationStrategies,
 };

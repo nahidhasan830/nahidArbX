@@ -339,18 +339,52 @@ fails on 20.
 
 ---
 
-## 7. Promoting a strategy
+## 7. Promoting a strategy <a id="strategies"></a>
 
-Coming in **Phase 3.** When ready, the trial drawer's "Promote to strategy"
-button will:
+Once you've found a trial whose configuration you trust, click **Promote to strategy** in the trial drawer. This:
 
-1. Insert a row in the `strategies` table with the trial's filters + sizing.
-2. Mark its status as `candidate` → you flip to `live` when ready.
-3. The value detector consults active strategies on every tick — when a
-   detected bet matches a strategy's filters, the strategy's sizing rules
-   apply (overriding global Kelly settings).
-4. Each placed bet records its originating `strategy_id` so we can monitor
-   live performance vs the OOS estimate.
+1. Creates a row in `optimization_strategies` with the trial's filters + sizing extracted from `params`.
+2. Snapshots the OOS metrics (ROI mean, CI band, sample size, DSR, PSR) at promotion time — your audit trail.
+3. Starts in `candidate` status. The value detector ignores candidates.
+
+### Activating
+
+In the **Strategies** tab, click the green ⏻ button to flip a candidate to **live**. The next value-detection tick (within ~30 seconds) will start consulting it. Matching bets get tagged with the strategy id.
+
+The in-memory live-strategies cache (60s TTL, invalidated on every status change) means the value detector doesn't hammer Postgres on every tick.
+
+### Status lifecycle
+
+| Status        | Effect                                                |
+| ------------- | ----------------------------------------------------- |
+| **candidate** | Not consulted by the value detector                   |
+| **live**      | Value detector claims matching bets                   |
+| **paused**    | Stops claiming new bets; live metrics still recompute |
+| **retired**   | Permanent end-of-life; no longer recomputed           |
+
+You can pause/resume freely — pausing doesn't lose history.
+
+### Live metrics + drift detection <a id="drift"></a>
+
+Every ~10 minutes (every 20th scheduler tick), the live-metrics aggregator recomputes per-strategy `live_metrics`:
+
+- `nTotal`, `nSettled`, `nWon`, `nLost`
+- `liveRoiPct`, `winRatePct`, `meanClvPct`
+- `outsideOosCi` — boolean: is live ROI outside the OOS bootstrap CI band captured at promotion?
+
+The Strategies table renders a **Drift** chip for any strategy with `outsideOosCi=true`. That's your signal the edge has decayed (or the strategy was overfit and you should retire it).
+
+The bigger the live sample (`nSettled`), the more meaningful the drift signal. With 5 settled bets, drift is noise. With 50+, it's signal.
+
+### Per-bet attribution
+
+Every detected `ValueBet` now carries an optional `strategyId` field. When `attachStrategyMatches()` finds a live strategy whose filters match, the bet gets tagged. The `bets.strategy_id` column persists this so the aggregator can compute since-promotion metrics with a single SQL query per strategy.
+
+If a bet is detected before any strategy claims it (e.g. the strategy was activated later), the next tick's `persistValueBets` upsert uses `COALESCE(bets.strategy_id, vb.strategyId)` — first claim wins, no overwrites.
+
+### Multiple matching strategies
+
+First-match-wins by creation order. If two live strategies both match a detected bet, the older strategy claims it. A future Phase could add an explicit priority field if collisions become common in practice.
 
 ---
 
