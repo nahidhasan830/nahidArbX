@@ -30,6 +30,10 @@ import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { RunStatusBadge } from "@/components/lab/alphasearch/RunStatusBadge";
 import { RunProgressPanel } from "@/components/lab/alphasearch/RunProgressPanel";
 import { ParetoScatter } from "@/components/lab/alphasearch/ParetoScatter";
+import {
+  ResultsReport,
+  UnreliableWinnerBanner,
+} from "@/components/lab/alphasearch/ResultsReport";
 import { TrialsTable } from "@/components/lab/alphasearch/TrialsTable";
 import { TrialDrawer } from "@/components/lab/alphasearch/TrialDrawer";
 import { formatMarketType } from "@/lib/formatting/labels";
@@ -121,34 +125,32 @@ export default function RunDetailPage({
       titleBadge={run && <RunStatusBadge status={run.status} />}
       edgeToEdge
       actions={
-        <div className="flex items-center gap-2">
-          <Link href="/lab/alphasearch">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1.5 h-7 text-[11px]"
-            >
-              <ChevronLeft className="size-3.5" /> All runs
-            </Button>
-          </Link>
-          {run && (run.status === "queued" || run.status === "running") && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 h-7 text-[11px]"
-              onClick={() => cancel.mutate()}
-              disabled={cancel.isPending}
-            >
-              <X className="size-3.5" /> Cancel
-            </Button>
-          )}
-        </div>
+        run && (run.status === "queued" || run.status === "running") ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 h-7 text-[11px]"
+            onClick={() => cancel.mutate()}
+            disabled={cancel.isPending}
+          >
+            <X className="size-3.5" /> Cancel
+          </Button>
+        ) : null
       }
     >
       {!run ? (
         <div className="p-6 text-xs text-muted-foreground">Loading run…</div>
       ) : (
         <div className="flex flex-col gap-4 p-4 lg:p-6">
+          {/* Left-aligned back link — sits above the status strip so the
+              navigation affordance is always the first thing on the page. */}
+          <Link
+            href="/lab/alphasearch"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start -mb-1"
+          >
+            <ChevronLeft className="size-3.5" /> All runs
+          </Link>
+
           {/* Row 1 — status strip with edge-to-edge stat tiles */}
           <StatusStrip
             run={run}
@@ -174,6 +176,19 @@ export default function RunDetailPage({
               during active runs). */}
           {(run.status === "completed" || run.status === "cancelled") && (
             <Progress value={pct} className="h-2" />
+          )}
+
+          {/* Post-run Results report — surfaces the plain-English verdict
+              (edge yes/no, confidence, best-actionable trial) so an
+              operator doesn't have to stitch metrics together. */}
+          {run.status === "completed" && (
+            <ResultsReport run={run} trials={trials} />
+          )}
+
+          {/* Loud banner when the composite-max winner is Unreliable —
+              the single most important anti-foot-gun on the page. */}
+          {run.status === "completed" && (
+            <UnreliableWinnerBanner run={run} trials={trials} />
           )}
 
           {/* Row 3 — main canvas: left (charts/table) + right (side panel) */}

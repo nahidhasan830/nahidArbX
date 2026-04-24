@@ -79,6 +79,26 @@ def deflated_sharpe(
     )
 
 
+# Absolute floor: trials with fewer than this many OOS bets are clamped
+# below any real-n trial. Rationale: Bayesian-shrunk ROI alone isn't
+# enough to stop a 5-bet outlier (+48% ROI) from winning when the rest
+# of the field has n=0 sentinels — we observed this on prod 2026-04-24
+# (run 00MOCZZ72WEZZXYKCZSW7PYIDO). 30 is Bailey & López de Prado's
+# practical minimum for Sharpe CI stability; below that the statistics
+# simply aren't meaningful.
+MIN_SAMPLE_FOR_CREDIT = 30
+
+# Sentinel composite score for trials with ZERO bets surviving filters.
+ZERO_SAMPLE_SENTINEL = -1e9
+
+# Floor range for trials with 0 < n < MIN_SAMPLE_FOR_CREDIT. Still worse
+# than every legitimate trial, but monotonically increases in n so the
+# Pareto+sampler can distinguish "filter almost works" from "filter is
+# a cliff". Range: [-1000, -1] linearly interpolated over [1, 29].
+LOW_SAMPLE_MIN = -1000.0
+LOW_SAMPLE_MAX = -1.0
+
+
 def composite_score(
     *,
     oos_roi_mean: float,
@@ -88,16 +108,29 @@ def composite_score(
     drawdown_lambda: float = 0.5,
     min_n_for_full_credit: int = 100,
 ) -> float:
-    """Single scalar the sampler maximizes.
+    """Single scalar the sampler maximizes. Guards against tiny-sample
+    flukes so that e.g. a 5-bet +48% ROI trial does NOT outrank a real
+    4,000-bet trial.
 
-    Components:
-    - Bayesian-shrunk ROI: shrinks toward zero when n is small (anti-overfit).
-    - log(1+n) factor: rewards larger samples but with diminishing returns.
-    - DSR multiplier: scales final score by 0..1 confidence.
-    - Drawdown penalty: subtractive, scaled by `drawdown_lambda`.
+    Bands:
+    - `n == 0`                         → ZERO_SAMPLE_SENTINEL (-1e9)
+    - `0 < n < MIN_SAMPLE_FOR_CREDIT`  → interpolated low-sample penalty
+      in [LOW_SAMPLE_MIN, LOW_SAMPLE_MAX], monotonic in n. Stays strictly
+      below any legitimate trial, so a Bayesian-shrunk outlier can't win.
+    - `n ≥ MIN_SAMPLE_FOR_CREDIT`      → full composite formula:
+        shrunk_roi · log1p(n) · max(DSR, 0) − drawdown_lambda · max_dd
     """
     if sample_size <= 0:
-        return -1e9
+        return ZERO_SAMPLE_SENTINEL
+
+    if sample_size < MIN_SAMPLE_FOR_CREDIT:
+        # Linearly walk from LOW_SAMPLE_MIN (n=1) → LOW_SAMPLE_MAX
+        # (n=MIN_SAMPLE_FOR_CREDIT−1). Gradient purely in n so the
+        # sampler is still nudged toward configs with more surviving
+        # bets, without letting any of them reach the real-trial band.
+        span = LOW_SAMPLE_MAX - LOW_SAMPLE_MIN
+        progress = (sample_size - 1) / max(MIN_SAMPLE_FOR_CREDIT - 1, 1)
+        return float(LOW_SAMPLE_MIN + progress * span)
 
     # Shrinkage: weight = n / (n + min_n) → 0 when n→0, → 1 when n>>min_n.
     weight = sample_size / (sample_size + min_n_for_full_credit)
