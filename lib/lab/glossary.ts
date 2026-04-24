@@ -187,6 +187,12 @@ export const GLOSSARY = {
     long: "Different from the search-space dimensions, which sweep configurations within the included data. Use data scope to say 'exclude all NineWickets-Exchange bets' or 'only analyze bets from the last 90 days'. Default = include every settled bet.",
     learnMoreHref: "/docs/alphasearch.md#data-scope",
   },
+  schedule_frequency: {
+    short:
+      "How often a schedule fires — preset choices: every N hours, daily at a time, or weekly on a day.",
+    long: "Phase 2 uses a preset list rather than free-form cron strings, so the picker is honest for non-technical operators. Each fire creates a fresh run on the latest bet data. 'Run now' on any schedule manually fires once without affecting the next scheduled time.",
+    learnMoreHref: "/docs/alphasearch.md#schedules",
+  },
   strategy: {
     short:
       "A configuration promoted from a trial to live use — claims matching value bets in real time.",

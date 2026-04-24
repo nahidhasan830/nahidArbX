@@ -283,6 +283,46 @@ spot used by most professionals. We clamp the search to [0.10, 0.50].
 
 ---
 
+## 5a. Schedules — recurring runs without writing cron <a id="schedules"></a>
+
+A **schedule** is a saved configuration that fires on its own cadence. Use cases:
+
+- **Daily drift check** — a daily 3am sweep on the latest bets data. If the optimal config is suddenly different, your edge has shifted.
+- **Weekly deep scan** — a weekly Sunday-night run with 10× the trials of your daily.
+- **Targeted segment** — a separate schedule per market type / per sport, each with its own data scope.
+
+You manage schedules from the **Schedules** tab in `/lab/alphasearch`.
+
+### Frequency picker (preset, not free-form cron)
+
+Three kinds — keeps the picker honest for non-technical operators:
+
+| Kind                       | Example                                  | Time semantics                               |
+| -------------------------- | ---------------------------------------- | -------------------------------------------- |
+| **Every N hours**          | "Every 4 hours"                          | UTC-aligned; fires at 00, 04, 08, 12, 16, 20 |
+| **Daily at HH:00**         | "Daily at 03:00 (Asia/Dhaka)"            | Local time in the schedule's timezone        |
+| **Weekly on day at HH:00** | "Weekly on Sunday at 06:00 (Asia/Dhaka)" | Local time, weekday picker                   |
+
+A free-form cron string is a future upgrade if anyone needs `0 */15 * * *` or weekday-only patterns.
+
+### Run now (manual fire)
+
+Each schedule row has a **▶ Run now** button. Manually fires once using that schedule's exact config — useful for testing — and **does NOT** affect the next-scheduled time.
+
+### Pause / resume
+
+The **Enabled** checkbox toggles a schedule on/off without losing history. Re-enabling recomputes the next-fire time from now, so a long-paused schedule won't immediately fire a backlog of missed runs.
+
+### Schedule history
+
+Every fire creates a fresh row in `optimization_runs` tagged with `created_by = 'schedule:<id>'`. The schedule-detail view shows the last 50 runs from that schedule so you can see how the optimal config drifts week-over-week. Click any run to dive into its trials + Pareto frontier.
+
+### How firing works under the hood
+
+The same Next.js scheduler that polls the queued-runs table also polls `optimization_schedules WHERE enabled AND next_fire_at <= now()` every 30 seconds. For each due schedule it (a) creates a new `optimization_runs` row from the schedule's snapshot, (b) updates `last_fire_at` + `next_fire_at`. The new run row is then picked up by the same tick and kicked to the Python sidecar — so a fire-to-execution latency under one minute is normal.
+
+---
+
 ## 6. How to read a trial
 
 Click any row in the trials table.

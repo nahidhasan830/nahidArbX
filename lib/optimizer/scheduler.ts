@@ -12,7 +12,13 @@
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
 import { startRun } from "./api-client";
-import { listQueuedRuns } from "./repository";
+import { createRun, listQueuedRuns } from "./repository";
+import {
+  listDueSchedules,
+  scheduleCreatedBy,
+  updateScheduleAfterFire,
+} from "./schedules";
+import type { CvStrategyJson, DataFiltersJson, SearchSpaceJson } from "./types";
 
 const tag = "OptimizerScheduler";
 const POLL_INTERVAL_MS = 30_000;
@@ -23,6 +29,7 @@ interface SchedulerState {
   lastTickAt: number | null;
   lastError: string | null;
   totalKickoffs: number;
+  totalScheduleFires: number;
 }
 
 const state = singleton<SchedulerState>("optimizer:scheduler", () => ({
@@ -31,10 +38,61 @@ const state = singleton<SchedulerState>("optimizer:scheduler", () => ({
   lastTickAt: null,
   lastError: null,
   totalKickoffs: 0,
+  totalScheduleFires: 0,
 }));
+
+/**
+ * Process schedules whose `next_fire_at` has elapsed: create a fresh
+ * `optimization_runs` row from the schedule's snapshot, update the
+ * schedule's last_fire / next_fire pointers. The new run row will be
+ * picked up by the queue tick below (same loop iteration even).
+ */
+async function fireDueSchedules(): Promise<void> {
+  let due: Awaited<ReturnType<typeof listDueSchedules>>;
+  try {
+    due = await listDueSchedules();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(tag, `listDueSchedules failed: ${msg}`);
+    state.lastError = msg;
+    return;
+  }
+  if (due.length === 0) return;
+
+  logger.info(tag, `Found ${due.length} due schedule(s); creating runs`);
+  for (const sched of due) {
+    try {
+      const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const run = await createRun({
+        name: `${sched.name} — ${stamp}`,
+        searchAlgorithm: sched.searchAlgorithm as never,
+        nTrialsTarget: sched.nTrialsTarget,
+        cvStrategy: sched.cvStrategy as Partial<CvStrategyJson>,
+        searchSpace: sched.searchSpace as SearchSpaceJson,
+        dataFilters: sched.dataFilters as DataFiltersJson,
+        createdBy: scheduleCreatedBy(sched.id),
+      });
+      await updateScheduleAfterFire(sched.id, run.id);
+      state.totalScheduleFires += 1;
+      logger.info(
+        tag,
+        `Schedule ${sched.id} (${sched.name}) fired → run ${run.id}`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(tag, `Schedule ${sched.id} fire failed: ${msg}`);
+      state.lastError = msg;
+    }
+  }
+}
 
 async function tick(): Promise<void> {
   state.lastTickAt = Date.now();
+  // 1. Fire any schedules whose time has come — they create rows that the
+  //    queue step below picks up in the same tick.
+  await fireDueSchedules();
+
+  // 2. Kick the sidecar for every queued run.
   try {
     const queued = await listQueuedRuns();
     if (queued.length === 0) return;
@@ -86,12 +144,14 @@ export function getOptimizerSchedulerStatus(): {
   lastTickAt: number | null;
   lastError: string | null;
   totalKickoffs: number;
+  totalScheduleFires: number;
 } {
   return {
     active: state.active,
     lastTickAt: state.lastTickAt,
     lastError: state.lastError,
     totalKickoffs: state.totalKickoffs,
+    totalScheduleFires: state.totalScheduleFires,
   };
 }
 

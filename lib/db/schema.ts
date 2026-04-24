@@ -430,6 +430,59 @@ export const optimizationTrials = pgTable(
 export type OptimizationTrialRow = typeof optimizationTrials.$inferSelect;
 export type NewOptimizationTrialRow = typeof optimizationTrials.$inferInsert;
 
+/**
+ * AlphaSearch — recurring optimization run.
+ *
+ * Defines a saved configuration that the optimizer scheduler will fire on
+ * a schedule (e.g. "every day at 03:00 Asia/Dhaka"). Each fire creates a
+ * fresh row in `optimization_runs` from this schedule's snapshot, so a
+ * schedule's history = the runs that point back at its id via
+ * optimization_runs.created_by = `schedule:<id>`.
+ *
+ * `frequency` is a discriminated tag matching the lib/optimizer/schedules.ts
+ * Frequency union (preset list — not a free-form cron string for v1):
+ *   { kind: "every_n_hours", hours: 1|2|4|6|12 }
+ *   { kind: "daily",         hourLocal: 0..23 }
+ *   { kind: "weekly",        dayOfWeek: 0..6, hourLocal: 0..23 }
+ *
+ * `nextFireAt` is the absolute UTC instant the next firing happens — the
+ * scheduler tick polls `WHERE enabled AND next_fire_at <= now()` and
+ * recomputes after each fire.
+ */
+export const optimizationSchedules = pgTable(
+  "optimization_schedules",
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    description: text(),
+    enabled: boolean().notNull().default(true),
+    timezone: text().notNull().default("Asia/Dhaka"),
+    frequency: jsonb().notNull(), // see comment above
+    nTrialsTarget: integer().notNull().default(2000),
+    searchAlgorithm: text().notNull().default("ensemble"), // ensemble|tpe|nsga2|random
+    searchSpace: jsonb().notNull().default({}),
+    cvStrategy: jsonb().notNull(),
+    dataFilters: jsonb().notNull().default({}),
+    notifyOnComplete: boolean().notNull().default(false),
+    lastFireAt: ts(),
+    lastRunId: text(),
+    nextFireAt: ts().notNull(),
+    createdBy: text(),
+    createdAt: tsNow(),
+    updatedAt: tsNow(),
+  },
+  (t) => [
+    index("optimization_schedules_due_idx")
+      .on(t.nextFireAt)
+      .where(sql`${t.enabled} = true`),
+    index("optimization_schedules_created_idx").on(t.createdAt.desc()),
+  ],
+);
+
+export type OptimizationScheduleRow = typeof optimizationSchedules.$inferSelect;
+export type NewOptimizationScheduleRow =
+  typeof optimizationSchedules.$inferInsert;
+
 export const schema = {
   bets,
   matchScores,
@@ -438,4 +491,5 @@ export const schema = {
   bettingSettings,
   optimizationRuns,
   optimizationTrials,
+  optimizationSchedules,
 };
