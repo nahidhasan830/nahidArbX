@@ -79,6 +79,7 @@ export function SubmitRunSheet() {
   const [algorithm, setAlgorithm] = React.useState<SearchAlgorithm>("ensemble");
   const [nTrials, setNTrials] = React.useState(2000);
   const [dataFilters, setDataFilters] = React.useState<DataFiltersJson>({});
+  const [cvType, setCvType] = React.useState<"cpcv" | "walkforward">("cpcv");
 
   const submit = useMutation({
     mutationFn: async (req: CreateRunRequest) => {
@@ -107,6 +108,7 @@ export function SubmitRunSheet() {
       searchAlgorithm: algorithm,
       nTrialsTarget: nTrials,
       dataFilters: hasFilters(dataFilters) ? dataFilters : undefined,
+      cvStrategy: { type: cvType },
     });
   };
 
@@ -189,6 +191,33 @@ export function SubmitRunSheet() {
           </div>
 
           <DataFiltersSection value={dataFilters} onChange={setDataFilters} />
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground inline-flex items-center gap-1.5">
+              <TermTooltip term="cpcv">Cross-validation</TermTooltip>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["cpcv", "walkforward"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setCvType(t)}
+                  className={`text-[11px] py-1.5 rounded-md border transition-colors ${
+                    cvType === t
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  {t === "cpcv" ? "CPCV (default)" : "Walk-forward"}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {cvType === "cpcv"
+                ? "10 groups, 2 test, 1% embargo → ~45 OOS paths. Tighter CIs."
+                : "6 forward-marching folds, anchored. Closer to a 'live trading' simulation."}
+            </p>
+          </div>
 
           <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">Defaults applied</p>

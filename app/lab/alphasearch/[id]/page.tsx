@@ -156,18 +156,20 @@ export default function RunDetailPage({
                   : "—"}
               </Stat>
             </div>
-            <Progress value={pct} className="h-1.5" />
-            <DataFiltersSummary
-              filters={
-                (run.dataFilters as Record<string, unknown> | null) ?? null
-              }
-            />
-            {run.error && (
-              <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-500">
-                {run.error}
-              </div>
-            )}
+            <RunOverfitChips summary={summary} />
+            <RunCvBadge summary={summary} />
           </div>
+          <Progress value={pct} className="h-1.5" />
+          <DataFiltersSummary
+            filters={
+              (run.dataFilters as Record<string, unknown> | null) ?? null
+            }
+          />
+          {run.error && (
+            <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-500">
+              {run.error}
+            </div>
+          )}
 
           {/* Pareto scatter */}
           <div className="rounded-md border border-border/60 p-3 space-y-2">
@@ -251,6 +253,94 @@ function Stat({
         {label}
       </div>
       <div className="text-sm font-medium tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * PBO + White's Reality Check chips — render only after the run completes
+ * (they're populated in summary by the Python side).
+ */
+function RunOverfitChips({
+  summary,
+}: {
+  summary: Record<string, unknown> | null;
+}) {
+  if (!summary) return null;
+  const pbo = summary["pbo"];
+  const wrc = summary["wrc_pvalue"];
+  if (typeof pbo !== "number" && typeof wrc !== "number") return null;
+
+  // Color thresholds — research-backed defaults.
+  const pboColor =
+    typeof pbo === "number"
+      ? pbo < 0.05
+        ? "text-emerald-600"
+        : pbo < 0.3
+          ? "text-amber-600"
+          : "text-red-500"
+      : "text-muted-foreground";
+  const wrcColor =
+    typeof wrc === "number"
+      ? wrc < 0.05
+        ? "text-emerald-600"
+        : wrc < 0.2
+          ? "text-amber-600"
+          : "text-red-500"
+      : "text-muted-foreground";
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-[11px]">
+      {typeof pbo === "number" && (
+        <span className="inline-flex items-center gap-1.5">
+          <TermTooltip term="pbo">PBO</TermTooltip>
+          <span className={`font-medium tabular-nums ${pboColor}`}>
+            {(pbo * 100).toFixed(1)}%
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {pbo < 0.05
+              ? "low overfit risk"
+              : pbo < 0.3
+                ? "watch carefully"
+                : "search too aggressive — narrow space or get more data"}
+          </span>
+        </span>
+      )}
+      {typeof wrc === "number" && (
+        <span className="inline-flex items-center gap-1.5">
+          <TermTooltip term="wrc">WRC p</TermTooltip>
+          <span className={`font-medium tabular-nums ${wrcColor}`}>
+            {wrc.toFixed(3)}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {wrc < 0.05
+              ? "best config beats baseline (significant)"
+              : wrc < 0.2
+                ? "weak evidence"
+                : "indistinguishable from luck"}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Shows which CV strategy was used (CPCV / walk-forward) + path count.
+ */
+function RunCvBadge({ summary }: { summary: Record<string, unknown> | null }) {
+  if (!summary) return null;
+  const cv = summary["cv"] as Record<string, unknown> | undefined;
+  if (!cv) return null;
+  const type = cv["type"];
+  const nPaths = cv["n_paths"];
+  if (typeof type !== "string") return null;
+  return (
+    <div className="text-[10px] text-muted-foreground">
+      <TermTooltip term={type === "walkforward" ? "walkforward" : "cpcv"}>
+        {type === "walkforward" ? "Walk-forward" : "CPCV"}
+      </TermTooltip>{" "}
+      · {typeof nPaths === "number" ? `${nPaths} OOS paths` : ""}
     </div>
   );
 }

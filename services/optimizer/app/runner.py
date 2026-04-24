@@ -25,7 +25,7 @@ from sqlalchemy import text
 
 from .bootstrap import stationary_bootstrap_ci
 from .config import get_settings
-from .cpcv import CpcvConfig, expected_n_paths, make_cpcv_splits
+from .cpcv import CpcvConfig, CpcvSplit, expected_n_paths, make_cpcv_splits
 from .db import open_session
 from .evaluator import TrialResult, evaluate_trial
 from .loader import DataFilters, load_settled_bets
@@ -34,10 +34,13 @@ from .samplers import build_study, is_multi_objective
 from .scoring import (
     composite_score,
     deflated_sharpe,
+    pbo_score,
     probabilistic_sharpe,
     trial_sharpe_variance,
+    whites_reality_check_pvalue,
 )
 from .search_space import DEFAULT_SEARCH_SPACE, SearchSpace
+from .walkforward import WalkForwardConfig, make_walkforward_splits
 
 log = logging.getLogger("alphasearch.runner")
 
@@ -228,17 +231,45 @@ async def run_trial_loop(run_id: str) -> None:
                 "for trustworthy results). Loosen the filters and try again."
             )
 
+        # CV strategy — CPCV (default) or walk-forward, picked by the run row.
         cv_cfg_raw = run["cv_strategy"] or {}
-        cv_cfg = CpcvConfig(
-            n_groups=int(cv_cfg_raw.get("n_groups", 10)),
-            n_test_groups=int(cv_cfg_raw.get("n_test_groups", 2)),
-            embargo_pct=float(cv_cfg_raw.get("embargo_pct", 0.01)),
-        )
-        splits = make_cpcv_splits(df, cv_cfg)
-        log.info(
-            "Run %s: loaded %d bets, %d CPCV paths (n_groups=%d, n_test=%d)",
-            run_id, df.height, len(splits), cv_cfg.n_groups, cv_cfg.n_test_groups,
-        )
+        cv_type = (cv_cfg_raw.get("type") or "cpcv").lower()
+        splits: list[CpcvSplit]
+        cv_summary: dict[str, Any]
+        if cv_type == "walkforward":
+            wf_cfg = WalkForwardConfig(
+                n_folds=int(cv_cfg_raw.get("n_folds", 6)),
+                anchored=bool(cv_cfg_raw.get("anchored", True)),
+                embargo_pct=float(cv_cfg_raw.get("embargo_pct", 0.005)),
+            )
+            splits = make_walkforward_splits(df, wf_cfg)
+            cv_summary = {
+                "type": "walkforward",
+                "n_folds": wf_cfg.n_folds,
+                "anchored": wf_cfg.anchored,
+                "n_paths": len(splits),
+            }
+            log.info(
+                "Run %s: loaded %d bets, %d walk-forward folds (anchored=%s)",
+                run_id, df.height, len(splits), wf_cfg.anchored,
+            )
+        else:
+            cv_cfg = CpcvConfig(
+                n_groups=int(cv_cfg_raw.get("n_groups", 10)),
+                n_test_groups=int(cv_cfg_raw.get("n_test_groups", 2)),
+                embargo_pct=float(cv_cfg_raw.get("embargo_pct", 0.01)),
+            )
+            splits = make_cpcv_splits(df, cv_cfg)
+            cv_summary = {
+                "type": "cpcv",
+                "n_groups": cv_cfg.n_groups,
+                "n_test_groups": cv_cfg.n_test_groups,
+                "n_paths": expected_n_paths(cv_cfg),
+            }
+            log.info(
+                "Run %s: loaded %d bets, %d CPCV paths (n_groups=%d, n_test=%d)",
+                run_id, df.height, len(splits), cv_cfg.n_groups, cv_cfg.n_test_groups,
+            )
 
         # Search space.
         space_payload = run["search_space"] or {}
@@ -258,6 +289,7 @@ async def run_trial_loop(run_id: str) -> None:
 
         n_target = int(run["n_trials_target"])
         per_trial_sharpes: list[float] = []
+        per_trial_fold_rois: list[list[float]] = []  # for PBO + WRC
         candidates: list[ParetoCandidate] = []
         trial_id_by_index: dict[int, str] = {}
         best_score = -1e18
@@ -327,6 +359,14 @@ async def run_trial_loop(run_id: str) -> None:
                 study.tell(trial, comp)
 
             per_trial_sharpes.append(result.oos_sharpe)
+            # Per-fold ROI vector — same length for every trial (one entry
+            # per CV path; folds with 0 surviving bets contribute 0.0).
+            per_trial_fold_rois.append(
+                [
+                    f.roi_pct if f.n_bets > 0 else 0.0
+                    for f in result.fold_metrics
+                ]
+            )
             candidates.append(
                 ParetoCandidate(
                     trial_index=trial_index,
@@ -353,17 +393,22 @@ async def run_trial_loop(run_id: str) -> None:
         ]
         _mark_pareto(run_id, pareto_trial_ids)
 
+        # Run-level overfit detection: PBO + White's Reality Check.
+        # Both operate on the per-trial × per-path ROI matrix we collected.
+        pbo = pbo_score(per_trial_fold_rois, seed=int(run["rng_seed"]))
+        wrc_p = whites_reality_check_pvalue(
+            per_trial_fold_rois, seed=int(run["rng_seed"])
+        )
+
         # Summary.
         summary = {
             "n_trials_completed": n_done,
             "n_pareto": sum(on_pareto),
             "best_composite_score": best_score,
             "best_trial_id": best_trial_id,
-            "cpcv": {
-                "n_groups": cv_cfg.n_groups,
-                "n_test_groups": cv_cfg.n_test_groups,
-                "n_paths": expected_n_paths(cv_cfg),
-            },
+            "cv": cv_summary,
+            "pbo": pbo,  # Probability of Backtest Overfitting (0..1; lower=better)
+            "wrc_pvalue": wrc_p,  # White's Reality Check p-value (lower=stronger signal)
             "completed_at_utc": datetime.now(timezone.utc).isoformat(),
         }
         _set_status(
