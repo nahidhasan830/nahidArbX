@@ -66,8 +66,13 @@ steps:
       - --memory=8Gi
       - --concurrency=1
       - --timeout=3600
-      - --ingress=internal
-      - --no-allow-unauthenticated
+      # Public ingress so the Next.js app (running locally on the operator's
+      # machine) can reach the sidecar. Auth is provided by the HMAC token
+      # in OPTIMIZER_SHARED_SECRET — verified inside main.py with constant-
+      # time compare. Lock down to --ingress=internal once Next.js also
+      # runs in the same VPC.
+      - --ingress=all
+      - --allow-unauthenticated
       - --add-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
       - --set-env-vars=CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE},LOG_LEVEL=INFO
       - --set-secrets=DATABASE_URL=DATABASE_URL:latest,OPTIMIZER_SHARED_SECRET=OPTIMIZER_SHARED_SECRET:latest

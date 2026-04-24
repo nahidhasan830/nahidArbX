@@ -63,18 +63,54 @@ OPTIMIZER_SHARED_SECRET=<long random string — same on both sides>
 
 ## Production deployment (Google Cloud)
 
-The sidecar deploys to **Cloud Run service `nahidarbx-optimizer`** in
-`asia-south1`, in the existing GCP project `nahidarbx-6e73`.
+The sidecar runs on **Cloud Run service `nahidarbx-optimizer`** in
+`asia-south1`, in the existing GCP project `nahidarbx-6e73`. **Already
+provisioned and live** as of the first push — see "Initial provisioning"
+below for what was set up if you ever need to recreate it.
 
-- **CI/CD:** [`cloudbuild.yaml`](../../cloudbuild.yaml) at the repo root —
-  Cloud Build trigger watches `services/optimizer/**` on `main`, builds the
-  image, pushes to Artifact Registry, and deploys to Cloud Run.
-- **Image:** `asia-south1-docker.pkg.dev/nahidarbx-6e73/optimizer/optimizer:<sha>`
+### Redeploy (one-liner)
+
+```bash
+bash services/optimizer/redeploy.sh
+```
+
+Builds the current source via Cloud Build, deploys to Cloud Run, prints
+the new URL. Tags the image with the current git SHA and `latest`.
+
+### Or auto-deploy on `git push` (recommended)
+
+One-time setup via the GCP console (CLI requires browser OAuth):
+
+1. Open [Cloud Build → Triggers](https://console.cloud.google.com/cloud-build/triggers?project=nahidarbx-6e73&supportedpurview=project) for `nahidarbx-6e73` in `asia-south1`.
+2. **Connect Repository** → GitHub → install the Cloud Build app on
+   `nahidhasan830/nahidArbX`.
+3. **Create Trigger**:
+   - Name: `optimizer-on-push`
+   - Event: Push to a branch · `^main$`
+   - **Included files filter (glob):** `services/optimizer/**` ·
+     also include `cloudbuild.yaml`
+   - Configuration: Cloud Build configuration file (yaml) · `cloudbuild.yaml`
+   - Service account: `optimizer-sa@nahidarbx-6e73.iam.gserviceaccount.com`
+
+After this, every push to `main` that touches the sidecar will rebuild +
+redeploy automatically. No more manual `redeploy.sh` calls.
+
+### Resources currently provisioned
+
+- **Image registry:** `asia-south1-docker.pkg.dev/nahidarbx-6e73/optimizer/`
 - **Service account:** `optimizer-sa@nahidarbx-6e73.iam.gserviceaccount.com`
-  with `roles/cloudsql.client` + `roles/secretmanager.secretAccessor` only.
-- **Secrets:** `OPTIMIZER_SHARED_SECRET` mounted from Secret Manager.
-- **Ingress:** internal only; the Next.js Cloud Run service reaches it via
-  internal VPC connector.
+  with `roles/cloudsql.client` + `roles/secretmanager.secretAccessor`
+- **Secrets:** `DATABASE_URL` + `OPTIMIZER_SHARED_SECRET` in Secret Manager
+- **Cloud Run service:** scale-to-zero (min=0), max=3 instances, 4 CPU /
+  8 GiB, public ingress, HMAC-token auth via `OPTIMIZER_SHARED_SECRET`
+
+### Locking down ingress (later)
+
+Currently `--ingress=all` so the Next.js dev server can reach the sidecar
+over the public internet. Auth is the HMAC token (constant-time compare in
+`main.py`). Once Next.js also runs on Cloud Run, switch to
+`--ingress=internal` in `cloudbuild.yaml` and add a VPC connector — the
+sidecar then becomes unreachable from the public internet entirely.
 
 ## Module map
 

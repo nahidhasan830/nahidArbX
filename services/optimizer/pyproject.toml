@@ -12,19 +12,11 @@ dependencies = [
 
     # Database
     "sqlalchemy>=2.0.36",
-    "psycopg[binary]>=3.2.3",
-    "google-cloud-sql-connector[pg8000]>=1.13.0",
+    "cloud-sql-python-connector[pg8000]>=1.20.0",
     "pg8000>=1.31.2",
 
     # Optimization
     "optuna>=4.1.0",
-
-    # Time-series CV + financial validation
-    "skfolio>=0.7.0",
-    "pypbo>=0.4.4",
-
-    # Statistical bootstrap (preserves time-series autocorrelation)
-    "arch>=7.2.0",
 
     # Numerics
     "numpy>=2.1.0",
@@ -33,19 +25,17 @@ dependencies = [
     "polars>=1.15.0",
     "pyarrow>=18.0.0",
 
+    # ML — gradient boosting + calibration. Lazy-imported in app/ml/model.py
+    # so the sidecar can boot even if these fail to install in some
+    # environments. Required for runs with searchAlgorithm='ml-xgboost'.
+    "xgboost>=2.1.0",
+    "scikit-learn>=1.5.0",
+
     # Utilities
     "ulid-py>=1.1.0",
-    "python-dateutil>=2.9.0",
-    "structlog>=24.4.0",
 ]
 
 [project.optional-dependencies]
-ml = [
-    # Phase 4 — gradient boosting + calibration
-    "xgboost>=2.1.0",
-    "lightgbm>=4.5.0",
-    "scikit-learn>=1.5.0",
-]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
