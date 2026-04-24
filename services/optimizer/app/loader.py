@@ -170,19 +170,27 @@ def load_settled_bets(
     if not rows:
         return _empty_frame()
 
-    # Coerce `decimal.Decimal` → `float` before handing the list to Polars.
+    # Coerce every row dict to stable Python scalar types BEFORE handing
+    # the list to Polars. We hit two distinct schema-inference failures
+    # in production against real bets (2026-04-24):
     #
-    # Postgres NUMERIC(38,4) columns arrive as Python Decimal. If we hand
-    # them to pl.DataFrame() as-is, Polars infers a Decimal(38,4) schema
-    # from the first ~100 rows and the builder then rejects any later row
-    # whose value doesn't fit that exact precision — e.g.
-    #   "could not append value: 2.0100 of type: decimal[38,4] to the
-    #    builder; make sure that all rows have the same schema …"
-    # which was seen on 2026-04-24 in runs with mixed odds/stake scales.
+    #   1. Postgres NUMERIC(38,4) arrives as `decimal.Decimal`. Polars
+    #      infers Decimal(38,4) from the first ~100 rows, then later rows
+    #      with a different Decimal shape get rejected:
+    #        "could not append value: 2.0100 of type: decimal[38,4] …"
     #
-    # We'd cast these columns to Float64 on the very next line anyway,
-    # so it's cleaner to do the widening at the row-dict boundary — that
-    # also avoids Polars having to build Decimal arrow chunks at all.
+    #   2. A column whose first ~100 rows are all `None` (e.g. the
+    #      optional `closing_soft_odds`, `clv_pct`) is inferred as Null /
+    #      Int64, then fails when a real float appears later:
+    #        "could not append value: 2.01 of type: f64 …"
+    #
+    # Two-part fix:
+    #   a) Convert every `Decimal` to `float` (and use `None` for NaN-like
+    #      values). We'd cast these to Float64 on the very next `.cast()`
+    #      call anyway, so this is free.
+    #   b) Pass `infer_schema_length=None` so Polars scans every row
+    #      before picking a type per column. Slower (O(n) scan) but
+    #      bulletproof against all-None prefixes in optional columns.
     def _row(r: Any) -> dict[str, Any]:
         d = dict(r)
         for k, v in d.items():
@@ -190,7 +198,11 @@ def load_settled_bets(
                 d[k] = float(v)
         return d
 
-    df = pl.DataFrame([_row(r) for r in rows])
+    df = pl.DataFrame(
+        [_row(r) for r in rows],
+        infer_schema_length=None,
+        strict=False,
+    )
 
     # Coerce types — DECIMAL -> Float64, timestamp strings -> Datetime.
     numeric_cols = [
