@@ -101,19 +101,25 @@ class SearchSpace:
 
 DEFAULT_SEARCH_SPACE = SearchSpace(
     dimensions=(
-        # EV gate.
-        Dimension("min_ev_pct", "continuous", low=1.0, high=6.0, step=0.25),
-        # Sharp-staleness gate.
-        Dimension("max_odds_age_sec", "continuous", low=30, high=180, step=15),
+        # EV gate. Widened 2026-04-25 from [1.0, 6.0] → [0.25, 8.0] so the
+        # sampler can find small-edge bets the old lower bound excluded.
+        # Small +EV + big sample size can still be profitable; the composite
+        # score already penalises tiny samples so we don't risk flukes.
+        Dimension("min_ev_pct", "continuous", low=0.25, high=8.0, step=0.25),
+        # Sharp-staleness gate. Widened 2026-04-25 from [30, 180] → [30, 600]
+        # so the sampler can test whether accepting up to 10-minute-old sharp
+        # odds unlocks more bets in slow-moving markets.
+        Dimension("max_odds_age_sec", "continuous", low=30, high=600, step=30),
         # Kelly fraction — clamped to [0.1, 0.5] (research-empirical sweet spot).
         Dimension("kelly_fraction", "continuous", low=0.10, high=0.50, step=0.05),
         # Bankroll cap on per-bet stake.
         Dimension("kelly_cap_pct", "continuous", low=2.0, high=15.0, step=1.0),
         # Sharp-probability filter — avoids longshots if hi, heavy faves if lo.
-        Dimension("min_sharp_prob", "continuous", low=0.10, high=0.85, step=0.05),
-        # Odds range filter.
-        Dimension("odds_lo", "continuous", low=1.30, high=3.00, step=0.10),
-        Dimension("odds_hi", "continuous", low=2.00, high=8.00, step=0.20),
+        Dimension("min_sharp_prob", "continuous", low=0.05, high=0.95, step=0.05),
+        # Odds range filter. Widened 2026-04-25 lo 1.30→1.05 and hi 8.0→15.0
+        # so heavy favourites + longshot regions of the book can be probed.
+        Dimension("odds_lo", "continuous", low=1.05, high=3.00, step=0.05),
+        Dimension("odds_hi", "continuous", low=2.00, high=15.00, step=0.5),
         # Re-tick threshold (filters one-off blips).
         Dimension("min_tick_count", "discrete", values=(1, 2, 3, 5)),
         # Pre-match only?
