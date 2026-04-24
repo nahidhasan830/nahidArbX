@@ -113,6 +113,27 @@ def _is_cancelled(run_id: str) -> bool:
         return bool(row and row[0] == "cancelled")
 
 
+def _sanitize_metric(v: float | None) -> float | None:
+    """Coerce `inf` / `nan` / overflow-prone values to `None` before we
+    send them to Postgres. Aggressively clamps to the widened
+    `numeric(14,4)` envelope (±9,999,999,999.9999) so a pathological
+    Sharpe on a std=0 fold doesn't nuke the whole run.
+    """
+    import math
+
+    if v is None:
+        return None
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(fv):
+        return None  # NaN / +inf / -inf → store as NULL
+    if abs(fv) > 9_999_999_999.0:
+        return None  # Beyond numeric(14,4) envelope — probably meaningless
+    return fv
+
+
 def _persist_trial(
     *,
     run_id: str,
@@ -153,16 +174,20 @@ def _persist_trial(
                 for fm in result.fold_metrics
             ]
         ),
-        "oos_roi_mean": result.oos_roi_mean,
-        "oos_roi_ci_low": ci_low,
-        "oos_roi_ci_high": ci_high,
-        "oos_sortino": result.oos_sortino,
-        "oos_sharpe": result.oos_sharpe,
-        "deflated_sharpe": dsr,
-        "probabilistic_sharpe": psr,
-        "max_drawdown": result.max_drawdown,
+        # Every numeric metric goes through `_sanitize_metric` so an inf /
+        # nan / out-of-envelope value becomes NULL instead of blowing up
+        # the INSERT. Overflow was seen 2026-04-24 prod — noisy folds
+        # produced Sharpe > 10^4 on numeric(8,4) columns.
+        "oos_roi_mean": _sanitize_metric(result.oos_roi_mean),
+        "oos_roi_ci_low": _sanitize_metric(ci_low),
+        "oos_roi_ci_high": _sanitize_metric(ci_high),
+        "oos_sortino": _sanitize_metric(result.oos_sortino),
+        "oos_sharpe": _sanitize_metric(result.oos_sharpe),
+        "deflated_sharpe": _sanitize_metric(dsr),
+        "probabilistic_sharpe": _sanitize_metric(psr),
+        "max_drawdown": _sanitize_metric(result.max_drawdown),
         "sample_size": result.sample_size,
-        "composite_score": composite,
+        "composite_score": _sanitize_metric(composite),
         "on_pareto": False,  # set after run completes
     }
     with open_session() as s:

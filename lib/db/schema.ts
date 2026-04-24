@@ -426,16 +426,20 @@ export const optimizationTrials = pgTable(
     foldMetrics: jsonb().notNull(), // per-CPCV-path metrics
 
     // Aggregated OOS metrics (precomputed for fast sort/filter in UI).
-    oosRoiMean: numeric({ precision: 8, scale: 4, mode: "number" }),
-    oosRoiCiLow: numeric({ precision: 8, scale: 4, mode: "number" }),
-    oosRoiCiHigh: numeric({ precision: 8, scale: 4, mode: "number" }),
-    oosSortino: numeric({ precision: 8, scale: 4, mode: "number" }),
-    oosSharpe: numeric({ precision: 8, scale: 4, mode: "number" }),
-    deflatedSharpe: numeric({ precision: 8, scale: 4, mode: "number" }),
+    // Widened to numeric(14,4) in migration 0024 after prod observed
+    // Sharpe > 10^4 on noisy folds overflowing numeric(8,4). The
+    // sidecar also NULLs inf/nan values before insert — both defences
+    // cooperate.
+    oosRoiMean: numeric({ precision: 14, scale: 4, mode: "number" }),
+    oosRoiCiLow: numeric({ precision: 14, scale: 4, mode: "number" }),
+    oosRoiCiHigh: numeric({ precision: 14, scale: 4, mode: "number" }),
+    oosSortino: numeric({ precision: 14, scale: 4, mode: "number" }),
+    oosSharpe: numeric({ precision: 14, scale: 4, mode: "number" }),
+    deflatedSharpe: numeric({ precision: 14, scale: 4, mode: "number" }),
     probabilisticSharpe: numeric({ precision: 6, scale: 4, mode: "number" }),
-    maxDrawdown: numeric({ precision: 8, scale: 4, mode: "number" }),
+    maxDrawdown: numeric({ precision: 14, scale: 4, mode: "number" }),
     sampleSize: integer(),
-    compositeScore: numeric({ precision: 8, scale: 4, mode: "number" }),
+    compositeScore: numeric({ precision: 14, scale: 4, mode: "number" }),
     onPareto: boolean().notNull().default(false),
     createdAt: tsNow(),
   },
@@ -534,10 +538,11 @@ export const strategyValidations = pgTable(
       .references(() => optimizationStrategies.id, { onDelete: "cascade" }),
     ranAt: tsNow(),
     nSettled: integer().notNull().default(0),
-    liveRoiPct: numeric({ precision: 8, scale: 4, mode: "number" }),
-    snapshotRoiMean: numeric({ precision: 8, scale: 4, mode: "number" }),
-    snapshotRoiCiLow: numeric({ precision: 8, scale: 4, mode: "number" }),
-    snapshotRoiCiHigh: numeric({ precision: 8, scale: 4, mode: "number" }),
+    // Widened to numeric(14,4) in migration 0024 to match optimization_trials.
+    liveRoiPct: numeric({ precision: 14, scale: 4, mode: "number" }),
+    snapshotRoiMean: numeric({ precision: 14, scale: 4, mode: "number" }),
+    snapshotRoiCiLow: numeric({ precision: 14, scale: 4, mode: "number" }),
+    snapshotRoiCiHigh: numeric({ precision: 14, scale: 4, mode: "number" }),
     /** True if liveRoiPct sits outside [snapshotRoiCiLow, snapshotRoiCiHigh]. */
     driftFlag: boolean().notNull().default(false),
     /** Running counter — bumped each consecutive flagged check; reset to 0 on a clean check. */
