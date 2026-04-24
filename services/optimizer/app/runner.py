@@ -126,7 +126,10 @@ def _persist_trial(
     psr: float,
     composite: float,
 ) -> str:
-    trial_id = ulid.ulid()
+    # `ulid-py` exposes `ulid.new()` → ULID object; stringify it for the
+    # text primary key. Calling `ulid()` on the module itself raises
+    # "'module' object is not callable" (observed 2026-04-24 prod logs).
+    trial_id = str(ulid.new())
     payload = {
         "id": trial_id,
         "run_id": run_id,
