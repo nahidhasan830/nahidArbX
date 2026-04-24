@@ -1,14 +1,20 @@
 /**
- * One-shot runner for the two migrations added this session:
- *   0014_placed_bets_dedup_unique.sql — promote dedup index to UNIQUE
- *   0015_betting_settings.sql         — create betting_settings singleton
+ * One-shot runner for the AlphaSearch (Phase 1-5) migrations.
  *
- * Uses a standalone pg Pool (avoids importing the app's client.ts
- * which relies on top-level await incompatible with tsx/CJS). Same
- * DATABASE_URL the app uses.
+ * Each .sql file is idempotent (CREATE TABLE IF NOT EXISTS, ADD COLUMN
+ * IF NOT EXISTS). Safe to re-run.
  *
- * Usage: DATABASE_URL=... npx tsx scripts/apply-pending-migrations.ts
- *        (cloud-sql-proxy on 127.0.0.1:5432 must be running)
+ * Migration 0021 adds `bets.strategy_id` — until that column exists in
+ * the deployed DB, drizzle's `db.select().from(bets)` expands to a SELECT
+ * that names every schema column, so Postgres rejects the whole statement
+ * and any endpoint doing a row-level read of bets returns 500.
+ *
+ * Uses a standalone pg Pool (avoids importing the app's client.ts which
+ * relies on top-level await incompatible with tsx/CJS). Same DATABASE_URL
+ * the app uses.
+ *
+ * Usage:  cloud-sql-proxy --port 5432 nahidarbx-6e73:asia-south1:nahidarbx-db &
+ *         npx tsx scripts/apply-pending-migrations.ts
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,8 +22,11 @@ import { Pool } from "pg";
 import "dotenv/config";
 
 const MIGRATIONS = [
-  "0014_placed_bets_dedup_unique.sql",
-  "0015_betting_settings.sql",
+  "0018_alphasearch_optimizer.sql",
+  "0019_optimization_data_filters.sql",
+  "0020_optimization_schedules.sql",
+  "0021_alphasearch_strategies.sql",
+  "0022_strategy_validations.sql",
 ];
 
 async function main() {
@@ -33,20 +42,33 @@ async function main() {
     console.log(`  ok`);
   }
 
-  const seed = await pool.query<{ n: number }>(
-    "SELECT count(*)::int AS n FROM betting_settings WHERE id = 1",
+  // Single post-check that proves the column-level fix landed: this is the
+  // change that unblocks /api/accounts/stats, /api/bets, /api/bets/placed.
+  const col = await pool.query<{ n: number }>(
+    `SELECT count(*)::int AS n
+       FROM information_schema.columns
+       WHERE table_name = 'bets' AND column_name = 'strategy_id'`,
   );
   console.log(
-    `\nbetting_settings rows with id=1: ${seed.rows[0].n} ${seed.rows[0].n === 1 ? "✓" : "(expected 1)"}`,
+    `\nbets.strategy_id column present: ${col.rows[0].n === 1 ? "✓" : "✗"}`,
   );
 
-  const idx = await pool.query<{ indexdef: string }>(
-    `SELECT indexdef FROM pg_indexes
-       WHERE schemaname = 'public' AND indexname = 'placed_bets_dedup_idx'`,
+  // Bonus visibility: confirm the four AlphaSearch tables exist.
+  const tables = await pool.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public'
+         AND table_name IN (
+           'optimization_runs',
+           'optimization_trials',
+           'optimization_schedules',
+           'optimization_strategies',
+           'strategy_validations'
+         )
+       ORDER BY table_name`,
   );
-  const def = idx.rows[0]?.indexdef ?? "";
-  console.log(`placed_bets_dedup_idx: ${def || "(missing)"}`);
-  console.log(`  unique? ${def.toLowerCase().includes("unique") ? "✓" : "✗"}`);
+  console.log(
+    `AlphaSearch tables present (5 expected): ${tables.rows.length} found — ${tables.rows.map((r) => r.table_name).join(", ")}`,
+  );
 
   await pool.end();
 }
