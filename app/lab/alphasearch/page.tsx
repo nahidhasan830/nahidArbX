@@ -1,139 +1,223 @@
 "use client";
 
 /**
- * AlphaSearch workbench — Runs / Schedules / Strategies tabs.
+ * AlphaSearch unified workbench.
  *
- * Runs:        list of optimization runs; each row links into per-run detail
- *              with Pareto scatter + trial table.
- * Schedules:   recurring runs (cron-style, preset frequencies).
- * Strategies:  configurations promoted from trials → live in the value detector.
+ * Single-page scope-switched layout replacing the old Tabs shell:
+ *   - Runs       — list of optimization runs with live progress
+ *   - Schedules  — recurring runs
+ *   - Strategies — configurations promoted from trials → live in the detector
+ *
+ * Scope is URL-driven (`?scope=schedules`) so deep-links / back button work.
+ * The top command bar reuses the `h-7 / px-3 py-1.5 / bg-muted/40 / text-[11px]`
+ * vocabulary from components/spreadsheet/SpreadsheetToolbar.tsx.
  */
 
 import * as React from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { HelpCircle, List, Repeat, Target } from "lucide-react";
 import { AppShell } from "@/components/nav/AppShell";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { HelpBanner } from "@/components/lab/HelpBanner";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { RunsTable } from "@/components/lab/alphasearch/RunsTable";
 import { SubmitRunSheet } from "@/components/lab/alphasearch/SubmitRunSheet";
+import { QuickRunButton } from "@/components/lab/alphasearch/QuickRunButton";
 import { SchedulesTable } from "@/components/lab/alphasearch/SchedulesTable";
 import { CreateScheduleSheet } from "@/components/lab/alphasearch/CreateScheduleSheet";
 import { StrategiesTable } from "@/components/lab/alphasearch/StrategiesTable";
 
-type TabKey = "runs" | "schedules" | "strategies";
+type Scope = "runs" | "schedules" | "strategies";
+const SCOPES: Scope[] = ["runs", "schedules", "strategies"];
+
+function isScope(v: string | null): v is Scope {
+  return v === "runs" || v === "schedules" || v === "strategies";
+}
 
 export default function AlphaSearchPage() {
-  const [tab, setTab] = React.useState<TabKey>("runs");
+  const router = useRouter();
+  const params = useSearchParams();
+  const scope: Scope = isScope(params.get("scope"))
+    ? (params.get("scope") as Scope)
+    : "runs";
+
+  const setScope = (next: Scope) => {
+    const qs = new URLSearchParams(params.toString());
+    if (next === "runs") qs.delete("scope");
+    else qs.set("scope", next);
+    const query = qs.toString();
+    router.replace(query ? `/lab/alphasearch?${query}` : "/lab/alphasearch", {
+      scroll: false,
+    });
+  };
+
+  // Keyboard scope switcher: ⌘1 / ⌘2 / ⌘3
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "1") {
+        e.preventDefault();
+        setScope("runs");
+      } else if (e.key === "2") {
+        e.preventDefault();
+        setScope("schedules");
+      } else if (e.key === "3") {
+        e.preventDefault();
+        setScope("strategies");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
 
   return (
     <AppShell
       title="AlphaSearch"
-      titleBadge={
-        <Badge
-          variant="outline"
-          className="ml-2 text-[10px] uppercase tracking-wide"
-        >
-          Lab · Phase 3
-        </Badge>
-      }
-      actions={
-        tab === "runs" ? (
-          <SubmitRunSheet />
-        ) : tab === "schedules" ? (
-          <CreateScheduleSheet />
-        ) : null
-      }
+      edgeToEdge
+      actions={<TopActions scope={scope} />}
     >
-      <div className="max-w-[1200px] space-y-4">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
-          <TabsList className="h-8">
-            <TabsTrigger value="runs" className="text-[11px]">
-              Runs
-            </TabsTrigger>
-            <TabsTrigger value="schedules" className="text-[11px]">
-              Schedules
-            </TabsTrigger>
-            <TabsTrigger value="strategies" className="text-[11px]">
-              Strategies
-            </TabsTrigger>
-          </TabsList>
+      <div className="flex flex-col gap-4 p-4 lg:p-6">
+        <CommandBar scope={scope} onScopeChange={setScope} />
 
-          <TabsContent value="runs" className="space-y-4 mt-4">
-            <HelpBanner id="alphasearch-runs" title="How to use AlphaSearch">
-              <p>
-                <strong>What it does:</strong> sweeps through configurations of
-                filters + sizing rules and tells you which would have produced
-                the highest, most consistent ROI on your historical bets.
-              </p>
-              <p>
-                <strong>How to use:</strong> click <em>New run</em> to submit a
-                sweep. Default settings (2,000 trials, ensemble sampler, CPCV)
-                are sensible — just hit <em>Start</em>. The Python sidecar runs
-                in the background; this page polls every 5 seconds for progress.
-              </p>
-              <p>
-                <strong>What you get:</strong> after the run completes, click
-                into it to see the Pareto frontier and inspect each trial&apos;s
-                exact configuration.
-              </p>
-              <p className="text-amber-600 dark:text-amber-400">
-                <strong>Honesty note:</strong> with ~1k bets, even the best
-                configurations have ±2-4% confidence intervals. Trust the
-                confidence-interval band, not the point estimate.
-              </p>
-            </HelpBanner>
-
-            <RunsTable />
-          </TabsContent>
-
-          <TabsContent value="schedules" className="space-y-4 mt-4">
-            <HelpBanner id="alphasearch-schedules" title="How schedules work">
-              <p>
-                A schedule is a saved configuration that fires on its own
-                cadence (e.g. <em>daily at 03:00</em>). Each fire creates a
-                fresh run on the latest bet data — useful for tracking how the
-                optimal config evolves as new bets settle.
-              </p>
-              <p>
-                <strong>Run now</strong> on any schedule = manual fire using
-                that schedule&apos;s exact config, without affecting the
-                next-fire time. Useful for testing.
-              </p>
-              <p>
-                Toggle the checkbox to pause/resume a schedule without losing
-                its history. Re-enabling recomputes the next fire so no
-                immediate flood after long pauses.
-              </p>
-            </HelpBanner>
-
-            <SchedulesTable />
-          </TabsContent>
-
-          <TabsContent value="strategies" className="space-y-4 mt-4">
-            <HelpBanner id="alphasearch-strategies" title="How strategies work">
-              <p>
-                A strategy is a configuration promoted from an optimizer trial.
-                Open any completed run, click into a trial, and use{" "}
-                <strong>Promote to strategy</strong>. It starts as a{" "}
-                <em>candidate</em>; activate it from this tab to make it live.
-              </p>
-              <p>
-                Once <em>live</em>, the value detector checks every detected bet
-                against the strategy&apos;s filters. Matching bets are tagged
-                with the strategy id so the live ROI / win rate / CLV are
-                tracked separately and shown next to the OOS estimate.
-              </p>
-              <p>
-                The <strong>Drift</strong> column flags strategies whose live
-                ROI has fallen outside the OOS confidence band — a signal the
-                edge has decayed and you should investigate or pause.
-              </p>
-            </HelpBanner>
-
-            <StrategiesTable />
-          </TabsContent>
-        </Tabs>
+        <div className="min-h-0">
+          {scope === "runs" && <RunsTable />}
+          {scope === "schedules" && <SchedulesTable />}
+          {scope === "strategies" && <StrategiesTable />}
+        </div>
       </div>
     </AppShell>
+  );
+}
+
+// ── Top-right actions (context-aware) ────────────────────────────────────
+
+function TopActions({ scope }: { scope: Scope }) {
+  if (scope === "runs") {
+    return (
+      <div className="flex items-center gap-1.5">
+        <SubmitRunSheet />
+        <QuickRunButton />
+      </div>
+    );
+  }
+  if (scope === "schedules") return <CreateScheduleSheet />;
+  return null;
+}
+
+// ── Command bar (scope switcher + help popover) ──────────────────────────
+
+function CommandBar({
+  scope,
+  onScopeChange,
+}: {
+  scope: Scope;
+  onScopeChange: (s: Scope) => void;
+}) {
+  return (
+    <div className="border border-border rounded-md bg-muted/40 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
+      <ToggleGroup
+        type="single"
+        value={scope}
+        onValueChange={(v) => {
+          if (v && SCOPES.includes(v as Scope)) onScopeChange(v as Scope);
+        }}
+        className="flex items-center gap-1"
+      >
+        <ToggleGroupItem
+          value="runs"
+          className="h-7 px-3 text-[11px] gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-sm"
+        >
+          <List className="size-3" /> Runs
+          <kbd className="ml-1 text-[10px] text-muted-foreground">⌘1</kbd>
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="schedules"
+          className="h-7 px-3 text-[11px] gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-sm"
+        >
+          <Repeat className="size-3" /> Schedules
+          <kbd className="ml-1 text-[10px] text-muted-foreground">⌘2</kbd>
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="strategies"
+          className="h-7 px-3 text-[11px] gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-sm"
+        >
+          <Target className="size-3" /> Strategies
+          <kbd className="ml-1 text-[10px] text-muted-foreground">⌘3</kbd>
+        </ToggleGroupItem>
+      </ToggleGroup>
+
+      <div className="flex-1" />
+
+      <HelpPopover scope={scope} />
+    </div>
+  );
+}
+
+function HelpPopover({ scope }: { scope: Scope }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-[11px] text-muted-foreground gap-1.5"
+        >
+          <HelpCircle className="size-3" /> Help
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[360px] text-[11px] leading-relaxed space-y-2"
+      >
+        {scope === "runs" && (
+          <>
+            <p>
+              <strong>Runs</strong> sweep configurations of filters and sizing
+              rules against historical bets to find the highest, most consistent
+              ROI.
+            </p>
+            <p>
+              Click <em>Run now</em> for defaults (ensemble / 2000 trials / CPCV
+              / all bets / Telegram on) or <em>New run…</em> to tweak.
+            </p>
+            <p className="text-amber-600 dark:text-amber-400 text-[10px]">
+              With ~1k bets, even the best configs have ±2–4% CIs — trust the
+              confidence band, not the point estimate.
+            </p>
+          </>
+        )}
+        {scope === "schedules" && (
+          <>
+            <p>
+              <strong>Schedules</strong> fire a saved run configuration on a
+              cadence (e.g. <em>daily 03:00</em>) — useful for tracking how the
+              optimal config drifts as new bets settle.
+            </p>
+            <p>
+              <em>Run now</em> on any schedule fires once without touching the
+              next-fire timer. Toggle the checkbox to pause/resume.
+            </p>
+          </>
+        )}
+        {scope === "strategies" && (
+          <>
+            <p>
+              <strong>Strategies</strong> are trial configurations promoted from
+              runs. They start as <em>candidate</em>; activate to make live —
+              the value detector consults them on every tick.
+            </p>
+            <p>
+              <strong>Drift</strong> flags strategies whose live ROI has fallen
+              outside the OOS confidence band — investigate or pause.
+            </p>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

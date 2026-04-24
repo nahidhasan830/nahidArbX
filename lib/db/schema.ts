@@ -377,6 +377,13 @@ export const optimizationRuns = pgTable(
     error: text(),
     startedAt: ts(),
     completedAt: ts(),
+    /** If true, the notifier tick fires a Telegram ping when the run hits a
+     *  terminal status. Manual runs default true; scheduled runs inherit
+     *  this from the schedule's own `notify_on_complete` at fire time. */
+    notifyOnComplete: boolean().notNull().default(true),
+    /** Idempotency stamp — the notifier tick sets this when it sends the
+     *  Telegram ping so it never sends twice for the same run. */
+    notifiedAt: ts(),
     createdBy: text(),
     createdAt: tsNow(),
   },
@@ -387,6 +394,12 @@ export const optimizationRuns = pgTable(
     index("optimization_runs_queued_idx")
       .on(t.createdAt)
       .where(sql`${t.status} = 'queued'`),
+    // Notifier-tick claim query: pending Telegram notifications.
+    index("optimization_runs_notify_pending_idx")
+      .on(t.completedAt)
+      .where(
+        sql`${t.notifyOnComplete} = true AND ${t.notifiedAt} IS NULL AND ${t.status} IN ('completed','failed','cancelled')`,
+      ),
   ],
 );
 

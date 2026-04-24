@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Cloud-only runtime policy (READ FIRST)
+
+**Never run any service locally.** The operator does not start `npm run dev`, the Python optimizer sidecar, `cloud-sql-proxy`, or any other service on their machine. Every change is verified in production.
+
+- Next.js prod: `https://nahidarbx.store`
+- Python optimizer sidecar: Cloud Run — `nahidarbx-optimizer`, project `nahidarbx-6e73`, region `asia-south1`. Redeploy with `bash services/optimizer/redeploy.sh` (or rely on the Cloud Build push trigger on `services/optimizer/**` changes when it's wired).
+- Database: Cloud SQL Postgres (`nahidarbx-6e73:asia-south1:nahidarbx-db`).
+
+Do **not** instruct the operator to `brew install` anything, run `npm run dev`, boot `uv run uvicorn`, or `curl localhost:*`. Always verify against the cloud URL (e.g. `curl https://<service>/health`), never localhost. When a backend change needs to take effect, push + redeploy — don't ask the operator to restart a local process.
+
 ## Commands
 
 ```bash

@@ -38,6 +38,9 @@ const createBody = z.object({
       placedOnly: z.boolean().optional(),
     })
     .optional(),
+  // Send a Telegram notification when the run hits a terminal status.
+  // Omitted = true (defaults to ON; user opts out via the UI switch).
+  notifyOnComplete: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -70,6 +73,7 @@ export async function POST(req: Request) {
     cvStrategy: parsed.cvStrategy as never,
     searchSpace: parsed.searchSpace as never,
     dataFilters: parsed.dataFilters,
+    notifyOnComplete: parsed.notifyOnComplete,
   });
 
   // Fire-and-forget kick — don't block the response on the sidecar.

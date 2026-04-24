@@ -103,4 +103,6 @@ export interface CreateRunRequest {
   /** Default = {} = use every settled bet. */
   dataFilters?: DataFiltersJson;
   createdBy?: string;
+  /** Default = true. When true, a Telegram ping fires on terminal status. */
+  notifyOnComplete?: boolean;
 }

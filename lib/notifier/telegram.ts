@@ -29,6 +29,7 @@ import type {
   MatchScoreInfo,
   NotificationChannel,
   NotificationEvent,
+  OptimizerRunCompletedEvent,
   SystemEvent,
 } from "./types";
 import { logger } from "@/lib/shared/logger";
@@ -122,6 +123,8 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatError(event);
     case "system":
       return formatSystem(event);
+    case "optimizer:run_completed":
+      return formatOptimizerRunCompleted(event);
   }
 }
 
@@ -338,6 +341,122 @@ const REASON_CATEGORY_LABEL: Record<
   book_rejection: "book",
   unknown: "unknown",
 };
+
+// --------------------------------------------------------------------
+// optimizer:run_completed
+// --------------------------------------------------------------------
+
+function formatOptimizerRunCompleted(
+  e: OptimizerRunCompletedEvent,
+): FormattedMessage {
+  const statusBadge = (() => {
+    if (e.status === "completed") return "✅ <b>Completed</b>";
+    if (e.status === "failed") return "⚠️ <b>Failed</b>";
+    return "⏹ <b>Cancelled</b>";
+  })();
+
+  const lines: string[] = [];
+  lines.push(`🧪 <b>${esc(e.name)}</b> · ${statusBadge}`);
+  lines.push(`🤖 Algorithm: <b>${esc(formatAlgorithm(e.searchAlgorithm))}</b>`);
+
+  const durWord = e.status === "completed" ? "Finished" : "Stopped";
+  const durLabel = durationLabel(e.durationSec * 1000);
+  lines.push(`⏱ ${durWord} in <b>${esc(durLabel)}</b>`);
+
+  const trialsLine =
+    e.nPareto != null && e.nPareto > 0
+      ? `🧮 Trials: <b>${e.nTrialsDone.toLocaleString()}</b>/${e.nTrialsTarget.toLocaleString()} · <b>${e.nPareto}</b> on Pareto`
+      : `🧮 Trials: <b>${e.nTrialsDone.toLocaleString()}</b>/${e.nTrialsTarget.toLocaleString()}`;
+  lines.push(trialsLine);
+
+  if (typeof e.bestComposite === "number" && Number.isFinite(e.bestComposite)) {
+    lines.push(`🏆 Best composite: <b>${esc(e.bestComposite.toFixed(2))}</b>`);
+  }
+
+  // Best-trial block — only meaningful when the run completed with ≥ 1 trial.
+  if (e.status === "completed" && e.best) {
+    lines.push("───");
+    const b = e.best;
+
+    if (b.roiPct != null && Number.isFinite(b.roiPct)) {
+      const ciSuffix =
+        b.roiCiLow != null &&
+        b.roiCiHigh != null &&
+        Number.isFinite(b.roiCiLow) &&
+        Number.isFinite(b.roiCiHigh)
+          ? `  <i>(95% CI ${esc(signedPct(b.roiCiLow))} → ${esc(signedPct(b.roiCiHigh))})</i>`
+          : "";
+      lines.push(
+        `📈 Best trial ROI: <b>${esc(signedPct(b.roiPct))}</b>${ciSuffix}`,
+      );
+    }
+
+    const riskParts: string[] = [];
+    if (b.sharpe != null && Number.isFinite(b.sharpe)) {
+      riskParts.push(`Sharpe <b>${esc(b.sharpe.toFixed(2))}</b>`);
+    }
+    if (b.sortino != null && Number.isFinite(b.sortino)) {
+      riskParts.push(`Sortino <b>${esc(b.sortino.toFixed(2))}</b>`);
+    }
+    if (b.maxDrawdownPct != null && Number.isFinite(b.maxDrawdownPct)) {
+      riskParts.push(
+        `Max DD <b>${esc(Math.abs(b.maxDrawdownPct).toFixed(1))}%</b>`,
+      );
+    }
+    if (riskParts.length > 0) lines.push(`📊 ${riskParts.join(" · ")}`);
+
+    const robustnessParts: string[] = [];
+    if (b.deflatedSharpe != null && Number.isFinite(b.deflatedSharpe)) {
+      robustnessParts.push(`DSR <b>${esc(b.deflatedSharpe.toFixed(2))}</b>`);
+    }
+    if (
+      b.probabilisticSharpe != null &&
+      Number.isFinite(b.probabilisticSharpe)
+    ) {
+      robustnessParts.push(
+        `PSR <b>${esc(b.probabilisticSharpe.toFixed(2))}</b>`,
+      );
+    }
+    if (b.sampleSize != null && b.sampleSize > 0) {
+      robustnessParts.push(`n=<b>${b.sampleSize.toLocaleString()}</b>`);
+    }
+    if (robustnessParts.length > 0)
+      lines.push(`🛡 ${robustnessParts.join(" · ")}`);
+  }
+
+  // Failure reason — truncated to keep the card readable.
+  if (e.status === "failed" && e.error) {
+    lines.push(`🛑 ${esc(truncate(e.error, 280))}`);
+  }
+
+  // Source: manual vs scheduled.
+  lines.push(`🏷 Source: <code>${esc(e.createdBy || "manual")}</code>`);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  const buttons: InlineKey[] = [];
+  if (e.dashboardUrl)
+    buttons.push({ text: "📊 Open run", url: e.dashboardUrl });
+  if (e.topTrialUrl && e.status === "completed" && e.best) {
+    buttons.push({ text: "🏆 Top trial", url: e.topTrialUrl });
+  }
+
+  return {
+    text: lines.join("\n"),
+    buttons: buttons.length > 0 ? buttons : undefined,
+  };
+}
+
+const ALGORITHM_LABEL: Record<string, string> = {
+  ensemble: "Ensemble",
+  tpe: "TPE (Bayesian)",
+  nsga2: "NSGA-II",
+  random: "Random",
+  "ml-xgboost": "ML / XGBoost",
+};
+
+function formatAlgorithm(algo: string): string {
+  return ALGORITHM_LABEL[algo] ?? algo;
+}
 
 // --------------------------------------------------------------------
 // system

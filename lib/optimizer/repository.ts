@@ -65,6 +65,9 @@ export async function createRun(
       rngSeed,
       cvStrategy,
       dataFilters,
+      // Manual UI runs default to receiving a Telegram ping; scheduled
+      // fires pass through the schedule's own `notify_on_complete`.
+      notifyOnComplete: req.notifyOnComplete ?? true,
       createdBy: req.createdBy ?? null,
     })
     .returning();

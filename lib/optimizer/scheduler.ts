@@ -14,6 +14,7 @@ import { singleton } from "../util/singleton";
 import { startRun } from "./api-client";
 import { runAutoValidation } from "./auto-validation";
 import { recomputeLiveMetrics } from "./live-metrics-aggregator";
+import { processPendingRunNotifications } from "./notifier-tick";
 import { createRun, listQueuedRuns } from "./repository";
 import {
   listDueSchedules,
@@ -72,6 +73,7 @@ async function fireDueSchedules(): Promise<void> {
         cvStrategy: sched.cvStrategy as Partial<CvStrategyJson>,
         searchSpace: sched.searchSpace as SearchSpaceJson,
         dataFilters: sched.dataFilters as DataFiltersJson,
+        notifyOnComplete: sched.notifyOnComplete,
         createdBy: scheduleCreatedBy(sched.id),
       });
       await updateScheduleAfterFire(sched.id, run.id);
@@ -128,7 +130,16 @@ async function tick(): Promise<void> {
     }
   }
 
-  // 4. Kick the sidecar for every queued run.
+  // 4. Telegram notification for runs that just hit a terminal status.
+  //    At-most-once delivery guaranteed by `optimization_runs.notified_at`.
+  try {
+    await processPendingRunNotifications();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(tag, `processPendingRunNotifications failed: ${msg}`);
+  }
+
+  // 5. Kick the sidecar for every queued run.
   try {
     const queued = await listQueuedRuns();
     if (queued.length === 0) return;

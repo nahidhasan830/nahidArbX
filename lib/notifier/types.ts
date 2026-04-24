@@ -10,7 +10,8 @@ export type NotificationEvent =
   | BetPlacedEvent
   | BetSettledEvent
   | BetErrorEvent
-  | SystemEvent;
+  | SystemEvent
+  | OptimizerRunCompletedEvent;
 
 export interface BetPlacedEvent {
   type: "bet:placed";
@@ -156,6 +157,54 @@ export interface SystemEvent {
   at: string;
   severity: "info" | "warn" | "error";
   message: string;
+}
+
+/**
+ * Fired once when an AlphaSearch optimizer run transitions to a terminal
+ * status (`completed | failed | cancelled`). Emitted by the notifier tick
+ * (lib/optimizer/notifier-tick.ts) on a ~10s cadence; the tick stamps
+ * `optimization_runs.notified_at` to guarantee at-most-once delivery.
+ *
+ * The formatter (lib/notifier/telegram.ts) renders this in the repo's strict
+ * one-fact-per-line style with signed percentages so the operator can scan
+ * a run's outcome from the notification without opening the app.
+ */
+export interface OptimizerRunCompletedEvent {
+  type: "optimizer:run_completed";
+  at: string; // ISO — time of emission (= close to notified_at)
+  runId: string;
+  name: string;
+  status: "completed" | "failed" | "cancelled";
+  searchAlgorithm: string; // "ensemble" | "tpe" | "nsga2" | "random" | "ml-xgboost"
+  startedAt: string | null;
+  completedAt: string;
+  durationSec: number;
+  nTrialsDone: number;
+  nTrialsTarget: number;
+  /** Populated for completed runs from the sidecar's summary JSON. */
+  nPareto?: number | null;
+  bestComposite?: number | null;
+  /** Best-trial metrics — null on failure / no trials completed. */
+  best?: {
+    trialId: string;
+    trialIndex?: number | null;
+    roiPct: number | null;
+    roiCiLow: number | null;
+    roiCiHigh: number | null;
+    sharpe: number | null;
+    sortino: number | null;
+    maxDrawdownPct: number | null;
+    deflatedSharpe: number | null;
+    probabilisticSharpe: number | null;
+    sampleSize: number | null;
+  } | null;
+  /** "manual" | `schedule:<schedule_id>`. Copies `created_by` verbatim. */
+  createdBy: string;
+  error?: string | null;
+  /** Deep-link to /lab/alphasearch/<runId>. */
+  dashboardUrl?: string;
+  /** Deep-link to the best trial inside the run detail page. */
+  topTrialUrl?: string;
 }
 
 /**

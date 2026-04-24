@@ -14,6 +14,7 @@ rows never enter memory at all.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 import polars as pl
@@ -169,8 +170,27 @@ def load_settled_bets(
     if not rows:
         return _empty_frame()
 
-    # Polars from list-of-dicts is zero-copy when the values are scalar.
-    df = pl.DataFrame([dict(r) for r in rows])
+    # Coerce `decimal.Decimal` → `float` before handing the list to Polars.
+    #
+    # Postgres NUMERIC(38,4) columns arrive as Python Decimal. If we hand
+    # them to pl.DataFrame() as-is, Polars infers a Decimal(38,4) schema
+    # from the first ~100 rows and the builder then rejects any later row
+    # whose value doesn't fit that exact precision — e.g.
+    #   "could not append value: 2.0100 of type: decimal[38,4] to the
+    #    builder; make sure that all rows have the same schema …"
+    # which was seen on 2026-04-24 in runs with mixed odds/stake scales.
+    #
+    # We'd cast these columns to Float64 on the very next line anyway,
+    # so it's cleaner to do the widening at the row-dict boundary — that
+    # also avoids Polars having to build Decimal arrow chunks at all.
+    def _row(r: Any) -> dict[str, Any]:
+        d = dict(r)
+        for k, v in d.items():
+            if isinstance(v, Decimal):
+                d[k] = float(v)
+        return d
+
+    df = pl.DataFrame([_row(r) for r in rows])
 
     # Coerce types — DECIMAL -> Float64, timestamp strings -> Datetime.
     numeric_cols = [

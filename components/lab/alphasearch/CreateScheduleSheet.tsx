@@ -10,9 +10,10 @@
 
 import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Plus } from "lucide-react";
+import { Bell, BellOff, CalendarClock, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -38,6 +39,7 @@ interface CreatePayload {
   nTrialsTarget: number;
   searchAlgorithm: SearchAlgorithm;
   dataFilters?: DataFiltersJson;
+  notifyOnComplete?: boolean;
 }
 
 const hasFilters = (f: DataFiltersJson): boolean =>
@@ -62,6 +64,7 @@ export function CreateScheduleSheet() {
   });
   const [nTrials, setNTrials] = React.useState(2000);
   const [dataFilters, setDataFilters] = React.useState<DataFiltersJson>({});
+  const [notifyOnComplete, setNotifyOnComplete] = React.useState(true);
 
   const submit = useMutation({
     mutationFn: async (p: CreatePayload) => {
@@ -93,6 +96,7 @@ export function CreateScheduleSheet() {
       nTrialsTarget: nTrials,
       searchAlgorithm: "ensemble",
       dataFilters: hasFilters(dataFilters) ? dataFilters : undefined,
+      notifyOnComplete,
     });
   };
 
@@ -155,6 +159,30 @@ export function CreateScheduleSheet() {
           </div>
 
           <DataFiltersSection value={dataFilters} onChange={setDataFilters} />
+
+          <label className="flex items-start gap-2 text-[11px] cursor-pointer">
+            <Checkbox
+              checked={notifyOnComplete}
+              onCheckedChange={(v) => setNotifyOnComplete(Boolean(v))}
+              className="mt-0.5"
+            />
+            <span className="flex-1">
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                {notifyOnComplete ? (
+                  <Bell className="size-3" />
+                ) : (
+                  <BellOff className="size-3" />
+                )}
+                Notify on complete (Telegram)
+              </span>
+              <span className="block text-[10px] text-muted-foreground mt-0.5">
+                Each fired run pings your Telegram chat when it finishes — so
+                you don&apos;t miss an overnight sweep. Needs{" "}
+                <code>TELEGRAM_BOT_TOKEN</code> + <code>TELEGRAM_CHAT_ID</code>{" "}
+                in <code>.env</code>.
+              </span>
+            </span>
+          </label>
         </div>
 
         <SheetFooter>
