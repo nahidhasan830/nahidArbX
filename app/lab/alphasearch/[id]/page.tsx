@@ -19,7 +19,7 @@
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, ChevronLeft, Lightbulb, X } from "lucide-react";
+import { ChevronLeft, Lightbulb, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/nav/AppShell";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { TermTooltip } from "@/components/ui/TermTooltip";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { RunStatusBadge } from "@/components/lab/alphasearch/RunStatusBadge";
+import { RunProgressPanel } from "@/components/lab/alphasearch/RunProgressPanel";
 import { ParetoScatter } from "@/components/lab/alphasearch/ParetoScatter";
 import { TrialsTable } from "@/components/lab/alphasearch/TrialsTable";
 import { TrialDrawer } from "@/components/lab/alphasearch/TrialDrawer";
@@ -159,11 +160,21 @@ export default function RunDetailPage({
             }
           />
 
-          {/* Row 2 — progress + error */}
-          <div className="space-y-3">
+          {/* Row 2 — live pipeline panel while running / queued / early
+              failure. Hidden for completed + cancelled runs where the
+              main canvas is the useful thing to show. */}
+          {(run.status === "queued" ||
+            run.status === "running" ||
+            run.status === "failed") && (
+            <RunProgressPanel run={run} trialsCompleted={trials.length} />
+          )}
+
+          {/* Compact progress bar kept for quick-glance context on
+              completed/cancelled runs (the progress panel replaces it
+              during active runs). */}
+          {(run.status === "completed" || run.status === "cancelled") && (
             <Progress value={pct} className="h-2" />
-            {run.error && <ErrorCard message={run.error} />}
-          </div>
+          )}
 
           {/* Row 3 — main canvas: left (charts/table) + right (side panel) */}
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
@@ -328,22 +339,6 @@ function Stat({
         className={`text-base font-semibold truncate ${mono ? "tabular-nums" : ""}`}
       >
         {children}
-      </div>
-    </div>
-  );
-}
-
-// ── Row 2 — error card ───────────────────────────────────────────────────
-
-function ErrorCard({ message }: { message: string }) {
-  return (
-    <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 flex items-start gap-2.5 text-[11px] text-red-600 dark:text-red-400">
-      <AlertCircle className="size-4 shrink-0 mt-0.5" />
-      <div className="space-y-1 min-w-0">
-        <p className="font-semibold text-red-700 dark:text-red-300">
-          Run failed
-        </p>
-        <p className="leading-relaxed break-words">{message}</p>
       </div>
     </div>
   );

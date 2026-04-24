@@ -370,23 +370,31 @@
 }
 
 .dark {
-  /* Main background — kept deep for the content area */
-  --background: oklch(0.13 0.008 250);
-  --foreground: oklch(0.93 0.005 250);
-  /* Card surfaces are subtly elevated from the background */
-  --card: oklch(0.17 0.008 250);
-  --card-foreground: oklch(0.93 0.005 250);
-  --popover: oklch(0.17 0.008 250);
-  --popover-foreground: oklch(0.93 0.005 250);
-  /* Primary is now a warm off-white, not pure white */
-  --primary: oklch(0.9 0.005 250);
-  --primary-foreground: oklch(0.17 0.008 250);
-  --secondary: oklch(0.22 0.008 250);
-  --secondary-foreground: oklch(0.93 0.005 250);
-  --muted: oklch(0.22 0.008 250);
-  --muted-foreground: oklch(0.6 0.015 250);
-  --accent: oklch(0.22 0.008 250);
-  --accent-foreground: oklch(0.93 0.005 250);
+  /* Eye-comfort dark theme — tuned 2026-04-24 after feedback that
+     pure-white text on near-black was tiring. Targets the Linear /
+     IBM-Carbon zone: foreground ~0.87L (warm off-white, not pure
+     white), background ~0.14L (noticeably not pure black), card lifted
+     ~0.045L for clear depth without glare. Keep a subtle blue chroma
+     (0.008-0.015) so the palette reads "cool night" rather than sepia. */
+
+  /* Main background — slightly lifted from near-black */
+  --background: oklch(0.14 0.008 250);
+  /* Foreground — warm off-white, markedly softer than pure white */
+  --foreground: oklch(0.87 0.006 250);
+  /* Card surfaces elevate ~0.045L from the background */
+  --card: oklch(0.185 0.008 250);
+  --card-foreground: oklch(0.87 0.006 250);
+  --popover: oklch(0.185 0.008 250);
+  --popover-foreground: oklch(0.87 0.006 250);
+  /* Primary (buttons, accents) — warm off-white, clearly not pure */
+  --primary: oklch(0.84 0.006 250);
+  --primary-foreground: oklch(0.18 0.008 250);
+  --secondary: oklch(0.23 0.008 250);
+  --secondary-foreground: oklch(0.87 0.006 250);
+  --muted: oklch(0.23 0.008 250);
+  --muted-foreground: oklch(0.64 0.014 250);
+  --accent: oklch(0.23 0.008 250);
+  --accent-foreground: oklch(0.87 0.006 250);
   --destructive: oklch(0.704 0.191 22.216);
   /* Dark-mode variants of the dashboard semantic palette. The
      loss/danger tone is the one the operator complained about:

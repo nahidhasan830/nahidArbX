@@ -247,8 +247,8 @@ export function SubmitRunSheet() {
           // Fixed envelope — identical dimensions on every step so the
           // modal never resizes or jumps when switching.
           "p-0 gap-0 overflow-hidden",
-          "w-[min(960px,95vw)] max-w-[960px] h-[min(640px,90vh)]",
-          "grid grid-cols-[280px_1fr]",
+          "w-[min(1080px,95vw)] max-w-[1080px] h-[min(720px,92vh)]",
+          "grid grid-cols-[300px_1fr]",
         )}
       >
         <LeftRail
@@ -346,9 +346,9 @@ function LeftRail({
 
   return (
     <aside className="border-r border-border/60 bg-muted/30 flex flex-col min-h-0">
-      <div className="px-5 pt-5 pb-4 border-b border-border/60 flex items-center gap-2">
+      <div className="px-5 pt-5 pb-4 border-b border-border/60 flex items-center gap-2.5">
         <Sparkles className="size-4 text-primary" aria-hidden />
-        <span className="text-sm font-semibold">New run</span>
+        <span className="text-base font-semibold">New run</span>
       </div>
 
       <ol className="flex flex-col gap-1 p-3">
@@ -362,14 +362,14 @@ function LeftRail({
                 type="button"
                 onClick={() => onJump(s.id)}
                 className={cn(
-                  "w-full flex items-start gap-3 text-left rounded-md px-2.5 py-2 transition-colors",
+                  "w-full flex items-start gap-3 text-left rounded-md px-2.5 py-2.5 transition-colors",
                   active && "bg-background shadow-sm",
                   !active && "hover:bg-background/60",
                 )}
               >
                 <span
                   className={cn(
-                    "mt-0.5 inline-flex items-center justify-center size-6 rounded-full text-[11px] font-semibold border shrink-0 transition-colors",
+                    "mt-0.5 inline-flex items-center justify-center size-7 rounded-full text-xs font-semibold border shrink-0 transition-colors",
                     active &&
                       "bg-primary text-primary-foreground border-primary",
                     completed && "bg-emerald-500 text-white border-emerald-500",
@@ -379,21 +379,21 @@ function LeftRail({
                   )}
                 >
                   {completed ? (
-                    <Check className="size-3.5" />
+                    <Check className="size-4" />
                   ) : (
-                    <Icon className="size-3.5" />
+                    <Icon className="size-4" />
                   )}
                 </span>
                 <span className="flex-1 min-w-0">
                   <span
                     className={cn(
-                      "block text-xs font-semibold leading-tight",
+                      "block text-sm font-semibold leading-tight",
                       active ? "text-foreground" : "text-foreground/90",
                     )}
                   >
                     {s.id}. {s.label}
                   </span>
-                  <span className="block text-[10px] text-muted-foreground leading-snug mt-0.5">
+                  <span className="block text-xs text-muted-foreground leading-snug mt-0.5">
                     {s.caption}
                   </span>
                 </span>
@@ -405,8 +405,8 @@ function LeftRail({
 
       <div className="border-t border-border/60 mx-3" />
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2.5 min-h-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Current setup
         </p>
         <SummaryLine label="Name" value={name} />
@@ -419,11 +419,11 @@ function LeftRail({
           value={
             notifyOnComplete ? (
               <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                <Bell className="size-3" /> On
+                <Bell className="size-3.5" /> On
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <BellOff className="size-3" /> Off
+                <BellOff className="size-3.5" /> Off
               </span>
             )
           }
@@ -444,12 +444,12 @@ function SummaryLine({
 }) {
   return (
     <div className="flex items-start justify-between gap-2">
-      <span className="text-[10px] text-muted-foreground shrink-0 w-[60px] pt-0.5">
+      <span className="text-xs text-muted-foreground shrink-0 w-[68px] pt-0.5">
         {label}
       </span>
       <span
         className={cn(
-          "text-[11px] font-medium text-right flex-1 min-w-0 break-words",
+          "text-xs font-medium text-right flex-1 min-w-0 break-words",
           mono && "tabular-nums",
         )}
       >
@@ -479,14 +479,14 @@ function summariseScope(f: DataFiltersJson): string {
 
 function StepHeader({ step }: { step: StepId }) {
   return (
-    <header className="px-7 pt-5 pb-4 border-b border-border/60 shrink-0">
-      <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+    <header className="px-8 pt-6 pb-4 border-b border-border/60 shrink-0">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Step {step} of {STEPS.length}
       </div>
-      <h2 className="text-lg font-semibold leading-tight mt-0.5">
+      <h2 className="text-xl font-semibold leading-tight mt-1">
         {STEP_TITLE[step]}
       </h2>
-      <p className="text-xs text-muted-foreground leading-relaxed mt-1 max-w-[580px]">
+      <p className="text-sm text-muted-foreground leading-relaxed mt-1.5 max-w-[640px]">
         {STEP_SUBTITLE[step]}
       </p>
     </header>
@@ -575,19 +575,15 @@ function StepBasics({
   setNTrials: (v: number) => void;
 }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <Field label="Run name">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="h-9 text-sm"
+          className="h-10 text-sm"
           placeholder="e.g. Weekly production sweep"
           autoFocus
         />
-        <FieldHint>
-          Shown in the runs list and in Telegram notifications — pick something
-          you&apos;ll recognise later.
-        </FieldHint>
       </Field>
 
       <Field
@@ -597,15 +593,14 @@ function StepBasics({
           </span>
         }
       >
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2.5">
           {ALGOS.map((a) => (
-            <ChoiceCard
+            <CompactChoiceCard
               key={a.value}
               selected={algorithm === a.value}
               onSelect={() => setAlgorithm(a.value)}
               label={a.label}
               tagline={a.tagline}
-              help={a.help}
               term={a.term}
               recommended={a.recommended}
             />
@@ -619,7 +614,7 @@ function StepBasics({
             <span className="inline-flex items-center gap-1.5">
               <TermTooltip term="trial">Number of trials</TermTooltip>
             </span>
-            <span className="text-sm font-semibold tabular-nums">
+            <span className="text-base font-semibold tabular-nums">
               {nTrials.toLocaleString()}
             </span>
           </div>
@@ -631,16 +626,15 @@ function StepBasics({
           step={100}
           value={[nTrials]}
           onValueChange={(v) => setNTrials(v[0])}
+          className="py-1"
         />
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+        <div className="flex items-center justify-between text-xs text-muted-foreground tabular-nums">
           <span>100</span>
-          <span>2,000 (recommended)</span>
+          <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+            2,000 recommended
+          </span>
           <span>10,000</span>
         </div>
-        <FieldHint>
-          More trials = better coverage, longer runtime. 2,000 is the empirical
-          sweet spot for ~1,000 historical bets.
-        </FieldHint>
       </Field>
     </div>
   );
@@ -843,21 +837,81 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="text-xs font-semibold text-foreground">{label}</div>
+    <div className="space-y-2.5">
+      <div className="text-sm font-semibold text-foreground">{label}</div>
       <div className="space-y-2">{children}</div>
     </div>
   );
 }
 
-function FieldHint({ children }: { children: React.ReactNode }) {
+/**
+ * Compact selectable card — used in the 3-col algorithm grid. Shows
+ * label + tagline + optional "Recommended" pill; full help text is one
+ * click away on the TermTooltip info icon in the corner.
+ */
+function CompactChoiceCard({
+  selected,
+  onSelect,
+  label,
+  tagline,
+  term,
+  recommended,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  label: string;
+  tagline: string;
+  term: TermId;
+  recommended?: boolean;
+}) {
   return (
-    <p className="text-[11px] text-muted-foreground leading-relaxed">
-      {children}
-    </p>
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "relative text-left rounded-lg border transition-all p-3 flex flex-col gap-1 group",
+        selected
+          ? "border-primary bg-primary/5 shadow-sm"
+          : "border-border bg-card hover:border-foreground/30 hover:bg-muted/30",
+      )}
+    >
+      <div className="flex items-start justify-between gap-1.5">
+        <span className="font-semibold text-sm leading-tight">{label}</span>
+        <span
+          aria-hidden
+          className={cn(
+            "shrink-0 mt-0.5 size-4 rounded-full border-2 flex items-center justify-center transition-colors",
+            selected
+              ? "border-primary bg-primary"
+              : "border-muted-foreground/40 group-hover:border-foreground/60",
+          )}
+        >
+          {selected && (
+            <span className="size-1.5 rounded-full bg-primary-foreground" />
+          )}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground leading-snug line-clamp-2 min-h-[32px]">
+        {tagline}
+      </p>
+      <div className="flex items-center justify-between pt-0.5">
+        {recommended ? (
+          <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+            Recommended
+          </span>
+        ) : (
+          <span aria-hidden />
+        )}
+        <TermTooltip term={term} iconOnly />
+      </div>
+    </button>
   );
 }
 
+/**
+ * Larger selectable card for the 2-card CV picker where there's space
+ * for a full help blurb inline.
+ */
 function ChoiceCard({
   selected,
   onSelect,
@@ -882,8 +936,8 @@ function ChoiceCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        "relative text-left rounded-lg border transition-all p-3 flex flex-col gap-1.5 group",
-        large && "p-4 gap-2",
+        "relative text-left rounded-lg border transition-all p-4 flex flex-col gap-2 group",
+        large && "p-5 gap-2.5",
         selected
           ? "border-primary bg-primary/5 shadow-sm"
           : "border-border bg-card hover:border-foreground/30 hover:bg-muted/30",
@@ -892,30 +946,30 @@ function ChoiceCard({
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm">{label}</span>
+            <span className="font-semibold text-base">{label}</span>
             {recommended && (
-              <span className="inline-flex items-center rounded-full px-1.5 py-px text-[9px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                 Recommended
               </span>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground mt-0.5">{tagline}</p>
+          <p className="text-sm text-muted-foreground mt-1">{tagline}</p>
         </div>
         <span
           aria-hidden
           className={cn(
-            "shrink-0 mt-0.5 size-4 rounded-full border-2 flex items-center justify-center transition-colors",
+            "shrink-0 mt-0.5 size-5 rounded-full border-2 flex items-center justify-center transition-colors",
             selected
               ? "border-primary bg-primary"
               : "border-muted-foreground/40 group-hover:border-foreground/60",
           )}
         >
           {selected && (
-            <span className="size-1.5 rounded-full bg-primary-foreground" />
+            <span className="size-2 rounded-full bg-primary-foreground" />
           )}
         </span>
       </div>
-      <p className="text-[11px] text-muted-foreground leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         {help} <TermTooltip term={term} iconOnly />
       </p>
     </button>

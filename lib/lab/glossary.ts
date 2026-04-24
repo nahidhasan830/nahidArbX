@@ -62,14 +62,14 @@ export const GLOSSARY = {
   // ── CV + bootstrap ─────────────────────────────────────────────────────
   cpcv: {
     short:
-      "Combinatorial Purged Cross-Validation — splits your bets into time-respecting train/test groups.",
-    long: "From 10 groups with 2 test groups, CPCV produces 45 out-of-sample paths (vs 3-5 with simple walk-forward). More OOS paths = more reliable result. From López de Prado's 'Advances in Financial Machine Learning'.",
+      "CPCV — splits your bets into chunks, then tests the rule on every chunk it wasn't trained on.",
+    long: "Think of it like marking an exam: you hide 2 out of 10 chapters, teach on the other 8, then test on the hidden 2 — and you do that for every possible hide-2 combination. 10 groups × 2 test = 45 mini-exams (OOS paths). More mini-exams → more confidence the rule's edge is real, not luck. Our default.",
     learnMoreHref: "/docs/alphasearch.md#cpcv",
   },
   walkforward: {
     short:
-      "Walk-Forward Analysis — train on a window, test on the next window, slide forward.",
-    long: "The classic time-series CV. Simpler than CPCV but produces fewer OOS estimates. Good for sanity-checking CPCV results.",
+      "Walk-forward — train on old bets, test on newer bets, slide the window forward in time.",
+    long: "Example: train on Jan-Jun, test on Jul. Then train on Feb-Jul, test on Aug. Closer to how you'd actually deploy a live strategy, but gives you fewer test points than CPCV. Use it to sanity-check a CPCV result.",
     learnMoreHref: "/docs/alphasearch.md#walkforward",
   },
   embargo: {
@@ -151,24 +151,24 @@ export const GLOSSARY = {
   random_search: {
     short:
       "Random Search — samples configurations uniformly from the search space.",
-    long: "Provably better than grid search above 5 dimensions (Bergstra & Bengio 2012). Gives unbiased coverage as a baseline.",
+    long: "Think of it as throwing darts at the board. Every spot is equally likely. Surprisingly hard to beat when you only have time for a few hundred trials. Use it as a baseline to check that fancier methods actually help.",
   },
   tpe: {
     short:
-      "Tree-Structured Parzen Estimator — Bayesian optimizer that learns where good configs cluster.",
-    long: "Converges 5-10× faster than random in high-dim spaces. Optuna's default sampler.",
+      "TPE — Bayesian sampler that learns where good configs cluster, then focuses there.",
+    long: "Imagine searching for the best seat in a cinema: the first few trials are random, but once TPE sees which rows had good views it keeps picking seats nearby. Converges 5-10× faster than random in high-dim spaces. Optuna's default sampler.",
     learnMoreHref: "/docs/alphasearch.md#tpe",
   },
   nsga2: {
     short:
-      "NSGA-II — multi-objective genetic algorithm; returns the Pareto frontier directly.",
-    long: "Best when you have multiple competing objectives (ROI vs drawdown). Phase 2.",
+      "NSGA-II — multi-objective optimizer; returns the full Pareto frontier instead of one winner.",
+    long: "Use it when you want to compare trade-offs: e.g. 'show me the configs with the highest ROI for each drawdown budget'. Slower than TPE because it has to explore the whole frontier, not just one peak.",
     learnMoreHref: "/docs/alphasearch.md#nsga2",
   },
   ensemble: {
     short:
-      "Runs random + TPE (+ NSGA-II) under one study — best of all worlds.",
-    long: "Random gives baseline coverage; TPE refines; NSGA-II finds the frontier. The recommended default.",
+      "Ensemble — runs random + TPE together, picks the winner. Best default for most runs.",
+    long: "You get unbiased coverage from random AND focused refinement from TPE without having to choose. For a weekly production sweep on ~1k bets this is almost always what you want.",
     learnMoreHref: "/docs/alphasearch.md#ensemble",
   },
   ml_xgboost: {
@@ -180,12 +180,13 @@ export const GLOSSARY = {
 
   // ── Status + lifecycle ────────────────────────────────────────────────
   trial: {
-    short: "One sampled configuration evaluated across every CV fold.",
+    short: "One candidate strategy — the optimizer tries it out on your data.",
+    long: "Each trial is a complete recipe: 'EV ≥ 3%, max odds 4.0, Kelly fraction 0.25, …'. The optimizer scores each recipe on every CV fold and keeps the best ones. 2,000 trials ≈ 2,000 different recipes tried.",
   },
   search_space: {
     short:
-      "The set of dimensions you let the optimizer tune, with bounds for each.",
-    long: "Bigger = more exploration but more overfitting risk. Default is 11 dimensions; you can disable any of them per run.",
+      "The menu of knobs the optimizer is allowed to turn, and how far each one goes.",
+    long: "Example: 'EV cutoff between 1% and 5%, Kelly fraction between 0.1 and 0.5, minimum odds age between 30s and 300s'. Bigger menu = more ground to cover but higher risk of fitting to noise. 11 dimensions by default.",
   },
   data_scope: {
     short:
