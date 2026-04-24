@@ -561,6 +561,7 @@ export function getSuspiciousStore(): SuspiciousMatchStore {
 
 import * as fs from "fs";
 import * as path from "path";
+import { logger } from "../../shared/logger";
 
 const DATA_DIR = path.join(process.cwd(), "data", "gemini");
 const SUSPICIOUS_FILE = path.join(DATA_DIR, "suspicious-matches.json");
@@ -575,7 +576,7 @@ export function saveSuspiciousStore(): void {
     }
     fs.writeFileSync(SUSPICIOUS_FILE, JSON.stringify(data, null, 2));
   } catch (error) {
-    console.error("[SuspiciousStore] Failed to save:", error);
+    logger.error("SuspiciousStore", "Failed to save", error);
   }
 }
 
@@ -585,9 +586,9 @@ export function loadSuspiciousStore(): void {
       const content = fs.readFileSync(SUSPICIOUS_FILE, "utf-8");
       const data = JSON.parse(content);
       getSuspiciousStore().import(data);
-      console.log("[SuspiciousStore] Loaded from disk");
+      logger.info("SuspiciousStore", "Loaded from disk");
     }
   } catch (error) {
-    console.error("[SuspiciousStore] Failed to load:", error);
+    logger.error("SuspiciousStore", "Failed to load", error);
   }
 }

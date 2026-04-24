@@ -9,21 +9,25 @@ import { PROVIDER_IDS, type ProviderKey } from "@/lib/providers/registry";
 // ============================================
 
 export type TimeFilter = "all" | "live" | "upcoming";
-export type SortMode = "default" | "priority" | "ev" | "kelly" | "freshness";
+
+/** Click-to-sort columns on the value-bets table. */
+export type TableSortKey = "ko" | "ev" | "kelly" | "captured";
+export type TableSortDir = "asc" | "desc";
+export interface TableSort {
+  key: TableSortKey | null;
+  dir: TableSortDir;
+}
 
 // Serializable snapshot of all filter settings (for saving as user defaults)
 export interface SavedDefaults {
   selectedProviders: string[];
-  hiddenColumns: string[];
   showOnlyValue: boolean;
   showOnlySuspicious: boolean;
   minProviderCount: number;
   minEvPct: number;
   timeFilter: TimeFilter;
   suspiciousThresholdPct: number;
-  sortMode: SortMode;
-  filterHighEv: boolean;
-  maxEvPctFilter: number;
+  tableSort: TableSort;
   selectedMarketTypes: string[];
   evRangeMin: number;
   evRangeMax: number;
@@ -35,16 +39,13 @@ export interface SavedDefaults {
 // System defaults — used when user has no saved defaults
 const SYSTEM_DEFAULTS: SavedDefaults = {
   selectedProviders: [...PROVIDER_IDS],
-  hiddenColumns: ["competition", "best"],
   showOnlyValue: true,
   showOnlySuspicious: false,
   minProviderCount: 2,
   minEvPct: 2.0,
   timeFilter: "all",
   suspiciousThresholdPct: 30,
-  sortMode: "priority",
-  filterHighEv: true,
-  maxEvPctFilter: 15,
+  tableSort: { key: "ev", dir: "desc" },
   selectedMarketTypes: [],
   evRangeMin: 0,
   evRangeMax: 100,
@@ -60,12 +61,6 @@ export interface BulkAnalysisPreferences {
   toggleProvider: (providerId: ProviderKey) => void;
   selectAllProviders: () => void;
   deselectAllProviders: () => void;
-
-  // Column visibility (which columns to show in spreadsheet)
-  hiddenColumns: Set<string>;
-  toggleColumnVisibility: (columnId: string) => void;
-  showAllColumns: () => void;
-  isColumnVisible: (columnId: string) => boolean;
 
   // Filters
   showOnlyValue: boolean;
@@ -88,13 +83,10 @@ export interface BulkAnalysisPreferences {
   suspiciousThresholdPct: number;
   setSuspiciousThresholdPct: (value: number) => void;
 
-  // Sorting (for value bets)
-  sortMode: SortMode;
-  setSortMode: (mode: SortMode) => void;
-  filterHighEv: boolean;
-  setFilterHighEv: (value: boolean) => void;
-  maxEvPctFilter: number;
-  setMaxEvPctFilter: (value: number) => void;
+  // Column-level click-to-sort
+  tableSort: TableSort;
+  setTableSort: (sort: TableSort) => void;
+  cycleTableSort: (key: TableSortKey) => void;
 
   // Value bet filters (server-side)
   evRangeMin: number;
@@ -143,12 +135,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     string[]
   >("bulk-analysis-selected-providers", [...PROVIDER_IDS]);
 
-  // Column visibility (persisted)
-  const [hiddenColumnsArray, setHiddenColumnsArray] = useLocalStorage<string[]>(
-    "bulk-analysis-hidden-columns",
-    ["competition", "best"],
-  );
-
   // Filters (persisted)
   const [showOnlyValue, setShowOnlyValue] = useLocalStorage<boolean>(
     "bulk-analysis-value-only",
@@ -173,18 +159,23 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const [suspiciousThresholdPct, setSuspiciousThresholdPct] =
     useLocalStorage<number>("bulk-analysis-suspicious-threshold", 30);
 
-  // Sorting preferences (persisted)
-  const [sortMode, setSortMode] = useLocalStorage<SortMode>(
-    "bulk-analysis-sort-mode",
-    "priority", // Default to priority scoring for value betting
+  // Click-to-sort state for the spreadsheet headers. Persisted so the user's
+  // chosen column sort survives reload.
+  const [tableSort, setTableSort] = useLocalStorage<TableSort>(
+    "bulk-analysis-table-sort",
+    { key: "ev", dir: "desc" },
   );
-  const [filterHighEv, setFilterHighEv] = useLocalStorage<boolean>(
-    "bulk-analysis-filter-high-ev",
-    true, // Default to filtering suspicious high EV
-  );
-  const [maxEvPctFilter, setMaxEvPctFilter] = useLocalStorage<number>(
-    "bulk-analysis-max-ev-filter",
-    15, // Default 15% threshold
+
+  // Click a column to cycle through desc → asc → null.
+  const cycleTableSort = useCallback(
+    (key: TableSortKey) => {
+      setTableSort((prev) => {
+        if (prev.key !== key) return { key, dir: "desc" };
+        if (prev.dir === "desc") return { key, dir: "asc" };
+        return { key: null, dir: "desc" };
+      });
+    },
+    [setTableSort],
   );
 
   // Selected market types (persisted) - empty array means "all"
@@ -235,11 +226,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     [selectedProvidersArray],
   );
 
-  const hiddenColumns = useMemo(
-    () => new Set(hiddenColumnsArray),
-    [hiddenColumnsArray],
-  );
-
   const selectedMarketTypes = useMemo(
     () => new Set(selectedMarketTypesArray),
     [selectedMarketTypesArray],
@@ -280,31 +266,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const deselectAllProviders = useCallback(() => {
     setSelectedProvidersArray([]);
   }, [setSelectedProvidersArray]);
-
-  // Column visibility actions
-  const toggleColumnVisibility = useCallback(
-    (columnId: string) => {
-      setHiddenColumnsArray((prev) => {
-        const set = new Set(prev);
-        if (set.has(columnId)) {
-          set.delete(columnId);
-        } else {
-          set.add(columnId);
-        }
-        return [...set];
-      });
-    },
-    [setHiddenColumnsArray],
-  );
-
-  const showAllColumns = useCallback(() => {
-    setHiddenColumnsArray([]);
-  }, [setHiddenColumnsArray]);
-
-  const isColumnVisible = useCallback(
-    (columnId: string) => !hiddenColumns.has(columnId),
-    [hiddenColumns],
-  );
 
   // Market type selection actions
   const setSelectedMarketTypes = useCallback(
@@ -414,11 +375,8 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setTimeFilter(d.timeFilter);
     setSelectedMarketTypesArray(d.selectedMarketTypes);
     setSelectedProvidersArray(d.selectedProviders);
-    setHiddenColumnsArray(d.hiddenColumns);
     deselectAllRows();
-    setSortMode(d.sortMode);
-    setFilterHighEv(d.filterHighEv);
-    setMaxEvPctFilter(d.maxEvPctFilter);
+    setTableSort(d.tableSort ?? { key: "ev", dir: "desc" });
     setEvRangeMin(d.evRangeMin);
     setEvRangeMax(d.evRangeMax);
     setSoftOddsRangeMin(d.softOddsRangeMin);
@@ -433,21 +391,18 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setSuspiciousThresholdPct,
     setTimeFilter,
     setSelectedProvidersArray,
-    setHiddenColumnsArray,
     setSelectedMarketTypesArray,
-    setSortMode,
-    setFilterHighEv,
-    setMaxEvPctFilter,
+    setTableSort,
     setEvRangeMin,
     setEvRangeMax,
     setSoftOddsRangeMin,
     setSoftOddsRangeMax,
     setSelectedSoftProvidersArray,
+    deselectAllRows,
   ]);
 
   const hasActiveFilters = useMemo(() => {
     const d = activeDefaults;
-    const defaultHiddenColumns = new Set(d.hiddenColumns);
     const defaultProviders = new Set(d.selectedProviders);
     const defaultMarketTypes = new Set(d.selectedMarketTypes);
     const defaultSoftProviders = new Set(d.selectedSoftProviders);
@@ -465,10 +420,8 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
       timeFilter !== d.timeFilter ||
       !setsEqual(selectedMarketTypes, defaultMarketTypes) ||
       !setsEqual(selectedProviders as Set<string>, defaultProviders) ||
-      !setsEqual(hiddenColumns, defaultHiddenColumns) ||
-      sortMode !== d.sortMode ||
-      filterHighEv !== d.filterHighEv ||
-      maxEvPctFilter !== d.maxEvPctFilter ||
+      tableSort.key !== (d.tableSort?.key ?? "ev") ||
+      tableSort.dir !== (d.tableSort?.dir ?? "desc") ||
       evRangeMin !== d.evRangeMin ||
       evRangeMax !== d.evRangeMax ||
       softOddsRangeMin !== d.softOddsRangeMin ||
@@ -486,10 +439,7 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     timeFilter,
     selectedMarketTypes,
     selectedProviders,
-    hiddenColumns,
-    sortMode,
-    filterHighEv,
-    maxEvPctFilter,
+    tableSort,
     evRangeMin,
     evRangeMax,
     softOddsRangeMin,
@@ -501,16 +451,13 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const saveCurrentAsDefault = useCallback(() => {
     setSavedDefaults({
       selectedProviders: selectedProvidersArray,
-      hiddenColumns: hiddenColumnsArray,
       showOnlyValue,
       showOnlySuspicious,
       minProviderCount,
       minEvPct,
       timeFilter,
       suspiciousThresholdPct,
-      sortMode,
-      filterHighEv,
-      maxEvPctFilter,
+      tableSort,
       selectedMarketTypes: selectedMarketTypesArray,
       evRangeMin,
       evRangeMax,
@@ -521,16 +468,13 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   }, [
     setSavedDefaults,
     selectedProvidersArray,
-    hiddenColumnsArray,
     showOnlyValue,
     showOnlySuspicious,
     minProviderCount,
     minEvPct,
     timeFilter,
     suspiciousThresholdPct,
-    sortMode,
-    filterHighEv,
-    maxEvPctFilter,
+    tableSort,
     selectedMarketTypesArray,
     evRangeMin,
     evRangeMax,
@@ -554,12 +498,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     selectAllProviders,
     deselectAllProviders,
 
-    // Column visibility
-    hiddenColumns,
-    toggleColumnVisibility,
-    showAllColumns,
-    isColumnVisible,
-
     // Filters
     showOnlyValue,
     setShowOnlyValue,
@@ -581,13 +519,10 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     suspiciousThresholdPct,
     setSuspiciousThresholdPct,
 
-    // Sorting
-    sortMode,
-    setSortMode,
-    filterHighEv,
-    setFilterHighEv,
-    maxEvPctFilter,
-    setMaxEvPctFilter,
+    // Column-level click-to-sort
+    tableSort,
+    setTableSort,
+    cycleTableSort,
 
     // Value bet filters (server-side)
     evRangeMin,

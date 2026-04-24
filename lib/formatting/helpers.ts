@@ -26,6 +26,20 @@ export function fmtDateTime(iso: string): string {
 }
 
 /**
+ * Format elapsed time since `iso` as a terse badge: "now", "Nm", "Nh", "Nd".
+ * Intended for table cells like "Seen" / "Settled" where a one-glance age
+ * matters more than precision. For future-facing "in Xm" use `fmtRelative`.
+ */
+export function fmtSeen(iso: string): string {
+  const d = new Date(iso);
+  const diffMin = (Date.now() - d.getTime()) / 60000;
+  if (diffMin < 1) return "now";
+  if (diffMin < 60) return `${Math.floor(diffMin)}m`;
+  if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h`;
+  return `${Math.floor(diffMin / 1440)}d`;
+}
+
+/**
  * Format a relative time duration.
  * e.g., 60000ms → "1m", 3600000ms → "1h"
  */

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { RecentBet } from "@/app/api/betting-accounts/recent-bets/route";
+import type { RecentBet } from "@/app/api/accounts/recent-bets/route";
 
 export interface RecentBetsModalProps {
   open: boolean;

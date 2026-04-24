@@ -12,7 +12,6 @@ import {
 } from "@/lib/providers/registry";
 import { getPriorityScore } from "@/lib/atoms/priority-score";
 import { eventLabel } from "@/lib/formatting/event-label";
-import type { SortMode } from "@/components/hooks/useBulkAnalysisPreferences";
 
 // ============================================
 // Types
@@ -146,7 +145,7 @@ export interface DisplayScore {
   awayRedCards: number;
 }
 
-export interface BulkEventResult {
+export interface ValueBetEvent {
   eventId: string;
   homeTeam: string;
   awayTeam: string;
@@ -174,10 +173,6 @@ export interface TransformOptions {
   selectedMarketTypes?: Set<string>; // Empty set means "all"
   timeFilter?: TimeFilter;
   suspiciousThresholdPct?: number; // Default 30 (ratio > 1.3)
-  // Sorting options
-  sortMode?: SortMode; // How to sort value bets (default "priority")
-  filterHighEv?: boolean; // Filter out EV > maxEvPctFilter (default true)
-  maxEvPctFilter?: number; // Max EV% threshold for filtering (default 15)
 }
 
 // ============================================
@@ -188,7 +183,7 @@ export interface TransformOptions {
  * Transform hierarchical bulk results to flat spreadsheet rows
  */
 export function transformToSpreadsheetRows(
-  events: BulkEventResult[],
+  events: ValueBetEvent[],
   options: TransformOptions = {},
 ): SpreadsheetRow[] {
   const {
@@ -200,9 +195,6 @@ export function transformToSpreadsheetRows(
     selectedMarketTypes = new Set<string>(), // Empty set means "all"
     timeFilter = "all",
     suspiciousThresholdPct = 30,
-    sortMode = "priority",
-    filterHighEv = true,
-    maxEvPctFilter = 15,
   } = options;
 
   const rows: SpreadsheetRow[] = [];
@@ -273,14 +265,6 @@ export function transformToSpreadsheetRows(
 
         // Filter by value bet if showOnlyValue is on
         if (showOnlyValue && !hasValue) continue;
-
-        // Filter out high EV bets (potential palpable errors)
-        if (
-          filterHighEv &&
-          hasValue &&
-          (atom.valueBet?.evPct ?? 0) > maxEvPctFilter
-        )
-          continue;
 
         // Build odds record with only selected providers
         const odds: Partial<Record<ProviderKey, AtomOddsData>> = {};
@@ -386,53 +370,15 @@ export function transformToSpreadsheetRows(
     }
   }
 
-  // Apply sorting based on sortMode
-  return sortSpreadsheetRows(rows, sortMode);
-}
-
-/**
- * Sort spreadsheet rows based on sort mode
- */
-function sortSpreadsheetRows(
-  rows: SpreadsheetRow[],
-  sortMode: SortMode,
-): SpreadsheetRow[] {
-  if (sortMode === "default") {
-    return rows; // Keep original order (grouped by event/family)
-  }
-
-  return [...rows].sort((a, b) => {
-    switch (sortMode) {
-      case "priority":
-        return (b.priorityScore ?? 0) - (a.priorityScore ?? 0);
-      case "ev":
-        return (b.evPct ?? 0) - (a.evPct ?? 0);
-      case "kelly":
-        return (b.kellyStake ?? 0) - (a.kellyStake ?? 0);
-      case "freshness": {
-        // Sort by most recent odds timestamp
-        const aTs = Math.max(
-          ...Object.values(a.odds)
-            .filter((o): o is AtomOddsData => o !== undefined)
-            .map((o) => o.timestamp),
-        );
-        const bTs = Math.max(
-          ...Object.values(b.odds)
-            .filter((o): o is AtomOddsData => o !== undefined)
-            .map((o) => o.timestamp),
-        );
-        return bTs - aTs;
-      }
-      default:
-        return 0;
-    }
-  });
+  // Click-to-sort on column headers is applied in the ValueBetSpreadsheet
+  // component (event-group aware — keeps atoms within a family together).
+  return rows;
 }
 
 /**
  * Get unique market types from events for filter dropdown
  */
-export function getUniqueMarketTypes(events: BulkEventResult[]): string[] {
+export function getUniqueMarketTypes(events: ValueBetEvent[]): string[] {
   const types = new Set<string>();
   for (const event of events) {
     for (const family of event.families) {

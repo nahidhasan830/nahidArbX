@@ -22,6 +22,7 @@ import {
   callWithSessionRetry,
   SessionExpiredError,
 } from "../../betting/ninewickets/client";
+import { logger } from "../../shared/logger";
 
 // ============================================
 // Constants
@@ -415,8 +416,9 @@ async function overlayAuthenticatedLimits(
   } catch (err) {
     // Best-effort — guest-tier limits remain in place. But log once so
     // we can tell when the overlay is silently failing.
-    console.warn(
-      `[NW Sportsbook] limits overlay failed for event ${providerEventId}: ${err instanceof Error ? err.message : String(err)}`,
+    logger.warn(
+      "NWSportsbook",
+      `limits overlay failed for event ${providerEventId}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }

@@ -25,10 +25,11 @@ import type { SettleEvent } from "../waterfall";
 import type { MatchScore } from "../types";
 import { logger } from "../../shared/logger";
 import { applyTeamAlias, learnTeamAlias } from "../aliases";
+import { singleton } from "../../util/singleton";
 
 const BASE_URL = "https://api.sofascore.com/api/v1";
-const MATCH_SCORE_THRESHOLD = 0.7;
-const KICKOFF_WINDOW_MS = 45 * 60 * 1000;
+const MATCH_SCORE_THRESHOLD = 0.65;
+const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers timezone skew + leagues where kickoff times differ between providers
 const HTTP_TIMEOUT_MS = 15_000;
 
 /**
@@ -93,15 +94,33 @@ interface SofaScheduled {
 const SUFFIX_NOISE =
   /\b(fc|cf|sc|ac|afc|cfc|fk|ii|iii|b|u21|u23|u19|u18|reserves|reserv|akademie|academy|women|w|wfc|wsl|jr|ladies|youth|u\d+|nd|1st|2nd|3rd|ifk|bk|if|ff|fk|ks|nk|ks|os|al|club|sportclub|klub|cd|cs|cs|ca|ca|al|calcio|futbol|football)\b/g;
 
-const normalizeTeamName = (raw: string): string =>
-  raw
-    .toLowerCase()
+// Transliterate characters that NFD+diacritic-removal misses because they
+// have no canonical Unicode decomposition: ø/Ø (Danish/Norwegian),
+// ə/Ə (Azerbaijani, sounds like 'a'), ı (Turkish/Azerbaijani dotless-i),
+// đ/Đ (Croatian), ł/Ł (Polish).
+const TRANSLITERATE: [RegExp, string][] = [
+  [/ø/g, "o"],
+  [/Ø/g, "o"],
+  [/ə/g, "a"],
+  [/Ə/g, "a"],
+  [/ı/g, "i"],
+  [/đ/g, "d"],
+  [/Đ/g, "d"],
+  [/ł/g, "l"],
+  [/Ł/g, "l"],
+];
+
+const normalizeTeamName = (raw: string): string => {
+  let s = raw.toLowerCase();
+  for (const [from, to] of TRANSLITERATE) s = s.replace(from, to);
+  return s
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(SUFFIX_NOISE, "")
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+};
 
 const teamSimilarity = (a: string, b: string): number => {
   const na = normalizeTeamName(applyTeamAlias(a));
@@ -146,13 +165,51 @@ const mapStatus = (s: SofaEventStatus): MatchScore["status"] | null => {
 
 // ─── Fetch one day's global scheduled-events ────────────────────────────────
 
-const eventsByDate = new Map<string, SofaEvent[]>();
+type DayEventsCacheEntry = {
+  fetchedAt: number;
+  events: SofaEvent[];
+};
+
+const SOFASCORE_LIVE_CACHE_TTL_MS = 2 * 60 * 1000;
+const SOFASCORE_HISTORICAL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+const eventsByDate = singleton<Map<string, DayEventsCacheEntry>>(
+  "settle:sofascore:day-events",
+  () => new Map(),
+);
+
+const utcDayStart = (ms: number): number => {
+  const d = new Date(ms);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
+
+export const getDayEventsCacheTtlMs = (
+  date: string,
+  nowMs: number = Date.now(),
+): number => {
+  const dateMs = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(dateMs)) return SOFASCORE_LIVE_CACHE_TTL_MS;
+  const deltaDays = Math.abs(dateMs - utcDayStart(nowMs)) / 86_400_000;
+  return deltaDays <= 1
+    ? SOFASCORE_LIVE_CACHE_TTL_MS
+    : SOFASCORE_HISTORICAL_CACHE_TTL_MS;
+};
+
+export const shouldUseDayEventsCache = (
+  date: string,
+  fetchedAt: number,
+  nowMs: number = Date.now(),
+): boolean => nowMs - fetchedAt < getDayEventsCacheTtlMs(date, nowMs);
 
 const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
-  // In-memory cache within one process — a 100-bet test may request the
-  // same date multiple times, no need to hammer SofaScore.
+  // Same-day scoreboards mutate throughout the day. A permanent cache
+  // freezes pre-FT results and leaves recent matches unresolved across
+  // every later settlement tick. Cache recent dates only briefly; keep
+  // older dates warm much longer because their results no longer change.
   const cached = eventsByDate.get(date);
-  if (cached) return cached;
+  if (cached && shouldUseDayEventsCache(date, cached.fetchedAt)) {
+    return cached.events;
+  }
 
   // Query both the default scheduled-events endpoint AND the `inverse`
   // variant (which includes additional matches not in the primary list,
@@ -194,7 +251,7 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
     }
   }
 
-  eventsByDate.set(date, collected);
+  eventsByDate.set(date, { fetchedAt: Date.now(), events: collected });
   return collected;
 };
 

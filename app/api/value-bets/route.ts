@@ -116,7 +116,7 @@ interface BulkFamilyResult {
   atoms: BulkAtomResult[];
 }
 
-interface BulkEventResult {
+interface ValueBetEvent {
   eventId: string;
   homeTeam: string;
   awayTeam: string;
@@ -170,7 +170,7 @@ function analyzeEvents(
     minProviderCount: 1,
   },
 ): {
-  events: BulkEventResult[];
+  events: ValueBetEvent[];
   summary: {
     totalEvents: number;
     eventsWithOdds: number;
@@ -179,7 +179,7 @@ function analyzeEvents(
     bestEvPct: number | null;
   };
 } {
-  const eventResults: BulkEventResult[] = [];
+  const eventResults: ValueBetEvent[] = [];
   let totalFamilies = 0;
   let eventsWithOdds = 0;
   let totalValueBetsInView = 0;
@@ -331,7 +331,7 @@ function analyzeEvents(
     // Get live score with multi-source fallback
     // First try multi-source store (keyed by normalized event ID)
     // Falls back to legacy Pinnacle-only store
-    let liveScore: BulkEventResult["liveScore"] | undefined;
+    let liveScore: ValueBetEvent["liveScore"] | undefined;
     const multiScore = getMultiSourceDisplayScore(event.id);
     if (multiScore) {
       liveScore = multiScore;

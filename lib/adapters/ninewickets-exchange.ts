@@ -14,6 +14,7 @@ import { formatError } from "../shared/errors";
 import { validateAndParse } from "../shared/validation";
 import { createProviderClient } from "../shared/http";
 import { deduplicateById } from "../shared/deduplication";
+import { logger } from "../shared/logger";
 import type {
   DebugFixturesFetchResult,
   DebugHttpRequest,
@@ -161,9 +162,9 @@ async function fetchEventsForType(type: number): Promise<NormalizedEvent[]> {
       }
     }
   } catch (error) {
-    console.warn(
-      `[NW Exchange] fetchEvents type=${type} error:`,
-      formatError(error),
+    logger.warn(
+      "NWExchange",
+      `fetchEvents type=${type} error: ${formatError(error)}`,
     );
   }
 

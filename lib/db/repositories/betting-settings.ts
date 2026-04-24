@@ -22,11 +22,11 @@ const SINGLETON_ID = 1;
  */
 const DEFAULTS: BettingSettingsRow = {
   id: SINGLETON_ID,
-  strategyId: "frac-kelly-0.25",
   useLiveBalance: true,
   manualBankrollBdt: 1000,
   unitSizeBdt: 200,
   kellyCapPct: 10,
+  kellyFraction: 0.25,
   minStakeBdt: 200,
   stakeBucketBdt: 100,
   minEvPct: 2,

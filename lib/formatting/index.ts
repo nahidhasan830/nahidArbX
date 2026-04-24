@@ -32,4 +32,10 @@ export {
   type EventLabelSide,
 } from "./event-label";
 
-export { fmtDateTime, fmtRelative, fmtMoney, fmtSignedPct } from "./helpers";
+export {
+  fmtDateTime,
+  fmtSeen,
+  fmtRelative,
+  fmtMoney,
+  fmtSignedPct,
+} from "./helpers";

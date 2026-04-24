@@ -2,10 +2,10 @@
 export type Sport = "football";
 export type OddsSource = "exchange" | "sportsbook";
 
-// Provider type derived from central registry
-export { type ProviderKey as Provider } from "./providers/registry";
-import type { ProviderKey } from "./providers/registry";
-type Provider = ProviderKey; // Local alias for use in this file
+// Provider is the canonical name everywhere in this codebase.
+// ProviderKey is an alias used within lib/providers/registry.ts internals.
+export type { ProviderKey as Provider } from "./providers/registry";
+import type { ProviderKey as Provider } from "./providers/registry";
 
 import type { MatchSource } from "./matching/config";
 

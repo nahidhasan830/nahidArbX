@@ -29,8 +29,8 @@ import {
 } from "../aliases";
 
 const BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer";
-const MATCH_SCORE_THRESHOLD = 0.7;
-const KICKOFF_WINDOW_MS = 45 * 60 * 1000; // 45 minutes — ESPN sometimes reports scheduled start +/- 20m vs Pinnacle
+const MATCH_SCORE_THRESHOLD = 0.65;
+const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers timezone skew + leagues where Pinnacle times differ from ESPN
 const HTTP_TIMEOUT_MS = 12_000;
 
 /**
@@ -201,6 +201,16 @@ const LEAGUE_ALIASES: Record<string, string> = {
   "conference league": "uefa.europa.conf",
   "uefa conference league": "uefa.europa.conf",
 
+  // Singapore
+  "singapore premier league": "sgp.1",
+  "singapore league 1": "sgp.1",
+  spfl: "sgp.1",
+  "singapore premier league 1": "sgp.1",
+
+  // UAE
+  "uae pro league": "uae.1",
+  "uae league": "uae.1",
+
   // World
   "world cup": "fifa.world",
   "fifa world cup": "fifa.world",
@@ -275,15 +285,33 @@ interface EspnScoreboard {
 const SUFFIX_NOISE =
   /\b(fc|cf|sc|ac|afc|cfc|fk|ii|iii|b|u21|u23|u19|u18|reserves|reserv|akademie|academy|women|w|wfc|wsl|jr|ladies|youth|u\d+|nd|1st|2nd|3rd|ifk|bk|if|ff|ks|nk|os|al|club|sportclub|klub|cd|cs|ca|calcio|futbol|football)\b/g;
 
-const normalizeTeamName = (raw: string): string =>
-  raw
-    .toLowerCase()
+// Transliterate characters that NFD+diacritic-removal misses because they
+// have no canonical Unicode decomposition: ø/Ø (Danish/Norwegian),
+// ə/Ə (Azerbaijani, sounds like 'a'), ı (Turkish/Azerbaijani dotless-i),
+// đ/Đ (Croatian), ł/Ł (Polish).
+const TRANSLITERATE: [RegExp, string][] = [
+  [/ø/g, "o"],
+  [/Ø/g, "o"],
+  [/ə/g, "a"],
+  [/Ə/g, "a"],
+  [/ı/g, "i"],
+  [/đ/g, "d"],
+  [/Đ/g, "d"],
+  [/ł/g, "l"],
+  [/Ł/g, "l"],
+];
+
+const normalizeTeamName = (raw: string): string => {
+  let s = raw.toLowerCase();
+  for (const [from, to] of TRANSLITERATE) s = s.replace(from, to);
+  return s
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(SUFFIX_NOISE, "")
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+};
 
 const teamSimilarity = (a: string, b: string): number => {
   // Apply learned aliases first — if "Werder Bremen" was previously

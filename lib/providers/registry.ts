@@ -1,10 +1,18 @@
 /**
- * Provider Registry - Single Source of Truth
+ * Provider Registry — single source of truth for all provider metadata.
  *
- * All provider metadata is defined here. Adding a new provider:
- * 1. Add entry to PROVIDER_REGISTRY
- * 2. Create adapter files
- * 3. Register in adapter registries
+ * ## Adding a new provider (checklist)
+ *
+ * 1. Add an entry to `PROVIDER_REGISTRY` below with all required metadata.
+ * 2. Create `lib/adapters/<provider>.ts` implementing `ProviderAdapter`
+ *    (fetches normalized events — see existing adapters for the pattern).
+ * 3. Create `lib/atoms/adapters/<provider>.ts` implementing `AtomsProviderAdapter`
+ *    (fetches per-event odds and stores them in the atoms store).
+ * 4. Register both adapters in `lib/adapters/index.ts`.
+ * 5. If the provider requires auth/tokens, add to `lib/auth/token-manager.ts`.
+ *
+ * No other files need to change. The pipeline picks up new providers
+ * automatically through the registry.
  */
 
 import type { OddsSource } from "../types";

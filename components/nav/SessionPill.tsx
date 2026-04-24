@@ -1,19 +1,21 @@
 "use client";
 
 /**
- * Tiny "session health" indicator pinned to the sidebar footer.
+ * Ambient system status strip pinned to the very bottom of the sidebar.
  *
- * MVP: periodically pings /api/health?simple=true and renders a colored
- * dot. Green = last ping OK, amber = no response yet, red = last ping
- * failed. The label auto-hides when the rail is icon-collapsed; the
- * dot remains visible so operator state is always at a glance.
+ * Renders as a thin "cockpit status bar" with a glowing health dot,
+ * label, and last-check timestamp. The bar sits at the absolute bottom
+ * of the sidebar with a darker background to ground the panel.
+ *
+ * In collapsed (icon-only) mode, only the dot is visible — gives the
+ * operator a single-glance health read at all times.
  *
  * Later: expand to show Pinnacle token TTL, 9wkts session age, sync
- * heartbeat — every piece of ambient status the operator cares about,
- * in one pill.
+ * heartbeat — every piece of ambient status the operator cares about.
  */
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { Activity } from "lucide-react";
 
 type Status = "loading" | "ok" | "degraded" | "down";
 
@@ -44,35 +46,42 @@ export function SessionPill() {
     status === "loading"
       ? "Checking…"
       : status === "ok"
-        ? "Online"
+        ? "Systems online"
         : status === "degraded"
           ? "Degraded"
           : "Offline";
 
   const dotClass =
     status === "ok"
-      ? "bg-emerald-500"
+      ? "status-dot--ok"
       : status === "degraded"
-        ? "bg-amber-500"
+        ? "status-dot--degraded"
         : status === "down"
-          ? "bg-red-500"
-          : "bg-muted-foreground";
+          ? "status-dot--down"
+          : "status-dot--loading";
 
   return (
     <div
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground"
+      className="appshell-status-bar"
       title={
         lastCheckedAt ? `Last checked ${formatAgo(lastCheckedAt)}` : "Pinging…"
       }
     >
-      <span
-        className={cn(
-          "inline-block size-2 rounded-full shrink-0",
-          dotClass,
-          status === "loading" && "animate-pulse",
-        )}
-      />
-      <span className="group-data-[collapsible=icon]:hidden">{label}</span>
+      {/* Health dot */}
+      <span className={cn("status-dot", dotClass)} />
+
+      {/* Label + timestamp — hidden when sidebar collapsed */}
+      <span className="group-data-[collapsible=icon]:hidden truncate">
+        {label}
+      </span>
+      {lastCheckedAt && (
+        <span className="ml-auto text-[10px] tabular-nums opacity-60 group-data-[collapsible=icon]:hidden">
+          {formatAgo(lastCheckedAt)}
+        </span>
+      )}
+
+      {/* Collapsed mode: small activity icon next to dot */}
+      <Activity className="hidden group-data-[collapsible=icon]:block size-3 opacity-40" />
     </div>
   );
 }

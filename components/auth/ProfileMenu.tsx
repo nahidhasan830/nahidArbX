@@ -1,17 +1,26 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "./AuthProvider";
 import {
   User,
   LogOut,
   Key,
-  ChevronDown,
+  ChevronsUpDown,
   Users,
   AlertTriangle,
   Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
+import { SidebarMenuButton } from "@/components/ui/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ProfileMenuProps {
   onOpenUserManagement?: () => void;
@@ -19,22 +28,8 @@ interface ProfileMenuProps {
 
 export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
   const { user, logout, isAdmin, isImpersonating, refreshUser } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -65,8 +60,10 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
 
   if (!user) return null;
 
+  const displayName = user.displayName || user.email.split("@")[0];
+
   return (
-    <div className="relative" ref={menuRef}>
+    <>
       {/* Impersonation Banner - Fixed at top of screen */}
       {isImpersonating && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-yellow-500/90 px-4 py-2 flex items-center justify-center gap-3 shadow-lg">
@@ -83,86 +80,70 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
         </div>
       )}
 
-      {/* Profile Button */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition"
-      >
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-          <User className="w-4 h-4 text-white" />
-        </div>
-        <div className="hidden sm:block text-left">
-          <div className="text-sm font-medium text-white">
-            {user.displayName || user.email.split("@")[0]}
-          </div>
-          <div className="text-xs text-gray-400">
-            {isAdmin ? "Admin" : "User"}
-          </div>
-        </div>
-        <ChevronDown
-          className={`w-4 h-4 text-gray-400 transition ${isOpen ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {/* Dropdown Menu */}
-      {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-slate-800 rounded-lg shadow-xl border border-slate-700 py-1 z-50">
-          {/* User info */}
-          <div className="px-4 py-3 border-b border-slate-700">
-            <div className="text-sm font-medium text-white truncate">
-              {user.displayName || user.email}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton
+            size="lg"
+            tooltip={user.displayName || user.email}
+            className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+          >
+            <div className="flex size-8 items-center justify-center rounded-md bg-gradient-to-br from-cyan-500 to-blue-500 shrink-0">
+              <User className="size-4 text-white" />
             </div>
-            <div className="text-xs text-gray-400 truncate">{user.email}</div>
-          </div>
-
-          {/* Admin: User Management */}
+            <div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+              <span className="truncate text-sm font-medium">
+                {displayName}
+              </span>
+              <span className="truncate text-[11px] text-muted-foreground">
+                {user.email}
+              </span>
+            </div>
+            <ChevronsUpDown className="ml-auto size-4 opacity-60 group-data-[collapsible=icon]:hidden" />
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          side="right"
+          align="end"
+          sideOffset={12}
+          className="w-60 rounded-lg"
+        >
+          <DropdownMenuLabel className="p-0 font-normal">
+            <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
+              <div className="flex size-8 items-center justify-center rounded-md bg-gradient-to-br from-cyan-500 to-blue-500 shrink-0">
+                <User className="size-4 text-white" />
+              </div>
+              <div className="grid flex-1 leading-tight">
+                <span className="truncate text-sm font-medium">
+                  {displayName}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {user.email}
+                </span>
+              </div>
+            </div>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
           {isAdmin && onOpenUserManagement && (
-            <button
-              onClick={() => {
-                setIsOpen(false);
-                onOpenUserManagement();
-              }}
-              className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-slate-700 hover:text-white flex items-center gap-2 transition"
-            >
-              <Users className="w-4 h-4" />
+            <DropdownMenuItem onSelect={() => onOpenUserManagement()}>
+              <Users className="size-4" />
               User Management
-            </button>
+            </DropdownMenuItem>
           )}
-
-          {/* Edit Profile */}
-          <button
-            onClick={() => {
-              setIsOpen(false);
-              setIsEditingProfile(true);
-            }}
-            className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-slate-700 hover:text-white flex items-center gap-2 transition"
-          >
-            <Pencil className="w-4 h-4" />
+          <DropdownMenuItem onSelect={() => setIsEditingProfile(true)}>
+            <Pencil className="size-4" />
             Edit Profile
-          </button>
-
-          {/* Change Password */}
-          <button
-            onClick={() => {
-              setIsOpen(false);
-              setIsChangingPassword(true);
-            }}
-            className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-slate-700 hover:text-white flex items-center gap-2 transition"
-          >
-            <Key className="w-4 h-4" />
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setIsChangingPassword(true)}>
+            <Key className="size-4" />
             Change Password
-          </button>
-
-          {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-red-500/10 flex items-center gap-2 transition"
-          >
-            <LogOut className="w-4 h-4" />
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={handleLogout} variant="destructive">
+            <LogOut className="size-4" />
             Sign Out
-          </button>
-        </div>
-      )}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Change Password Modal */}
       {isChangingPassword && (
@@ -180,7 +161,7 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 

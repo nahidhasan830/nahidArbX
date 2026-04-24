@@ -220,7 +220,7 @@ export function BettingAccountsPanel(props: BettingAccountsPanelProps) {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/betting-accounts/recent-bets");
+        const res = await fetch("/api/accounts/recent-bets");
         if (!res.ok) return;
         const body = (await res.json()) as RecentBetsResponse;
         if (!cancelled) setRecent(body);
@@ -275,7 +275,7 @@ export function BettingAccountsPanel(props: BettingAccountsPanelProps) {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <Card className="py-3 gap-3">
+      <Card className="py-3 gap-3 glass-panel border-border/50">
         <CardHeader className="pb-0 px-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <CardTitle className="text-sm flex items-center gap-2 min-w-0">
@@ -494,9 +494,11 @@ function AccountCard({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border/60 bg-card p-2 space-y-1.5",
+        "rounded-lg border border-border/40 bg-card/80 backdrop-blur-sm p-2.5 space-y-2",
         hasError && "border-destructive/40",
-        autoLogin && !autoLogin.enabled && "border-amber-500/40 bg-amber-500/5",
+        autoLogin &&
+          !autoLogin.enabled &&
+          "border-amber-500/30 bg-amber-500/[0.03]",
         dim && "opacity-60 grayscale",
       )}
     >
@@ -624,7 +626,7 @@ function AccountCard({
             value={exposure}
             currency={account.currency}
             big
-            valueClass={(exposure ?? 0) > 0 ? "text-sky-500" : undefined}
+            valueClass={(exposure ?? 0) > 0 ? "text-amber-400" : undefined}
           />
           <TurnoverTile
             items={turnoverItems}
@@ -993,10 +995,10 @@ function BalanceTile({
   const core = (
     <div
       className={cn(
-        "rounded border px-2.5 py-1.5 flex flex-col leading-tight gap-0.5 min-w-0 relative overflow-hidden h-full",
+        "rounded-md border px-2.5 py-2 flex flex-col leading-tight gap-0.5 min-w-0 relative overflow-hidden h-full",
         locked
-          ? "border-amber-500/30 bg-amber-500/[0.04]"
-          : "border-border/60 bg-background/40",
+          ? "border-amber-500/25 bg-amber-500/[0.03]"
+          : "border-border/40 bg-background/30",
       )}
     >
       <div className="text-[9px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
@@ -1018,7 +1020,7 @@ function BalanceTile({
       ) : (
         <div
           className={cn(
-            "tabular-nums font-medium truncate",
+            "data-text font-medium truncate",
             big ? "text-base font-semibold" : "text-sm",
             value === null && "text-muted-foreground",
             effectiveValueClass,
@@ -1107,9 +1109,24 @@ function BetColumn({
       </div>
 
       {loading ? (
-        <Skeleton className="flex-1 w-full min-h-20" />
+        <div className="flex-1 rounded-md border border-border/30 bg-background/20 min-h-[180px] overflow-hidden space-y-0">
+          {/* Skeleton bet rows — mimics the actual row structure to
+              prevent height jumps when real data arrives. */}
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="px-2.5 py-2 border-b border-border/20">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-11 rounded" />
+                <Skeleton className="h-3.5 flex-1 rounded" />
+                <Skeleton className="h-3.5 w-20 rounded" />
+              </div>
+              <div className="mt-1.5 pl-[52px]">
+                <Skeleton className="h-2.5 w-3/4 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : bets.length === 0 ? (
-        <div className="flex-1 rounded border border-border/60 bg-background/20 px-2 py-3 text-[11px] text-muted-foreground flex items-center justify-center text-center">
+        <div className="flex-1 rounded-md border border-border/30 bg-background/15 px-2 py-3 text-[11px] text-muted-foreground/60 flex items-center justify-center text-center min-h-[180px]">
           {emptyText}
         </div>
       ) : (
@@ -1145,13 +1162,13 @@ function BetList({
   onOpenModal: () => void;
 }) {
   return (
-    <div className="flex-1 rounded border border-border/60 bg-background/40 divide-y divide-border/60 overflow-hidden">
+    <div className="flex-1 rounded-md border border-border/30 bg-background/20 divide-y divide-border/30 overflow-hidden">
       {bets.map((bet) => (
         <button
           key={bet.id}
           type="button"
           onClick={onOpenModal}
-          className="w-full text-left px-2 py-1.5 hover:bg-muted/40 transition-colors block"
+          className="w-full text-left px-2.5 py-2 hover:bg-muted/30 transition-colors block"
         >
           <BetPreviewRow bet={bet} currency={currency} />
         </button>
@@ -1160,7 +1177,7 @@ function BetList({
         <button
           type="button"
           onClick={onOpenModal}
-          className="w-full text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors text-center py-1 block"
+          className="w-full text-[11px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/30 transition-colors text-center py-1.5 block"
         >
           + {extra} more — view all
         </button>
@@ -1205,7 +1222,7 @@ function BetPreviewRow({
     bet.status === "pending"
       ? "text-amber-500 border-amber-500/40"
       : bet.result === "win"
-        ? "text-emerald-500 border-emerald-500/40"
+        ? "text-emerald-400 border-emerald-500/40"
         : bet.result === "lose"
           ? "text-danger border-danger/40"
           : "text-muted-foreground";
@@ -1257,9 +1274,9 @@ function BetPreviewRow({
         {bet.profit != null ? (
           <span
             className={cn(
-              "text-xs tabular-nums font-semibold text-right shrink-0",
+              "text-xs data-text font-semibold text-right shrink-0",
               bet.profit > 0
-                ? "text-emerald-500"
+                ? "text-emerald-400"
                 : bet.profit < 0
                   ? "text-danger"
                   : "text-foreground",
@@ -1270,7 +1287,7 @@ function BetPreviewRow({
           </span>
         ) : potentialReturn != null ? (
           <span
-            className="text-xs tabular-nums text-muted-foreground text-right shrink-0"
+            className="text-xs data-text text-muted-foreground/70 text-right shrink-0"
             title="Potential return if this bet wins"
           >
             +{money(potentialReturn, currency)}
@@ -1282,7 +1299,7 @@ function BetPreviewRow({
         )}
       </div>
       {metaParts.length > 0 && (
-        <div className="text-[10.5px] text-muted-foreground truncate pl-[54px] leading-tight">
+        <div className="text-[10.5px] text-muted-foreground/70 truncate pl-[54px] leading-tight">
           {metaParts.join(" · ")}
         </div>
       )}
@@ -1522,22 +1539,48 @@ function AutoPlaceToggle({
 
 function AccountsSkeleton() {
   return (
-    <div className="rounded-lg border border-border/60 p-3.5 space-y-3">
+    <div className="rounded-lg border border-border/40 bg-card/60 p-3.5 space-y-3">
       <div className="flex items-center justify-between">
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-4 w-20" />
       </div>
       <div className="grid grid-cols-4 gap-2">
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-[60px] w-full rounded-md" />
+        <Skeleton className="h-[60px] w-full rounded-md" />
+        <Skeleton className="h-[60px] w-full rounded-md" />
+        <Skeleton className="h-[60px] w-full rounded-md" />
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
+        {/* Match the actual bet-row structure height to prevent jumps */}
+        <div className="rounded-md border border-border/30 bg-background/15 min-h-[180px] space-y-0">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="px-2.5 py-2 border-b border-border/15">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-11 rounded" />
+                <Skeleton className="h-3.5 flex-1 rounded" />
+                <Skeleton className="h-3.5 w-20 rounded" />
+              </div>
+              <div className="mt-1.5 pl-[52px]">
+                <Skeleton className="h-2.5 w-3/4 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-md border border-border/30 bg-background/15 min-h-[180px] space-y-0">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="px-2.5 py-2 border-b border-border/15">
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-11 rounded" />
+                <Skeleton className="h-3.5 flex-1 rounded" />
+                <Skeleton className="h-3.5 w-20 rounded" />
+              </div>
+              <div className="mt-1.5 pl-[52px]">
+                <Skeleton className="h-2.5 w-3/4 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
-      <Skeleton className="h-8 w-full" />
     </div>
   );
 }

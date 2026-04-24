@@ -10,7 +10,6 @@ import {
 } from "react";
 import { ChevronDown, X, Save, RotateCcw } from "lucide-react";
 import {
-  PROVIDER_IDS,
   PROVIDER_REGISTRY,
   getProviderColorClasses,
   getSoftProviders,
@@ -33,8 +32,14 @@ import { Slider } from "@/components/ui/slider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { Feature } from "@/components/auth/AuthProvider";
-import type { SortMode } from "@/components/hooks/useBulkAnalysisPreferences";
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
+
+// ============================================
+// Sizing (match BetsHistoryToolbar for consistency)
+// ============================================
+
+const CTRL_H = "h-7";
+const BTN_BASE = cn(CTRL_H, "px-2 text-[11px] gap-1.5 font-normal");
 
 // ============================================
 // Types
@@ -43,25 +48,10 @@ import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeSt
 export type TimeFilter = "all" | "live" | "upcoming";
 
 interface SpreadsheetToolbarProps {
-  // Column visibility
-  hiddenColumns: Set<string>;
-  onToggleColumnVisibility: (columnId: string) => void;
-  onShowAllColumns: () => void;
-
   // Value betting toggle
   showOnlyValue: boolean;
   onToggleShowOnlyValue: () => void;
   valueRowCount: number;
-  minEvPct: number;
-  onMinEvPctChange: (value: number) => void;
-
-  // Sorting (for value bets)
-  sortMode: SortMode;
-  onSortModeChange: (mode: SortMode) => void;
-  filterHighEv: boolean;
-  onToggleFilterHighEv: () => void;
-  maxEvPctFilter: number;
-  onMaxEvPctFilterChange: (value: number) => void;
 
   // Value bet filters (server-side)
   evRangeMin: number;
@@ -140,20 +130,9 @@ const marketTypeLabels: Record<string, string> = {
 // ============================================
 
 export function SpreadsheetToolbar({
-  hiddenColumns,
-  onToggleColumnVisibility,
-  onShowAllColumns,
   showOnlyValue,
   onToggleShowOnlyValue,
   valueRowCount,
-  minEvPct,
-  onMinEvPctChange,
-  sortMode,
-  onSortModeChange,
-  filterHighEv,
-  onToggleFilterHighEv,
-  maxEvPctFilter,
-  onMaxEvPctFilterChange,
   evRangeMin,
   evRangeMax,
   onEvRangeChange,
@@ -197,37 +176,26 @@ export function SpreadsheetToolbar({
   useLayoutEffect(() => {
     if (searchTerm && searchInputRef.current) {
       const input = searchInputRef.current;
-      // Only restore focus if input is not already focused
       if (document.activeElement !== input) {
         input.focus();
-        // Move cursor to end of input
         const len = input.value.length;
         input.setSelectionRange(len, len);
       }
     }
   }, [searchTerm]);
 
-  // Server-backed provider enable/disable state. The provider checkboxes in
-  // the Columns dropdown are bound to this — unchecking fully disables the
-  // provider on the backend (skips fetching, odds, and AI matching).
+  // Server-backed provider enable/disable state. Used to filter the
+  // soft-provider list inside the Value Only dropdown — the actual
+  // enable/disable UI lives on the dashboard's Provider panel.
   const providerRuntime = useProviderRuntimeState();
 
   // Local state for sliders to prevent table re-renders during drag
-  const [localEvPct, setLocalEvPct] = useState(minEvPct);
   const [localSuspiciousThreshold, setLocalSuspiciousThreshold] = useState(
     suspiciousThresholdPct,
-  );
-  const [localMaxEvPctFilter, setLocalMaxEvPctFilter] =
-    useState(maxEvPctFilter);
-  const evDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
   );
   const suspiciousDebounceRef = useRef<
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
-  const maxEvDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
 
   // Local state for value bet filter sliders (dual-handle)
   const [localEvRangeMin, setLocalEvRangeMin] = useState(evRangeMin);
@@ -243,16 +211,8 @@ export function SpreadsheetToolbar({
 
   // Sync local state when external values change (e.g., reset filters)
   useEffect(() => {
-    setLocalEvPct(minEvPct);
-  }, [minEvPct]);
-
-  useEffect(() => {
     setLocalSuspiciousThreshold(suspiciousThresholdPct);
   }, [suspiciousThresholdPct]);
-
-  useEffect(() => {
-    setLocalMaxEvPctFilter(maxEvPctFilter);
-  }, [maxEvPctFilter]);
 
   useEffect(() => {
     setLocalEvRangeMin(evRangeMin);
@@ -264,19 +224,6 @@ export function SpreadsheetToolbar({
     setLocalSoftOddsMax(softOddsRangeMax);
   }, [softOddsRangeMin, softOddsRangeMax]);
 
-  // Debounced handler for EV % slider
-  const handleEvPctChange = useCallback(
-    (value: number) => {
-      setLocalEvPct(value);
-      if (evDebounceRef.current) clearTimeout(evDebounceRef.current);
-      evDebounceRef.current = setTimeout(() => {
-        onMinEvPctChange(value);
-      }, 150);
-    },
-    [onMinEvPctChange],
-  );
-
-  // Debounced handler for suspicious threshold slider
   const handleSuspiciousThresholdChange = useCallback(
     (value: number) => {
       setLocalSuspiciousThreshold(value);
@@ -289,19 +236,6 @@ export function SpreadsheetToolbar({
     [onSuspiciousThresholdChange],
   );
 
-  // Debounced handler for max EV filter slider
-  const handleMaxEvFilterChange = useCallback(
-    (value: number) => {
-      setLocalMaxEvPctFilter(value);
-      if (maxEvDebounceRef.current) clearTimeout(maxEvDebounceRef.current);
-      maxEvDebounceRef.current = setTimeout(() => {
-        onMaxEvPctFilterChange(value);
-      }, 150);
-    },
-    [onMaxEvPctFilterChange],
-  );
-
-  // Debounced handler for EV range slider (dual-handle)
   const handleEvRangeChange = useCallback(
     (values: number[]) => {
       const [min, max] = values;
@@ -310,12 +244,11 @@ export function SpreadsheetToolbar({
       if (evRangeDebounceRef.current) clearTimeout(evRangeDebounceRef.current);
       evRangeDebounceRef.current = setTimeout(() => {
         onEvRangeChange(min, max);
-      }, 300); // Longer debounce for server-side filter
+      }, 300);
     },
     [onEvRangeChange],
   );
 
-  // Debounced handler for soft odds range slider (dual-handle)
   const handleSoftOddsRangeChange = useCallback(
     (values: number[]) => {
       const [min, max] = values;
@@ -325,12 +258,11 @@ export function SpreadsheetToolbar({
         clearTimeout(softOddsDebounceRef.current);
       softOddsDebounceRef.current = setTimeout(() => {
         onSoftOddsRangeChange(min, max);
-      }, 300); // Longer debounce for server-side filter
+      }, 300);
     },
     [onSoftOddsRangeChange],
   );
 
-  // Compute active value filter count for badge
   const activeValueFilterCount = useMemo(() => {
     let count = 0;
     if (evRangeMin !== 0 || evRangeMax !== 100) count++;
@@ -345,7 +277,6 @@ export function SpreadsheetToolbar({
     selectedSoftProviders,
   ]);
 
-  // Get list of soft providers for the filter
   const softProvidersList = useMemo(
     () =>
       getSoftProviders().filter((providerId) =>
@@ -354,20 +285,16 @@ export function SpreadsheetToolbar({
     [providerRuntime],
   );
 
-  // Cleanup debounce timeouts on unmount
   useEffect(() => {
     return () => {
-      if (evDebounceRef.current) clearTimeout(evDebounceRef.current);
       if (suspiciousDebounceRef.current)
         clearTimeout(suspiciousDebounceRef.current);
-      if (maxEvDebounceRef.current) clearTimeout(maxEvDebounceRef.current);
       if (evRangeDebounceRef.current) clearTimeout(evRangeDebounceRef.current);
       if (softOddsDebounceRef.current)
         clearTimeout(softOddsDebounceRef.current);
     };
   }, []);
 
-  // Filtered market types based on search
   const filteredMarketTypes = useMemo(() => {
     if (!marketSearch.trim()) return marketTypes;
     const search = marketSearch.toLowerCase();
@@ -377,104 +304,18 @@ export function SpreadsheetToolbar({
   }, [marketTypes, marketSearch]);
 
   return (
-    <div className="px-4 py-2.5 border-b border-border bg-muted/50 overflow-x-auto">
-      <div className="flex items-center gap-3 min-w-max">
-        {/* Column Visibility Dropdown */}
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              Columns <ChevronDown className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-56">
-            <Button
-              variant="ghost"
-              size="xs"
-              className="w-full justify-start mb-2"
-              onClick={onShowAllColumns}
-            >
-              Show All
-            </Button>
-            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Data
-            </DropdownMenuLabel>
-            {[
-              { id: "event", label: "Event" },
-              { id: "competition", label: "Competition" },
-              { id: "market", label: "Market" },
-              { id: "outcome", label: "Outcome" },
-            ].map(({ id, label }) => (
-              <DropdownMenuCheckboxItem
-                key={id}
-                checked={!hiddenColumns.has(id)}
-                onCheckedChange={() => onToggleColumnVisibility(id)}
-              >
-                {label}
-              </DropdownMenuCheckboxItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Providers
-            </DropdownMenuLabel>
-            {PROVIDER_IDS.map((providerId) => {
-              const provider = PROVIDER_REGISTRY[providerId];
-              const enabled = providerRuntime.isEnabled(providerId);
-              return (
-                <DropdownMenuCheckboxItem
-                  key={providerId}
-                  checked={enabled}
-                  disabled={providerRuntime.isLoading}
-                  onSelect={(e) => e.preventDefault()}
-                  onCheckedChange={(checked) => {
-                    providerRuntime.toggle(providerId, checked === true);
-                  }}
-                >
-                  <span
-                    className={cn(
-                      "px-1.5 py-0.5 text-xs rounded",
-                      getProviderBadgeClasses(providerId),
-                      !enabled && "opacity-40 line-through",
-                    )}
-                  >
-                    {provider.shortName}
-                  </span>
-                  {!enabled && (
-                    <span className="ml-2 text-[9px] text-red-400 uppercase tracking-wider">
-                      disabled
-                    </span>
-                  )}
-                </DropdownMenuCheckboxItem>
-              );
-            })}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
-              Analysis
-            </DropdownMenuLabel>
-            {[
-              { id: "ev", label: "EV %" },
-              { id: "best", label: "Best Odds" },
-            ].map(({ id, label }) => (
-              <DropdownMenuCheckboxItem
-                key={id}
-                checked={!hiddenColumns.has(id)}
-                onCheckedChange={() => onToggleColumnVisibility(id)}
-              >
-                {label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
+    <div className="px-3 py-1.5 border-b border-border bg-muted/40 overflow-x-auto">
+      <div className="flex items-center gap-1.5 min-w-max">
         {/* Market Type Dropdown */}
         <Feature id="filter-market">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className={BTN_BASE}>
                 Markets
                 <Badge
                   variant="secondary"
                   className={cn(
-                    "ml-1.5 min-w-[24px]",
+                    "ml-1 min-w-[22px] text-[10px]",
                     selectedMarketTypes.size === 0
                       ? "bg-secondary dark:bg-white/10"
                       : "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300",
@@ -484,7 +325,7 @@ export function SpreadsheetToolbar({
                     ? "All"
                     : selectedMarketTypes.size}
                 </Badge>
-                <ChevronDown className="size-4" />
+                <ChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-72">
@@ -493,7 +334,7 @@ export function SpreadsheetToolbar({
                   value={marketSearch}
                   onChange={(e) => setMarketSearch(e.target.value)}
                   placeholder="Search markets..."
-                  className="h-8"
+                  className="h-7 text-xs"
                 />
               </div>
               <div className="flex gap-1 px-2 pb-2">
@@ -549,7 +390,7 @@ export function SpreadsheetToolbar({
           </DropdownMenu>
         </Feature>
 
-        <div className="w-px h-6 bg-border" />
+        <div className="w-px h-5 bg-border" />
 
         {/* Time Filter */}
         <Feature id="filter-time">
@@ -561,6 +402,7 @@ export function SpreadsheetToolbar({
             }
             size="sm"
             variant="outline"
+            className="[&>*]:h-7 [&>*]:px-2 [&>*]:text-[11px]"
           >
             <ToggleGroupItem value="all">All</ToggleGroupItem>
             <ToggleGroupItem value="live">Live</ToggleGroupItem>
@@ -568,14 +410,14 @@ export function SpreadsheetToolbar({
           </ToggleGroup>
         </Feature>
 
-        <div className="w-px h-6 bg-border" />
+        <div className="w-px h-5 bg-border" />
 
         {/* Value Bets Only Filter (PRIMARY - shown by default for value betting mode) */}
         <Feature id="value-betting-mode">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <div
-                className="flex items-center gap-2 cursor-pointer"
+                className="flex items-center gap-1.5 cursor-pointer h-7 px-1"
                 title="Filter to show only value bets"
               >
                 <div
@@ -587,11 +429,11 @@ export function SpreadsheetToolbar({
                     onCheckedChange={onToggleShowOnlyValue}
                   />
                 </div>
-                <span className="text-sm font-medium">Value Only</span>
+                <span className="text-[11px] font-medium">Value Only</span>
                 <Badge
                   variant="secondary"
                   className={cn(
-                    "tabular-nums",
+                    "tabular-nums text-[10px]",
                     valueRowCount > 0
                       ? "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300 animate-value-pulse"
                       : "bg-secondary dark:bg-white/10",
@@ -699,100 +541,6 @@ export function SpreadsheetToolbar({
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* Sort Mode Dropdown (shown alongside Value Only) */}
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                title="Sort value bets by priority"
-              >
-                Sort
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "ml-1.5",
-                    sortMode !== "default"
-                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-                      : "bg-secondary dark:bg-white/10",
-                  )}
-                >
-                  {sortMode === "priority"
-                    ? "Priority"
-                    : sortMode === "ev"
-                      ? "EV%"
-                      : sortMode === "kelly"
-                        ? "Kelly"
-                        : sortMode === "freshness"
-                          ? "Fresh"
-                          : "Default"}
-                </Badge>
-                <ChevronDown className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[220px]">
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
-                Sort Value Bets By
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem
-                checked={sortMode === "priority"}
-                onCheckedChange={() => onSortModeChange("priority")}
-              >
-                Priority Score (Recommended)
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortMode === "ev"}
-                onCheckedChange={() => onSortModeChange("ev")}
-              >
-                EV % (Highest First)
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortMode === "kelly"}
-                onCheckedChange={() => onSortModeChange("kelly")}
-              >
-                Kelly Stake (Highest First)
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortMode === "freshness"}
-                onCheckedChange={() => onSortModeChange("freshness")}
-              >
-                Freshness (Newest First)
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={sortMode === "default"}
-                onCheckedChange={() => onSortModeChange("default")}
-              >
-                Default (Event Order)
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <div className="px-2 py-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <Checkbox
-                    checked={filterHighEv}
-                    onCheckedChange={onToggleFilterHighEv}
-                  />
-                  <span className="text-sm">Filter High EV</span>
-                </div>
-                {filterHighEv && (
-                  <div className="flex items-center gap-3">
-                    <Slider
-                      value={[localMaxEvPctFilter]}
-                      onValueChange={([val]) => handleMaxEvFilterChange(val)}
-                      min={10}
-                      max={50}
-                      step={1}
-                      className="w-40"
-                    />
-                    <span className="text-sm tabular-nums w-10 text-right">
-                      {localMaxEvPctFilter}%
-                    </span>
-                  </div>
-                )}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </Feature>
 
         {/* Suspicious Filter with Threshold Dropdown */}
@@ -800,7 +548,7 @@ export function SpreadsheetToolbar({
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <div
-                className="flex items-center gap-2 cursor-pointer"
+                className="flex items-center gap-1.5 cursor-pointer h-7 px-1"
                 title="Show markets with suspicious odds difference"
               >
                 <div
@@ -812,11 +560,11 @@ export function SpreadsheetToolbar({
                     onCheckedChange={onToggleShowOnlySuspicious}
                   />
                 </div>
-                <span className="text-sm font-medium">Suspicious</span>
+                <span className="text-[11px] font-medium">Suspicious</span>
                 <Badge
                   variant="secondary"
                   className={cn(
-                    "tabular-nums",
+                    "tabular-nums text-[10px]",
                     suspiciousCount > 0
                       ? "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300"
                       : "bg-secondary dark:bg-white/10",
@@ -849,21 +597,21 @@ export function SpreadsheetToolbar({
           </DropdownMenu>
         </Feature>
 
-        <div className="w-px h-6 bg-border" />
+        <div className="w-px h-5 bg-border" />
 
         {/* Min Providers */}
         <Feature id="filter-provider">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className={BTN_BASE}>
                 Providers
                 <Badge
                   variant="secondary"
-                  className="ml-1.5 w-7 tabular-nums bg-secondary dark:bg-white/10"
+                  className="ml-1 w-6 tabular-nums bg-secondary dark:bg-white/10 text-[10px]"
                 >
                   {minProviderCount}+
                 </Badge>
-                <ChevronDown className="size-4" />
+                <ChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[180px]">
@@ -884,7 +632,7 @@ export function SpreadsheetToolbar({
           </DropdownMenu>
         </Feature>
 
-        <div className="w-px h-6 bg-border" />
+        <div className="w-px h-5 bg-border" />
 
         {/* Search */}
         <Feature id="search">
@@ -894,7 +642,7 @@ export function SpreadsheetToolbar({
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Search events..."
-              className="w-44 h-8 pr-7"
+              className="w-44 h-7 pr-7 text-xs"
             />
             {searchTerm && (
               <button
@@ -911,7 +659,7 @@ export function SpreadsheetToolbar({
         <div className="flex-1" />
 
         {/* Stats */}
-        <span className="text-sm text-muted-foreground font-medium">
+        <span className="text-[11px] text-muted-foreground font-medium tabular-nums">
           {totalRows} rows
         </span>
 
@@ -921,9 +669,9 @@ export function SpreadsheetToolbar({
             variant={hasActiveFilters ? "default" : "outline"}
             size="sm"
             onClick={onReset}
-            className="rounded-r-none"
+            className={cn(BTN_BASE, "rounded-r-none")}
           >
-            <RotateCcw className="w-3.5 h-3.5 mr-1" />
+            <RotateCcw className="w-3 h-3" />
             Reset
           </Button>
           <DropdownMenu>
@@ -931,9 +679,9 @@ export function SpreadsheetToolbar({
               <Button
                 variant={hasActiveFilters ? "default" : "outline"}
                 size="sm"
-                className="rounded-l-none border-l-0 px-1.5"
+                className={cn(CTRL_H, "rounded-l-none border-l-0 px-1.5")}
               >
-                <ChevronDown className="w-3.5 h-3.5" />
+                <ChevronDown className="w-3 h-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">

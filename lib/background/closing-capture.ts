@@ -29,7 +29,7 @@
 
 import { and, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { valueBets } from "@/lib/db/schema";
+import { bets } from "@/lib/db/schema";
 import { getOdds } from "@/lib/atoms/store";
 import { logger } from "@/lib/shared/logger";
 
@@ -51,18 +51,18 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
 
   const candidates = await db
     .select({
-      id: valueBets.id,
-      eventId: valueBets.eventId,
-      familyId: valueBets.familyId,
-      atomId: valueBets.atomId,
-      sharpProvider: valueBets.sharpProvider,
-      softProvider: valueBets.softProvider,
+      id: bets.id,
+      eventId: bets.eventId,
+      familyId: bets.familyId,
+      atomId: bets.atomId,
+      sharpProvider: bets.sharpProvider,
+      softProvider: bets.softProvider,
     })
-    .from(valueBets)
+    .from(bets)
     .where(
       and(
-        gte(valueBets.eventStartTime, lowerIso),
-        lte(valueBets.eventStartTime, upperIso),
+        gte(bets.eventStartTime, lowerIso),
+        lte(bets.eventStartTime, upperIso),
       ),
     )
     .limit(1000);
@@ -98,16 +98,16 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
     );
 
     await db
-      .update(valueBets)
+      .update(bets)
       .set({
         closingSharpOdds: sharpSnap.odds,
         closingSoftOdds:
           softSnap && now - softSnap.timestamp <= MAX_SNAPSHOT_AGE_MS
             ? softSnap.odds
             : null,
-        closingCapturedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
-      .where(eq(valueBets.id, row.id));
+      .where(eq(bets.id, row.id));
 
     result.captured++;
   }

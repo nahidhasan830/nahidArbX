@@ -25,22 +25,22 @@ import { isAutoPlaceEnabled } from "./auto-place-config";
 import {
   DuplicatePlacedBetError,
   insertPlacedBet,
-  isAlreadyPlaced,
-} from "@/lib/db/repositories/placed-bets";
+  releaseReservation,
+  reservePlacement,
+} from "@/lib/db/repositories/bets";
 import { notify } from "@/lib/notifier";
 import { logger } from "@/lib/shared/logger";
 import { buildBetGradeUrl } from "@/lib/shared/google-ai-link";
 import { getMarketLimits as getCachedMarketLimits } from "@/lib/atoms/market-limits-store";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
-import { computeStakeBdt, deriveEdgeForRow } from "./strategy";
+import { computeStake, deriveEdge } from "./sizing";
 import { MIN_EV_PCT } from "@/lib/shared/constants";
 import {
-  hasPendingConfirmation,
   newPlacementId,
   registerPendingConfirmation,
 } from "@/lib/betting/ninewickets/placement-confirmation";
 import type { ProviderKey } from "@/lib/atoms/types";
-import type { ValueBetRow } from "@/lib/db/schema";
+import type { ValueBetRow } from "@/lib/bets-history/types";
 
 /**
  * Providers whose "placed" / "pending" book responses must be verified
@@ -173,36 +173,13 @@ async function placeBetForValueBetImpl(
     };
   }
 
-  // 1. Dedup — cross-provider lifetime.
-  if (
-    await isAlreadyPlaced(valueBet.eventId, valueBet.familyId, valueBet.atomId)
-  ) {
-    return {
-      status: "skipped",
-      reason: "Already placed for this (event, market, selection)",
-    };
-  }
-
-  // 1b. In-flight-confirmation dedup.
-  //
-  // 9W Sportsbook placements are held in-memory for up to 2 minutes
-  // while we poll the book's bet-history feed to confirm they actually
-  // landed. During that window no `placed_bets` row exists yet, so the
-  // DB-backed check above can't see them — we have to consult the
-  // confirmation tracker separately. Without this guard a second
-  // auto-place tick (or a retry from the UI) would re-submit the same
-  // selection while the first is still being verified, and both would
-  // fire once the book deduplicates server-side.
-  if (
-    CONFIRMATION_REQUIRED_PROVIDERS.has(providerId) &&
-    hasPendingConfirmation(valueBet.eventId, valueBet.familyId, valueBet.atomId)
-  ) {
-    return {
-      status: "skipped",
-      reason:
-        "Placement already in flight for this selection (awaiting book confirmation)",
-    };
-  }
+  // 1. Dedup now lives at step 6 (reservePlacement) — an atomic
+  // INSERT ... ON CONFLICT DO UPDATE WHERE placed_at IS NULL against
+  // the bets table. That replaces the previous SELECT-then-INSERT race
+  // and the in-memory `hasPendingConfirmation` window that both allowed
+  // cross-cycle duplicates (tickets 11057135/39/42 for Randers vs
+  // Fredericia on 2026-04-24). The `inflightPlacements` map above is
+  // still a cheap first-line filter for concurrent calls in-process.
 
   // 2. Auto-place toggle — manual bypasses this.
   if (mode === "auto" && !isAutoPlaceEnabled(providerId)) {
@@ -295,35 +272,25 @@ async function placeBetForValueBetImpl(
     const bankroll = settings.useLiveBalance
       ? accountInfo.balance
       : settings.manualBankrollBdt;
-    const { evPct, fullKelly } = deriveEdgeForRow({
-      softOddsLast: Number(valueBet.softOddsLast),
+    const { evPct, fullKelly } = deriveEdge({
+      softOdds: Number(valueBet.softOdds),
       softCommissionPct: Number(valueBet.softCommissionPct),
       sharpTrueProb: Number(valueBet.sharpTrueProb),
     });
-    // Hard EV floor at placement time. The detector only emits value bets
-    // above MIN_EV_PCT, but the DB row can decay between detection and
-    // placement — softOddsLast is refreshed every tick while sharpTrueProb
-    // and softCommissionPct may update independently, so the placer must
-    // recheck against its own snapshot instead of trusting the detector's
-    // earlier verdict. Without this guard, "flat" strategy (which ignores
-    // Kelly) places unitSize on anything, and Kelly strategies clamp a
-    // zero-Kelly stake up to the book floor instead of skipping.
+    // Hard EV floor at placement time — softOdds can decay between
+    // detection and placement so we recheck against the current snapshot.
     if (evPct < MIN_EV_PCT) {
       return {
         status: "skipped",
-        reason: `EV decayed to ${evPct.toFixed(2)}% (< ${MIN_EV_PCT}% floor): softOddsLast=${valueBet.softOddsLast}, sharpTrueProb=${Number(valueBet.sharpTrueProb).toFixed(4)}, comm=${valueBet.softCommissionPct}%`,
+        reason: `EV decayed to ${evPct.toFixed(2)}% (< ${MIN_EV_PCT}% floor): softOdds=${valueBet.softOdds}, sharpTrueProb=${Number(valueBet.sharpTrueProb).toFixed(4)}, comm=${valueBet.softCommissionPct}%`,
       };
     }
-    const rawStake = computeStakeBdt({
-      strategyId: settings.strategyId as import("./strategy").StrategyId,
-      fullKellyFraction: fullKelly,
-      evPct,
+    const rawStake = computeStake({
+      fullKelly,
       bankrollBdt: bankroll,
-      unitSizeBdt: settings.unitSizeBdt,
       kellyCapPct: settings.kellyCapPct,
+      kellyFraction: settings.kellyFraction,
     });
-    // Snap-down-to-bucket then clamp-up-to-floor. Book min and the
-    // operator-chosen floor both matter: max(bookMin, settings floor).
     const bucket = settings.stakeBucketBdt;
     const autoMinStake = snapUp(Math.max(minBet, settings.minStakeBdt), bucket);
     if (autoMinStake > accountInfo.balance) {
@@ -336,10 +303,9 @@ async function placeBetForValueBetImpl(
     if (snapped < autoMinStake) snapped = autoMinStake;
     logger.info(
       "BetPlacer",
-      `auto [${settings.strategyId}]: raw=${rawStake.toFixed(2)} → ` +
-        `snapped=${snapped} (bucket=${bucket}, floor=${autoMinStake}, ` +
-        `bookMin=${minBet}, bankroll=${bankroll}, evPct=${evPct.toFixed(2)}, ` +
-        `kelly=${fullKelly.toFixed(4)})`,
+      `auto: raw=${rawStake.toFixed(2)} → snapped=${snapped} ` +
+        `(bucket=${bucket}, floor=${autoMinStake}, bookMin=${minBet}, ` +
+        `bankroll=${bankroll}, evPct=${evPct.toFixed(2)}, kelly=${fullKelly.toFixed(4)})`,
     );
     targetStake = snapped;
   } else {
@@ -370,7 +336,49 @@ async function placeBetForValueBetImpl(
       };
     }
   }
-  const odds = Number(valueBet.softOddsLast);
+  const odds = Number(valueBet.softOdds);
+
+  // 5b. Atomic DB reservation — the single source of truth for dedup.
+  //
+  // INSERT ... ON CONFLICT DO UPDATE WHERE placed_at IS NULL. If a
+  // racing caller or an earlier cycle already reserved / placed this
+  // selection, the conditional WHERE returns zero rows and we bail
+  // BEFORE hitting the book. This is what prevents the duplicate
+  // placements (tickets 11057135/39/42 on 2026-04-24) that slipped
+  // past the in-memory `inflightPlacements` / `hasPendingConfirmation`
+  // windows once the first sync cycle's confirmation cleared.
+  const reservation = await reservePlacement({
+    eventId: valueBet.eventId,
+    familyId: valueBet.familyId,
+    atomId: valueBet.atomId,
+    provider: providerId,
+    mode,
+    currency: adapter.currency,
+    shell: {
+      atomLabel: valueBet.atomLabel,
+      homeTeam: valueBet.homeTeam,
+      awayTeam: valueBet.awayTeam,
+      competition: valueBet.competition,
+      eventStartTime: valueBet.eventStartTime,
+      marketType: valueBet.marketType,
+      timeScope: valueBet.timeScope as string,
+      familyLine: valueBet.familyLine ?? null,
+      sharpProvider: valueBet.sharpProvider,
+      sharpOdds: Number(valueBet.sharpOdds),
+      sharpTrueProb: Number(valueBet.sharpTrueProb),
+      softProvider: valueBet.softProvider,
+      softCommissionPct: Number(valueBet.softCommissionPct),
+      softOdds: Number(valueBet.softOdds),
+    },
+  });
+  if (!reservation.reserved) {
+    return {
+      status: "skipped",
+      reason:
+        "Already reserved/placed — another tick beat us to this (event, market, selection)",
+    };
+  }
+  const reservedBetId = reservation.id;
 
   // 6. Place via adapter.
   logger.info("BetPlacer", "submitting to book", {
@@ -386,12 +394,25 @@ async function placeBetForValueBetImpl(
     mode,
     providerRefs,
   });
-  const attempt = await adapter.placeBet({
-    providerRefs,
-    stake,
-    odds,
-    currency: adapter.currency,
-  });
+  let attempt;
+  try {
+    attempt = await adapter.placeBet({
+      providerRefs,
+      stake,
+      odds,
+      currency: adapter.currency,
+    });
+  } catch (err) {
+    // Adapter threw (transport/auth failure). Roll the reservation back
+    // so the next valid tick can retry this selection.
+    await releaseReservation(reservedBetId).catch((relErr) => {
+      logger.error(
+        "BetPlacer",
+        `releaseReservation failed after adapter throw: ${msg(relErr)}`,
+      );
+    });
+    throw err;
+  }
   // Structured audit log: always record the outcome, and include the
   // raw book response when the book rejected or errored so we can grow
   // the error-translation table without guessing what the book returned.
@@ -513,10 +534,36 @@ async function placeBetForValueBetImpl(
     const isPending = attempt.status === "pending";
     let row;
     try {
+      // In merged schema, the row already exists (persisted by value detector).
+      // insertPlacedBet will find it by id and update placement fields.
       row = await insertPlacedBet({
-        ...baseInsert,
+        id: baseInsert.id,
+        eventId: baseInsert.eventId,
+        familyId: baseInsert.familyId,
+        atomId: baseInsert.atomId,
+        atomLabel: baseInsert.atomLabel,
+        homeTeam: valueBet.homeTeam,
+        awayTeam: valueBet.awayTeam,
+        competition: baseInsert.competition,
+        eventStartTime: baseInsert.eventStartTime,
+        marketType: baseInsert.marketType,
+        timeScope: valueBet.timeScope as string,
+        familyLine: valueBet.familyLine ?? null,
+        sharpProvider: valueBet.sharpProvider,
+        sharpOdds: Number(valueBet.sharpOdds),
+        sharpTrueProb: Number(valueBet.sharpTrueProb),
+        softProvider: valueBet.softProvider,
+        softCommissionPct: Number(valueBet.softCommissionPct),
+        softOdds: Number(valueBet.softOdds),
+        sharpOddsAgeMs: null,
+        provider: baseInsert.provider,
+        stake,
         odds: attempt.bookedOdds ?? odds,
+        currency: baseInsert.currency,
         providerTicketId: attempt.ticketId ?? null,
+        mode,
+        requestPayload: attempt.request,
+        responsePayload: attempt.response,
       });
     } catch (err) {
       // UNIQUE-index collision on (event_id, family_id, atom_id): another
@@ -561,7 +608,7 @@ async function placeBetForValueBetImpl(
       const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
       await notify({
         type: "bet:placed",
-        at: row.placedAt,
+        at: row.placedAt ?? new Date().toISOString(),
         provider: providerId,
         providerDisplayName: adapter.providerDisplayName,
         eventName: baseBet.eventName,
@@ -633,6 +680,15 @@ async function placeBetForValueBetImpl(
     maxBet: Number.isFinite(maxBet) ? maxBet : null,
     balance: accountInfo.balance,
     dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
+  });
+
+  // Book rejected / errored — release the reservation so the next
+  // valid sync cycle can retry this selection.
+  await releaseReservation(reservedBetId).catch((relErr) => {
+    logger.error(
+      "BetPlacer",
+      `releaseReservation failed after book ${attempt.status}: ${msg(relErr)}`,
+    );
   });
 
   return {

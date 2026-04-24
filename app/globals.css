@@ -7,8 +7,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -57,10 +57,10 @@
 
 /* Smooth scroll - handled via data-scroll-behavior attribute on <html> */
 
-/* Custom scrollbar */
+/* Custom scrollbar — teal accent to match the brand */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -69,7 +69,7 @@
 
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -78,11 +78,11 @@
 
 @media (prefers-color-scheme: dark) {
   ::-webkit-scrollbar-thumb {
-    background: #475569;
+    background: oklch(0.35 0.04 200);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #64748b;
+    background: oklch(0.5 0.08 190);
   }
 }
 
@@ -162,6 +162,171 @@
   transition: none !important;
 }
 
+/* ============================================
+   DASHBOARD: Premium Design System
+   ============================================ */
+
+/* Noise texture overlay — adds subtle grain for depth/premium feel.
+   Applied on .dark body via ::after pseudo to avoid disrupting children. */
+.dark body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.015;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* Metric pod — elevated KPI cell with state-aware glow.
+   Border-left accent + inner glow convey data status at a glance. */
+.metric-pod {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid oklch(1 0 0 / 6%);
+  background: oklch(0.18 0.005 250 / 80%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 12px 14px;
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease,
+    transform 0.2s ease;
+}
+
+.metric-pod:hover {
+  border-color: oklch(1 0 0 / 10%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px oklch(0 0 0 / 20%);
+}
+
+.metric-pod::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: oklch(0.55 0 0);
+  transition: background 0.3s ease;
+}
+
+.metric-pod--positive::before {
+  background: oklch(0.72 0.19 168);
+}
+.metric-pod--positive {
+  box-shadow: inset 0 0 30px oklch(0.72 0.19 168 / 4%);
+}
+
+.metric-pod--negative::before {
+  background: oklch(0.66 0.13 22);
+}
+.metric-pod--negative {
+  box-shadow: inset 0 0 30px oklch(0.66 0.13 22 / 4%);
+}
+
+.metric-pod--warning::before {
+  background: oklch(0.78 0.15 80);
+}
+.metric-pod--warning {
+  box-shadow: inset 0 0 30px oklch(0.78 0.15 80 / 4%);
+}
+
+.metric-pod--brand::before {
+  background: oklch(0.72 0.16 190);
+}
+.metric-pod--brand {
+  box-shadow: inset 0 0 30px oklch(0.72 0.16 190 / 4%);
+}
+
+/* Glass panel — frosted card with luminous border */
+.glass-panel {
+  border-radius: 12px;
+  border: 1px solid oklch(1 0 0 / 7%);
+  background: oklch(0.16 0.005 250 / 60%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 1px 3px oklch(0 0 0 / 12%);
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.glass-panel:hover {
+  border-color: oklch(1 0 0 / 10%);
+}
+
+/* Data text — uses JetBrains Mono for numbers */
+.data-text {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* ============================================
+   MICRO-ANIMATIONS
+   ============================================ */
+
+/* Staggered entrance for dashboard sections */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Data value glow — used when numbers update */
+@keyframes data-glow {
+  0% {
+    text-shadow: 0 0 8px currentColor;
+  }
+  100% {
+    text-shadow: none;
+  }
+}
+
+.animate-data-glow {
+  animation: data-glow 1s ease-out;
+}
+
+/* Subtle shimmer for loading states */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    oklch(0.22 0 0) 0%,
+    oklch(0.28 0.02 190) 50%,
+    oklch(0.22 0 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* ============================================
+   BASE THEME TOKENS
+   ============================================ */
+
 :root {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -205,20 +370,23 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* Main background — kept deep for the content area */
+  --background: oklch(0.13 0.008 250);
+  --foreground: oklch(0.93 0.005 250);
+  /* Card surfaces are subtly elevated from the background */
+  --card: oklch(0.17 0.008 250);
+  --card-foreground: oklch(0.93 0.005 250);
+  --popover: oklch(0.17 0.008 250);
+  --popover-foreground: oklch(0.93 0.005 250);
+  /* Primary is now a warm off-white, not pure white */
+  --primary: oklch(0.9 0.005 250);
+  --primary-foreground: oklch(0.17 0.008 250);
+  --secondary: oklch(0.22 0.008 250);
+  --secondary-foreground: oklch(0.93 0.005 250);
+  --muted: oklch(0.22 0.008 250);
+  --muted-foreground: oklch(0.6 0.015 250);
+  --accent: oklch(0.22 0.008 250);
+  --accent-foreground: oklch(0.93 0.005 250);
   --destructive: oklch(0.704 0.191 22.216);
   /* Dark-mode variants of the dashboard semantic palette. The
      loss/danger tone is the one the operator complained about:
@@ -227,31 +395,34 @@
   --danger: oklch(0.66 0.13 22);
   --positive: oklch(0.72 0.16 150);
   --warning: oklch(0.78 0.15 80);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  /* Visible borders — not pure alpha, a real color so sidebar edges read */
+  --border: oklch(0.25 0.01 250);
+  --input: oklch(1 0 0 / 12%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-1: oklch(0.72 0.16 190);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  /* Sidebar is NOTICEABLY lighter than main content — the lightness gap
+     (0.19 vs 0.13 = +0.06L) makes the rail clearly stand apart. A subtle
+     blue chroma bump (0.015) gives it a cool-panel tint against the
+     neutral main area. */
+  --sidebar: oklch(0.19 0.015 250);
+  --sidebar-foreground: oklch(0.93 0.005 250);
+  --sidebar-primary: oklch(0.72 0.16 190);
+  --sidebar-primary-foreground: oklch(0.93 0.005 250);
+  --sidebar-accent: oklch(0.24 0.015 250);
+  --sidebar-accent-foreground: oklch(0.93 0.005 250);
+  --sidebar-border: oklch(0.28 0.015 250);
   --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
     @apply bg-background text-foreground;
   }
 }
@@ -298,4 +469,319 @@
 
 [data-sonner-toast][data-type="info"] [data-icon] {
   color: oklch(0.7 0.15 250);
+}
+
+/* ============================================
+   APP SHELL: Industrial Command Center
+   ============================================ */
+
+/* --- Sidebar surface differentiation ---
+   The inset variant wraps everything in bg-sidebar, which bleeds the
+   lighter sidebar color into the padding gap between panel and content.
+   Override the wrapper to use the dark background instead — only the
+   actual sidebar inner panel gets the lighter sidebar surface. */
+[data-slot="sidebar-wrapper"] {
+  background: var(--background) !important;
+}
+
+[data-sidebar="sidebar"][data-slot="sidebar-inner"] {
+  border-right: 1px solid oklch(0.3 0.015 250);
+  box-shadow:
+    inset -1px 0 0 oklch(1 0 0 / 3%),
+    2px 0 12px oklch(0 0 0 / 15%);
+}
+
+/* --- Sidebar Header --- */
+.appshell-sidebar-header {
+  position: relative;
+  border-bottom: 1px solid oklch(0.28 0.015 250);
+}
+
+/* Logo glow mark — small icon container with pulsing ambient glow */
+.appshell-logo-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: oklch(0.24 0.04 200 / 80%);
+  border: 1px solid oklch(0.72 0.16 190 / 25%);
+  box-shadow:
+    0 0 12px oklch(0.72 0.16 190 / 12%),
+    inset 0 1px 0 oklch(1 0 0 / 6%);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.appshell-logo-link:hover .appshell-logo-mark {
+  border-color: oklch(0.72 0.16 190 / 50%);
+  box-shadow:
+    0 0 20px oklch(0.72 0.16 190 / 25%),
+    0 0 40px oklch(0.72 0.16 190 / 10%),
+    inset 0 1px 0 oklch(1 0 0 / 10%);
+  transform: scale(1.05);
+}
+
+/* --- Nav group label with dot indicator --- */
+.appshell-group-label {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.55 0.02 250);
+}
+
+.appshell-group-label-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: oklch(0.72 0.16 190 / 50%);
+  flex-shrink: 0;
+}
+
+/* --- Nav item entrance animation --- */
+.appshell-nav-item {
+  animation: nav-slide-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--nav-delay, 0ms);
+}
+
+@keyframes nav-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* --- Nav button default state --- */
+.appshell-nav-btn {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+/* Subtle scanning line on hover */
+.appshell-nav-btn::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 60%;
+  border-radius: 0 3px 3px 0;
+  background: oklch(0.72 0.16 190 / 40%);
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.appshell-nav-btn:hover::before {
+  width: 3px;
+}
+
+/* --- Active nav button --- */
+.appshell-nav-btn--active {
+  position: relative;
+}
+
+/* Active indicator — luminous left accent bar */
+.appshell-nav-btn--active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(
+    to bottom,
+    oklch(0.72 0.16 190),
+    oklch(0.6 0.2 230)
+  );
+  box-shadow:
+    0 0 8px oklch(0.72 0.16 190 / 50%),
+    0 0 16px oklch(0.72 0.16 190 / 20%);
+}
+
+/* ============================================
+   SIDEBAR FOOTER: Unified Control Dock
+   A single recessed panel that groups search,
+   profile, and status into one cohesive unit.
+   ============================================ */
+
+.appshell-sidebar-footer {
+  position: relative;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+
+/* The dock itself — recessed card feel */
+.appshell-control-dock {
+  margin: 8px;
+  border-radius: 10px;
+  border: 1px solid oklch(0.28 0.015 250);
+  background: linear-gradient(
+    to bottom,
+    oklch(0.16 0.012 250 / 80%),
+    oklch(0.14 0.01 250 / 90%)
+  );
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 4%),
+    0 -1px 3px oklch(0 0 0 / 10%);
+  overflow: hidden;
+}
+
+/* --- Search trigger inside dock --- */
+.appshell-control-dock .appshell-search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid oklch(0.26 0.012 250);
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  color: oklch(0.5 0.015 250);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.appshell-control-dock .appshell-search-trigger:hover {
+  background: oklch(0.2 0.015 250 / 50%);
+  color: oklch(0.7 0.02 250);
+}
+
+.appshell-control-dock .appshell-search-trigger:hover .appshell-search-icon {
+  color: oklch(0.72 0.16 190);
+}
+
+.appshell-search-icon {
+  color: oklch(0.45 0.015 250);
+  transition: color 0.2s ease;
+  flex-shrink: 0;
+}
+
+/* --- Keyboard shortcut badge --- */
+.appshell-kbd {
+  margin-left: auto;
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: oklch(0.12 0.008 250);
+  border: 1px solid oklch(0.25 0.01 250);
+  color: oklch(0.45 0.015 200);
+  letter-spacing: 0.03em;
+}
+
+/* --- Profile row inside dock --- */
+.appshell-dock-profile-row {
+  border-bottom: 1px solid oklch(0.26 0.012 250);
+}
+
+/* Reduce the default SidebarMenuButton lg size inside the dock
+   to make the profile row more compact */
+.appshell-dock-profile-row [data-sidebar="menu-button"][data-size="lg"] {
+  height: 44px;
+  padding: 6px 8px;
+}
+
+/* Smaller avatar inside dock */
+.appshell-dock-profile-row [data-sidebar="menu-button"] > div:first-child {
+  width: 28px;
+  height: 28px;
+}
+.appshell-dock-profile-row [data-sidebar="menu-button"] > div:first-child svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* --- Status strip at bottom of dock --- */
+.appshell-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 10px;
+  color: oklch(0.5 0.015 250);
+  letter-spacing: 0.01em;
+}
+
+.appshell-status-bar .status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.appshell-status-bar .status-dot--ok {
+  background: oklch(0.72 0.19 150);
+  box-shadow: 0 0 5px oklch(0.72 0.19 150 / 45%);
+}
+
+.appshell-status-bar .status-dot--degraded {
+  background: oklch(0.78 0.15 80);
+  box-shadow: 0 0 5px oklch(0.78 0.15 80 / 45%);
+}
+
+.appshell-status-bar .status-dot--down {
+  background: oklch(0.66 0.13 22);
+  box-shadow: 0 0 5px oklch(0.66 0.13 22 / 45%);
+}
+
+.appshell-status-bar .status-dot--loading {
+  background: oklch(0.45 0.015 250);
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ─── Top Bar ─── */
+.appshell-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  border-bottom: 1px solid oklch(0.25 0.01 250);
+  background: oklch(0.14 0.01 250 / 90%);
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+}
+
+/* Thin gradient accent line at the very top of the bar */
+.appshell-topbar-accent {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(0.72 0.16 190 / 40%) 20%,
+    oklch(0.6 0.2 230 / 30%) 50%,
+    oklch(0.72 0.16 190 / 40%) 80%,
+    transparent 100%
+  );
+}
+
+/* --- Breadcrumb page title styling --- */
+.appshell-breadcrumb-page {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: oklch(0.88 0.005 250);
 }

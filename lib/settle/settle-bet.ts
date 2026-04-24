@@ -10,8 +10,8 @@
  * should fall through to the AI tier for those rows rather than guessing.
  */
 
-import type { ValueBetRow } from "../db/schema";
-import type { Outcome } from "../backtest/types";
+import type { ValueBetRow } from "@/lib/bets-history/types";
+import type { Outcome } from "../bets-history/types";
 import type { MatchScore, SettleResult } from "./types";
 
 type Leg = "home" | "away";

@@ -2,7 +2,7 @@
  * 9W pending-bet reconciler.
  *
  * When a bet is placed asynchronously (book returns SUCCESS without a
- * ticket id immediately), we persist a `placed_bets` row at
+ * ticket id immediately), we persist a `bets` row at
  * `outcome='pending'` with `providerTicketId = null`. The book later
  * assigns a ticket id that shows up in
  * `gakqv/queryUnMatchTicketsAndTxns` (and eventually in
@@ -17,17 +17,14 @@
 import { callWithSessionRetry, SessionExpiredError } from "./client";
 import {
   attachTicketId,
-  deletePlacedBet,
+  deleteBet,
   listPendingBetsForProvider,
-} from "@/lib/db/repositories/placed-bets";
+} from "@/lib/db/repositories/bets";
 import { logger } from "@/lib/shared/logger";
-import { notify } from "@/lib/notifier";
-import { ninewicketsSportsbookAdapter } from "./adapter";
 import type {
   GeniusSportsUnMatchTicket,
   QueryUnMatchTicketsResponse,
 } from "./types";
-import type { PlacedBetRow } from "@/lib/db/schema";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
@@ -253,7 +250,9 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
     const placedMs = Date.parse(
       typeof row.placedAt === "string"
         ? row.placedAt
-        : (row.placedAt as Date).toISOString(),
+        : row.placedAt
+          ? (row.placedAt as unknown as Date).toISOString()
+          : String(nowMs),
     );
 
     const match = findTicketForRow(
@@ -267,7 +266,9 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
         placedAt:
           typeof row.placedAt === "string"
             ? row.placedAt
-            : (row.placedAt as Date).toISOString(),
+            : row.placedAt
+              ? (row.placedAt as unknown as Date).toISOString()
+              : String(nowMs),
       },
       claimedTicketIds,
     );
@@ -278,7 +279,7 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
       // retries. Fresh pendings within the TTL are left alone — the
       // book may still confirm within a few seconds.
       if (nowMs - placedMs > ORPHAN_PENDING_TTL_MS) {
-        const deleted = await deletePlacedBet(row.id);
+        const deleted = await deleteBet(row.id);
         if (deleted) {
           orphansPurged++;
           logger.warn(
@@ -309,15 +310,11 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
         `attached ticket ${ticketId} to placed_bet ${row.id} ` +
           `(event ${row.eventId}, stake ${stake}@${odds})`,
       );
-      // Fire Telegram now. The placer intentionally skipped notify on
-      // pending placements so the operator only ever sees a
-      // "Bet placed" ping once the book has confirmed with a ticket.
-      await notifyConfirmed(updated, ticketId).catch((err) => {
-        logger.warn(
-          "Reconciler",
-          `notify(bet:placed) failed for ${updated.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+      // Intentionally NO Telegram here. The placement-confirmation path
+      // (lib/betting/ninewickets/placement-confirmation.ts) is the
+      // authoritative "Bet placed" notifier. Firing a second ping from
+      // the reconciler produced duplicate notifications today
+      // (tickets 11057135/39/42 for Randers vs Fredericia).
     }
   }
 
@@ -385,62 +382,4 @@ function findTicketForRow(
   }
 
   return null;
-}
-
-/** Best-effort sport inference from competition name (mirrors placer). */
-function inferSport(competition: string | null | undefined): string | null {
-  if (!competition) return null;
-  const c = competition.toLowerCase();
-  if (
-    /league|bundesliga|la liga|serie a|champions|europa|cup|premier|mls|fifa|uefa|ligue|eredivisie|world cup|efl|fa cup/.test(
-      c,
-    )
-  )
-    return "soccer";
-  if (/nba|euroleague|basketball/.test(c)) return "basketball";
-  if (/atp|wta|tennis|grand slam|wimbledon|roland/.test(c)) return "tennis";
-  if (/ipl|t20|odi|test|cricket|bbl|psl|cpl/.test(c)) return "cricket";
-  if (/nhl|hockey|khl/.test(c)) return "hockey";
-  if (/mlb|baseball/.test(c)) return "baseball";
-  return null;
-}
-
-/**
- * Fire the `bet:placed` notification once the book has confirmed a
- * previously-pending placement. Mirrors the placer's own notify call
- * but without the value-bet metadata (evPct, timeScope, familyLine) —
- * those aren't stored on `placed_bets` and we prefer a lean confirmation
- * ping over a stale re-computation.
- */
-async function notifyConfirmed(
-  row: PlacedBetRow,
-  ticketId: string,
-): Promise<void> {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  const placedAt =
-    typeof row.placedAt === "string"
-      ? row.placedAt
-      : (row.placedAt as Date).toISOString();
-  const eventStartTime =
-    typeof row.eventStartTime === "string"
-      ? row.eventStartTime
-      : (row.eventStartTime as Date).toISOString();
-  await notify({
-    type: "bet:placed",
-    at: placedAt,
-    provider: row.provider,
-    providerDisplayName: ninewicketsSportsbookAdapter.providerDisplayName,
-    eventName: row.eventName,
-    competition: row.competition,
-    sport: inferSport(row.competition),
-    eventStartTime,
-    marketName: row.marketType,
-    selectionName: row.atomLabel,
-    stake: Number(row.stake),
-    odds: Number(row.odds),
-    currency: row.currency,
-    mode: row.mode as "auto" | "manual",
-    ticketId,
-    dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
-  });
 }

@@ -37,7 +37,7 @@ import { KELLY_FRACTION, VALUE_TOTAL_STAKE } from "@/lib/shared/constants";
 import { adjustOddsForCommission } from "@/lib/shared/commission";
 import { cn } from "@/lib/utils";
 import { PlaceBetPanel } from "@/components/betting/PlaceBetPanel";
-import { computeStakeBdt, type StrategyId } from "@/lib/betting/strategy";
+import { computeStake } from "@/lib/betting/sizing";
 import {
   useBettingSettings,
   type BettingSettingsClient,
@@ -312,18 +312,12 @@ function calculateValueMetrics(
       : settings.manualBankrollBdt
     : (liveBankroll ?? VALUE_TOTAL_STAKE);
 
-  // Strategy-aware stake. Mirrors the backend `computeStakeBdt` so
-  // the modal's suggestion always matches what the placer would pick.
-  // Pre-settings render: quarter-Kelly fallback so the panel isn't
-  // blank on first frame.
   const rawStake = settings
-    ? computeStakeBdt({
-        strategyId: settings.strategyId as StrategyId,
-        fullKellyFraction: kellyFull,
-        evPct,
+    ? computeStake({
+        fullKelly: kellyFull,
         bankrollBdt: bankroll,
-        unitSizeBdt: settings.unitSizeBdt,
         kellyCapPct: settings.kellyCapPct,
+        kellyFraction: settings.kellyFraction ?? KELLY_FRACTION,
       })
     : bankroll * Math.max(0, kellyFull * KELLY_FRACTION);
 
@@ -477,10 +471,26 @@ export function ValueBetDetailsModal({
     };
   }, [eventId, selectedProvider, placementContext]);
 
-  const timeInfo = useMemo(() => formatTime(startTime), [startTime]);
+  // Wall-clock tick so the "In Xm" / "Started Ym ago" / odds-age
+  // displays keep moving while the modal is open. Without this, both
+  // memos freeze at their inputs and a modal left open for hours shows
+  // stale times.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [open]);
+
+  const timeInfo = useMemo(
+    () => formatTime(startTime),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [startTime, now],
+  );
   const oddsAge = useMemo(
     () => (details ? formatOddsAge(details.timestamp) : null),
-    [details],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [details, now],
   );
 
   // Get effective commission (custom override or provider default)

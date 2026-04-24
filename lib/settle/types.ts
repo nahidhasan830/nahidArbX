@@ -1,4 +1,4 @@
-import type { Outcome } from "../backtest/types";
+import type { Outcome } from "../bets-history/types";
 
 export type MatchStatus = "FT" | "AET" | "PEN" | "ABD" | "POSTPONED";
 

@@ -138,8 +138,7 @@ export function PlaceBetPanel({
   // consistent with what the backend placer actually enforces.
   const { settings: bettingSettings } = useBettingSettings();
   const floorStake = bettingSettings?.minStakeBdt ?? UI_MIN_STAKE_FLOOR;
-  const strategyLabel =
-    bettingSettings?.strategyId ?? `kelly-${KELLY_FRACTION}`;
+  const strategyLabel = `kelly-${KELLY_FRACTION}`;
 
   const kellySuggested = selectedMetrics.metrics.suggested;
   useEffect(() => {
@@ -1106,7 +1105,7 @@ function SuccessPanel({
       if (cancelled) return;
       try {
         const res = await fetch(
-          `/api/bets/placement-status/${encodeURIComponent(placedBetId)}`,
+          `/api/bets/${encodeURIComponent(placedBetId)}/status`,
           { cache: "no-store" },
         );
         if (!res.ok) return;

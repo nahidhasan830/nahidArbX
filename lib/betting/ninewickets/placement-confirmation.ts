@@ -17,7 +17,7 @@
  *   - Poll the feed every {@link POLL_INTERVAL_MS} for up to
  *     {@link DEADLINE_MS}.
  *   - When we see a matching ticket (stake + odds + marketId +
- *     selectionId), insert the `placed_bets` row with the real
+ *     selectionId), insert the unified `bets` row with the real
  *     ticket id and fire the Telegram `bet:placed` notification.
  *   - If the deadline elapses with no match, fire a Telegram
  *     `bet:error` notification and drop — no DB row.
@@ -36,7 +36,7 @@ import {
   insertPlacedBet,
   DuplicatePlacedBetError,
   type NewPlacedBetInput,
-} from "@/lib/db/repositories/placed-bets";
+} from "@/lib/db/repositories/bets";
 import { notify } from "@/lib/notifier";
 import { logger } from "@/lib/shared/logger";
 import { queryPlayerInfo } from "./client";
@@ -60,7 +60,7 @@ const BALANCE_DELTA_TOLERANCE = 0.9;
  * the placer at submission time.
  */
 export interface PendingConfirmation {
-  /** UUID reserved for the eventual `placed_bets.id`. Returned to the caller synchronously. */
+  /** UUID reserved for the eventual `bets.id`. Returned to the caller synchronously. */
   placementId: string;
 
   // Bet identity
@@ -440,15 +440,24 @@ async function finaliseConfirmed(
 
   const insertInput: NewPlacedBetInput = {
     id: attempt.placementId,
-    valueBetId: attempt.valueBetId,
     eventId: attempt.eventId,
     familyId: attempt.familyId,
     atomId: attempt.atomId,
     atomLabel: attempt.atomLabel,
-    eventName: attempt.eventName,
+    homeTeam: attempt.eventName,
+    awayTeam: "",
     competition: attempt.competition,
     eventStartTime: attempt.eventStartTime,
     marketType: attempt.marketType,
+    timeScope: attempt.timeScope ?? "match",
+    familyLine: attempt.familyLine != null ? Number(attempt.familyLine) : null,
+    sharpProvider: "pinnacle",
+    sharpOdds: attempt.bookedOdds,
+    sharpTrueProb: 0.5,
+    sharpOddsAgeMs: null,
+    softProvider: attempt.provider,
+    softCommissionPct: 0,
+    softOdds: authoritativeOdds,
     provider: attempt.provider,
     stake: authoritativeStake,
     odds: authoritativeOdds,
@@ -505,7 +514,7 @@ async function finaliseConfirmed(
     }
     await notify({
       type: "bet:placed",
-      at: row.placedAt,
+      at: row.placedAt ?? new Date().toISOString(),
       provider: attempt.provider,
       providerDisplayName: attempt.providerDisplayName,
       eventName: attempt.eventName,
@@ -527,17 +536,32 @@ async function finaliseConfirmed(
       dashboardUrl: attempt.dashboardUrl,
     });
   } catch (err) {
-    // Rare: an older DB row exists for the same (event, market,
-    // selection). Treat as already-recorded; the book deduplicated our
-    // submission. No second notification.
     if (err instanceof DuplicatePlacedBetError) {
-      logger.warn(
+      // Under the reservation model, this means the reservation row
+      // was missing when we tried to patch in ticket/stake/odds — i.e.
+      // something released or never created it. This shouldn't happen
+      // in the happy path (placer always reserves before submitting),
+      // so log loudly. The book ticket still exists; operator must
+      // reconcile manually.
+      logger.error(
         "PlacementConfirmation",
         `confirm ${attempt.eventId}|${attempt.familyId}|${attempt.atomId}: ` +
-          `duplicate placed_bets row exists — book deduplicated, skipping insert`,
+          `reservation row missing when attaching ticket ${ticketId} — ` +
+          `book accepted but no DB row to patch. Manual reconciliation required.`,
       );
       return;
     }
+    // Any other insertPlacedBet failure (schema validation, unexpected
+    // DB error). Without this log the operator would see a Telegram
+    // "Bet Placed" fire for some other code path while no row exists
+    // in DB — exactly the mystery that made 2026-04-24's three
+    // duplicate placements (tickets 11057135/39/42) so hard to trace.
+    logger.error(
+      "PlacementConfirmation",
+      `finaliseConfirmed insertPlacedBet failed for ` +
+        `${attempt.eventId}|${attempt.familyId}|${attempt.atomId} ` +
+        `(ticket ${ticketId}): ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+    );
     throw err;
   }
 }

@@ -58,7 +58,7 @@ Perform a comprehensive code cleanup across both backend and frontend. Focus on 
 **2.2 OddsCell Component (components/ui/odds-cell.tsx)**
 
 - [ ] Create CVA-based component with variants: `arb`, `suspended`, `best`, `default`
-- [ ] Replace conditional className logic in BulkResultsSpreadsheet.tsx lines ~98-106
+- [ ] Replace conditional className logic in ValueBetSpreadsheet.tsx lines ~98-106
 
 **2.3 Status Badge Variants**
 
@@ -165,7 +165,7 @@ After cleanup:
 - `lib/adapters/ninewickets-exchange.ts`
 - `components/ui/badge.tsx`
 - `components/spreadsheet/SpreadsheetToolbar.tsx`
-- `components/spreadsheet/BulkResultsSpreadsheet.tsx`
+- `components/spreadsheet/ValueBetSpreadsheet.tsx`
 - `app/api/dashboard/route.ts`
 - `lib/background/fetcher.ts`
 - `lib/matching/matcher.ts`

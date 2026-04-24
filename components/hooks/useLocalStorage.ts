@@ -36,6 +36,7 @@ export function useLocalStorage<T>(
 
   // Debounce timer for localStorage writes
   const writeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingValueRef = useRef<T | null>(null);
 
   // Subscribe to storage changes (both cross-tab and same-tab)
   const subscribe = useCallback(
@@ -97,9 +98,12 @@ export function useLocalStorage<T>(
   // Setter function - debounced to avoid blocking UI
   const setValue = useCallback(
     (value: T | ((prev: T) => T)) => {
-      // Get the new value
-      const current = getStorageValue(key, initialValue);
+      // Compose updates against the most recent queued value so back-to-back
+      // functional writes don't clobber each other during the debounce window.
+      const current =
+        pendingValueRef.current ?? getStorageValue(key, initialValue);
       const valueToStore = value instanceof Function ? value(current) : value;
+      pendingValueRef.current = valueToStore;
 
       // Clear any pending write
       if (writeTimeoutRef.current) {
@@ -108,7 +112,10 @@ export function useLocalStorage<T>(
 
       // Debounce localStorage write (100ms)
       writeTimeoutRef.current = setTimeout(() => {
-        setStorageValue(key, valueToStore);
+        if (pendingValueRef.current !== null) {
+          setStorageValue(key, pendingValueRef.current);
+          pendingValueRef.current = null;
+        }
       }, 100);
     },
     [key, initialValue],

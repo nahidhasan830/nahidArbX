@@ -15,14 +15,38 @@ services:
       - BETJILI_PASSWORD=${BETJILI_PASSWORD}
       - BETJILI_URL=${BETJILI_URL:-https://betjili365.com/bd/en/account-login-quick}
       - TOKEN_HEADLESS=true
+      # 9W Sportsbook credentials (for bet placement)
+      - NINEWICKETS_LOGIN_URL=${NINEWICKETS_LOGIN_URL}
+      - NINEWICKETS_USERNAME=${NINEWICKETS_USERNAME}
+      - NINEWICKETS_PASSWORD=${NINEWICKETS_PASSWORD}
       # Auth
       - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - NEXT_PUBLIC_APP_URL=http://localhost:3000
       # Pinnacle config
       - PINNACLE_DAYS_AHEAD=${PINNACLE_DAYS_AHEAD:-2}
       - PINNACLE_PAGE_SIZE=${PINNACLE_PAGE_SIZE:-1000}
       # App config
       - FETCH_INTERVAL_MS=${FETCH_INTERVAL_MS:-60000}
+      # Database
+      - DATABASE_URL=${DATABASE_URL}
+      - CLOUD_SQL_INSTANCE=${CLOUD_SQL_INSTANCE}
+      # Telegram notifications
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # AI / Gemini
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_DEFAULT_MODEL=${GEMINI_DEFAULT_MODEL:-gemini-3.1-flash-lite-preview}
+      - GEMINI_LITE_MODEL=${GEMINI_LITE_MODEL:-gemini-3.1-flash-lite-preview}
+      - GEMINI_FLASH_MODEL=${GEMINI_FLASH_MODEL:-gemini-3-flash-preview}
+      - GEMINI_PRO_MODEL=${GEMINI_PRO_MODEL:-gemini-3.1-pro-preview}
+      - AI_MAX_PER_REQUEST_USD=${AI_MAX_PER_REQUEST_USD:-2}
+      # Email
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - EMAIL_FROM=${EMAIL_FROM}
+      # Sports data
+      - FOOTBALL_DATA_API_KEY=${FOOTBALL_DATA_API_KEY}
     volumes:
       # Persistent storage for session files and database
       - ./sessions:/app/sessions

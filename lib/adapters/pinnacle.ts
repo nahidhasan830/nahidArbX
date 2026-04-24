@@ -11,6 +11,7 @@ import { getPinnacleToken, clearStoredToken } from "../auth/token-manager";
 import { validateAndParse } from "../shared/validation";
 import { formatError } from "../shared/errors";
 import { config } from "../config";
+import { logger } from "../shared/logger";
 import {
   SOCCER_SPORT_ID,
   PinnacleEventsResponseSchema,
@@ -118,7 +119,7 @@ async function fetchWithToken(token: string): Promise<NormalizedEvent[]> {
 
   // Check API response code
   if (parsed.code !== 200) {
-    console.error("[pinnacle] API error:", parsed.message);
+    logger.error("Pinnacle", `API error: ${parsed.message}`);
     return [];
   }
 
@@ -133,7 +134,7 @@ export const pinnacleAdapter: ProviderAdapter = {
     // Get token (auto-refreshes if expired)
     const token = await getPinnacleToken();
     if (!token) {
-      console.warn("[pinnacle] No valid token - skipping fetchEvents");
+      logger.warn("Pinnacle", "No valid token - skipping fetchEvents");
       return [];
     }
 
@@ -152,29 +153,30 @@ export const pinnacleAdapter: ProviderAdapter = {
               axios.isAxiosError(retryError) &&
               retryError.response?.status === 401
             ) {
-              console.error(
-                "[pinnacle] Retry also got 401 - token capture may have failed",
+              logger.error(
+                "Pinnacle",
+                "Retry also got 401 - token capture may have failed",
               );
               clearStoredToken(); // Clear the bad new token too
             } else {
-              console.error("[pinnacle] Retry failed after token refresh");
+              logger.error("Pinnacle", "Retry failed after token refresh");
             }
           }
         } else {
-          console.error(
-            "[pinnacle] Token refresh returned null - browser capture failed",
+          logger.error(
+            "Pinnacle",
+            "Token refresh returned null - browser capture failed",
           );
         }
       }
 
       if (axios.isAxiosError(error)) {
-        console.error(
-          "[pinnacle] API request failed:",
-          error.response?.status,
-          error.message,
+        logger.error(
+          "Pinnacle",
+          `API request failed: ${error.response?.status} ${error.message}`,
         );
       } else {
-        console.error("[pinnacle] fetchEvents error:", error);
+        logger.error("Pinnacle", "fetchEvents error", error);
       }
       return [];
     }
@@ -238,7 +240,7 @@ export async function debugFetchPinnacleEvents(): Promise<DebugFixturesFetchResu
     result.normalizedEvents = events;
     result.eventCount = events.length;
   } catch (error) {
-    console.error("[pinnacle debug] Error:", formatError(error));
+    logger.error("Pinnacle", `debug fetch error: ${formatError(error)}`);
   }
 
   return result;

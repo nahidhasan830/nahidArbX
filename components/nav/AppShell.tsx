@@ -32,6 +32,9 @@ import {
   RefreshCw,
   KeySquare,
   Sparkles,
+  ChevronRight,
+  Zap,
+  Search,
 } from "lucide-react";
 import {
   Sidebar,
@@ -191,53 +194,78 @@ export function AppShell({
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <Sidebar variant="inset" collapsible="icon">
-        <SidebarHeader>
+        {/* ─── Sidebar Header: Logo + Brand ─── */}
+        <SidebarHeader className="appshell-sidebar-header">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 px-2 py-1.5 group"
+            className="appshell-logo-link flex items-center gap-2.5 px-2 py-2 group"
           >
-            <LineChart className="size-5 text-primary" />
+            {/* Glowing icon mark */}
+            <div className="appshell-logo-mark">
+              <LineChart className="size-4 text-cyan-400" />
+            </div>
             <span className="group-data-[collapsible=icon]:hidden">
               <BrandLogo size="sm" />
             </span>
           </Link>
         </SidebarHeader>
 
+        {/* ─── Nav Sections ─── */}
         <SidebarContent>
-          {NAV_SECTIONS.map((section) => (
+          {NAV_SECTIONS.map((section, sectionIdx) => (
             <SidebarGroup key={section.label}>
-              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+              <SidebarGroupLabel className="appshell-group-label">
+                <span className="appshell-group-label-dot" />
+                {section.label}
+              </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {section.items.map((item) => {
+                  {section.items.map((item, itemIdx) => {
                     const Icon = item.icon;
                     const active =
                       pathname === item.href ||
                       (item.href !== "/" && pathname.startsWith(item.href));
+                    const delay = (sectionIdx * 3 + itemIdx) * 40;
                     const entry = item.comingSoon ? (
                       <SidebarMenuItem key={item.href}>
                         <SidebarMenuButton
                           disabled
                           tooltip={`${item.label} (soon)`}
-                          className="opacity-60 cursor-not-allowed"
+                          className="opacity-40 cursor-not-allowed"
                         >
                           <Icon className="size-4" />
                           <span>{item.label}</span>
-                          <span className="ml-auto text-[9px] uppercase tracking-wide text-muted-foreground group-data-[collapsible=icon]:hidden">
+                          <span className="ml-auto text-[8px] uppercase tracking-wider text-muted-foreground/60 font-semibold group-data-[collapsible=icon]:hidden px-1.5 py-0.5 rounded-full bg-muted/30">
                             soon
                           </span>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     ) : (
-                      <SidebarMenuItem key={item.href}>
+                      <SidebarMenuItem
+                        key={item.href}
+                        className="appshell-nav-item"
+                        style={
+                          {
+                            "--nav-delay": `${delay}ms`,
+                          } as React.CSSProperties
+                        }
+                      >
                         <SidebarMenuButton
                           asChild
                           isActive={active}
                           tooltip={item.label}
+                          className={
+                            active
+                              ? "appshell-nav-btn--active"
+                              : "appshell-nav-btn"
+                          }
                         >
                           <Link href={item.href}>
                             <Icon className="size-4" />
                             <span>{item.label}</span>
+                            {active && (
+                              <ChevronRight className="ml-auto size-3 text-cyan-400/60 group-data-[collapsible=icon]:hidden" />
+                            )}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -256,52 +284,81 @@ export function AppShell({
           ))}
         </SidebarContent>
 
-        <SidebarFooter>
-          <SidebarMenu className="gap-1 border-t border-sidebar-border pt-2">
-            <SidebarMenuItem>
+        {/* ─── Sidebar Footer: Unified Control Dock ─── */}
+        <SidebarFooter className="appshell-sidebar-footer">
+          {/* Expanded mode: unified control dock */}
+          <div className="appshell-control-dock group-data-[collapsible=icon]:hidden">
+            {/* Search trigger row */}
+            <button
+              type="button"
+              onClick={() => setCmdOpen(true)}
+              className="appshell-search-trigger"
+            >
+              <Search className="size-3 appshell-search-icon" />
+              <span>Search…</span>
+              <kbd className="appshell-kbd">⌘K</kbd>
+            </button>
+
+            {/* Profile + status row */}
+            <div className="appshell-dock-profile-row">
               <ProfileMenu
                 onOpenUserManagement={() => setShowUserManagement(true)}
               />
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                tooltip="Quick nav (⌘K)"
-                onClick={() => setCmdOpen(true)}
-              >
-                <CmdIcon />
-                <span>Quick nav</span>
-                <kbd className="ml-auto text-[10px] font-mono bg-muted px-1 py-0.5 rounded border border-border group-data-[collapsible=icon]:hidden">
-                  ⌘K
-                </kbd>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SessionPill />
-            </SidebarMenuItem>
-          </SidebarMenu>
+            </div>
+
+            {/* Ambient status strip */}
+            <SessionPill />
+          </div>
+
+          {/* Collapsed mode: icon-only controls */}
+          <div className="hidden group-data-[collapsible=icon]:flex flex-col gap-1 px-1 py-1.5">
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="Quick nav (⌘K)"
+                  onClick={() => setCmdOpen(true)}
+                >
+                  <Search className="size-4" />
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <ProfileMenu
+                  onOpenUserManagement={() => setShowUserManagement(true)}
+                />
+              </SidebarMenuItem>
+            </SidebarMenu>
+            <SessionPill />
+          </div>
         </SidebarFooter>
       </Sidebar>
 
+      {/* ─── Main Content Area ─── */}
       <SidebarInset>
-        <header className="sticky top-0 z-20 flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background/80 backdrop-blur px-3">
-          <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="h-4" />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage className="text-sm font-medium">
-                  {title}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          {titleBadge}
-          <div className="ml-auto flex items-center gap-2">{actions}</div>
+        <header className="appshell-topbar">
+          {/* Accent gradient line at top edge */}
+          <div className="appshell-topbar-accent" />
+
+          <div className="flex h-12 items-center gap-2 px-3">
+            <SidebarTrigger className="-ml-1" />
+            <Separator orientation="vertical" className="h-4 bg-border/40" />
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbPage className="appshell-breadcrumb-page">
+                    {title}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+            {titleBadge}
+            <div className="ml-auto flex items-center gap-2">{actions}</div>
+          </div>
         </header>
 
         <div className={edgeToEdge ? "" : "p-4"}>{children}</div>
       </SidebarInset>
 
+      {/* ─── Command Palette (⌘K) ─── */}
       <CommandDialog open={cmdOpen} onOpenChange={setCmdOpen}>
         <CommandInput placeholder="Jump to page or run an action…" />
         <CommandList>

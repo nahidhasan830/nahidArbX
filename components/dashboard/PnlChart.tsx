@@ -80,18 +80,14 @@ export function PnlChart({
         >
           <defs>
             <linearGradient id="pnl-actual" x1="0" y1="0" x2="0" y2="1">
-              <stop
-                offset="5%"
-                stopColor="rgb(16 185 129)"
-                stopOpacity={0.35}
-              />
-              <stop offset="95%" stopColor="rgb(16 185 129)" stopOpacity={0} />
+              <stop offset="5%" stopColor="rgb(34 211 238)" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="rgb(34 211 238)" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="pnl-expected" x1="0" y1="0" x2="0" y2="1">
               <stop
                 offset="5%"
                 stopColor="rgb(148 163 184)"
-                stopOpacity={0.18}
+                stopOpacity={0.1}
               />
               <stop offset="95%" stopColor="rgb(148 163 184)" stopOpacity={0} />
             </linearGradient>
@@ -129,17 +125,19 @@ export function PnlChart({
           <Tooltip
             cursor={{
               stroke: "currentColor",
-              strokeOpacity: 0.2,
+              strokeOpacity: 0.15,
               strokeDasharray: "3 3",
             }}
             contentStyle={{
-              background: "var(--popover)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
+              background: "oklch(0.15 0.008 250)",
+              border: "1px solid oklch(1 0 0 / 10%)",
+              borderRadius: 8,
               fontSize: 11,
-              padding: "6px 8px",
+              padding: "8px 10px",
+              fontFamily: "var(--font-jetbrains), monospace",
+              boxShadow: "0 4px 20px oklch(0 0 0 / 30%)",
             }}
-            labelStyle={{ color: "var(--muted-foreground)", fontSize: 10 }}
+            labelStyle={{ color: "oklch(0.60 0.015 250)", fontSize: 10 }}
             formatter={(value, name) => [
               money(Number(value)),
               name === "actual" ? "Actual" : "Expected (EV)",
@@ -157,7 +155,7 @@ export function PnlChart({
           <Area
             type="monotone"
             dataKey="actual"
-            stroke="rgb(16 185 129)"
+            stroke="rgb(34 211 238)"
             strokeWidth={2}
             fill="url(#pnl-actual)"
             isAnimationActive={false}

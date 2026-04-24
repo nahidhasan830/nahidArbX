@@ -9,6 +9,7 @@ import { BaseAtomsAdapter, type FetchContext } from "./base";
 import { DebugFetcher } from "../../shared/debug-fetcher";
 import { validateAndParse } from "../../shared/validation";
 import { formatError } from "../../shared/errors";
+import { logger } from "../../shared/logger";
 import {
   extractPinnacleOdds,
   type PinnacleMarketTuple,
@@ -80,8 +81,9 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     if (!parsed) return null;
 
     if (parsed.code !== 200) {
-      console.error(
-        `[Pinnacle Atoms] API error for event ${ctx.providerEventId}: ${parsed.message}`,
+      logger.error(
+        "PinnacleAtoms",
+        `API error for event ${ctx.providerEventId}: ${parsed.message}`,
       );
       return null;
     }
@@ -113,8 +115,9 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
 
       // Log warning if using low-confidence score
       if (multiScore.confidence === "low") {
-        console.warn(
-          `[Pinnacle Atoms] Using low-confidence score for ${ctx.normalizedEventId}: ` +
+        logger.warn(
+          "PinnacleAtoms",
+          `Using low-confidence score for ${ctx.normalizedEventId}: ` +
             `${multiScore.primary.homeScore}-${multiScore.primary.awayScore} from ${multiScore.primary.source}`,
         );
       }
@@ -180,8 +183,9 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
 
     // Log only when extraction fails
     if (allEntries.length === 0 && rawMarketCount > 0) {
-      console.warn(
-        `[Pinnacle Atoms] Event ${providerEventId}: ${rawMarketCount} raw markets but 0 odds extracted!`,
+      logger.warn(
+        "PinnacleAtoms",
+        `Event ${providerEventId}: ${rawMarketCount} raw markets but 0 odds extracted!`,
       );
     }
 
@@ -222,9 +226,9 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
       ) {
         // Skip silently in fast mode
       } else {
-        console.error(
-          `[Pinnacle Atoms] Error for event ${providerEventId}:`,
-          formatError(error),
+        logger.error(
+          "PinnacleAtoms",
+          `Error for event ${providerEventId}: ${formatError(error)}`,
         );
       }
       return 0;

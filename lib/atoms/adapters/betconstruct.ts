@@ -25,6 +25,7 @@ import {
   isSupportedMarketType,
 } from "../mappings/betconstruct";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
+import { logger } from "../../shared/logger";
 
 // ============================================
 // Constants
@@ -43,9 +44,7 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
     // Extract numeric game ID from provider event ID
     const gameId = parseInt(ctx.providerEventId, 10);
     if (isNaN(gameId)) {
-      console.warn(
-        `[BetConstruct Atoms] Invalid game ID: ${ctx.providerEventId}`,
-      );
+      logger.warn("BetConstruct", `Invalid game ID: ${ctx.providerEventId}`);
       return null;
     }
 
@@ -63,9 +62,7 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
       if (error instanceof BetConstructError) {
         // Silent errors (e.g., code 40 = game not found) don't need logging
         if (!error.silent) {
-          console.warn(
-            `[BetConstruct Atoms] ${error.message} (game ${gameId})`,
-          );
+          logger.warn("BetConstruct", `${error.message} (game ${gameId})`);
         }
         return null;
       }

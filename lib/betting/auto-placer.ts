@@ -19,7 +19,7 @@
 import { isAutoPlaceEnabled } from "./auto-place-config";
 import { getBettingProvider } from "./registry";
 import { placeBetForValueBet } from "./placer";
-import { getValueBetById } from "@/lib/db/repositories/value-bets";
+import { getBetById, type ValueBetRow } from "@/lib/db/repositories/bets";
 import { logger } from "@/lib/shared/logger";
 import type { ValueBet } from "@/lib/atoms/value-detector";
 
@@ -40,7 +40,7 @@ export async function maybeAutoPlace(vb: ValueBet): Promise<void> {
   }
 
   const stableId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
-  const row = await getValueBetById(stableId);
+  const row = await getBetById(stableId);
   if (!row) {
     logger.warn(
       "AutoPlacer",
@@ -50,7 +50,7 @@ export async function maybeAutoPlace(vb: ValueBet): Promise<void> {
   }
 
   const outcome = await placeBetForValueBet({
-    valueBet: row,
+    valueBet: row as unknown as ValueBetRow, // eslint-disable-line @typescript-eslint/no-explicit-any
     kellyStake: vb.kellyStake,
     mode: "auto",
   });

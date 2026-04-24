@@ -1,7 +1,7 @@
 "use client";
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import type { BulkEventResult } from "@/lib/formatting/spreadsheet";
+import type { ValueBetEvent } from "@/lib/formatting/spreadsheet";
 
 // ============================================
 // Types
@@ -59,7 +59,7 @@ interface ConnectionHealth {
 }
 
 export interface DashboardApiResponse {
-  events: BulkEventResult[];
+  events: ValueBetEvent[];
   syncStatus: SyncStatus;
   connectionHealth?: ConnectionHealth;
   summary: {
@@ -250,7 +250,7 @@ export function useInfiniteEvents(options: UseInfiniteEventsOptions = {}) {
   });
 
   // Flatten all pages into a single events array
-  const allEvents: BulkEventResult[] =
+  const allEvents: ValueBetEvent[] =
     query.data?.pages.flatMap((page) => page.events) ?? [];
 
   // Get metadata from the first page (summary, syncStatus, etc.)

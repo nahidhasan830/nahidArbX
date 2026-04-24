@@ -8,19 +8,15 @@
  * (slower source, batched AI, human intervention) will resolve them.
  */
 
-import {
-  listValueBets,
-  markOutcomesBulk,
-  recordSettleAttempts,
-} from "../db/repositories/value-bets";
+import { listBets, recordSettleAttempts } from "../db/repositories/bets";
 import { settleBatch } from "./settle-batch";
 import type { WaterfallTelemetry } from "./waterfall";
-import type { Outcome } from "../backtest/types";
 import { logger } from "../shared/logger";
 import {
   estimateRunCost,
   recordSettlementRun,
 } from "../db/repositories/settlement-runs";
+import { applySettlementOutcomes } from "./apply-outcomes";
 
 export interface AutoSettleResult {
   scannedBets: number;
@@ -109,12 +105,27 @@ export async function runAutoSettle(
     unresolvedEvents: 0,
   };
 
-  const { rows } = await listValueBets({
+  const { rows } = await listBets({
     readyToSettle: true,
     limit: batchSize,
   });
 
   if (rows.length === 0) {
+    // Diagnostic: distinguish "no pending bets at all" from "pending bets
+    // exist but haven't passed the 2h15m post-kickoff gate". This helps
+    // operators understand why settlement isn't progressing.
+    const { total: pendingTotal } = await listBets({
+      outcome: "pending",
+      limit: 1,
+    });
+    if (pendingTotal > 0) {
+      logger.info(
+        "AutoSettle",
+        `No bets ready to settle, but ${pendingTotal} pending bet(s) exist — ` +
+          "they haven't passed the 2h15m post-kickoff threshold yet. " +
+          "Settlement will proceed once matches finish and the gate clears.",
+      );
+    }
     const result: AutoSettleResult = {
       scannedBets: 0,
       settled: 0,
@@ -157,14 +168,11 @@ export async function runAutoSettle(
   );
   // Persist the source alongside the outcome so audits can see exactly
   // which tier settled each bet (sofascore / espn / pinnacle-ws / …).
-  const updates: {
-    id: string;
-    outcome: Outcome;
-    source: string | null;
-  }[] = resolved.map((p) => ({
+  const updates = resolved.map((p) => ({
     id: p.id,
     outcome: p.proposedOutcome,
     source: p.source ?? null,
+    score: p.score,
   }));
 
   // Bump the attempt counter on every row the tick touched — including
@@ -182,11 +190,11 @@ export async function runAutoSettle(
   let applied = 0;
   if (updates.length > 0) {
     try {
-      applied = await markOutcomesBulk(updates);
+      applied += await applySettlementOutcomes(updates);
     } catch (err) {
       const msg = (err as Error).message;
-      errors.push(`markOutcomesBulk failed: ${msg}`);
-      logger.error("AutoSettle", `markOutcomesBulk threw: ${msg}`);
+      errors.push(`applySettlementOutcomes failed: ${msg}`);
+      logger.error("AutoSettle", `applySettlementOutcomes threw: ${msg}`);
     }
   }
 

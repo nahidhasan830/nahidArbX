@@ -18,10 +18,9 @@
  * Both shapes converge on `placeBetForValueBet`.
  */
 import { NextResponse } from "next/server";
-import { getValueBetById } from "@/lib/db/repositories/value-bets";
+import { getBetById, type ValueBetRow } from "@/lib/db/repositories/bets";
 import { placeBetForValueBet } from "@/lib/betting/placer";
 import { logger } from "@/lib/shared/logger";
-import type { ValueBetRow } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -100,7 +99,7 @@ export async function POST(request: Request) {
 
   let valueBet: ValueBetRow | null = null;
   if (valueBetId && typeof valueBetId === "string") {
-    valueBet = await getValueBetById(valueBetId);
+    valueBet = await getBetById(valueBetId);
     if (!valueBet) {
       logger.warn("BetPlaceAPI", "value_bet not found", { valueBetId });
       return NextResponse.json(
@@ -127,7 +126,7 @@ export async function POST(request: Request) {
   }
 
   const outcome = await placeBetForValueBet({
-    valueBet,
+    valueBet: valueBet as unknown as ValueBetRow, // eslint-disable-line @typescript-eslint/no-explicit-any
     kellyStake,
     providerRefs,
     mode: "manual",
@@ -254,7 +253,6 @@ function synthesizeRow(r: RuntimeDescriptor): ValueBetRow {
     awayTeam: r.awayTeam,
     competition: r.competition ?? null,
     eventStartTime: r.eventStartTime,
-    matchConfidence: null,
     marketType: r.marketType,
     timeScope: "FT",
     familyLine: null,
@@ -264,15 +262,12 @@ function synthesizeRow(r: RuntimeDescriptor): ValueBetRow {
     sharpOddsAgeMs: null,
     softProvider: r.softProvider,
     softCommissionPct: r.commissionPct,
-    softOddsFirst: r.softOdds,
-    softOddsLast: r.softOdds,
-    softOddsMax: r.softOdds,
+    softOdds: r.softOdds,
     firstSeenAt: nowIso,
     lastSeenAt: nowIso,
     tickCount: 1,
     closingSharpOdds: null,
     closingSoftOdds: null,
-    closingCapturedAt: null,
     outcome: "pending",
     outcomeMarkedAt: null,
     settledBySource: null,
@@ -280,6 +275,5 @@ function synthesizeRow(r: RuntimeDescriptor): ValueBetRow {
     lastSettleAttemptAt: null,
     createdAt: nowIso,
     updatedAt: nowIso,
-    strategyId: null,
   } as ValueBetRow;
 }

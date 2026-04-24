@@ -83,7 +83,7 @@ export interface AutoSettleStatusSnapshot {
   /**
    * Count of pending bets currently eligible for the next tick
    * (outcome='pending' AND kickoff > NOW-2h15m). Populated by the
-   * GET /api/backtest/auto-settle route — matches the number users
+   * GET /api/bets-history/auto-settle route — matches the number users
    * see under the "Ready to settle" tab.
    */
   queuedCount?: number;

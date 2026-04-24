@@ -11,6 +11,22 @@
     "sequential-thinking": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://nahidarbx_app:cQB9wCpbba8gQZIqIjbOiUKIfQ7vdHra@127.0.0.1:5432/nahidarbx"
+      ]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "21st-dev-magic": {
+      "command": "npx",
+      "args": ["-y", "@21st-dev/magic@latest", "API_KEY=YOUR_21ST_DEV_API_KEY"]
     }
   }
 }

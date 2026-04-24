@@ -83,11 +83,12 @@ export function Heatmap({
                   <div
                     key={hour}
                     className={cn(
-                      "h-full min-h-[10px] rounded-[2px] border border-border/60",
-                      cell ? "bg-emerald-500" : "bg-muted",
+                      "h-full min-h-[10px] rounded-[3px]",
+                      cell ? "bg-cyan-400" : "bg-muted/50",
+                      !cell && "border border-border/30",
                     )}
                     style={{
-                      opacity: cell ? 0.2 + intensity * 0.8 : 1,
+                      opacity: cell ? 0.15 + intensity * 0.85 : 1,
                     }}
                     title={
                       cell
@@ -105,23 +106,23 @@ export function Heatmap({
       {/* Footer — legend on the left, derived stats on the right. When
           there's no activity yet, the stat tiles show placeholders so
           the column doesn't collapse. */}
-      <div className="flex items-center justify-between gap-2 pl-8 text-[10px] text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 pl-8 text-[10px] text-muted-foreground/70">
         <div className="flex items-center gap-1.5">
           <span>Low</span>
           <div className="flex gap-0.5">
-            {[0.2, 0.4, 0.6, 0.8, 1].map((o) => (
+            {[0.15, 0.35, 0.55, 0.75, 1].map((o) => (
               <div
                 key={o}
-                className="w-2.5 h-2.5 rounded-[2px] bg-emerald-500"
+                className="w-2.5 h-2.5 rounded-[3px] bg-cyan-400"
                 style={{ opacity: o }}
               />
             ))}
           </div>
-          <span>High stake volume</span>
+          <span>High</span>
         </div>
-        <div className="text-[10px] tabular-nums">
+        <div className="text-[10px] data-text">
           {totalBets === 0 ? (
-            <span className="text-muted-foreground/60">No activity yet</span>
+            <span className="text-muted-foreground/40">No activity yet</span>
           ) : (
             <>
               <span className="text-muted-foreground">Peak</span>{" "}

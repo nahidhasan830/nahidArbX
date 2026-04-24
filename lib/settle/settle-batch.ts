@@ -11,8 +11,8 @@
  * and a reason the caller can use to decide whether to escalate.
  */
 
-import { getValueBetsByIds } from "../db/repositories/value-bets";
-import type { ValueBetRow } from "../db/schema";
+import { getBetsByIds } from "../db/repositories/bets";
+import type { ValueBetRow } from "@/lib/bets-history/types";
 import {
   resolveScores,
   type WaterfallTelemetry,
@@ -20,7 +20,7 @@ import {
 } from "./waterfall";
 import { settleBet } from "./settle-bet";
 import type { SettleResult } from "./types";
-import type { Outcome } from "../backtest/types";
+import type { Outcome } from "../bets-history/types";
 import {
   assertWithinRequestCeiling,
   type AiMode,
@@ -86,7 +86,7 @@ export async function settleBatch(
   ids: string[],
   options: SettleBatchOptions = {},
 ): Promise<SettleBatchResult> {
-  const rows = await getValueBetsByIds(ids);
+  const rows = await getBetsByIds(ids);
   const found = new Set(rows.map((r) => r.id));
   const missing = ids.filter((id) => !found.has(id));
 

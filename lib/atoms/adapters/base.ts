@@ -22,6 +22,7 @@ import { formatError } from "../../shared/errors";
 import { DebugFetcher } from "../../shared/debug-fetcher";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import type { DebugFetchResult } from "./debug-fetch";
+import { logger } from "../../shared/logger";
 
 /**
  * Context passed to fetch methods.
@@ -92,9 +93,9 @@ export abstract class BaseAtomsAdapter {
 
       return entries.length;
     } catch (error) {
-      console.warn(
-        `[${this.providerId}] Error for event ${providerEventId}:`,
-        formatError(error),
+      logger.warn(
+        "AtomsBase",
+        `[${this.providerId}] Error for event ${providerEventId}: ${formatError(error)}`,
       );
       return 0;
     }
@@ -169,9 +170,9 @@ export abstract class BaseAtomsAdapter {
 
       return debug.finalize(entries);
     } catch (error) {
-      console.warn(
-        `[${this.providerId} Debug] Error for event ${providerEventId}:`,
-        formatError(error),
+      logger.warn(
+        "AtomsBase",
+        `[${this.providerId} Debug] Error for event ${providerEventId}: ${formatError(error)}`,
       );
       return debug.getResult();
     }

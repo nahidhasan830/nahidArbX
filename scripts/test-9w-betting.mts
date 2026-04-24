@@ -1,21 +1,20 @@
 import { db } from "../lib/db/client";
-import { valueBets } from "../lib/db/schema";
-import { placeBetForValueBet } from "../lib/betting/placer";
-import { desc, eq, and, isNotNull } from "drizzle-orm";
+import { bets } from "../lib/db/schema";
+import { desc, eq, and } from "drizzle-orm";
 import { getBettingProvider } from "../lib/betting/registry";
 
 async function main() {
   console.log("Finding an active value bet for ninewickets-sportsbook...");
   const recentBets = await db
     .select()
-    .from(valueBets)
+    .from(bets)
     .where(
       and(
-        eq(valueBets.softProvider, "ninewickets-sportsbook"),
-        eq(valueBets.outcome, "pending"),
+        eq(bets.softProvider, "ninewickets-sportsbook"),
+        eq(bets.outcome, "pending"),
       ),
     )
-    .orderBy(desc(valueBets.createdAt))
+    .orderBy(desc(bets.createdAt))
     .limit(10);
 
   if (recentBets.length === 0) {
@@ -60,7 +59,7 @@ async function main() {
   const resMin = await provider.placeBet({
     providerRefs: refs,
     stake: 50,
-    odds: Number(testBet.softOddsLast),
+    odds: Number(testBet.softOdds),
     currency: "BDT",
   });
   console.log("Result for Below Min:", JSON.stringify(resMin, null, 2));
@@ -69,7 +68,7 @@ async function main() {
   const resHuge = await provider.placeBet({
     providerRefs: refs,
     stake: 5000000,
-    odds: Number(testBet.softOddsLast),
+    odds: Number(testBet.softOdds),
     currency: "BDT",
   });
   console.log("Result for Huge Stake:", JSON.stringify(resHuge, null, 2));
@@ -78,22 +77,22 @@ async function main() {
   // Typically we expect current odds to be >= requested odds. If we request very high odds,
   // it might reject with "PRICE_CHANGED" or "INVALID_ODDS".
   // Let's test with slightly higher odds to see if we get a price change error.
-  console.log(`Testing with odds: ${Number(testBet.softOddsLast) * 1.5}`);
+  console.log(`Testing with odds: ${Number(testBet.softOdds) * 1.5}`);
   const resOdds = await provider.placeBet({
     providerRefs: refs,
     stake: 120, // Min stake to be safe
-    odds: Number(testBet.softOddsLast) * 1.5,
+    odds: Number(testBet.softOdds) * 1.5,
     currency: "BDT",
   });
   console.log("Result for Changed Odds:", JSON.stringify(resOdds, null, 2));
 
   console.log("\n=== TEST 4: Safe Successful Bet ===");
-  console.log(`Testing with original odds: ${testBet.softOddsLast}`);
+  console.log(`Testing with original odds: ${testBet.softOdds}`);
   // Placing a real bet now. 120 BDT is about ~$1.
   const resSafe = await provider.placeBet({
     providerRefs: refs,
     stake: 120,
-    odds: Number(testBet.softOddsLast),
+    odds: Number(testBet.softOdds),
     currency: "BDT",
   });
   console.log("Result for Safe Bet:", JSON.stringify(resSafe, null, 2));

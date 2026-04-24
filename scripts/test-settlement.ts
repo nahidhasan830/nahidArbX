@@ -15,7 +15,7 @@ import { settleBet } from "../lib/settle/settle-bet";
 import { fetchEspnScores } from "../lib/settle/sources/espn";
 import { fetchSofaScoreScores } from "../lib/settle/sources/sofascore";
 import { fetchUrlContextScoresDetailed } from "../lib/settle/sources/url-context";
-import type { ValueBetRow } from "../lib/db/schema";
+import type { ValueBetRow } from "../lib/bets-history/types";
 import type { SettleEvent } from "../lib/settle/waterfall";
 import type { MatchScore } from "../lib/settle/types";
 
@@ -60,7 +60,7 @@ async function sampleDiverseBets(
                PARTITION BY market_type, time_scope, split_part(atom_id, '_over_', 1)
                ORDER BY random()
              ) AS strat_rank
-        FROM value_bets
+        FROM bets
        WHERE outcome = 'pending'
          AND event_start_time <= NOW() - INTERVAL '2 hours 15 minutes'
     )
@@ -83,7 +83,6 @@ async function sampleDiverseBets(
         r.event_start_time instanceof Date
           ? r.event_start_time.toISOString()
           : r.event_start_time,
-      matchConfidence: r.match_confidence,
       marketType: r.market_type,
       timeScope: r.time_scope,
       familyLine: r.family_line,
@@ -93,9 +92,7 @@ async function sampleDiverseBets(
       sharpOddsAgeMs: r.sharp_odds_age_ms,
       softProvider: r.soft_provider,
       softCommissionPct: Number(r.soft_commission_pct),
-      softOddsFirst: Number(r.soft_odds_first),
-      softOddsLast: Number(r.soft_odds_last),
-      softOddsMax: Number(r.soft_odds_max),
+      softOdds: Number(r.soft_odds),
       firstSeenAt:
         r.first_seen_at instanceof Date
           ? r.first_seen_at.toISOString()
@@ -109,10 +106,6 @@ async function sampleDiverseBets(
         r.closing_sharp_odds == null ? null : Number(r.closing_sharp_odds),
       closingSoftOdds:
         r.closing_soft_odds == null ? null : Number(r.closing_soft_odds),
-      closingCapturedAt:
-        r.closing_captured_at instanceof Date
-          ? r.closing_captured_at.toISOString()
-          : r.closing_captured_at,
       outcome: r.outcome,
       outcomeMarkedAt:
         r.outcome_marked_at instanceof Date

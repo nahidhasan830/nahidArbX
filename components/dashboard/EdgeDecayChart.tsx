@@ -13,7 +13,7 @@ export interface EdgeDecayPoint {
   values: Record<string, number | null>;
 }
 
-// Deliberately matches the provider colors used in BacktestTable.
+// Deliberately matches the provider colors used in BetsHistoryTable.
 const PROVIDER_COLOR: Record<string, string> = {
   "ninewickets-sportsbook": "stroke-amber-400",
   "ninewickets-exchange": "stroke-purple-400",
