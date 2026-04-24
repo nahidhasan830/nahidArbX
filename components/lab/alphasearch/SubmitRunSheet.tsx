@@ -32,7 +32,12 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { TermTooltip } from "@/components/ui/TermTooltip";
-import type { CreateRunRequest, SearchAlgorithm } from "@/lib/optimizer/types";
+import { DataFiltersSection } from "./DataFiltersSection";
+import type {
+  CreateRunRequest,
+  DataFiltersJson,
+  SearchAlgorithm,
+} from "@/lib/optimizer/types";
 
 const ALGOS: Array<{ value: SearchAlgorithm; label: string; help: string }> = [
   {
@@ -53,6 +58,18 @@ const ALGOS: Array<{ value: SearchAlgorithm; label: string; help: string }> = [
   },
 ];
 
+// True if any filter would actually narrow the dataset.
+const hasFilters = (f: DataFiltersJson): boolean =>
+  Boolean(
+    f.excludeSoftProviders?.length ||
+    f.includeSoftProviders?.length ||
+    f.excludeMarketTypes?.length ||
+    f.includeMarketTypes?.length ||
+    f.eventStartFrom ||
+    f.eventStartTo ||
+    f.placedOnly,
+  );
+
 export function SubmitRunSheet() {
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
@@ -61,6 +78,7 @@ export function SubmitRunSheet() {
   );
   const [algorithm, setAlgorithm] = React.useState<SearchAlgorithm>("ensemble");
   const [nTrials, setNTrials] = React.useState(2000);
+  const [dataFilters, setDataFilters] = React.useState<DataFiltersJson>({});
 
   const submit = useMutation({
     mutationFn: async (req: CreateRunRequest) => {
@@ -88,6 +106,7 @@ export function SubmitRunSheet() {
       name,
       searchAlgorithm: algorithm,
       nTrialsTarget: nTrials,
+      dataFilters: hasFilters(dataFilters) ? dataFilters : undefined,
     });
   };
 
@@ -168,6 +187,8 @@ export function SubmitRunSheet() {
               longer. 2,000 is a good default for ~1k bets.
             </p>
           </div>
+
+          <DataFiltersSection value={dataFilters} onChange={setDataFilters} />
 
           <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground space-y-1">
             <p className="font-medium text-foreground">Defaults applied</p>

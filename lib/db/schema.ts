@@ -350,6 +350,19 @@ export const optimizationRuns = pgTable(
     nTrialsDone: integer().notNull().default(0),
     rngSeed: integer().notNull(),
     cvStrategy: jsonb().notNull(), // { type, n_groups, n_test_groups, embargo_pct }
+    // Pre-search data scope filter — narrows which historical bets enter the
+    // analysis at all (vs. `searchSpace` which tunes within the included set).
+    // Default = empty object = include every settled bet. Shape:
+    //   {
+    //     excludeSoftProviders?: string[],   // e.g. ["ninewickets-exchange"]
+    //     includeSoftProviders?: string[],   // takes precedence if both set
+    //     excludeMarketTypes?: string[],     // e.g. ["BTTS"]
+    //     includeMarketTypes?: string[],
+    //     eventStartFrom?: string (ISO),     // e.g. "2026-01-01T00:00:00Z"
+    //     eventStartTo?: string (ISO),
+    //     placedOnly?: boolean,              // if true: WHERE placed_at IS NOT NULL
+    //   }
+    dataFilters: jsonb().notNull().default({}),
     baselineMetrics: jsonb(), // global config evaluated on same splits
     summary: jsonb(), // pareto frontier, DSR, PBO, top-K (populated at end)
     bestTrialId: text(),

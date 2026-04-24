@@ -43,6 +43,29 @@ export interface CvStrategyJson {
   embargo_pct: number;
 }
 
+/**
+ * Pre-search data-scope filter. Narrows which historical bets enter the
+ * analysis BEFORE the optimizer starts. Different from `SearchSpaceJson`
+ * which tunes parameters within the included set.
+ *
+ * Empty object = include every settled bet (the default).
+ *
+ * If both include* and exclude* are set for the same field, include* wins
+ * (whitelist semantics).
+ */
+export interface DataFiltersJson {
+  excludeSoftProviders?: string[];
+  includeSoftProviders?: string[];
+  excludeMarketTypes?: string[];
+  includeMarketTypes?: string[];
+  /** ISO 8601 — events on/after this date. */
+  eventStartFrom?: string;
+  /** ISO 8601 — events strictly before this date. */
+  eventStartTo?: string;
+  /** When true, only include bets that were actually placed. */
+  placedOnly?: boolean;
+}
+
 export interface RunSummaryJson {
   n_trials_completed: number;
   n_pareto: number;
@@ -72,5 +95,7 @@ export interface CreateRunRequest {
   rngSeed?: number;
   cvStrategy?: Partial<CvStrategyJson>;
   searchSpace?: SearchSpaceJson;
+  /** Default = {} = use every settled bet. */
+  dataFilters?: DataFiltersJson;
   createdBy?: string;
 }

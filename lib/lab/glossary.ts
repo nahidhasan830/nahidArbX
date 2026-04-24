@@ -181,6 +181,12 @@ export const GLOSSARY = {
       "The set of dimensions you let the optimizer tune, with bounds for each.",
     long: "Bigger = more exploration but more overfitting risk. Default is 11 dimensions; you can disable any of them per run.",
   },
+  data_scope: {
+    short:
+      "Which historical bets enter the analysis at all — applied BEFORE the optimizer searches.",
+    long: "Different from the search-space dimensions, which sweep configurations within the included data. Use data scope to say 'exclude all NineWickets-Exchange bets' or 'only analyze bets from the last 90 days'. Default = include every settled bet.",
+    learnMoreHref: "/docs/alphasearch.md#data-scope",
+  },
   strategy: {
     short:
       "A configuration promoted from a trial to live use — claims matching value bets in real time.",

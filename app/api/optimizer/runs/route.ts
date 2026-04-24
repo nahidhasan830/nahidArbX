@@ -26,6 +26,18 @@ const createBody = z.object({
       dimensions: z.array(z.record(z.string(), z.unknown())),
     })
     .optional(),
+  // Pre-search data scope. Empty/omitted = include every settled bet.
+  dataFilters: z
+    .object({
+      excludeSoftProviders: z.array(z.string()).optional(),
+      includeSoftProviders: z.array(z.string()).optional(),
+      excludeMarketTypes: z.array(z.string()).optional(),
+      includeMarketTypes: z.array(z.string()).optional(),
+      eventStartFrom: z.string().datetime().optional(),
+      eventStartTo: z.string().datetime().optional(),
+      placedOnly: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export async function GET() {
@@ -57,6 +69,7 @@ export async function POST(req: Request) {
     rngSeed: parsed.rngSeed,
     cvStrategy: parsed.cvStrategy as never,
     searchSpace: parsed.searchSpace as never,
+    dataFilters: parsed.dataFilters,
   });
 
   // Fire-and-forget kick — don't block the response on the sidecar.

@@ -123,6 +123,30 @@ engineering notes on the sidecar itself.
 
 ---
 
+## 4a. Data scope vs search space — pick the right knob <a id="data-scope"></a>
+
+Two completely different things, both in the submit-run sheet:
+
+| Concept                                     | What it does                                                                    | Example                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Data scope** _(applied BEFORE search)_    | Narrows which historical bets enter the analysis at all                         | "Exclude all NineWickets-Exchange bets from this run" |
+| **Search space** _(swept BY the optimizer)_ | Tells the optimizer which parameter dimensions to tune within the included data | "Try `min_ev_pct` between 1.0 and 6.0"                |
+
+If you turn off NW-Exchange via **data scope**, the optimizer never sees those rows. They don't exist for this run — every CV split, bootstrap CI, and Pareto trial is computed only on the data you included.
+
+If you turn off NW-Exchange via the **search-space subset dimension**, you're telling the optimizer to _try sampling_ without NW-Exchange among other combinations. The optimizer might still decide the best config includes it.
+
+**Rule of thumb:**
+
+- Use **data scope** when you want to _force exclusion_ — "this provider is buggy / unreliable / I don't trust the data".
+- Use **search-space subset** when you want the optimizer to _discover_ whether a provider helps or hurts.
+
+Defaults: data scope = include everything; search space = sweep all 11 dimensions.
+
+The submit-run sheet shows a live "X of Y bets included" preview as you toggle data-scope filters, so you can see the impact immediately. CPCV needs ≥50 surviving bets per run — if you over-filter, the run will fail at startup with a clear error.
+
+---
+
 ## 5. The algorithms in plain English
 
 ### CPCV — Combinatorial Purged Cross-Validation <a id="cpcv"></a>

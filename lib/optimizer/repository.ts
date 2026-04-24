@@ -19,6 +19,7 @@ import {
 import type {
   CreateRunRequest,
   CvStrategyJson,
+  DataFiltersJson,
   RunSummaryJson,
   SearchSpaceJson,
 } from "./types";
@@ -49,6 +50,7 @@ export async function createRun(
     ...(req.cvStrategy ?? {}),
   };
   const searchSpace: SearchSpaceJson = req.searchSpace ?? { dimensions: [] };
+  const dataFilters: DataFiltersJson = req.dataFilters ?? {};
   const rngSeed = req.rngSeed ?? Math.floor(Math.random() * 2_147_483_647);
 
   const [row] = await db
@@ -62,6 +64,7 @@ export async function createRun(
       nTrialsTarget: req.nTrialsTarget,
       rngSeed,
       cvStrategy,
+      dataFilters,
       createdBy: req.createdBy ?? null,
     })
     .returning();
@@ -149,6 +152,79 @@ export async function listTrials(
     .orderBy(sortDir === "asc" ? orderCol : desc(orderCol))
     .limit(limit)
     .offset(offset);
+}
+
+// ── Dataset preview ──────────────────────────────────────────────────────
+//
+// Mirror of the SQL the Python sidecar runs in `loader.py`. Lets the UI
+// show "X of Y bets included" as the user toggles filters BEFORE submitting.
+// Source of truth for filter semantics is still the Python side; this
+// duplicate exists to keep the preview snappy without a sidecar round-trip.
+
+export interface DatasetPreview {
+  total: number;
+  included: number;
+  byProvider: Array<{ provider: string; count: number }>;
+  byMarket: Array<{ market: string; count: number }>;
+}
+
+export async function previewDataset(
+  filters: DataFiltersJson,
+): Promise<DatasetPreview> {
+  const conds: ReturnType<typeof sql>[] = [
+    sql`outcome IN ('won','half_won','lost','half_lost','void')`,
+  ];
+
+  if (filters.placedOnly) {
+    conds.push(sql`placed_at IS NOT NULL`);
+  }
+  if (filters.includeSoftProviders?.length) {
+    conds.push(sql`soft_provider = ANY(${filters.includeSoftProviders})`);
+  } else if (filters.excludeSoftProviders?.length) {
+    conds.push(sql`soft_provider <> ALL(${filters.excludeSoftProviders})`);
+  }
+  if (filters.includeMarketTypes?.length) {
+    conds.push(sql`market_type = ANY(${filters.includeMarketTypes})`);
+  } else if (filters.excludeMarketTypes?.length) {
+    conds.push(sql`market_type <> ALL(${filters.excludeMarketTypes})`);
+  }
+  if (filters.eventStartFrom) {
+    conds.push(sql`event_start_time >= ${filters.eventStartFrom}`);
+  }
+  if (filters.eventStartTo) {
+    conds.push(sql`event_start_time < ${filters.eventStartTo}`);
+  }
+
+  // Build the WHERE clause. Drizzle's raw sql<T> tagged template handles arrays.
+  const whereSql = sql.join(conds, sql` AND `);
+
+  const totalRows = await db.execute(
+    sql`SELECT COUNT(*)::int AS n FROM bets WHERE outcome IN ('won','half_won','lost','half_lost','void')`,
+  );
+  const includedRows = await db.execute(
+    sql`SELECT COUNT(*)::int AS n FROM bets WHERE ${whereSql}`,
+  );
+  const byProviderRows = await db.execute(
+    sql`SELECT soft_provider AS provider, COUNT(*)::int AS count
+        FROM bets WHERE ${whereSql}
+        GROUP BY soft_provider ORDER BY count DESC`,
+  );
+  const byMarketRows = await db.execute(
+    sql`SELECT market_type AS market, COUNT(*)::int AS count
+        FROM bets WHERE ${whereSql}
+        GROUP BY market_type ORDER BY count DESC LIMIT 25`,
+  );
+
+  return {
+    total: Number((totalRows.rows[0] as { n: number } | undefined)?.n ?? 0),
+    included: Number(
+      (includedRows.rows[0] as { n: number } | undefined)?.n ?? 0,
+    ),
+    byProvider:
+      (byProviderRows.rows as Array<{ provider: string; count: number }>) ?? [],
+    byMarket:
+      (byMarketRows.rows as Array<{ market: string; count: number }>) ?? [],
+  };
 }
 
 export type { OptimizationRunRow, OptimizationTrialRow, RunSummaryJson };

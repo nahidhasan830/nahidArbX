@@ -28,7 +28,7 @@ from .config import get_settings
 from .cpcv import CpcvConfig, expected_n_paths, make_cpcv_splits
 from .db import open_session
 from .evaluator import TrialResult, evaluate_trial
-from .loader import load_settled_bets
+from .loader import DataFilters, load_settled_bets
 from .pareto import ParetoCandidate, extract_pareto
 from .samplers import build_study, is_multi_objective
 from .scoring import (
@@ -51,7 +51,7 @@ def _fetch_run_row(run_id: str) -> dict[str, Any] | None:
             text(
                 """
                 SELECT id, name, status, search_space, search_algorithm,
-                       n_trials_target, rng_seed, cv_strategy
+                       n_trials_target, rng_seed, cv_strategy, data_filters
                 FROM optimization_runs WHERE id = :id
                 """
             ),
@@ -215,13 +215,17 @@ async def run_trial_loop(run_id: str) -> None:
 
         _set_status(run_id, "running", started=True)
 
-        # Load data + build splits.
+        # Load data + build splits. `data_filters` is the user's pre-search
+        # data scope (e.g. exclude NineWickets-Exchange). Applied in the SQL
+        # WHERE clause so excluded rows never enter memory.
+        data_filters = DataFilters.from_json(run.get("data_filters"))
         with open_session() as s:
-            df = load_settled_bets(s)
+            df = load_settled_bets(s, filters=data_filters)
         if df.height < 50:
             raise RuntimeError(
-                f"Only {df.height} settled bets — too few for meaningful CPCV. "
-                "Need at least 50 (target ≥500 for trustworthy results)."
+                f"Only {df.height} settled bets matched the data filters — "
+                "too few for meaningful CPCV (need at least 50; target ≥500 "
+                "for trustworthy results). Loosen the filters and try again."
             )
 
         cv_cfg_raw = run["cv_strategy"] or {}

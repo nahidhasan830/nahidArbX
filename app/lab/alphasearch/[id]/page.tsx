@@ -157,6 +157,11 @@ export default function RunDetailPage({
               </Stat>
             </div>
             <Progress value={pct} className="h-1.5" />
+            <DataFiltersSummary
+              filters={
+                (run.dataFilters as Record<string, unknown> | null) ?? null
+              }
+            />
             {run.error && (
               <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-500">
                 {run.error}
@@ -246,6 +251,53 @@ function Stat({
         {label}
       </div>
       <div className="text-sm font-medium tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Compact summary of the run's pre-search data filters. Shows nothing when
+ * the filter object is empty (i.e. "include every settled bet").
+ */
+function DataFiltersSummary({
+  filters,
+}: {
+  filters: Record<string, unknown> | null;
+}) {
+  if (!filters || Object.keys(filters).length === 0) return null;
+
+  const chips: string[] = [];
+  const arr = (k: string) =>
+    Array.isArray(filters[k]) ? (filters[k] as string[]) : [];
+  if (arr("excludeSoftProviders").length)
+    chips.push(`exclude ${arr("excludeSoftProviders").join(", ")}`);
+  if (arr("includeSoftProviders").length)
+    chips.push(`only ${arr("includeSoftProviders").join(", ")}`);
+  if (arr("excludeMarketTypes").length)
+    chips.push(`exclude markets ${arr("excludeMarketTypes").join(", ")}`);
+  if (arr("includeMarketTypes").length)
+    chips.push(`only markets ${arr("includeMarketTypes").join(", ")}`);
+  if (typeof filters.eventStartFrom === "string")
+    chips.push(`from ${filters.eventStartFrom.slice(0, 10)}`);
+  if (typeof filters.eventStartTo === "string")
+    chips.push(`to ${filters.eventStartTo.slice(0, 10)}`);
+  if (filters.placedOnly === true) chips.push("placed only");
+
+  if (chips.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-1">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        <TermTooltip term="data_scope">Data scope</TermTooltip>
+      </span>
+      {chips.map((c) => (
+        <span
+          key={c}
+          className="rounded-md border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] text-foreground/80"
+        >
+          {c}
+        </span>
+      ))}
     </div>
   );
 }
