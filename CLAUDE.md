@@ -8,15 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev      # Start development server (http://localhost:3000)
 npm run build    # Production build
 npm run lint     # Run ESLint
-npm test         # Run all Playwright E2E tests
-npm run test:ui  # Playwright interactive UI mode
-npm run test:headed  # Run tests with visible browser
-npm run test:report  # Open last HTML test report
+
+# AlphaSearch optimizer sidecar (Python — services/optimizer/)
+cd services/optimizer && uv sync                                  # install deps
+cd services/optimizer && uv run uvicorn app.main:app --port 8001 --reload   # dev
 ```
+
+UI verification is manual — the user exercises the app in-browser after changes. Do not run Playwright E2E suites as part of "post-change verification."
+
+The optimizer sidecar runs separately from the Next.js app. Boot order doesn't matter — the Next.js scheduler retries every 30s if the sidecar is unreachable. See `docs/alphasearch.md` for the full user-facing guide and `services/optimizer/README.md` for engineering notes.
 
 ## Architecture
 
-NahidArbX is a real-time value-bet finder for betting providers using a family/atom-based odds model. It compares soft-book prices (NineWickets Exchange, NineWickets Sportsbook, BetConstruct) against a sharp benchmark (Pinnacle) and flags positive-EV opportunities. Detected bets are persisted to Postgres for backtesting (see [backtesting.md](backtesting.md)).
+NahidArbX is a real-time value-bet finder for betting providers using a family/atom-based odds model. It compares soft-book prices (NineWickets Exchange, NineWickets Sportsbook, BetConstruct) against a sharp benchmark (Pinnacle) and flags positive-EV opportunities. Detected bets are persisted to Postgres for the bets-history review + settlement workflow on `/bets`.
 
 **Providers:**
 
@@ -74,15 +78,18 @@ NahidArbX is a real-time value-bet finder for betting providers using a family/a
 
 ## Routes
 
-| Route                    | Purpose                                       |
-| ------------------------ | --------------------------------------------- |
-| `/`                      | Redirects to `/dashboard`                     |
-| `/dashboard`             | Central betting-account dashboard (root view) |
-| `/value-bets`            | Value-bet / arb finder (formerly `/admin`)    |
-| `/backtest`              | Backtest + settlement console                 |
-| `/api/betting-accounts`  | GET: live balance/exposure per account        |
-| `/api/value-bets`        | GET: arb data, POST: manual sync              |
-| `/api/markets/[eventId]` | GET: odds for specific event                  |
+| Route                                              | Purpose                                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `/`                                                | Redirects to `/dashboard`                                                      |
+| `/dashboard`                                       | Central betting-account dashboard (root view)                                  |
+| `/value-bets`                                      | Value-bet / arb finder (formerly `/admin`)                                     |
+| `/bets`                                            | Bets history — captured value bets, settlement + review (formerly `/backtest`) |
+| `/lab/alphasearch`                                 | Strategy parameter optimizer (sweeps configs against historical bets)          |
+| `/api/betting-accounts`                            | GET: live balance/exposure per account                                         |
+| `/api/value-bets`                                  | GET: arb data, POST: manual sync                                               |
+| `/api/markets/[eventId]`                           | GET: odds for specific event                                                   |
+| `/api/optimizer/runs`                              | POST: queue a new run; GET: list runs                                          |
+| `/api/optimizer/runs/[id]` + `/trials` + `/cancel` | Per-run detail / trial list / cancellation                                     |
 
 ## Critical Rules
 
@@ -91,6 +98,10 @@ NahidArbX is a real-time value-bet finder for betting providers using a family/a
 - **Total stake: 100** (configurable via `TOTAL_STAKE` env)
 - **All external data validated with Zod before processing**
 - **Single source of truth** - When the same metric appears in multiple places (e.g., arb count), use one calculation/function that both places share. Never calculate the same value twice with different logic.
+- **`bets` is the canonical settlement/backtest table** - the old `value_bets` and `placed_bets` tables are legacy-only migration history and should not be used by new code.
+- **All settlement entry points must share one pipeline** - auto-settle, manual re-settle, and manual outcome application must converge on the same server-side settlement logic.
+- **Send settlement Telegram notifications only for placed bets** - rows without an actual placement (`placedAt IS NULL`) should be settled silently.
+- **Do not treat the local `.env` `DATABASE_URL` / `127.0.0.1` Postgres as authoritative by default** - for runtime investigation, prefer the real cloud database path through the configured SDK/connector rather than assuming a local endpoint exists.
 
 ## AI Cost Safety (learned the hard way — READ BEFORE TOUCHING AI CODE)
 
@@ -98,7 +109,7 @@ NahidArbX is a real-time value-bet finder for betting providers using a family/a
 
 **Non-negotiable defaults:**
 
-1. **AI is disabled in the settlement pipeline unless explicitly opted into.** The kill switch lives in [`lib/settle/ai-switch.ts`](lib/settle/ai-switch.ts) and defaults to OFF. Set `AI_SETTLEMENT_ENABLED=true` in `.env` to boot with AI on, or POST `{ "action": "enable-ai", "reason": "..." }` to `/api/backtest/auto-settle` to flip at runtime.
+1. **AI is disabled in the settlement pipeline unless explicitly opted into.** The kill switch lives in [`lib/settle/kill-switch.ts`](lib/settle/kill-switch.ts) and defaults to OFF. Set `AI_SETTLEMENT_ENABLED=true` in `.env` to boot with AI on. Runtime toggles are exposed via the settlement monitor UI on `/bets`.
 2. **Tier 3 (`url_context`) AND Tier 4 (grounded search / Batch) MUST always check `isAiEnabled()` before making any paid call.** Any new tier that talks to a paid API has to be gated the same way.
 3. **Never run any settle-related script that calls the Gemini SDK against the real DB without first lowering the spend cap at [ai.studio/spend](https://ai.studio/spend) to a number you're willing to lose.** Scripts in `scripts/test-*.ts` default to AI-off; leave them that way.
 4. **URLs passed to `url_context` must be short, known-good scoreboard pages (Sofascore, FlashScore).** Do NOT include encyclopedia-style pages (Wikipedia season articles, competition indexes) — their size is unbounded and they WILL blow the context window and burn money. See the warning comment in [`lib/settle/sources/url-context.ts`](lib/settle/sources/url-context.ts).
@@ -138,7 +149,7 @@ kellyStake     = kellyFraction * KELLY_FRACTION * VALUE_TOTAL_STAKE
 - soft odds exist and are fresh
 - evPct ≥ MIN_EV_PCT (2.0)
 
-// Persistence: see lib/db/repositories/value-bets.ts
+// Persistence: see lib/db/repositories/bets.ts
 ```
 
 ## File Structure
@@ -160,8 +171,8 @@ kellyStake     = kellyFraction * KELLY_FRACTION * VALUE_TOTAL_STAKE
 | `lib/atoms/fetcher.ts`                   | Unified odds fetcher                                |
 | `lib/atoms/value-detector.ts`            | Value-bet detection (EV, Kelly, freshness gates)    |
 | `lib/atoms/vig-removal.ts`               | Balanced-margin vig removal for sharp odds          |
-| `lib/db/schema.ts`                       | Postgres `value_bets` table (Drizzle)               |
-| `lib/db/repositories/value-bets.ts`      | Upsert/list/markOutcome + AI-label bridge           |
+| `lib/db/schema.ts`                       | Postgres unified `bets` + settlement tables         |
+| `lib/db/repositories/bets.ts`            | Upsert/list/place/settle repository                 |
 | `lib/atoms/adapters/*.ts`                | Per-provider odds fetching                          |
 | `lib/atoms/mappings/*.ts`                | Provider → atom mapping                             |
 | `lib/auth/token-manager.ts`              | Playwright token capture + stealth mode             |
@@ -263,19 +274,23 @@ NINEWICKETS_BASE_URL=
 # App Config
 FETCH_INTERVAL_MS=60000  # Background sync interval (default 60s)
 
-# Gemini API (match analysis + backtest labeling) — see lib/ai/gemini.ts, lib/ai/label-outcome.ts
+# Gemini API (match analysis + bets-history labeling) — see lib/ai/gemini.ts, lib/ai/label-outcome.ts
 GEMINI_API_KEY=
 GEMINI_DEFAULT_MODEL=gemini-3-flash-preview    # default "flash" tier
 GEMINI_PRO_MODEL=gemini-3.1-pro-preview        # "pro" tier (deep reasoning)
 GEMINI_LITE_MODEL=gemini-3.1-flash-lite-preview # "lite" tier (high-volume bulk)
 
-# Backtesting DB (Cloud SQL Postgres) — see `## Database` section below
+# Bets-history DB (Cloud SQL Postgres) — see `## Database` section below
 DATABASE_URL=postgresql://nahidarbx_app:<pw>@127.0.0.1:5432/nahidarbx
+
+# AlphaSearch optimizer (Python sidecar — services/optimizer/)
+OPTIMIZER_URL=http://localhost:8001            # prod: internal Cloud Run URL
+OPTIMIZER_SHARED_SECRET=                       # HMAC token; both sides must match
 ```
 
-## Database (Backtesting — Phase 1+)
+## Database (bets-history — Phase 1+)
 
-Cloud SQL Postgres 16 on GCP, used for persisting detected value bets (see [backtesting.md](backtesting.md)). The app DB is separate from the existing SQLite auth DB — **do not touch** `better-sqlite3` or the `/data/` auth store.
+Cloud SQL Postgres 16 on GCP, used for persisting detected value bets (reviewed + settled on `/bets`). The app DB is separate from the existing SQLite auth DB — **do not touch** `better-sqlite3` or the `/data/` auth store.
 
 | Resource                 | Value                                     |
 | ------------------------ | ----------------------------------------- |
@@ -294,8 +309,6 @@ cloud-sql-proxy --port 5432 nahidarbx-6e73:asia-south1:nahidarbx-db
 
 Then any tool on `127.0.0.1:5432` (psql, `npm run db:studio`, the app) connects transparently. `DATABASE_URL` lives in `.env` (gitignored) — never commit it.
 
-Phase status and larger plan: [backtesting.md](backtesting.md).
-
 ## Current Status
 
 - **Working:** All pipeline stages fully functional
@@ -306,7 +319,7 @@ Phase status and larger plan: [backtesting.md](backtesting.md).
   - Value-bet detection (Pinnacle-benchmarked EV + Kelly sizing)
   - Admin dashboard with manual sync
   - Markets API for per-event odds
-  - Postgres persistence + backtesting REST/AI endpoints (see `backtesting.md`)
+  - Postgres persistence + bets-history REST/AI endpoints (`/api/bets-history/*`)
 
 ## NineWickets Market Sources
 
@@ -366,40 +379,17 @@ After making changes to specific areas, suggest running the appropriate command:
 - Broad refactors or new features → suggest `/code-cleanup` after completion
 - After significant changes → suggest `/update-docs` to keep docs in sync
 
-### Post-Change Verification — MANDATORY
+### Post-Change Verification
 
-After ANY code change, you MUST automatically decide and run the appropriate verification. Do NOT wait for the user to ask. Follow this decision tree:
+After ANY code change:
 
-**Step 1: Always run `npm run build`** (unless change is trivial CSS/text only)
+1. **Always run `npm run build`** (unless the change is trivial CSS/text only).
+2. **Always run `npm run lint`** — catch unused vars / dead imports left over from deletions.
+3. **Domain-specific checks:**
+   - Provider adapters → also run `/provider-status`.
+   - If user asks "does it work?" → run `/sync-test`.
+4. **Do NOT run Playwright E2E suites.** UI verification is manual — the user will open the app and exercise changed features in-browser. Don't spin up dev servers or invoke `npx playwright test` as part of post-change verification.
 
-**Step 2: Automatically run related E2E tests based on what you changed:**
+### UI consistency — reuse toolbar/filter components
 
-| What you changed                                                                 | Test to run                                  |
-| -------------------------------------------------------------------------------- | -------------------------------------------- |
-| `app/login/**`, `components/auth/**`, auth logic                                 | `npx playwright test e2e/login.spec.ts`      |
-| `app/admin/**`, `components/spreadsheet/**`, `components/hooks/**`, dashboard UI | `npx playwright test e2e/admin.spec.ts`      |
-| `app/about/**`                                                                   | `npx playwright test e2e/about.spec.ts`      |
-| `app/api/health/**`, any API route                                               | `npx playwright test e2e/api-health.spec.ts` |
-| `app/page.tsx`, `middleware.ts`, routing/redirects                               | `npx playwright test e2e/navigation.spec.ts` |
-| Multiple areas or unsure                                                         | `npm test` (runs all E2E tests)              |
-| Non-UI backend only (lib/adapters, lib/atoms, lib/store)                         | Skip E2E, but run build                      |
-
-**Step 3: If E2E tests fail after your change:**
-
-1. Read the error output carefully
-2. Determine if it's a bug you introduced or the test needs updating
-3. Fix it immediately — do NOT leave failing tests
-4. Re-run the failing test to confirm the fix
-
-**Step 4: Domain-specific checks (in addition to E2E):**
-
-- Provider adapters → also run `/provider-status`
-- If user asks "does it work?" → run `/sync-test`
-
-**When to write NEW tests:**
-
-- If you add a new page/route, create a new `e2e/<route>.spec.ts` file
-- If you add significant new UI (modals, forms, interactive features), add test cases to the relevant spec file
-- If you fix a UI bug, add a regression test covering that bug
-
-**Test files live in `e2e/` directory. Use `@playwright/test` for all E2E tests.**
+Toolbar and filter components should be reused across spreadsheet surfaces. When adding a new list/table page, reuse (or extract into a shared component under `components/spreadsheet/`) the filter pill, search, sort, and pagination patterns already in `BetsHistoryToolbar` and `SpreadsheetToolbar`. The standard is `h-7` / `px-3 py-1.5` / `bg-muted/40` wrapper / `text-[11px]` buttons — match this vocabulary. Do not duplicate styling; inconsistent sizing between pages was a fix point in April 2026. If you need a new variant, extract the common parts first.

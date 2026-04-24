@@ -10,11 +10,9 @@
  *     <DashboardContent />
  *   </AppShell>
  *
- * The rail is:
- *   - icon-collapsed by default on `/value-bets` and `/backtest`
- *     (data-dense pages that need horizontal real-estate)
- *   - expanded by default on `/dashboard`
- *   - toggled via the header's SidebarTrigger OR ⌘B
+ * Sidebar open/collapsed state persists via the shadcn `sidebar_state`
+ * cookie — the choice follows the user across routes rather than resetting
+ * per-page. ⌘B toggles the rail; the toggle writes the cookie.
  *
  * Cmd-K opens a command palette with three groups:
  *   Navigate · Actions · (future) Jump to event
@@ -23,6 +21,8 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Brain,
+  FlaskConical,
   History,
   LayoutDashboard,
   LineChart,
@@ -39,6 +39,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -47,6 +48,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { Feature } from "@/components/auth/AuthProvider";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -65,20 +67,70 @@ import {
 } from "@/components/ui/command";
 import { BrandLogo } from "@/components/ui/BrandLogo";
 import { SessionPill } from "./SessionPill";
+import { ProfileMenu } from "@/components/auth/ProfileMenu";
+import { UserManagementModal } from "@/components/auth/UserManagementModal";
 
-const NAV: {
+type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-}[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/value-bets", label: "Value Bets", icon: TrendingUp },
-  { href: "/backtest", label: "Backtest", icon: History },
+  /** Optional AuthProvider Feature id — hides the entry when denied. */
+  feature?: string;
+  /** When true, renders as a disabled entry with a "soon" badge. */
+  comingSoon?: boolean;
+};
+
+type NavSection = {
+  label: string;
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Main",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/value-bets", label: "Value Bets", icon: TrendingUp },
+      { href: "/bets", label: "Bets", icon: History },
+    ],
+  },
+  {
+    label: "Lab",
+    items: [
+      {
+        href: "/matcher-lab",
+        label: "Matcher Lab",
+        icon: Brain,
+        feature: "diagnostics",
+      },
+      {
+        href: "/lab/alphasearch",
+        label: "AlphaSearch",
+        icon: FlaskConical,
+      },
+    ],
+  },
 ];
 
-// Pages where the rail starts icon-collapsed (they need max horizontal
-// space for tables). Users can still expand with ⌘B or the trigger.
-const DENSE_PAGES = ["/value-bets", "/backtest"];
+// Flat list for the Cmd-K palette — skip coming-soon entries so the
+// palette only routes to real pages.
+const NAV_FLAT: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items).filter(
+  (i) => !i.comingSoon,
+);
+
+const SIDEBAR_COOKIE_NAME = "sidebar_state";
+
+// Read the persisted sidebar state from the cookie once on mount so the
+// user's expand/collapse choice follows them across routes. Falls back to
+// `true` (expanded) when no cookie is set.
+function readSidebarCookie(): boolean {
+  if (typeof document === "undefined") return true;
+  const entry = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith(`${SIDEBAR_COOKIE_NAME}=`));
+  if (!entry) return true;
+  return entry.slice(SIDEBAR_COOKIE_NAME.length + 1) === "true";
+}
 
 export interface AppShellProps {
   title: string;
@@ -101,8 +153,9 @@ export function AppShell({
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const [cmdOpen, setCmdOpen] = React.useState(false);
+  const [showUserManagement, setShowUserManagement] = React.useState(false);
 
-  const defaultOpen = !DENSE_PAGES.some((p) => pathname.startsWith(p));
+  const defaultOpen = React.useMemo(() => readSidebarCookie(), []);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -151,49 +204,81 @@ export function AppShell({
         </SidebarHeader>
 
         <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {NAV.map((item) => {
-                  const Icon = item.icon;
-                  const active =
-                    pathname === item.href ||
-                    (item.href !== "/" && pathname.startsWith(item.href));
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        tooltip={item.label}
-                      >
-                        <Link href={item.href}>
+          {NAV_SECTIONS.map((section) => (
+            <SidebarGroup key={section.label}>
+              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {section.items.map((item) => {
+                    const Icon = item.icon;
+                    const active =
+                      pathname === item.href ||
+                      (item.href !== "/" && pathname.startsWith(item.href));
+                    const entry = item.comingSoon ? (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          disabled
+                          tooltip={`${item.label} (soon)`}
+                          className="opacity-60 cursor-not-allowed"
+                        >
                           <Icon className="size-4" />
                           <span>{item.label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+                          <span className="ml-auto text-[9px] uppercase tracking-wide text-muted-foreground group-data-[collapsible=icon]:hidden">
+                            soon
+                          </span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ) : (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          tooltip={item.label}
+                        >
+                          <Link href={item.href}>
+                            <Icon className="size-4" />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                    return item.feature ? (
+                      <Feature key={item.href} id={item.feature}>
+                        {entry}
+                      </Feature>
+                    ) : (
+                      entry
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ))}
         </SidebarContent>
 
         <SidebarFooter>
-          <SessionPill />
-          <button
-            type="button"
-            onClick={() => setCmdOpen(true)}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
-          >
-            <CmdIcon className="size-3.5 shrink-0" />
-            <span className="group-data-[collapsible=icon]:hidden flex-1 text-left">
-              Quick nav
-            </span>
-            <kbd className="group-data-[collapsible=icon]:hidden ml-auto text-[10px] font-mono bg-muted px-1 py-0.5 rounded border border-border">
-              ⌘K
-            </kbd>
-          </button>
+          <SidebarMenu className="gap-1 border-t border-sidebar-border pt-2">
+            <SidebarMenuItem>
+              <ProfileMenu
+                onOpenUserManagement={() => setShowUserManagement(true)}
+              />
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip="Quick nav (⌘K)"
+                onClick={() => setCmdOpen(true)}
+              >
+                <CmdIcon />
+                <span>Quick nav</span>
+                <kbd className="ml-auto text-[10px] font-mono bg-muted px-1 py-0.5 rounded border border-border group-data-[collapsible=icon]:hidden">
+                  ⌘K
+                </kbd>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SessionPill />
+            </SidebarMenuItem>
+          </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
 
@@ -222,7 +307,7 @@ export function AppShell({
         <CommandList>
           <CommandEmpty>No results.</CommandEmpty>
           <CommandGroup heading="Navigate">
-            {NAV.map((item) => {
+            {NAV_FLAT.map((item) => {
               const Icon = item.icon;
               return (
                 <CommandItem
@@ -269,7 +354,7 @@ export function AppShell({
               value="refresh balances"
               onSelect={() =>
                 runAction("refresh-balances", () =>
-                  fetch("/api/betting-accounts", { cache: "no-store" }),
+                  fetch("/api/accounts", { cache: "no-store" }),
                 )
               }
             >
@@ -290,6 +375,11 @@ export function AppShell({
           </CommandGroup>
         </CommandList>
       </CommandDialog>
+
+      <UserManagementModal
+        isOpen={showUserManagement}
+        onClose={() => setShowUserManagement(false)}
+      />
     </SidebarProvider>
   );
 }

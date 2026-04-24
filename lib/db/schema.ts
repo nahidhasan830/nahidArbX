@@ -15,10 +15,26 @@ const ts = () => timestamp({ withTimezone: true, mode: "string" });
 const tsNow = () => ts().notNull().defaultNow();
 const nz4 = () => numeric({ precision: 10, scale: 4, mode: "number" });
 
-export const valueBets = pgTable(
-  "value_bets",
+/**
+ * Unified bets table — merges the former value_bets and placed_bets.
+ *
+ * Key design:
+ * - One row per unique (event_id, family_id, atom_id) selection.
+ * - Placement fields (placed_at, provider, stake, odds, etc.) are NULL
+ *   until a bet is actually placed. This lets us query:
+ *     • All detected opportunities: SELECT * FROM bets
+ *     • Only placed bets:          SELECT * FROM bets WHERE placed_at IS NOT NULL
+ *     • Unmatched opportunities:  SELECT * FROM bets WHERE placed_at IS NULL
+ *     • Manual bets only:         SELECT * FROM bets WHERE mode = 'manual'
+ *     • Auto bets only:           SELECT * FROM bets WHERE mode = 'auto'
+ */
+export const bets = pgTable(
+  "bets",
   {
-    id: text().primaryKey(),
+    // Identity
+    id: text().primaryKey(), // Stable: `${eventId}|${familyId}|${atomId}`
+
+    // Event & Selection
     eventId: text().notNull(),
     familyId: text().notNull(),
     atomId: text().notNull(),
@@ -28,12 +44,12 @@ export const valueBets = pgTable(
     awayTeam: text().notNull(),
     competition: text(),
     eventStartTime: ts().notNull(),
-    matchConfidence: numeric({ precision: 4, scale: 3, mode: "number" }),
 
     marketType: text().notNull(),
     timeScope: text().notNull(),
     familyLine: numeric({ precision: 5, scale: 2, mode: "number" }),
 
+    // Sharp side (Pinnacle reference — source of truth for EV)
     sharpProvider: text().notNull(),
     sharpOdds: nz4().notNull(),
     sharpTrueProb: numeric({
@@ -43,135 +59,84 @@ export const valueBets = pgTable(
     }).notNull(),
     sharpOddsAgeMs: integer(),
 
+    // Soft side (the book we detected the opportunity on)
     softProvider: text().notNull(),
     softCommissionPct: numeric({
       precision: 5,
       scale: 2,
       mode: "number",
     }).notNull(),
-    softOddsFirst: nz4().notNull(),
-    softOddsLast: nz4().notNull(),
-    softOddsMax: nz4().notNull(),
+    softOdds: nz4().notNull(), // Price at first detection
 
+    // Closing lines (for CLV calculation)
+    closingSharpOdds: nz4(),
+    closingSoftOdds: nz4(),
+
+    // Detection lifecycle
     firstSeenAt: ts().notNull(),
     lastSeenAt: ts().notNull(),
     tickCount: integer().notNull().default(1),
 
-    closingSharpOdds: nz4(),
-    closingSoftOdds: nz4(),
-    closingCapturedAt: ts(),
+    // Placement record — all NULL until bet is actually placed
+    placedAt: ts(),
+    provider: text(),
+    stake: numeric({ precision: 10, scale: 2, mode: "number" }),
+    odds: nz4(),
+    currency: text().default("BDT"),
+    providerTicketId: text(),
+    mode: text(), // 'auto' | 'manual'
 
+    // API interaction metadata
+    requestPayload: jsonb(),
+    responsePayload: jsonb(),
+    error: text(),
+
+    // Outcome & settlement
     outcome: text().notNull().default("pending"),
     outcomeMarkedAt: ts(),
-    /**
-     * Which part of the settlement pipeline produced this outcome —
-     * e.g. 'espn', 'sofascore', 'pinnacle-ws', 'url-context', 'manual'.
-     * NULL on rows settled before this column existed. Lets the UI show
-     * "Resolved by: SofaScore" durably, and lets us audit which tier
-     * contributes what over time.
-     */
     settledBySource: text(),
-    /**
-     * How many times a settlement tick has processed this row. A row
-     * with `outcome='pending' AND settle_attempts > 0` is the
-     * definition of "needs human review" — pipeline tried, pipeline
-     * couldn't resolve it.
-     */
+    settledAt: ts(),
+    pnl: numeric({ precision: 10, scale: 2, mode: "number" }),
+    clvPct: numeric({ precision: 6, scale: 2, mode: "number" }),
+
+    // Settlement pipeline tracking
     settleAttempts: integer().notNull().default(0),
     lastSettleAttemptAt: ts(),
 
+    // Timestamps
     createdAt: tsNow(),
     updatedAt: tsNow(),
   },
   (t) => [
-    index("value_bets_first_seen_idx").on(t.firstSeenAt.desc()),
-    index("value_bets_market_idx").on(t.marketType, t.timeScope),
-    index("value_bets_soft_idx").on(t.softProvider),
-    index("value_bets_soft_odds_max_idx").on(t.softOddsMax.desc()),
-    index("value_bets_outcome_idx")
+    index("bets_first_seen_idx").on(t.firstSeenAt.desc()),
+    index("bets_market_idx").on(t.marketType, t.timeScope),
+    index("bets_soft_provider_idx").on(t.softProvider),
+    index("bets_event_start_idx").on(t.eventStartTime),
+    // Settled non-pending rows (backtest queries)
+    index("bets_outcome_idx")
       .on(t.outcome)
       .where(sql`${t.outcome} <> 'pending'`),
-    index("value_bets_event_start_idx").on(t.eventStartTime),
+    // Only placed bets for dashboard queries
+    index("bets_placed_idx")
+      .on(t.placedAt.desc())
+      .where(sql`${t.placedAt} IS NOT NULL`),
+    // Dedup: one active (non-cancelled) placement per selection
+    uniqueIndex("bets_dedup_idx")
+      .on(t.eventId, t.familyId, t.atomId)
+      .where(sql`${t.outcome} <> 'cancelled' AND ${t.placedAt} IS NOT NULL`),
+    // Provider reconciliation
+    index("bets_provider_idx")
+      .on(t.provider)
+      .where(sql`${t.provider} IS NOT NULL`),
+    // Needs review: pending + attempted
+    index("bets_settle_attempts_idx")
+      .on(t.outcome, t.settleAttempts)
+      .where(sql`${t.outcome} = 'pending' AND ${t.settleAttempts} > 0`),
   ],
 );
 
-export type ValueBetRow = typeof valueBets.$inferSelect;
-export type NewValueBetRow = typeof valueBets.$inferInsert;
-
-export const strategies = pgTable(
-  "strategies",
-  {
-    id: text().primaryKey(),
-    name: text().notNull(),
-    description: text(),
-    // Stored as the same shape as ListFilters so the UI can load them back
-    // into the toolbar verbatim.
-    filters: jsonb().notNull(),
-    stakeMultiplier: numeric({
-      precision: 6,
-      scale: 3,
-      mode: "number",
-    })
-      .notNull()
-      .default(1),
-    // "manual" when the user saves filters from the toolbar; "ai" when Gemini
-    // proposes a rule. Helps us treat AI-generated ones with more scepticism.
-    origin: text().notNull().default("manual"),
-    // Optional narrative — user notes OR AI rationale JSON (sources, risks).
-    rationale: text(),
-    // Lifecycle: candidate → live → paused → retired.
-    status: text().notNull().default("candidate"),
-    // Snapshot of metrics at the moment the strategy was saved. Lets the
-    // strategy list render perf badges without re-running the pivot.
-    metricsSnapshot: jsonb(),
-    createdAt: tsNow(),
-    updatedAt: tsNow(),
-  },
-  (t) => [
-    index("strategies_status_idx").on(t.status),
-    index("strategies_origin_idx").on(t.origin),
-  ],
-);
-
-export type StrategyRow = typeof strategies.$inferSelect;
-export type NewStrategyRow = typeof strategies.$inferInsert;
-
-/**
- * Logs every live match of a strategy against a value bet. One row per
- * (strategy, value_bet) pair — unique index prevents double-counting when
- * the same bet is redetected across sync cycles.
- *
- * Reporting (ROI, CLV etc.) is computed by joining back to value_bets —
- * no need to denormalize outcome here.
- */
-export const strategyExecutions = pgTable(
-  "strategy_executions",
-  {
-    id: text().primaryKey(),
-    strategyId: text().notNull(),
-    valueBetId: text().notNull(),
-    matchedAt: tsNow(),
-    // Snapshot of the strategy's multiplier at match time — if the user edits
-    // the strategy later, historical executions still show what they'd have
-    // staked originally.
-    stakeMultiplier: numeric({
-      precision: 6,
-      scale: 3,
-      mode: "number",
-    })
-      .notNull()
-      .default(1),
-  },
-  (t) => [
-    index("strategy_exec_strategy_idx").on(t.strategyId),
-    index("strategy_exec_value_bet_idx").on(t.valueBetId),
-    // Idempotency — one execution per (strategy, value_bet).
-    index("strategy_exec_unique_idx").on(t.strategyId, t.valueBetId),
-  ],
-);
-
-export type StrategyExecutionRow = typeof strategyExecutions.$inferSelect;
-export type NewStrategyExecutionRow = typeof strategyExecutions.$inferInsert;
+export type BetRow = typeof bets.$inferSelect;
+export type NewBetRow = typeof bets.$inferInsert;
 
 /**
  * Settled match scores — permanent cache keyed by normalized eventId.
@@ -302,106 +267,21 @@ export type SettlementDisputeRow = typeof settlementDisputes.$inferSelect;
 export type NewSettlementDisputeRow = typeof settlementDisputes.$inferInsert;
 
 /**
- * Bets we have actually PLACED on a soft book via our platform. Distinct
- * from `value_bets`, which stores the detected opportunity. One value bet
- * can produce at most one placed bet — enforced by a partial unique index
- * on (event_id, family_id, atom_id) that excludes cancelled rows.
- *
- * The placer chooses the provider with the best current odds at placement
- * time; the dedup key deliberately does NOT include provider so we can't
- * double-bet a selection across books.
- */
-export const placedBets = pgTable(
-  "placed_bets",
-  {
-    id: text().primaryKey(),
-    valueBetId: text(),
-    /**
-     * Which strategy (if any) auto-placed this bet. Nullable for
-     * manual placements and for auto-placements triggered by the
-     * detector with no active strategy. Enables per-strategy live ROI.
-     */
-    strategyId: text(),
-
-    eventId: text().notNull(),
-    familyId: text().notNull(),
-    atomId: text().notNull(),
-    atomLabel: text().notNull(),
-    eventName: text().notNull(),
-    competition: text(),
-    eventStartTime: ts().notNull(),
-    marketType: text().notNull(),
-
-    provider: text().notNull(),
-    stake: numeric({ precision: 10, scale: 2, mode: "number" }).notNull(),
-    odds: nz4().notNull(),
-    currency: text().notNull().default("BDT"),
-    providerTicketId: text(),
-    mode: text().notNull(), // 'auto' | 'manual'
-
-    closingOdds: nz4(),
-    clvPct: numeric({ precision: 6, scale: 2, mode: "number" }),
-
-    placedAt: tsNow(),
-    outcome: text().notNull().default("pending"),
-    pnl: numeric({ precision: 10, scale: 2, mode: "number" }),
-    settledAt: ts(),
-    settledBySource: text(),
-
-    requestPayload: jsonb(),
-    responsePayload: jsonb(),
-    error: text(),
-
-    createdAt: tsNow(),
-    updatedAt: tsNow(),
-  },
-  (t) => [
-    // Partial UNIQUE index: one live (non-cancelled) placement per
-    // selection, across all providers. Paired with the in-process
-    // inflight lock in placer.ts — the lock prevents the common race,
-    // this index is the last-line guarantee for multi-process / HMR
-    // scenarios.
-    uniqueIndex("placed_bets_dedup_idx")
-      .on(t.eventId, t.familyId, t.atomId)
-      .where(sql`${t.outcome} <> 'cancelled'`),
-    index("placed_bets_placed_at_idx").on(t.placedAt.desc()),
-    index("placed_bets_outcome_idx")
-      .on(t.outcome)
-      .where(sql`${t.outcome} <> 'pending'`),
-    index("placed_bets_provider_idx").on(t.provider),
-    index("placed_bets_value_bet_idx")
-      .on(t.valueBetId)
-      .where(sql`${t.valueBetId} IS NOT NULL`),
-  ],
-);
-
-export type PlacedBetRow = typeof placedBets.$inferSelect;
-export type NewPlacedBetRow = typeof placedBets.$inferInsert;
-
-/**
  * Global betting settings — singleton row (id=1). Drives auto-placement
- * sizing, strategy choice, and safety rails. Editable from the dashboard
- * via GET/PUT /api/betting-settings. Defaults seeded on first read if
- * no row exists yet.
- *
- * `strategy_id` values are 1:1 with the backtest STRATEGIES array in
- * [lib/backtest/analyze.ts](../backtest/analyze.ts) — "flat", "kelly",
- * "frac-kelly-0.5", "frac-kelly-0.25", "ev-prop". No new list to keep
- * in sync.
+ * sizing and safety rails. Editable from the dashboard via GET/PUT
+ * /api/betting-settings. Defaults seeded on first read if no row exists yet.
  *
  * Bankroll semantics:
  *   - `use_live_balance=true` → placer uses the provider's live account
  *     balance as Kelly bankroll. Self-adjusting; preferred default.
  *   - `use_live_balance=false` → `manual_bankroll_bdt` is used.
  *
- * `unit_size_bdt` is the "1 unit" base for `flat` and `ev-prop`
- * strategies, which return multiples of 1 unit rather than fractions of
- * bankroll.
+ * `unit_size_bdt` is the "1 unit" base for flat sizing strategies,
+ * which return multiples of 1 unit rather than fractions of bankroll.
  */
 export const bettingSettings = pgTable("betting_settings", {
   id: integer().primaryKey().default(1),
 
-  strategyId: text().notNull().default("frac-kelly-0.25"),
   useLiveBalance: boolean().notNull().default(true),
   manualBankrollBdt: numeric({
     precision: 12,
@@ -416,6 +296,12 @@ export const bettingSettings = pgTable("betting_settings", {
   kellyCapPct: numeric({ precision: 5, scale: 2, mode: "number" })
     .notNull()
     .default(10),
+  // Kelly multiplier: 1.0 = full Kelly, 0.5 = half, 0.25 = quarter (default),
+  // 0.125 = eighth. Applied to full-Kelly fraction before the `kellyCapPct`
+  // bankroll ceiling.
+  kellyFraction: numeric({ precision: 5, scale: 3, mode: "number" })
+    .notNull()
+    .default(0.25),
   minStakeBdt: numeric({ precision: 10, scale: 2, mode: "number" })
     .notNull()
     .default(200),
@@ -444,13 +330,99 @@ export const bettingSettings = pgTable("betting_settings", {
 export type BettingSettingsRow = typeof bettingSettings.$inferSelect;
 export type NewBettingSettingsRow = typeof bettingSettings.$inferInsert;
 
+/**
+ * AlphaSearch — parameter-optimization run.
+ *
+ * Each row is one user-submitted (or scheduled) sweep over a search space.
+ * The Next.js side creates the row with status='queued'; the Python sidecar
+ * picks it up, sets status='running', writes child trials, and eventually
+ * sets status='completed' with a populated `summary`.
+ */
+export const optimizationRuns = pgTable(
+  "optimization_runs",
+  {
+    id: text().primaryKey(),
+    name: text().notNull(),
+    status: text().notNull().default("queued"), // queued | running | completed | failed | cancelled
+    searchSpace: jsonb().notNull(),
+    searchAlgorithm: text().notNull(), // ensemble | tpe | nsga2 | random
+    nTrialsTarget: integer().notNull(),
+    nTrialsDone: integer().notNull().default(0),
+    rngSeed: integer().notNull(),
+    cvStrategy: jsonb().notNull(), // { type, n_groups, n_test_groups, embargo_pct }
+    baselineMetrics: jsonb(), // global config evaluated on same splits
+    summary: jsonb(), // pareto frontier, DSR, PBO, top-K (populated at end)
+    bestTrialId: text(),
+    error: text(),
+    startedAt: ts(),
+    completedAt: ts(),
+    createdBy: text(),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("optimization_runs_status_idx").on(t.status),
+    index("optimization_runs_created_idx").on(t.createdAt.desc()),
+    // Queue lookup for the scheduler poll.
+    index("optimization_runs_queued_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} = 'queued'`),
+  ],
+);
+
+export type OptimizationRunRow = typeof optimizationRuns.$inferSelect;
+export type NewOptimizationRunRow = typeof optimizationRuns.$inferInsert;
+
+/**
+ * AlphaSearch — single trial result inside a run.
+ *
+ * One row per (sampled config × full CV evaluation). The Python sidecar
+ * writes these as the trial loop progresses; the Next.js UI reads them
+ * for live progress + the final Pareto / trial table.
+ */
+export const optimizationTrials = pgTable(
+  "optimization_trials",
+  {
+    id: text().primaryKey(),
+    runId: text()
+      .notNull()
+      .references(() => optimizationRuns.id, { onDelete: "cascade" }),
+    trialIndex: integer().notNull(),
+    sampler: text().notNull(), // random | tpe | nsga2
+    params: jsonb().notNull(),
+    foldMetrics: jsonb().notNull(), // per-CPCV-path metrics
+
+    // Aggregated OOS metrics (precomputed for fast sort/filter in UI).
+    oosRoiMean: numeric({ precision: 8, scale: 4, mode: "number" }),
+    oosRoiCiLow: numeric({ precision: 8, scale: 4, mode: "number" }),
+    oosRoiCiHigh: numeric({ precision: 8, scale: 4, mode: "number" }),
+    oosSortino: numeric({ precision: 8, scale: 4, mode: "number" }),
+    oosSharpe: numeric({ precision: 8, scale: 4, mode: "number" }),
+    deflatedSharpe: numeric({ precision: 8, scale: 4, mode: "number" }),
+    probabilisticSharpe: numeric({ precision: 6, scale: 4, mode: "number" }),
+    maxDrawdown: numeric({ precision: 8, scale: 4, mode: "number" }),
+    sampleSize: integer(),
+    compositeScore: numeric({ precision: 8, scale: 4, mode: "number" }),
+    onPareto: boolean().notNull().default(false),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    uniqueIndex("optimization_trials_run_index_idx").on(t.runId, t.trialIndex),
+    index("optimization_trials_score_idx").on(t.runId, t.compositeScore.desc()),
+    index("optimization_trials_pareto_idx")
+      .on(t.runId)
+      .where(sql`${t.onPareto} = true`),
+  ],
+);
+
+export type OptimizationTrialRow = typeof optimizationTrials.$inferSelect;
+export type NewOptimizationTrialRow = typeof optimizationTrials.$inferInsert;
+
 export const schema = {
-  valueBets,
-  strategies,
-  strategyExecutions,
+  bets,
   matchScores,
   settlementRuns,
   settlementDisputes,
-  placedBets,
   bettingSettings,
+  optimizationRuns,
+  optimizationTrials,
 };

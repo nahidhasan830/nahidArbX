@@ -1,0 +1,80 @@
+# Cloud Build pipeline for the AlphaSearch optimizer sidecar.
+#
+# Trigger setup (one-time, via console or `gcloud builds triggers create github`):
+#   - Repo: this GitHub repo
+#   - Branch: ^main$
+#   - Included files filter: services/optimizer/**
+#   - Cloud Build configuration: cloudbuild.yaml
+#
+# Substitutions provided automatically:
+#   $PROJECT_ID = nahidarbx-6e73
+#   $SHORT_SHA  = git short sha for tagging
+
+substitutions:
+  _REGION: asia-south1
+  _SERVICE_NAME: nahidarbx-optimizer
+  _REPOSITORY: optimizer
+  _SERVICE_ACCOUNT: optimizer-sa@nahidarbx-6e73.iam.gserviceaccount.com
+  _CLOUD_SQL_INSTANCE: nahidarbx-6e73:asia-south1:nahidarbx-db
+
+steps:
+  # 1. Build the image.
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    dir: services/optimizer
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest
+      - .
+
+  # 2. Push to Artifact Registry.
+  - id: push-sha
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest
+
+  # 3. Deploy to Cloud Run.
+  #    - min instances=0 (scale-to-zero, costs nothing when idle)
+  #    - max instances=3 (one heavy run per instance is plenty)
+  #    - 4 CPU / 8 GiB (Polars + Optuna in-memory work on 100k+ bets)
+  #    - DATABASE_URL is read from Secret Manager
+  #    - OPTIMIZER_SHARED_SECRET is read from Secret Manager
+  #    - Cloud SQL instance attached for connector access
+  #    - --ingress=internal so only the Next.js service can reach it
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_NAME}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+      - --region=${_REGION}
+      - --service-account=${_SERVICE_ACCOUNT}
+      - --min-instances=0
+      - --max-instances=3
+      - --cpu=4
+      - --memory=8Gi
+      - --concurrency=1
+      - --timeout=3600
+      - --ingress=internal
+      - --no-allow-unauthenticated
+      - --add-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
+      - --set-env-vars=CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE},LOG_LEVEL=INFO
+      - --set-secrets=DATABASE_URL=DATABASE_URL:latest,OPTIMIZER_SHARED_SECRET=OPTIMIZER_SHARED_SECRET:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
