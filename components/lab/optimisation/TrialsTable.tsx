@@ -118,7 +118,7 @@ export function TrialsTable({
               </th>
               <th className="px-2 py-2 font-medium text-right">
                 <TooltipProvider delayDuration={200}>
-                  <TermTooltip term="roi">OOS ROI</TermTooltip>
+                  <TermTooltip term="roi">ROI</TermTooltip>
                 </TooltipProvider>{" "}
                 <TooltipProvider delayDuration={200}>
                   <TermTooltip term="ci" iconOnly />
@@ -139,7 +139,7 @@ export function TrialsTable({
               <th className="px-2 py-2 font-medium text-right">
                 <TermTooltip term="psr">PSR</TermTooltip>
               </th>
-              <th className="px-2 py-2 font-medium">Frontier</th>
+              <th className="px-2 py-2 font-medium">Trade-off</th>
             </tr>
           </thead>
           <tbody>
@@ -185,7 +185,7 @@ export function TrialsTable({
                 <td className="px-2 py-1.5">
                   {t.onPareto ? (
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                      ★ Pareto
+                      ★ On line
                     </span>
                   ) : (
                     <span className="text-muted-foreground text-[10px]">—</span>

@@ -241,26 +241,26 @@ function buildStages(
     {
       id: "load",
       label: "Load historical bets",
-      caption: "Stream settled bets from Postgres and coerce types.",
+      caption: "Pulls every settled bet in scope from the database.",
       icon: Database,
       state: loadState,
       detail: started ? formatTimestamp(run.startedAt) : undefined,
     },
     {
       id: "splits",
-      label: "Build cross-validation splits",
+      label: "Carve up the bet history for testing",
       caption:
         run.cvStrategy &&
         (run.cvStrategy as { type?: string }).type === "walkforward"
-          ? "Walk-forward folds."
-          : "CPCV groups → OOS paths (purging + embargo).",
+          ? "Train on older bets, test on newer ones, slide forward in time."
+          : "Splits bets into 10 groups so each strategy can be tested on bets it never trained on.",
       icon: Layers,
       state: splitState,
     },
     {
       id: "eval",
-      label: "Sample & evaluate trials",
-      caption: "Each trial: sample config → evaluate on every OOS fold.",
+      label: "Try strategies and score them",
+      caption: "Each strategy is tested on every group of unseen bets.",
       icon: Activity,
       state: evalState,
       detail:
@@ -269,13 +269,13 @@ function buildStages(
               throughput > 0 ? ` · ${throughput.toFixed(1)}/s` : ""
             }`
           : evalState === "done"
-            ? `${done.toLocaleString()} evaluated`
+            ? `${done.toLocaleString()} tried`
             : undefined,
     },
     {
       id: "summary",
-      label: "Compute summary",
-      caption: "Pareto frontier, DSR, PBO, WRC p-value.",
+      label: "Wrap up the report",
+      caption: "Builds the trade-off line and runs the overfit safety checks.",
       icon: FileBarChart,
       state: summaryState,
     },

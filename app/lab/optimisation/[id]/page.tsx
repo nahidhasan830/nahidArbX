@@ -204,7 +204,7 @@ export default function RunDetailPage({
                 <section className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
                   <header className="flex items-start justify-between gap-3 flex-wrap">
                     <h2 className="text-sm font-semibold inline-flex items-center gap-1.5">
-                      <TermTooltip term="pareto">Pareto frontier</TermTooltip>
+                      <TermTooltip term="pareto">Trade-off line</TermTooltip>
                     </h2>
                   </header>
                   <ParetoScatter trials={trials} />

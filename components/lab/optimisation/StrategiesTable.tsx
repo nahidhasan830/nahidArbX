@@ -114,7 +114,7 @@ export function StrategiesTable() {
             <th className="px-3 py-2 font-medium">Name / status</th>
             <th className="px-3 py-2 font-medium text-right">
               <TooltipProvider delayDuration={200}>
-                <TermTooltip term="roi">OOS ROI</TermTooltip>
+                <TermTooltip term="roi">ROI at promotion</TermTooltip>
               </TooltipProvider>{" "}
               <TooltipProvider delayDuration={200}>
                 <TermTooltip term="ci" iconOnly />

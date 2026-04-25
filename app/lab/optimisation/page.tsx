@@ -177,17 +177,18 @@ function HelpPopover({ scope }: { scope: Scope }) {
         {scope === "runs" && (
           <>
             <p>
-              <strong>Runs</strong> sweep configurations of filters and sizing
-              rules against historical bets to find the highest, most consistent
-              ROI.
+              <strong>Runs</strong> try thousands of filter and sizing
+              combinations against your bet history to find the highest, most
+              consistent ROI.
             </p>
             <p>
-              Click <em>Run now</em> for defaults (ensemble / 2000 trials / CPCV
-              / all bets / Telegram on) or <em>New run…</em> to tweak.
+              Click <em>Run now</em> for sensible defaults (ensemble search,
+              2000 trials, CPCV testing, all bets, Telegram pings on) or
+              <em>New run…</em> to tweak.
             </p>
             <p className="text-amber-600 dark:text-amber-400 text-[10px]">
-              With ~1k bets, even the best configs have ±2–4% CIs — trust the
-              confidence band, not the point estimate.
+              With ~1k bets, even the best strategies have a believable range of
+              about ±2–4% — trust the range, not the headline number.
             </p>
           </>
         )}
@@ -213,7 +214,8 @@ function HelpPopover({ scope }: { scope: Scope }) {
             </p>
             <p>
               <strong>Drift</strong> flags strategies whose live ROI has fallen
-              outside the OOS confidence band — investigate or pause.
+              outside the expected range from when they were promoted —
+              investigate or pause.
             </p>
           </>
         )}

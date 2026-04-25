@@ -91,7 +91,7 @@ export function ValidationHistory({ strategyId }: { strategyId: string }) {
                 live {fmt(v.liveRoiPct, 1)}%
               </span>
               <span className="text-muted-foreground w-32">
-                vs OOS [{fmt(v.snapshotRoiCiLow, 1)},{" "}
+                vs expected [{fmt(v.snapshotRoiCiLow, 1)},{" "}
                 {fmt(v.snapshotRoiCiHigh, 1)}]
               </span>
               <span className="w-12 text-muted-foreground">n={v.nSettled}</span>

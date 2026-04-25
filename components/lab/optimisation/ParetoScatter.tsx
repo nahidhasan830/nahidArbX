@@ -64,7 +64,7 @@ export function ParetoScatter({ trials }: { trials: OptimizationTrialRow[] }) {
               boxShadow: `0 0 0 1.5px ${cardColor}`,
             }}
           />
-          Pareto frontier ({onFrontier.length})
+          On the trade-off line ({onFrontier.length})
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span
@@ -102,13 +102,13 @@ export function ParetoScatter({ trials }: { trials: OptimizationTrialRow[] }) {
           <YAxis
             type="number"
             dataKey="y"
-            name="OOS ROI %"
+            name="ROI on unseen bets %"
             stroke={axisColor}
             tick={{ fontSize: 10, fill: axisColor }}
             tickLine={{ stroke: axisColor, strokeOpacity: 0.4 }}
             axisLine={{ stroke: axisColor, strokeOpacity: 0.4 }}
             label={{
-              value: "OOS ROI %",
+              value: "ROI on unseen bets %",
               angle: -90,
               position: "insideLeft",
               style: { fontSize: 10, fill: axisColor },
@@ -138,7 +138,7 @@ export function ParetoScatter({ trials }: { trials: OptimizationTrialRow[] }) {
                     Trial #{p.trialIndex}
                   </div>
                   <div className="text-muted-foreground">
-                    OOS ROI:{" "}
+                    ROI:{" "}
                     <span className="text-foreground tabular-nums">
                       {p.y.toFixed(2)}%
                     </span>
@@ -176,7 +176,7 @@ export function ParetoScatter({ trials }: { trials: OptimizationTrialRow[] }) {
                       className="font-medium pt-1"
                       style={{ color: paretoColor }}
                     >
-                      On Pareto frontier
+                      On the trade-off line
                     </div>
                   )}
                 </div>
