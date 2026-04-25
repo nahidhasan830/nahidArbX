@@ -394,15 +394,16 @@ export function UnreliableWinnerBanner({ run, trials }: ResultsReportProps) {
       <Flame className="size-4 shrink-0 mt-0.5 text-amber-600" />
       <div className="space-y-1 min-w-0">
         <p className="font-semibold text-amber-800 dark:text-amber-200">
-          The top-scoring trial is Unreliable — treat it as noise, not signal
+          The top-scoring strategy is unreliable — treat it as noise, not a real
+          edge
         </p>
         <p className="leading-relaxed text-amber-900/80 dark:text-amber-200/90">
-          Trial #{winner.trialIndex} is on top by composite score only because
-          the composite rewards small-sample outliers when the field is sparse.{" "}
+          Strategy #{winner.trialIndex} is on top only because the score rewards
+          small-sample outliers when nothing else is around.{" "}
           <span className="font-medium">Reason:</span> {q.reason}{" "}
-          <Info className="inline size-3 -mt-0.5" aria-hidden /> Do not promote
-          it. The Results report above flags the first actionable trial if one
-          exists.{" "}
+          <Info className="inline size-3 -mt-0.5" aria-hidden /> Don't promote
+          it. The Results report above flags the first safe-to-promote strategy
+          if one exists.{" "}
           <span className="text-amber-900/70 dark:text-amber-200/70">
             Run ID {run.id.slice(0, 12)}…
           </span>
