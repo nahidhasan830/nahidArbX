@@ -44,14 +44,17 @@ export function TrialDrawer({
             Trial #{trial.trialIndex}
             {trial.onPareto && (
               <span className="text-[10px] text-emerald-600 font-medium">
-                ★ Pareto frontier
+                ★ On the trade-off line
               </span>
             )}
           </SheetTitle>
           <SheetDescription className="text-[13px]">
-            Sampled by <span className="font-medium">{trial.sampler}</span>. All
-            metrics are{" "}
-            <TermTooltip term="cpcv">out-of-sample (CPCV)</TermTooltip>.
+            Picked by <span className="font-medium">{trial.sampler}</span>.
+            Every number below is from{" "}
+            <TermTooltip term="cpcv">
+              bets it never saw during training
+            </TermTooltip>
+            .
           </SheetDescription>
         </SheetHeader>
 
@@ -62,7 +65,7 @@ export function TrialDrawer({
               Summary
             </h3>
             <div className="grid grid-cols-2 gap-2">
-              <Metric label={<TermTooltip term="roi">OOS ROI</TermTooltip>}>
+              <Metric label={<TermTooltip term="roi">ROI</TermTooltip>}>
                 {fmt(trial.oosRoiMean)}%{" "}
                 <span className="text-muted-foreground text-[10px]">
                   [{fmt(trial.oosRoiCiLow, 1)}, {fmt(trial.oosRoiCiHigh, 1)}]
@@ -103,7 +106,7 @@ export function TrialDrawer({
           {/* Sampled config */}
           <section className="space-y-2">
             <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Sampled configuration
+              Settings tried
             </h3>
             <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1 text-[11px]">
               {Object.entries(params).map(([k, v]) => (
@@ -124,7 +127,7 @@ export function TrialDrawer({
           {/* Per-fold metrics */}
           <section className="space-y-2">
             <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Per-fold breakdown ({folds.length} OOS paths)
+              Per-test breakdown ({folds.length} tests on unseen bets)
             </h3>
             <div className="overflow-x-auto rounded-md border border-border/60">
               <table className="w-full text-[10px]">
@@ -164,7 +167,7 @@ export function TrialDrawer({
               </table>
               {folds.length > 50 && (
                 <p className="text-[10px] text-muted-foreground py-1.5 text-center">
-                  …showing first 50 of {folds.length} folds
+                  …showing first 50 of {folds.length} tests
                 </p>
               )}
             </div>
@@ -176,9 +179,9 @@ export function TrialDrawer({
               <strong className="text-foreground">
                 Promote to live strategy
               </strong>{" "}
-              creates a saved configuration the value detector consults on every
-              tick. Matching bets get tagged with the strategy id so live
-              performance is attributed.
+              saves this configuration so the value-bet detector uses it on
+              every new tick. Matching bets get tagged with this strategy so you
+              can track its live performance separately.
             </p>
             <PromoteToStrategy
               trialId={trial.id}
