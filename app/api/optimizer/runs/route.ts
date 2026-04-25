@@ -6,7 +6,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { kickRunNow } from "@/lib/optimizer/scheduler";
-import { createRun, listRuns } from "@/lib/optimizer/repository";
+import {
+  createRun,
+  getEstimatedRunDurationSec,
+  listRuns,
+} from "@/lib/optimizer/repository";
 
 const createBody = z.object({
   name: z.string().min(1).max(120),
@@ -41,6 +45,9 @@ const createBody = z.object({
   // Send a Telegram notification when the run hits a terminal status.
   // Omitted = true (defaults to ON; user opts out via the UI switch).
   notifyOnComplete: z.boolean().optional(),
+  // Send a Telegram ping the moment the sidecar picks the run up. Independent
+  // of notifyOnComplete — user can check either, both, or neither.
+  notifyOnStart: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -74,10 +81,38 @@ export async function POST(req: Request) {
     searchSpace: parsed.searchSpace as never,
     dataFilters: parsed.dataFilters,
     notifyOnComplete: parsed.notifyOnComplete,
+    notifyOnStart: parsed.notifyOnStart,
   });
+
+  // ETA for the submit-sheet toast + the RunProgressPanel chip.
+  // Failing to look this up must NOT block the run — any DB hiccup here is
+  // a cosmetic loss, not a blocker, so swallow errors and omit the field.
+  let estimate: Awaited<ReturnType<typeof getEstimatedRunDurationSec>> | null =
+    null;
+  try {
+    estimate = await getEstimatedRunDurationSec({
+      nTrialsTarget: run.nTrialsTarget,
+      cvStrategy: (run.cvStrategy as { type?: string })?.type ?? "cpcv",
+      searchAlgorithm: run.searchAlgorithm,
+    });
+  } catch {
+    estimate = null;
+  }
 
   // Fire-and-forget kick — don't block the response on the sidecar.
   void kickRunNow(run.id);
 
-  return NextResponse.json({ run }, { status: 201 });
+  return NextResponse.json(
+    {
+      run,
+      estimate: estimate
+        ? {
+            estimatedSec: estimate.estimatedSec,
+            basis: estimate.basis,
+            sampleSize: estimate.sampleSize,
+          }
+        : null,
+    },
+    { status: 201 },
+  );
 }

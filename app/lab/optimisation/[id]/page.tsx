@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * AlphaSearch run-detail page.
+ * Optimisation run-detail page.
  *
  * Full-width two-column canvas:
  *   Row 1 — status strip (name + badge + key metric tiles edge-to-edge)
@@ -19,23 +19,24 @@
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Lightbulb, X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/nav/AppShell";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Toggle } from "@/components/ui/toggle";
 import { TermTooltip } from "@/components/ui/TermTooltip";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
-import { RunStatusBadge } from "@/components/lab/alphasearch/RunStatusBadge";
-import { RunProgressPanel } from "@/components/lab/alphasearch/RunProgressPanel";
-import { ParetoScatter } from "@/components/lab/alphasearch/ParetoScatter";
+import { RunStatusBadge } from "@/components/lab/optimisation/RunStatusBadge";
+import { RunProgressPanel } from "@/components/lab/optimisation/RunProgressPanel";
+import { ParetoScatter } from "@/components/lab/optimisation/ParetoScatter";
 import {
   ResultsReport,
   UnreliableWinnerBanner,
-} from "@/components/lab/alphasearch/ResultsReport";
-import { TrialsTable } from "@/components/lab/alphasearch/TrialsTable";
-import { TrialDrawer } from "@/components/lab/alphasearch/TrialDrawer";
+} from "@/components/lab/optimisation/ResultsReport";
+import { TrialsTable } from "@/components/lab/optimisation/TrialsTable";
+import { TrialDrawer } from "@/components/lab/optimisation/TrialDrawer";
 import { formatMarketType } from "@/lib/formatting/labels";
 import type {
   OptimizationRunRow,
@@ -113,6 +114,7 @@ export default function RunDetailPage({
 
   const run = runQ.data?.run;
   const trials = trialsQ.data?.trials ?? [];
+  const trialsLoaded = trialsQ.isSuccess;
   const summary = (run?.summary as Record<string, unknown> | null) ?? null;
   const pct = useMemo(() => {
     if (!run || run.nTrialsTarget === 0) return 0;
@@ -139,155 +141,154 @@ export default function RunDetailPage({
       }
     >
       {!run ? (
-        <div className="p-6 text-xs text-muted-foreground">Loading run…</div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 text-[13px] text-muted-foreground">
+          Loading run…
+        </div>
       ) : (
-        <div className="flex flex-col gap-4 p-4 lg:p-6">
-          {/* Left-aligned back link — sits above the status strip so the
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex flex-col gap-4 p-4 lg:p-6">
+            {/* Left-aligned back link — sits above the status strip so the
               navigation affordance is always the first thing on the page. */}
-          <Link
-            href="/lab/alphasearch"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start -mb-1"
-          >
-            <ChevronLeft className="size-3.5" /> All runs
-          </Link>
+            <Link
+              href="/lab/optimisation"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors self-start -mb-1"
+            >
+              <ChevronLeft className="size-3.5" /> All runs
+            </Link>
 
-          {/* Row 1 — status strip with edge-to-edge stat tiles */}
-          <StatusStrip
-            run={run}
-            summary={summary}
-            paretoCount={
-              typeof summary?.["n_pareto"] === "number"
-                ? (summary["n_pareto"] as number)
-                : trials.filter((t) => t.onPareto).length
-            }
-          />
+            {/* Row 1 — status strip with edge-to-edge stat tiles */}
+            <StatusStrip
+              run={run}
+              summary={summary}
+              paretoCount={
+                typeof summary?.["n_pareto"] === "number"
+                  ? (summary["n_pareto"] as number)
+                  : trials.filter((t) => t.onPareto).length
+              }
+            />
 
-          {/* Row 2 — live pipeline panel while running / queued / early
+            {/* Row 2 — live pipeline panel while running / queued / early
               failure. Hidden for completed + cancelled runs where the
               main canvas is the useful thing to show. */}
-          {(run.status === "queued" ||
-            run.status === "running" ||
-            run.status === "failed") && (
-            <RunProgressPanel run={run} trialsCompleted={trials.length} />
-          )}
+            {(run.status === "queued" ||
+              run.status === "running" ||
+              run.status === "failed") && <RunProgressPanel run={run} />}
 
-          {/* Compact progress bar kept for quick-glance context on
+            {/* Compact progress bar kept for quick-glance context on
               completed/cancelled runs (the progress panel replaces it
               during active runs). */}
-          {(run.status === "completed" || run.status === "cancelled") && (
-            <Progress value={pct} className="h-2" />
-          )}
+            {(run.status === "completed" || run.status === "cancelled") && (
+              <Progress value={pct} className="h-2" />
+            )}
 
-          {/* Post-run Results report — surfaces the plain-English verdict
+            {/* Post-run Results report — surfaces the plain-English verdict
               (edge yes/no, confidence, best-actionable trial) so an
-              operator doesn't have to stitch metrics together. */}
-          {run.status === "completed" && (
-            <ResultsReport run={run} trials={trials} />
-          )}
+              operator doesn't have to stitch metrics together.
+              Wait for trials to finish loading before rendering the
+              verdict, otherwise an empty trials array briefly flashes
+              the "No — no edge" branch before the real data arrives. */}
+            {run.status === "completed" &&
+              (trialsLoaded ? (
+                <>
+                  <ResultsReport run={run} trials={trials} />
+                  <UnreliableWinnerBanner run={run} trials={trials} />
+                </>
+              ) : (
+                <ResultsReportSkeleton />
+              ))}
 
-          {/* Loud banner when the composite-max winner is Unreliable —
-              the single most important anti-foot-gun on the page. */}
-          {run.status === "completed" && (
-            <UnreliableWinnerBanner run={run} trials={trials} />
-          )}
-
-          {/* Row 3 — main canvas: left (charts/table) + right (side panel) */}
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
-            {/* Left column */}
-            <div className="flex flex-col gap-4 min-w-0">
-              <section className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
-                <header className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="space-y-0.5">
+            {/* Row 3 — main canvas: left (charts/table) + right (side panel) */}
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
+              {/* Left column */}
+              <div className="flex flex-col gap-4 min-w-0">
+                <section className="rounded-lg border border-border/60 bg-card p-4 space-y-3">
+                  <header className="flex items-start justify-between gap-3 flex-wrap">
                     <h2 className="text-sm font-semibold inline-flex items-center gap-1.5">
                       <TermTooltip term="pareto">Pareto frontier</TermTooltip>
                     </h2>
-                    <p className="text-[11px] text-muted-foreground max-w-[640px]">
-                      Each dot is one trial.{" "}
-                      <span className="text-primary font-medium">Blue</span>{" "}
-                      dots are on the frontier — they offer trade-offs you
-                      can&apos;t improve without making something worse. Bigger
-                      dots = more bets survived the filters.
-                    </p>
-                  </div>
-                </header>
-                <ParetoScatter trials={trials} />
-              </section>
+                  </header>
+                  <ParetoScatter trials={trials} />
+                </section>
 
-              <section className="rounded-lg border border-border/60 bg-card">
-                <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/60">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-sm font-semibold">Trials</h2>
-                    <span className="text-[11px] text-muted-foreground tabular-nums">
-                      {trials.length.toLocaleString()}
-                    </span>
+                <section className="rounded-lg border border-border/60 bg-card">
+                  <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/60">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-sm font-semibold">Trials</h2>
+                      <span className="text-[11px] text-muted-foreground tabular-nums">
+                        {trials.length.toLocaleString()}
+                      </span>
+                    </div>
+                    <Toggle
+                      size="sm"
+                      pressed={paretoOnly}
+                      onPressedChange={setParetoOnly}
+                      className="h-7 text-[11px]"
+                    >
+                      Pareto only
+                    </Toggle>
+                  </header>
+                  <div className="p-2">
+                    <TrialsTable
+                      trials={trials}
+                      onSelect={(t) => {
+                        setDrawerTrial(t);
+                        setDrawerOpen(true);
+                      }}
+                    />
                   </div>
-                  <Toggle
-                    size="sm"
-                    pressed={paretoOnly}
-                    onPressedChange={setParetoOnly}
-                    className="h-7 text-[11px]"
-                  >
-                    Pareto only
-                  </Toggle>
-                </header>
-                <div className="p-2">
-                  <TrialsTable
-                    trials={trials}
-                    onSelect={(t) => {
-                      setDrawerTrial(t);
-                      setDrawerOpen(true);
-                    }}
+                </section>
+              </div>
+
+              {/* Right column — side panel */}
+              <aside className="flex flex-col gap-4 xl:sticky xl:top-4 xl:self-start">
+                <SidePanelCard title="Overview">
+                  <CvBadge summary={summary} />
+                  <OverfitChips summary={summary} />
+                  <DataScopeChips
+                    filters={
+                      (run.dataFilters as Record<string, unknown> | null) ??
+                      null
+                    }
                   />
-                </div>
-              </section>
+                </SidePanelCard>
+              </aside>
             </div>
 
-            {/* Right column — side panel */}
-            <aside className="flex flex-col gap-4 xl:sticky xl:top-4 xl:self-start">
-              <SidePanelCard title="Overview">
-                <CvBadge summary={summary} />
-                <OverfitChips summary={summary} />
-                <DataScopeChips
-                  filters={
-                    (run.dataFilters as Record<string, unknown> | null) ?? null
-                  }
-                />
-              </SidePanelCard>
-
-              <SidePanelCard
-                title="How to read the trials"
-                icon={<Lightbulb className="size-3.5 text-amber-500" />}
-              >
-                <ul className="list-disc list-outside ml-4 space-y-1.5 text-[11px] leading-relaxed text-foreground/80">
-                  <li>
-                    Sort by <strong>Composite</strong> — already accounts for
-                    sample size, drawdown, and overfit penalty.
-                  </li>
-                  <li>
-                    <TermTooltip term="ci">Confidence intervals</TermTooltip>{" "}
-                    next to ROI show the noise band — wide CI = small sample.
-                  </li>
-                  <li>
-                    <TermTooltip term="dsr">DSR</TermTooltip> &gt; 0.95 ≈
-                    statistically real after accounting for the number of
-                    trials.
-                  </li>
-                  <li>
-                    Click any row for the full config + per-fold breakdown.
-                  </li>
-                </ul>
-              </SidePanelCard>
-            </aside>
+            <TrialDrawer
+              trial={drawerTrial}
+              open={drawerOpen}
+              onOpenChange={setDrawerOpen}
+            />
           </div>
-
-          <TrialDrawer
-            trial={drawerTrial}
-            open={drawerOpen}
-            onOpenChange={setDrawerOpen}
-          />
         </div>
       )}
     </AppShell>
+  );
+}
+
+// ── Results report skeleton (shown while trials are still loading) ──────
+
+function ResultsReportSkeleton() {
+  return (
+    <section className="rounded-lg border border-border/60 bg-card overflow-hidden">
+      <header className="flex items-center gap-2.5 px-5 py-3.5 border-b border-border/60 bg-muted/20">
+        <Skeleton className="size-5 rounded-full" />
+        <div className="space-y-1.5 flex-1">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-3 w-64" />
+        </div>
+      </header>
+      <div className="p-5 space-y-5">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-2.5 w-40" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-5/6" />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

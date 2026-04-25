@@ -1,7 +1,7 @@
 /**
  * Production smoke test — queue a tiny optimizer run against the live
- * Cloud SQL + Cloud Run sidecar, then poll until it terminates. Prints
- * the terminal status + summary + error message (if any).
+ * Cloud SQL DB, trigger a Cloud Run Job execution, poll until terminal.
+ * Prints the terminal status + summary + error message (if any).
  *
  * Usage:
  *   npx tsx --env-file=.env scripts/trigger-prod-test-run.ts
@@ -13,9 +13,8 @@
 import "dotenv/config";
 import { Pool } from "pg";
 import { Connector, IpAddressTypes } from "@google-cloud/cloud-sql-connector";
+import { triggerJobExecution } from "../lib/optimizer/api-client";
 
-const OPTIMIZER_URL = process.env.OPTIMIZER_URL;
-const OPTIMIZER_TOKEN = process.env.OPTIMIZER_SHARED_SECRET;
 const POLL_INTERVAL_MS = 5_000;
 const MAX_WAIT_MS = 20 * 60_000; // 20 minutes
 
@@ -58,8 +57,9 @@ interface RunRow {
 }
 
 async function main() {
-  if (!OPTIMIZER_URL) throw new Error("OPTIMIZER_URL not set");
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL not set");
+  if (!process.env.OPTIMIZER_JOB_NAME)
+    throw new Error("OPTIMIZER_JOB_NAME not set — see CLAUDE.md env section");
 
   const pool = await buildPool();
   const client = await pool.connect();
@@ -75,7 +75,7 @@ async function main() {
          n_trials_done, rng_seed, cv_strategy, data_filters,
          notify_on_complete, created_by)
        VALUES
-        ($1, $2, 'queued', '{"dimensions":[]}'::jsonb, 'ensemble', 20,
+        ($1, $2, 'queued', '{"dimensions":[]}'::jsonb, 'ensemble', 100,
          0, 42, $3::jsonb, '{}'::jsonb,
          true, 'manual:smoke-test')`,
       [
@@ -90,19 +90,9 @@ async function main() {
       ],
     );
 
-    console.log(`▶ Kicking sidecar at ${OPTIMIZER_URL}/run/start …`);
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (OPTIMIZER_TOKEN) headers["X-Optimizer-Token"] = OPTIMIZER_TOKEN;
-    const res = await fetch(`${OPTIMIZER_URL}/run/start`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ run_id: runId }),
-    });
-    const text = await res.text();
-    console.log(`  sidecar response: ${res.status} ${text.slice(0, 200)}`);
-    if (!res.ok) throw new Error(`Sidecar returned ${res.status}: ${text}`);
+    console.log(`▶ Triggering Cloud Run Job for run ${runId} …`);
+    const { executionName } = await triggerJobExecution(runId);
+    console.log(`  execution: ${executionName}`);
 
     console.log(`▶ Polling every ${POLL_INTERVAL_MS / 1000}s …`);
     const deadline = Date.now() + MAX_WAIT_MS;

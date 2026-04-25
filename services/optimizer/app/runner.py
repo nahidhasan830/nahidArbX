@@ -3,12 +3,24 @@
 Lifecycle:
   - main.py POST /run/start spawns `run_trial_loop(run_id)` as an asyncio task
   - We set status='running', load bets, build CPCV splits
-  - For each Optuna-proposed trial:
-      * cancellation check (DB poll) — exit cleanly if status='cancelled'
-      * evaluate config in a thread (blocks event loop otherwise)
-      * persist trial row
-  - After loop: extract Pareto frontier, write summary, set status='completed'
+  - Launch up to `max_concurrent_trials` trial coroutines via an asyncio
+    Semaphore. Each trial:
+      * checks the shared cancel `asyncio.Event` (set by a watcher coroutine
+        that polls the DB every 2s — off the hot path)
+      * under `study_lock`: study.ask()
+      * in a worker thread: evaluate_config (CPU-bound, frees event loop)
+      * appends payload to a shared buffer; every N trials a background
+        flush writes a batched INSERT (one transaction, one round-trip)
+      * under `study_lock`: study.tell()
+  - After the sweep: flush any remaining payloads, mark Pareto, write
+    summary (PBO + WRC + top scores), set status='completed'.
   - Any exception → status='failed' with error message.
+
+Determinism: in single-concurrency mode (OPTIMIZER_PARALLEL=0, default)
+the behaviour is bitwise-identical to the old serial loop. With
+OPTIMIZER_PARALLEL=1 the trial ordering (and thus TPE's KDE fit)
+changes with scheduler races — per-trial math stays pure, overall
+determinism relaxes.
 """
 
 from __future__ import annotations
@@ -16,10 +28,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import UTC, datetime
 from typing import Any
 
-import optuna
+import numpy as np
 import ulid
 from sqlalchemy import text
 
@@ -29,8 +42,8 @@ from .cpcv import CpcvConfig, CpcvSplit, expected_n_paths, make_cpcv_splits
 from .db import open_session
 from .evaluator import TrialResult, evaluate_trial
 from .loader import DataFilters, load_settled_bets
-from .pareto import ParetoCandidate, extract_pareto
 from .ml.evaluator import evaluate_ml_trial, ml_search_space
+from .pareto import ParetoCandidate, extract_pareto
 from .samplers import build_study, is_multi_objective
 from .scoring import (
     composite_score,
@@ -104,13 +117,13 @@ def _set_status(
         s.commit()
 
 
-def _is_cancelled(run_id: str) -> bool:
+def _read_status(run_id: str) -> str | None:
     with open_session() as s:
         row = s.execute(
             text("SELECT status FROM optimization_runs WHERE id = :id"),
             {"id": run_id},
         ).first()
-        return bool(row and row[0] == "cancelled")
+        return row[0] if row else None
 
 
 def _sanitize_metric(v: float | None) -> float | None:
@@ -134,7 +147,7 @@ def _sanitize_metric(v: float | None) -> float | None:
     return fv
 
 
-def _persist_trial(
+def _build_trial_payload(
     *,
     run_id: str,
     trial_index: int,
@@ -146,12 +159,14 @@ def _persist_trial(
     dsr: float,
     psr: float,
     composite: float,
-) -> str:
+) -> dict[str, Any]:
+    """Prep the parameter dict for a single trial row. Callers then feed a
+    list of these to `_persist_trial_batch` for a single multi-INSERT."""
     # `ulid-py` exposes `ulid.new()` → ULID object; stringify it for the
     # text primary key. Calling `ulid()` on the module itself raises
     # "'module' object is not callable" (observed 2026-04-24 prod logs).
     trial_id = str(ulid.new())
-    payload = {
+    return {
         "id": trial_id,
         "run_id": run_id,
         "trial_index": trial_index,
@@ -190,28 +205,68 @@ def _persist_trial(
         "composite_score": _sanitize_metric(composite),
         "on_pareto": False,  # set after run completes
     }
+
+
+# Columns we INSERT — kept in sync with the dict keys in `_build_trial_payload`.
+_TRIAL_INSERT_COLUMNS = (
+    "id",
+    "run_id",
+    "trial_index",
+    "sampler",
+    "params",
+    "fold_metrics",
+    "oos_roi_mean",
+    "oos_roi_ci_low",
+    "oos_roi_ci_high",
+    "oos_sortino",
+    "oos_sharpe",
+    "deflated_sharpe",
+    "probabilistic_sharpe",
+    "max_drawdown",
+    "sample_size",
+    "composite_score",
+    "on_pareto",
+)
+
+
+def _persist_trial_batch(payloads: list[dict[str, Any]]) -> None:
+    """Write a batch of trial rows in one transaction, one round-trip.
+
+    Builds a single `INSERT … VALUES (…), (…), …` with positional bind
+    parameters so we pay exactly one network round-trip per batch. At
+    batch_size=10 that's 10× fewer Cloud SQL round-trips than the old
+    one-INSERT-per-trial path.
+    """
+    if not payloads:
+        return
+
+    # Build the multi-row VALUES clause with unique bind names per row:
+    #   (:id_0, :run_id_0, …, :on_pareto_0), (:id_1, …), …
+    value_rows: list[str] = []
+    flat_params: dict[str, Any] = {}
+    for i, p in enumerate(payloads):
+        placeholders = []
+        for col in _TRIAL_INSERT_COLUMNS:
+            key = f"{col}_{i}"
+            # Two JSONB columns need an explicit CAST so pg8000 doesn't
+            # complain about sending them as TEXT.
+            if col in ("params", "fold_metrics"):
+                placeholders.append(f"CAST(:{key} AS jsonb)")
+            else:
+                placeholders.append(f":{key}")
+            flat_params[key] = p[col]
+        value_rows.append("(" + ", ".join(placeholders) + ")")
+
+    sql = (
+        "INSERT INTO optimization_trials ("
+        + ", ".join(_TRIAL_INSERT_COLUMNS)
+        + ") VALUES "
+        + ", ".join(value_rows)
+    )
+
     with open_session() as s:
-        s.execute(
-            text(
-                """
-                INSERT INTO optimization_trials (
-                    id, run_id, trial_index, sampler, params, fold_metrics,
-                    oos_roi_mean, oos_roi_ci_low, oos_roi_ci_high,
-                    oos_sortino, oos_sharpe, deflated_sharpe, probabilistic_sharpe,
-                    max_drawdown, sample_size, composite_score, on_pareto
-                ) VALUES (
-                    :id, :run_id, :trial_index, :sampler,
-                    CAST(:params AS jsonb), CAST(:fold_metrics AS jsonb),
-                    :oos_roi_mean, :oos_roi_ci_low, :oos_roi_ci_high,
-                    :oos_sortino, :oos_sharpe, :deflated_sharpe, :probabilistic_sharpe,
-                    :max_drawdown, :sample_size, :composite_score, :on_pareto
-                )
-                """
-            ),
-            payload,
-        )
+        s.execute(text(sql), flat_params)
         s.commit()
-    return trial_id
 
 
 def _mark_pareto(run_id: str, trial_ids_on_pareto: list[str]) -> None:
@@ -228,6 +283,31 @@ def _mark_pareto(run_id: str, trial_ids_on_pareto: list[str]) -> None:
         s.commit()
 
 
+# ── Cancellation watcher ─────────────────────────────────────────────────
+
+
+async def _cancel_watcher(run_id: str, cancel_event: asyncio.Event) -> None:
+    """Polls the DB every ~2s; sets `cancel_event` when status = 'cancelled'.
+
+    Moves the cancellation check off the hot trial loop — the trial
+    coroutines just do `cancel_event.is_set()` which is a local atomic
+    read, not a DB round-trip. ~2000 DB SELECTs/run disappear.
+    """
+    while not cancel_event.is_set():
+        try:
+            status = await asyncio.to_thread(_read_status, run_id)
+            if status == "cancelled":
+                cancel_event.set()
+                return
+        except Exception:
+            log.exception("cancel watcher DB read failed; will retry")
+        try:
+            await asyncio.wait_for(cancel_event.wait(), timeout=2.0)
+            return
+        except TimeoutError:
+            continue
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────
 
 
@@ -237,7 +317,17 @@ async def run_trial_loop(run_id: str) -> None:
     Errors propagate to status='failed' rather than crashing the whole process.
     """
     settings = get_settings()
-    log.info("Run %s: starting", run_id)
+    # Feature flag: off by default so strict trial-ordering determinism
+    # (same OPTUNA seed → same sequence of configs explored) stays
+    # intact for users who rely on it. Set to 1 in prod via Cloud Run env.
+    parallel_enabled = os.getenv("OPTIMIZER_PARALLEL", "0") in ("1", "true", "TRUE", "yes")
+    concurrency = max(1, settings.max_concurrent_trials) if parallel_enabled else 1
+    persist_batch_size = max(1, settings.trial_persist_batch_size)
+
+    log.info(
+        "Run %s: starting (parallel=%s, concurrency=%d, batch_size=%d)",
+        run_id, parallel_enabled, concurrency, persist_batch_size,
+    )
     try:
         run = _fetch_run_row(run_id)
         if not run:
@@ -329,104 +419,176 @@ async def run_trial_loop(run_id: str) -> None:
         )
 
         n_target = int(run["n_trials_target"])
+        evaluator_fn = evaluate_ml_trial if is_ml else evaluate_trial
+
+        # Shared state. Appends happen under `buffer_lock`; reads for the
+        # final Pareto / PBO / WRC happen after all trials are done. Order
+        # is completion-order in parallel mode — that's fine because all
+        # downstream consumers (variance, Pareto, PBO, WRC) are order-
+        # invariant.
         per_trial_sharpes: list[float] = []
-        per_trial_fold_rois: list[list[float]] = []  # for PBO + WRC
+        per_trial_fold_rois: list[list[float]] = []
         candidates: list[ParetoCandidate] = []
         trial_id_by_index: dict[int, str] = {}
-        best_score = -1e18
-        best_trial_id: str | None = None
+        comp_by_index: dict[int, float] = {}
+        trial_buffer: list[dict[str, Any]] = []
+        buffer_lock = asyncio.Lock()
+        study_lock = asyncio.Lock()
         n_done = 0
 
-        for trial_index in range(n_target):
-            if _is_cancelled(run_id):
-                log.info("Run %s: cancelled by user at trial %d", run_id, trial_index)
+        cancel_event = asyncio.Event()
+        watcher_task = asyncio.create_task(
+            _cancel_watcher(run_id, cancel_event), name=f"watcher-{run_id}"
+        )
+
+        async def flush_buffer(force: bool = False) -> None:
+            """If the buffer has grown past `persist_batch_size` (or `force`),
+            drain it and write a single multi-row INSERT + one status tick.
+            Caller does NOT need to hold `buffer_lock` — we acquire it here.
+            """
+            nonlocal n_done
+            async with buffer_lock:
+                if not trial_buffer:
+                    return
+                if not force and len(trial_buffer) < persist_batch_size:
+                    return
+                pending = trial_buffer[:]
+                trial_buffer.clear()
+                done_count = n_done
+            await asyncio.to_thread(_persist_trial_batch, pending)
+            await asyncio.to_thread(
+                _set_status, run_id, "running", n_trials_done=done_count
+            )
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def do_one_trial(trial_index: int) -> None:
+            nonlocal n_done
+            if cancel_event.is_set():
                 return
+            async with semaphore:
+                if cancel_event.is_set():
+                    return
 
-            # Optuna: ask → evaluate (in thread) → tell.
-            trial = study.ask()
-            config = space.suggest_config(trial)
+                # Optuna study internals are not thread-safe; serialize
+                # ask/tell under a lock. The evaluator runs outside the
+                # lock so parallel trials actually get CPU.
+                async with study_lock:
+                    trial = study.ask()
+                    config = space.suggest_config(trial)
 
-            # CPU-bound — run in worker thread to keep the event loop free.
-            # Branch on algorithm: ML evaluator trains a model per CV fold;
-            # rule-based evaluator just applies filters + sizing.
-            evaluator_fn = evaluate_ml_trial if is_ml else evaluate_trial
-            result: TrialResult = await asyncio.to_thread(
-                evaluator_fn, df, splits, config
-            )
-
-            # Per-fold ROI series → bootstrap CI.
-            roi_series_obj = [
-                f.roi_pct for f in result.fold_metrics if f.n_bets > 0
-            ]
-            import numpy as np
-
-            roi_series = np.array(roi_series_obj, dtype=np.float64)
-            ci = stationary_bootstrap_ci(
-                roi_series, seed=int(run["rng_seed"]) + trial_index
-            )
-
-            # PSR + DSR.
-            sharpe_var = trial_sharpe_variance(per_trial_sharpes)
-            psr = probabilistic_sharpe(result.oos_sharpe, n=result.sample_size)
-            dsr = deflated_sharpe(
-                result.oos_sharpe,
-                n=result.sample_size,
-                n_trials=max(trial_index + 1, 2),
-                sharpe_variance_across_trials=sharpe_var,
-            )
-
-            comp = composite_score(
-                oos_roi_mean=result.oos_roi_mean,
-                sample_size=result.sample_size,
-                max_drawdown=result.max_drawdown,
-                deflated_sharpe_score=dsr,
-            )
-
-            trial_id = _persist_trial(
-                run_id=run_id,
-                trial_index=trial_index,
-                sampler=algorithm,
-                params=config,
-                result=result,
-                ci_low=ci.ci_low,
-                ci_high=ci.ci_high,
-                dsr=dsr,
-                psr=psr,
-                composite=comp,
-            )
-            trial_id_by_index[trial_index] = trial_id
-
-            # Tell Optuna (multi-objective: report (roi, dd); single: composite).
-            if is_multi_objective(algorithm):
-                study.tell(trial, [result.oos_roi_mean, result.max_drawdown])
-            else:
-                study.tell(trial, comp)
-
-            per_trial_sharpes.append(result.oos_sharpe)
-            # Per-fold ROI vector — same length for every trial (one entry
-            # per CV path; folds with 0 surviving bets contribute 0.0).
-            per_trial_fold_rois.append(
-                [
-                    f.roi_pct if f.n_bets > 0 else 0.0
-                    for f in result.fold_metrics
-                ]
-            )
-            candidates.append(
-                ParetoCandidate(
-                    trial_index=trial_index,
-                    oos_roi=result.oos_roi_mean,
-                    max_drawdown=result.max_drawdown,
-                    sample_size=result.sample_size,
+                # CPU-bound work in a worker thread.
+                result: TrialResult = await asyncio.to_thread(
+                    evaluator_fn, df, splits, config
                 )
-            )
 
+                # Per-fold ROI series → bootstrap CI.
+                roi_series_obj = [
+                    f.roi_pct for f in result.fold_metrics if f.n_bets > 0
+                ]
+                roi_series = np.array(roi_series_obj, dtype=np.float64)
+                ci = stationary_bootstrap_ci(
+                    roi_series, seed=int(run["rng_seed"]) + trial_index
+                )
+
+                # PSR + DSR. `sharpe_var` reads shared state — a snapshot is
+                # fine (append-only list under GIL), value is a variance
+                # estimate that doesn't need exact sequencing.
+                sharpe_var = trial_sharpe_variance(per_trial_sharpes)
+                psr = probabilistic_sharpe(
+                    result.oos_sharpe, n=result.sample_size
+                )
+                dsr = deflated_sharpe(
+                    result.oos_sharpe,
+                    n=result.sample_size,
+                    n_trials=max(trial_index + 1, 2),
+                    sharpe_variance_across_trials=sharpe_var,
+                )
+                comp = composite_score(
+                    oos_roi_mean=result.oos_roi_mean,
+                    sample_size=result.sample_size,
+                    max_drawdown=result.max_drawdown,
+                    deflated_sharpe_score=dsr,
+                )
+
+                payload = _build_trial_payload(
+                    run_id=run_id,
+                    trial_index=trial_index,
+                    sampler=algorithm,
+                    params=config,
+                    result=result,
+                    ci_low=ci.ci_low,
+                    ci_high=ci.ci_high,
+                    dsr=dsr,
+                    psr=psr,
+                    composite=comp,
+                )
+
+                # Tell Optuna immediately (holding study_lock) so the next
+                # trial's ask() already sees this result. Done BEFORE buffer
+                # append so the sampler state moves forward even if we race
+                # on the DB flush.
+                async with study_lock:
+                    if is_multi_objective(algorithm):
+                        study.tell(
+                            trial, [result.oos_roi_mean, result.max_drawdown]
+                        )
+                    else:
+                        study.tell(trial, comp)
+
+                async with buffer_lock:
+                    trial_buffer.append(payload)
+                    per_trial_sharpes.append(result.oos_sharpe)
+                    per_trial_fold_rois.append(
+                        [
+                            f.roi_pct if f.n_bets > 0 else 0.0
+                            for f in result.fold_metrics
+                        ]
+                    )
+                    candidates.append(
+                        ParetoCandidate(
+                            trial_index=trial_index,
+                            oos_roi=result.oos_roi_mean,
+                            max_drawdown=result.max_drawdown,
+                            sample_size=result.sample_size,
+                        )
+                    )
+                    trial_id_by_index[trial_index] = payload["id"]
+                    comp_by_index[trial_index] = comp
+                    n_done += 1
+
+            # Flush outside the semaphore — other trials can proceed
+            # while we write to Postgres.
+            await flush_buffer()
+
+        try:
+            tasks = [
+                asyncio.create_task(do_one_trial(i), name=f"trial-{run_id}-{i}")
+                for i in range(n_target)
+            ]
+            await asyncio.gather(*tasks, return_exceptions=False)
+            # Final flush — drain anything left in the buffer.
+            await flush_buffer(force=True)
+        finally:
+            cancel_event.set()  # tells watcher to exit
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        if cancel_event.is_set() and _read_status(run_id) == "cancelled":
+            log.info("Run %s: cancelled after %d trials", run_id, n_done)
+            return
+
+        # Best trial by composite score (stable ordering by trial_index).
+        best_trial_id: str | None = None
+        best_score = -1e18
+        for idx in sorted(comp_by_index.keys()):
+            comp = comp_by_index[idx]
             if comp > best_score:
                 best_score = comp
-                best_trial_id = trial_id
-
-            n_done = trial_index + 1
-            if n_done % settings.trial_persist_batch_size == 0:
-                _set_status(run_id, "running", n_trials_done=n_done)
+                best_trial_id = trial_id_by_index[idx]
 
         # Pareto extraction.
         on_pareto = extract_pareto(candidates)
@@ -453,7 +615,9 @@ async def run_trial_loop(run_id: str) -> None:
             "cv": cv_summary,
             "pbo": pbo,  # Probability of Backtest Overfitting (0..1; lower=better)
             "wrc_pvalue": wrc_p,  # White's Reality Check p-value (lower=stronger signal)
-            "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+            "completed_at_utc": datetime.now(UTC).isoformat(),
+            "parallel_enabled": parallel_enabled,
+            "concurrency": concurrency,
         }
         _set_status(
             run_id,
@@ -465,6 +629,6 @@ async def run_trial_loop(run_id: str) -> None:
         )
         log.info("Run %s: completed (%d trials, best score %.4f)", run_id, n_done, best_score)
 
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.exception("Run %s: failed", run_id)
         _set_status(run_id, "failed", error=str(exc), completed=True)

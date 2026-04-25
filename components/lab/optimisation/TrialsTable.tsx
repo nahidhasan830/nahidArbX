@@ -117,8 +117,12 @@ export function TrialsTable({
                 <TermTooltip term="composite_score">Composite</TermTooltip>
               </th>
               <th className="px-2 py-2 font-medium text-right">
-                <TermTooltip term="roi">OOS ROI</TermTooltip>{" "}
-                <TermTooltip term="ci" iconOnly />
+                <TooltipProvider delayDuration={200}>
+                  <TermTooltip term="roi">OOS ROI</TermTooltip>
+                </TooltipProvider>{" "}
+                <TooltipProvider delayDuration={200}>
+                  <TermTooltip term="ci" iconOnly />
+                </TooltipProvider>
               </th>
               <th className="px-2 py-2 font-medium text-right">
                 <TermTooltip term="sortino">Sortino</TermTooltip>

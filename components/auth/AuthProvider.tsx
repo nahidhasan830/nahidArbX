@@ -135,12 +135,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     router.refresh();
   };
 
-  // Check permission
-  // Uses actual permissions from backend (which handles admin-only features separately)
-  // This allows admins to self-disable non-admin-only features for testing
-  const hasPermission = (featureId: string): boolean => {
-    if (!user) return false;
-    return user.permissions[featureId] ?? false;
+  // Permission gate removed — all authenticated users have full access.
+  // Re-enable per-feature gating here if needed in the future.
+  const hasPermission = (_featureId: string): boolean => {
+    return !!user;
   };
 
   // Refresh user data

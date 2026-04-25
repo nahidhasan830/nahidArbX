@@ -50,27 +50,14 @@ import type { ListFilters } from "@/lib/bets-history/api-client";
 import { RERUN_OPTIONS, type RerunChoice } from "./AiSettleDialog";
 import { useBettingSettings } from "@/hooks/use-betting-settings";
 import { cn } from "@/lib/utils";
+import { OddsRangeDropdown } from "@/components/filters/OddsRangeDropdown";
+import { MarketsFilter } from "@/components/filters/MarketsFilter";
+import { ProvidersFilter } from "@/components/filters/ProvidersFilter";
+import { EvRangeFilter } from "@/components/filters/EvRangeFilter";
 
 // ============================================
 // Option data
 // ============================================
-
-const MARKET_OPTIONS: { value: string; label: string }[] = [
-  { value: "MATCH_RESULT", label: "Match Result" },
-  { value: "TOTAL_GOALS", label: "Total Goals" },
-  { value: "OVER_UNDER", label: "Over / Under" },
-  { value: "BTTS", label: "BTTS" },
-  { value: "ASIAN_HANDICAP", label: "Asian Handicap" },
-  { value: "EUROPEAN_HANDICAP", label: "European Handicap" },
-  { value: "DNB", label: "Draw No Bet" },
-  { value: "DOUBLE_CHANCE", label: "Double Chance" },
-];
-
-const PROVIDER_OPTIONS: { value: string; label: string; short: string }[] = [
-  { value: "ninewickets-exchange", label: "9W Exchange", short: "NWEx" },
-  { value: "ninewickets-sportsbook", label: "9W Sportsbook", short: "NWSB" },
-  { value: "betconstruct", label: "BetConstruct", short: "BC" },
-];
 
 type OutcomeFilter =
   | "all"
@@ -1165,97 +1152,20 @@ export function BetsHistoryToolbar({
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/50">
         <div className="flex-1 flex items-center gap-1.5 overflow-x-auto min-w-0">
           {/* Markets */}
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={BTN_BASE}>
-                Markets
-                <TriggerBadge active={marketSel.length > 0}>
-                  {marketSel.length === 0 ? "All" : marketSel.length}
-                </TriggerBadge>
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[220px]">
-              <div className="flex items-center justify-between px-2 py-1.5">
-                <DropdownMenuLabel className="p-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Markets
-                </DropdownMenuLabel>
-                {marketSel.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => update({ marketTypes: undefined })}
-                    className="text-[10px] text-muted-foreground hover:text-foreground"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <DropdownMenuSeparator />
-              {MARKET_OPTIONS.map((opt) => (
-                <DropdownMenuCheckboxItem
-                  key={opt.value}
-                  checked={marketSel.includes(opt.value)}
-                  onSelect={(e) => e.preventDefault()}
-                  onCheckedChange={(checked) => {
-                    const next = checked
-                      ? [...marketSel, opt.value]
-                      : marketSel.filter((v) => v !== opt.value);
-                    update({ marketTypes: next.length ? next : undefined });
-                  }}
-                >
-                  {opt.label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <MarketsFilter
+            selected={filters.marketTypes ?? []}
+            onChange={(values) =>
+              update({ marketTypes: values.length ? values : undefined })
+            }
+          />
 
           {/* Providers */}
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={BTN_BASE}>
-                Providers
-                <TriggerBadge active={providerSel.length > 0}>
-                  {providerSel.length === 0 ? "All" : providerSel.length}
-                </TriggerBadge>
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[200px]">
-              <div className="flex items-center justify-between px-2 py-1.5">
-                <DropdownMenuLabel className="p-0 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Soft providers
-                </DropdownMenuLabel>
-                {providerSel.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => update({ softProviders: undefined })}
-                    className="text-[10px] text-muted-foreground hover:text-foreground"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-              <DropdownMenuSeparator />
-              {PROVIDER_OPTIONS.map((opt) => (
-                <DropdownMenuCheckboxItem
-                  key={opt.value}
-                  checked={providerSel.includes(opt.value)}
-                  onSelect={(e) => e.preventDefault()}
-                  onCheckedChange={(checked) => {
-                    const next = checked
-                      ? [...providerSel, opt.value]
-                      : providerSel.filter((v) => v !== opt.value);
-                    update({ softProviders: next.length ? next : undefined });
-                  }}
-                >
-                  <span className="flex-1">{opt.label}</span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {opt.short}
-                  </span>
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ProvidersFilter
+            selected={filters.softProviders ?? []}
+            onChange={(values) =>
+              update({ softProviders: values.length ? values : undefined })
+            }
+          />
 
           {/* Settled by */}
           <DropdownMenu modal={false}>
@@ -1310,70 +1220,18 @@ export function BetsHistoryToolbar({
           <Separator />
 
           {/* EV range */}
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={BTN_BASE}>
-                EV%
-                <TriggerBadge
-                  active={filters.minEv != null || filters.maxEv != null}
-                >
-                  {evLabel}
-                </TriggerBadge>
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="p-2.5 min-w-[220px]"
-              onCloseAutoFocus={(e) => e.preventDefault()}
-            >
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
-                EV % range
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={filters.minEv ?? ""}
-                  onChange={(e) =>
-                    update({
-                      minEv: e.target.value
-                        ? Number(e.target.value)
-                        : undefined,
-                    })
-                  }
-                  placeholder="Min"
-                  className="h-7 w-20 text-[11px] px-2"
-                />
-                <span className="text-muted-foreground text-[11px]">to</span>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={filters.maxEv ?? ""}
-                  onChange={(e) =>
-                    update({
-                      maxEv: e.target.value
-                        ? Number(e.target.value)
-                        : undefined,
-                    })
-                  }
-                  placeholder="Max"
-                  className="h-7 w-20 text-[11px] px-2"
-                />
-                {(filters.minEv != null || filters.maxEv != null) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      update({ minEv: undefined, maxEv: undefined })
-                    }
-                    className="text-[10px] text-muted-foreground hover:text-foreground"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <EvRangeFilter
+            min={filters.minEv}
+            max={filters.maxEv}
+            onChange={(min, max) => update({ minEv: min, maxEv: max })}
+          />
+
+          {/* Odds range */}
+          <OddsRangeDropdown
+            min={filters.oddsMin}
+            max={filters.oddsMax}
+            onChange={(min, max) => update({ oddsMin: min, oddsMax: max })}
+          />
 
           {/* Date range — tabbed: Captured Time + Kickoff Time */}
           <Popover>

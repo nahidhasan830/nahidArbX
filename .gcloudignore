@@ -1,0 +1,39 @@
+# .gcloudignore — excluded from Cloud Build source uploads.
+#
+# Keeps the tarball small so `gcloud builds submit` doesn't spend minutes
+# uploading our local dev state. The Dockerfile installs Python deps from
+# pyproject.toml + uv.lock inside the build, so we don't need the venv.
+#
+# Gotcha: unlike .gitignore, gcloudignore applies to the SOURCE upload
+# (what hits Cloud Build), not to what ends up in the built image. The
+# Dockerfile's build context is whatever this leaves intact.
+
+# Local Python venvs — bulk of the 640 MiB upload we saw 2026-04-25.
+.venv/
+services/optimizer/.venv/
+services/optimizer/**/__pycache__/
+**/__pycache__/
+**/*.pyc
+
+# Node dev state — not needed for the Python sidecar build.
+node_modules/
+.next/
+.turbo/
+
+# Editor + OS cruft.
+.vscode/
+.idea/
+.DS_Store
+*.log
+
+# Local sessions + rawData — gitignored too, keep out of builds.
+sessions/
+rawData/
+.playwright-mcp/
+
+# Claude harness notes — never ship.
+.claude/
+
+# Git metadata not needed by Cloud Build.
+.git/
+.github/

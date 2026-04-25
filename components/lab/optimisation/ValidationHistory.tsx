@@ -48,12 +48,12 @@ export function ValidationHistory({ strategyId }: { strategyId: string }) {
   });
 
   if (isLoading) {
-    return <p className="text-[10px] text-muted-foreground py-1">Loading…</p>;
+    return <p className="text-[13px] text-muted-foreground py-1">Loading…</p>;
   }
   const rows = data?.validations ?? [];
   if (rows.length === 0) {
     return (
-      <p className="text-[10px] text-muted-foreground py-1">
+      <p className="text-[13px] text-muted-foreground py-1 leading-relaxed">
         No validation checks yet — first run fires within 1 hour of activation
         and weekly thereafter.
       </p>
@@ -62,7 +62,7 @@ export function ValidationHistory({ strategyId }: { strategyId: string }) {
 
   return (
     <div className="space-y-1.5">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <TermTooltip term="auto_validation">
           Auto-validation history
         </TermTooltip>
@@ -78,7 +78,7 @@ export function ValidationHistory({ strategyId }: { strategyId: string }) {
           return (
             <div
               key={v.id}
-              className="flex items-center gap-2 text-[10px] tabular-nums"
+              className="flex items-center gap-2 text-[11px] tabular-nums"
             >
               <span
                 className={`size-2 rounded-full shrink-0 ${dotColor}`}

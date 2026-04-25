@@ -399,7 +399,7 @@ export async function syncOddsOnly(
 
     if (valueBets.length > 0) {
       try {
-        // Attach matching live-strategy IDs (from /lab/alphasearch). This
+        // Attach matching live-strategy IDs (from /lab/optimisation). This
         // tags each detected bet with the strategy that "claimed" it so
         // we can compute since-promotion metrics + detect drift later.
         await attachStrategyMatches(valueBets);

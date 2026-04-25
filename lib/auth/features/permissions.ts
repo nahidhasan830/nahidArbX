@@ -8,7 +8,6 @@ import { db, users, userPermissions } from "../db";
 import { eq, and } from "drizzle-orm";
 import {
   FEATURE_IDS,
-  FEATURE_REGISTRY,
   type FeatureId,
   getFeatureDefaultEnabled,
   isAdminOnlyFeature,
@@ -36,39 +35,14 @@ export async function getUserPermissions(
   userId: string,
 ): Promise<UserPermissions> {
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
-
   const isAdmin = user?.role === "admin";
 
-  // Get user's specific permissions from DB (applies to both admins and regular users)
-  const userPerms = await db
-    .select()
-    .from(userPermissions)
-    .where(eq(userPermissions.userId, userId));
-
-  // Build permissions object
+  // Permission gate removed — all authenticated users have full access.
+  // Admin-only features still require admin role.
   const permissions: UserPermissions = {};
-
   for (const featureId of FEATURE_IDS) {
-    // Admin-only features: always true for admins, always false for non-admins
-    if (isAdminOnlyFeature(featureId)) {
-      permissions[featureId] = isAdmin;
-      continue;
-    }
-
-    // Check if user has explicit permission override in DB
-    const userPerm = userPerms.find((p) => p.featureId === featureId);
-
-    if (userPerm !== undefined) {
-      // Use explicit override (allows admins to self-disable features)
-      permissions[featureId] = userPerm.enabled;
-    } else {
-      // No override: admins get true, regular users get registry default
-      permissions[featureId] = isAdmin
-        ? true
-        : getFeatureDefaultEnabled(featureId);
-    }
+    permissions[featureId] = isAdminOnlyFeature(featureId) ? isAdmin : true;
   }
-
   return permissions;
 }
 

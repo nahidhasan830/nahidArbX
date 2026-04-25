@@ -68,6 +68,7 @@ const createBody = z.object({
     })
     .optional(),
   notifyOnComplete: z.boolean().optional(),
+  notifyOnStart: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -101,6 +102,7 @@ export async function POST(req: Request) {
     cvStrategy: parsed.cvStrategy as never,
     dataFilters: parsed.dataFilters,
     notifyOnComplete: parsed.notifyOnComplete,
+    notifyOnStart: parsed.notifyOnStart,
   });
 
   return NextResponse.json({ schedule: sched }, { status: 201 });

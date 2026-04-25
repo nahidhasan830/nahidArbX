@@ -16,14 +16,11 @@
  */
 
 import * as React from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
   BellOff,
-  Check,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Database,
   FlaskConical,
   Plus,
@@ -36,12 +33,28 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import * as VisuallyHidden from "@radix-ui/react-visually-hidden";
 import { cn } from "@/lib/utils";
+import { durationLabel } from "@/lib/formatting/helpers";
 import { TermTooltip } from "@/components/ui/TermTooltip";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import type { TermId } from "@/lib/lab/glossary";
 import { DataFiltersSection } from "./DataFiltersSection";
+import {
+  StepFooter,
+  StepHeader as WizardStepHeader,
+  StepperRail,
+  SummaryLine,
+  type WizardStep,
+} from "./wizard";
+import { ALGOS, AlgorithmPicker } from "./wizard/algorithm-picker";
 import { formatMarketType } from "@/lib/formatting/labels";
 import type {
   CreateRunRequest,
@@ -54,53 +67,10 @@ import type {
 const defaultRunName = () =>
   `Run ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
 
-interface AlgoOpt {
-  value: SearchAlgorithm;
-  label: string;
-  tagline: string;
-  help: string;
-  term: TermId;
-  recommended?: boolean;
-}
-
-const ALGOS: AlgoOpt[] = [
-  {
-    value: "ensemble",
-    label: "Ensemble",
-    tagline: "Random + TPE together",
-    help: "Random gives unbiased coverage, TPE refines — the best-of-both default for most runs.",
-    term: "ensemble",
-    recommended: true,
-  },
-  {
-    value: "tpe",
-    label: "TPE · Bayesian",
-    tagline: "Smart, learns from previous trials",
-    help: "Bayesian sampler that learns where good configs cluster. Converges 5-10× faster than random in high-dim spaces.",
-    term: "tpe",
-  },
-  {
-    value: "random",
-    label: "Random",
-    tagline: "Unbiased baseline coverage",
-    help: "Samples uniformly from the search space. Provably better than grid search above 5 dimensions.",
-    term: "random_search",
-  },
-  {
-    value: "nsga2",
-    label: "NSGA-II",
-    tagline: "Multi-objective genetic",
-    help: "Returns the Pareto frontier directly. Best when ROI vs. drawdown trade-offs matter. Slower.",
-    term: "nsga2",
-  },
-  {
-    value: "ml-xgboost",
-    label: "ML · XGBoost",
-    tagline: "Gradient-boosted classifier",
-    help: "Trains a calibrated XGBoost model per CV fold and bets when its probability exceeds a threshold. Same CPCV harness.",
-    term: "ml_xgboost",
-  },
-];
+// `ALGOS` + the compact picker UI now live in `./wizard/algorithm-picker`
+// so `CreateScheduleSheet` uses the same vocabulary. Imported below as
+// `AlgorithmPicker` + `ALGOS` (ALGOS is still needed for the review step's
+// label lookup).
 
 interface CvOpt {
   value: "cpcv" | "walkforward";
@@ -115,62 +85,60 @@ const CV_OPTIONS: CvOpt[] = [
   {
     value: "cpcv",
     label: "CPCV",
-    tagline: "~45 OOS paths, tighter CIs",
-    help: "Combinatorial Purged Cross-Validation with 10 groups, 2 test, 1% embargo. Squeezes more OOS signal from the same data.",
+    tagline: "Many tests on bets it has never seen",
+    help: "Splits your bet history into 10 groups, hides 2 of them at a time for testing, trains on the other 8 — and repeats for every possible pair of hidden groups. That's 45 mini-exams per strategy, so a winner has to actually be good.",
     term: "cpcv",
     recommended: true,
   },
   {
     value: "walkforward",
     label: "Walk-forward",
-    tagline: "Closer to live trading",
-    help: "6 anchored forward-marching folds. Fewer OOS paths but matches how a strategy would actually be deployed in time.",
+    tagline: "Mimics real betting in time order",
+    help: "Trains on older bets, tests on newer ones, then slides the window forward in time. Six tests instead of 45 — but every one mimics 'you've never seen the future', exactly like real live betting.",
     term: "walkforward",
   },
 ];
 
-const STEPS = [
+type StepId = 1 | 2 | 3 | 4;
+
+const STEPS: readonly WizardStep<StepId>[] = [
   {
     id: 1,
     label: "Basics",
-    caption: "Name + search algorithm",
+    caption: "Name + search method",
     icon: Settings2,
+    title: "Basics",
+    subtitle:
+      "Name this run and pick how the optimiser searches through the menu of knobs.",
   },
   {
     id: 2,
     label: "Data scope",
     caption: "Which bets enter the analysis",
     icon: Database,
+    title: "Data scope",
+    subtitle:
+      "Narrow which historical bets enter the analysis. Everything starts included — untick anything you don't want.",
   },
   {
     id: 3,
     label: "Validation",
-    caption: "How we test for luck vs. skill",
+    caption: "How we tell skill from luck",
     icon: FlaskConical,
+    title: "Validation",
+    subtitle:
+      "How we test each strategy on bets it has never seen, so we can tell real skill from lucky guesses.",
   },
   {
     id: 4,
     label: "Review",
     caption: "Summary + launch",
     icon: CheckCircle2,
+    title: "Review & run",
+    subtitle:
+      "Confirm the setup, toggle the Telegram ping, then press Run now.",
   },
 ] as const;
-
-type StepId = (typeof STEPS)[number]["id"];
-
-const STEP_TITLE: Record<StepId, string> = {
-  1: "Basics",
-  2: "Data scope",
-  3: "Cross-validation",
-  4: "Review & run",
-};
-
-const STEP_SUBTITLE: Record<StepId, string> = {
-  1: "Name the run and decide how the optimizer explores the configuration space.",
-  2: "Narrow which historical bets enter the analysis. Everything starts included — untick anything you don't want.",
-  3: "How we split your historical bets into train/test windows to separate skill from luck.",
-  4: "Confirm the setup, toggle the Telegram ping, then press Run now.",
-};
 
 // ── Top-level wizard ─────────────────────────────────────────────────────
 
@@ -185,6 +153,7 @@ export function SubmitRunSheet() {
   const [nTrials, setNTrials] = React.useState(2000);
   const [dataFilters, setDataFilters] = React.useState<DataFiltersJson>({});
   const [cvType, setCvType] = React.useState<"cpcv" | "walkforward">("cpcv");
+  const [notifyOnStart, setNotifyOnStart] = React.useState(true);
   const [notifyOnComplete, setNotifyOnComplete] = React.useState(true);
 
   // Re-stamp the name every time the dialog opens (unless the user has typed).
@@ -209,8 +178,22 @@ export function SubmitRunSheet() {
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast.success("Run queued — sidecar will begin shortly");
+    onSuccess: (data: {
+      run?: { id?: string };
+      estimate?: {
+        estimatedSec: number | null;
+        basis: string;
+        sampleSize: number;
+      } | null;
+    }) => {
+      const est = data.estimate;
+      if (est?.estimatedSec && est.estimatedSec > 0) {
+        toast.success(
+          `Run queued — ETA ~${durationLabel(est.estimatedSec * 1000)} (${est.basis})`,
+        );
+      } else {
+        toast.success("Run queued — the optimiser will begin shortly");
+      }
       qc.invalidateQueries({ queryKey: ["optimizer", "runs"] });
       setOpen(false);
     },
@@ -224,6 +207,7 @@ export function SubmitRunSheet() {
       nTrialsTarget: nTrials,
       dataFilters: hasFilters(dataFilters) ? dataFilters : undefined,
       cvStrategy: { type: cvType },
+      notifyOnStart,
       notifyOnComplete,
     });
   };
@@ -251,19 +235,33 @@ export function SubmitRunSheet() {
           "grid grid-cols-[300px_1fr]",
         )}
       >
-        <LeftRail
-          step={step}
+        <VisuallyHidden.Root>
+          <DialogTitle>Start a new optimizer run</DialogTitle>
+          <DialogDescription>
+            Configure basics, data scope, and validation, then launch the run.
+          </DialogDescription>
+        </VisuallyHidden.Root>
+
+        <StepperRail
+          title="New run"
+          titleIcon={Sparkles}
+          steps={STEPS}
+          current={step}
           onJump={setStep}
-          name={name}
-          algorithm={algorithm}
-          nTrials={nTrials}
-          dataFilters={dataFilters}
-          cvType={cvType}
-          notifyOnComplete={notifyOnComplete}
-        />
+        >
+          <RunSetupSummary
+            name={name}
+            algorithm={algorithm}
+            nTrials={nTrials}
+            dataFilters={dataFilters}
+            cvType={cvType}
+            notifyOnStart={notifyOnStart}
+            notifyOnComplete={notifyOnComplete}
+          />
+        </StepperRail>
 
         <div className="flex flex-col min-w-0 overflow-hidden">
-          <StepHeader step={step} />
+          <WizardStepHeader step={step} steps={STEPS} />
 
           <div className="flex-1 overflow-y-auto px-7 py-5 min-h-0">
             {step === 1 && (
@@ -299,19 +297,24 @@ export function SubmitRunSheet() {
                 nTrials={nTrials}
                 dataFilters={dataFilters}
                 cvType={cvType}
+                notifyOnStart={notifyOnStart}
+                setNotifyOnStart={setNotifyOnStart}
                 notifyOnComplete={notifyOnComplete}
                 setNotifyOnComplete={setNotifyOnComplete}
               />
             )}
           </div>
 
-          <Footer
+          <StepFooter
             step={step}
+            steps={STEPS}
             onBack={back}
             onNext={next}
             onSubmit={handleSubmit}
             canSubmit={!submit.isPending && Boolean(name.trim())}
             pending={submit.isPending}
+            submitLabel="Run now"
+            submitIcon={Rocket}
           />
         </div>
       </DialogContent>
@@ -319,143 +322,69 @@ export function SubmitRunSheet() {
   );
 }
 
-// ── Left rail — vertical stepper + live summary ──────────────────────────
+// ── Left-rail summary block (the "Current setup" body) ───────────────────
 
-function LeftRail({
-  step,
-  onJump,
+function RunSetupSummary({
   name,
   algorithm,
   nTrials,
   dataFilters,
   cvType,
+  notifyOnStart,
   notifyOnComplete,
 }: {
-  step: StepId;
-  onJump: (s: StepId) => void;
   name: string;
   algorithm: SearchAlgorithm;
   nTrials: number;
   dataFilters: DataFiltersJson;
   cvType: "cpcv" | "walkforward";
+  notifyOnStart: boolean;
   notifyOnComplete: boolean;
 }) {
   const algo = ALGOS.find((a) => a.value === algorithm)!;
   const cv = CV_OPTIONS.find((c) => c.value === cvType)!;
   const scopeSummary = summariseScope(dataFilters);
-
   return (
-    <aside className="border-r border-border/60 bg-muted/30 flex flex-col min-h-0">
-      <div className="px-5 pt-5 pb-4 border-b border-border/60 flex items-center gap-2.5">
-        <Sparkles className="size-4 text-primary" aria-hidden />
-        <span className="text-base font-semibold">New run</span>
-      </div>
-
-      <ol className="flex flex-col gap-1 p-3">
-        {STEPS.map((s) => {
-          const active = step === s.id;
-          const completed = step > s.id;
-          const Icon = s.icon;
-          return (
-            <li key={s.id}>
-              <button
-                type="button"
-                onClick={() => onJump(s.id)}
-                className={cn(
-                  "w-full flex items-start gap-3 text-left rounded-md px-2.5 py-2.5 transition-colors",
-                  active && "bg-background shadow-sm",
-                  !active && "hover:bg-background/60",
-                )}
-              >
-                <span
-                  className={cn(
-                    "mt-0.5 inline-flex items-center justify-center size-7 rounded-full text-xs font-semibold border shrink-0 transition-colors",
-                    active &&
-                      "bg-primary text-primary-foreground border-primary",
-                    completed && "bg-emerald-500 text-white border-emerald-500",
-                    !active &&
-                      !completed &&
-                      "bg-background text-muted-foreground border-border",
-                  )}
-                >
-                  {completed ? (
-                    <Check className="size-4" />
-                  ) : (
-                    <Icon className="size-4" />
-                  )}
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span
-                    className={cn(
-                      "block text-sm font-semibold leading-tight",
-                      active ? "text-foreground" : "text-foreground/90",
-                    )}
-                  >
-                    {s.id}. {s.label}
-                  </span>
-                  <span className="block text-xs text-muted-foreground leading-snug mt-0.5">
-                    {s.caption}
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-
-      <div className="border-t border-border/60 mx-3" />
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Current setup
-        </p>
-        <SummaryLine label="Name" value={name} />
-        <SummaryLine label="Algorithm" value={algo.label} />
-        <SummaryLine label="Trials" value={nTrials.toLocaleString()} mono />
-        <SummaryLine label="Validation" value={cv.label} />
-        <SummaryLine label="Data scope" value={scopeSummary} />
-        <SummaryLine
-          label="Notify"
-          value={
-            notifyOnComplete ? (
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                <Bell className="size-3.5" /> On
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-muted-foreground">
-                <BellOff className="size-3.5" /> Off
-              </span>
-            )
-          }
-        />
-      </div>
-    </aside>
+    <>
+      <SummaryLine label="Name" value={name} />
+      <SummaryLine label="Algorithm" value={algo.label} />
+      <SummaryLine label="Trials" value={nTrials.toLocaleString()} mono />
+      <SummaryLine label="Validation" value={cv.label} />
+      <SummaryLine label="Data scope" value={scopeSummary} />
+      <SummaryLine
+        label="Notify"
+        value={
+          <NotifySummaryValue
+            onStart={notifyOnStart}
+            onComplete={notifyOnComplete}
+          />
+        }
+      />
+    </>
   );
 }
 
-function SummaryLine({
-  label,
-  value,
-  mono = false,
+function NotifySummaryValue({
+  onStart,
+  onComplete,
 }: {
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
+  onStart: boolean;
+  onComplete: boolean;
 }) {
+  if (!onStart && !onComplete) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground">
+        <BellOff className="size-3.5" /> Off
+      </span>
+    );
+  }
+  const parts: string[] = [];
+  if (onStart) parts.push("Start");
+  if (onComplete) parts.push("End");
   return (
-    <div className="flex items-start justify-between gap-2">
-      <span className="text-xs text-muted-foreground shrink-0 w-[68px] pt-0.5">
-        {label}
-      </span>
-      <span
-        className={cn(
-          "text-xs font-medium text-right flex-1 min-w-0 break-words",
-          mono && "tabular-nums",
-        )}
-      >
-        {value}
-      </span>
-    </div>
+    <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+      <Bell className="size-3.5" /> {parts.join(" + ")}
+    </span>
   );
 }
 
@@ -473,88 +402,6 @@ function summariseScope(f: DataFiltersJson): string {
   if (f.eventStartTo) parts.push(`to ${f.eventStartTo.slice(0, 10)}`);
   if (f.placedOnly) parts.push("placed only");
   return parts.length === 0 ? "All settled bets" : parts.join(" · ");
-}
-
-// ── Right pane header ────────────────────────────────────────────────────
-
-function StepHeader({ step }: { step: StepId }) {
-  return (
-    <header className="px-8 pt-6 pb-4 border-b border-border/60 shrink-0">
-      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Step {step} of {STEPS.length}
-      </div>
-      <h2 className="text-xl font-semibold leading-tight mt-1">
-        {STEP_TITLE[step]}
-      </h2>
-      <p className="text-sm text-muted-foreground leading-relaxed mt-1.5 max-w-[640px]">
-        {STEP_SUBTITLE[step]}
-      </p>
-    </header>
-  );
-}
-
-// ── Right pane footer ────────────────────────────────────────────────────
-
-function Footer({
-  step,
-  onBack,
-  onNext,
-  onSubmit,
-  canSubmit,
-  pending,
-}: {
-  step: StepId;
-  onBack: () => void;
-  onNext: () => void;
-  onSubmit: () => void;
-  canSubmit: boolean;
-  pending: boolean;
-}) {
-  const atEnd = step === STEPS.length;
-  return (
-    <footer className="px-7 py-3.5 border-t border-border/60 flex items-center justify-between gap-3 bg-muted/20 shrink-0">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onBack}
-        disabled={step === 1}
-        className="gap-1.5 h-8"
-      >
-        <ChevronLeft className="size-3.5" /> Back
-      </Button>
-
-      <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-        {STEPS.map((s) => (
-          <span
-            key={s.id}
-            aria-hidden
-            className={cn(
-              "h-1 rounded-full transition-all",
-              step === s.id && "w-6 bg-primary",
-              step > s.id && "w-4 bg-emerald-500",
-              step < s.id && "w-4 bg-muted-foreground/30",
-            )}
-          />
-        ))}
-      </div>
-
-      {atEnd ? (
-        <Button
-          size="sm"
-          onClick={onSubmit}
-          disabled={!canSubmit}
-          className="gap-1.5 h-8"
-        >
-          <Rocket className="size-3.5" />
-          {pending ? "Queueing…" : "Run now"}
-        </Button>
-      ) : (
-        <Button size="sm" onClick={onNext} className="gap-1.5 h-8">
-          Next <ChevronRight className="size-3.5" />
-        </Button>
-      )}
-    </footer>
-  );
 }
 
 // ── Step 1 — Basics ──────────────────────────────────────────────────────
@@ -593,19 +440,7 @@ function StepBasics({
           </span>
         }
       >
-        <div className="grid grid-cols-3 gap-2.5">
-          {ALGOS.map((a) => (
-            <CompactChoiceCard
-              key={a.value}
-              selected={algorithm === a.value}
-              onSelect={() => setAlgorithm(a.value)}
-              label={a.label}
-              tagline={a.tagline}
-              term={a.term}
-              recommended={a.recommended}
-            />
-          ))}
-        </div>
+        <AlgorithmPicker value={algorithm} onChange={setAlgorithm} />
       </Field>
 
       <Field
@@ -636,6 +471,71 @@ function StepBasics({
           <span>10,000</span>
         </div>
       </Field>
+
+      <BasicsEtaHint nTrials={nTrials} algorithm={algorithm} />
+    </div>
+  );
+}
+
+function BasicsEtaHint({
+  nTrials,
+  algorithm,
+}: {
+  nTrials: number;
+  algorithm: SearchAlgorithm;
+}) {
+  const etaQ = useQuery({
+    queryKey: ["optimizer", "estimate", nTrials, "cpcv", algorithm],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/optimizer/runs/estimate?nTrials=${nTrials}&cvStrategy=cpcv&searchAlgorithm=${algorithm}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as {
+        estimatedSec: number | null;
+        basis: string;
+        sampleSize: number;
+      };
+    },
+    staleTime: 30_000,
+  });
+  const sec = etaQ.data?.estimatedSec;
+  const basis = etaQ.data?.basis ?? "";
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 px-3.5 py-3 grid grid-cols-3 gap-3">
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+          Estimated runtime
+        </div>
+        <div className="text-sm font-semibold tabular-nums mt-0.5">
+          {sec && sec > 0 ? `~${durationLabel(sec * 1000)}` : "—"}
+        </div>
+        <div className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">
+          {basis || "No prior runs to benchmark"}
+        </div>
+      </div>
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+          Configurations tested
+        </div>
+        <div className="text-sm font-semibold tabular-nums mt-0.5">
+          {nTrials.toLocaleString()}
+        </div>
+        <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+          How many different strategy recipes the run will test.
+        </div>
+      </div>
+      <div>
+        <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+          Sampler
+        </div>
+        <div className="text-sm font-semibold mt-0.5">
+          {ALGOS.find((a) => a.value === algorithm)?.label ?? algorithm}
+        </div>
+        <div className="text-[11px] text-muted-foreground leading-snug mt-0.5 line-clamp-1">
+          {ALGOS.find((a) => a.value === algorithm)?.tagline ?? ""}
+        </div>
+      </div>
     </div>
   );
 }
@@ -683,16 +583,105 @@ function StepValidation({
         ))}
       </div>
 
-      <div className="text-[11px] text-muted-foreground leading-relaxed rounded-md border border-border/60 bg-muted/30 p-3.5">
-        <strong className="text-foreground">Why it matters: </strong>
-        With a small number of bets, the apparent winning configuration is often
-        just lucky. Good cross-validation (with{" "}
-        <TermTooltip term="embargo" iconOnly>
-          embargo
-        </TermTooltip>{" "}
-        so bets from adjacent folds can&apos;t leak signal to each other) is how
-        we separate skill from luck.
+      <CvComparisonTable cvType={cvType} />
+
+      <div className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-2">
+        <div className="inline-flex items-center gap-1.5 text-sm font-semibold">
+          <span className="text-primary">Why this step exists</span>
+        </div>
+        <p className="text-[13px] text-muted-foreground leading-relaxed">
+          A strategy that looks great on the bets it was tuned on but flops on
+          fresh ones is just memorising your history, not finding a real edge.
+          The only way to tell the difference is to score every strategy on bets
+          it was never trained on. CPCV does that 45 different ways — tight,
+          trustworthy numbers. Walk-forward does it just 6 ways but always in
+          real time order, exactly like live betting. Most runs should use CPCV;
+          pick walk-forward when you want a real-time deployment dress
+          rehearsal.
+        </p>
       </div>
+    </div>
+  );
+}
+
+function CvComparisonTable({ cvType }: { cvType: "cpcv" | "walkforward" }) {
+  const rows: Array<{
+    label: string;
+    cpcv: string;
+    wf: string;
+  }> = [
+    {
+      label: "How many tests per strategy",
+      cpcv: "About 45",
+      wf: "6",
+    },
+    {
+      label: "How often each bet is used in testing",
+      cpcv: "9 or more times",
+      wf: "Once",
+    },
+    {
+      label: "How tight the believable range is",
+      cpcv: "Tight — many tests",
+      wf: "Wider — fewer tests",
+    },
+    {
+      label: "Matches real live betting",
+      cpcv: "Close, but not exact",
+      wf: "Yes — strict past → future",
+    },
+    {
+      label: "How long it takes to run",
+      cpcv: "About twice as long",
+      wf: "Faster baseline",
+    },
+  ];
+  return (
+    <div className="rounded-lg border border-border/60 bg-card overflow-hidden">
+      <div className="grid grid-cols-[1fr_1fr_1fr] text-[11px] uppercase tracking-wide text-muted-foreground font-medium border-b border-border/60 bg-muted/30">
+        <div className="px-3 py-2">Aspect</div>
+        <div
+          className={cn(
+            "px-3 py-2 border-l border-border/60",
+            cvType === "cpcv" && "bg-primary/10 text-primary",
+          )}
+        >
+          CPCV
+        </div>
+        <div
+          className={cn(
+            "px-3 py-2 border-l border-border/60",
+            cvType === "walkforward" && "bg-primary/10 text-primary",
+          )}
+        >
+          Walk-forward
+        </div>
+      </div>
+      {rows.map((r) => (
+        <div
+          key={r.label}
+          className="grid grid-cols-[1fr_1fr_1fr] text-[13px] border-b border-border/60 last:border-b-0"
+        >
+          <div className="px-3 py-2 text-muted-foreground">{r.label}</div>
+          <div
+            className={cn(
+              "px-3 py-2 border-l border-border/60",
+              cvType === "cpcv" && "bg-primary/5 font-medium text-foreground",
+            )}
+          >
+            {r.cpcv}
+          </div>
+          <div
+            className={cn(
+              "px-3 py-2 border-l border-border/60",
+              cvType === "walkforward" &&
+                "bg-primary/5 font-medium text-foreground",
+            )}
+          >
+            {r.wf}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -706,6 +695,8 @@ function StepReview({
   nTrials,
   dataFilters,
   cvType,
+  notifyOnStart,
+  setNotifyOnStart,
   notifyOnComplete,
   setNotifyOnComplete,
 }: {
@@ -715,11 +706,31 @@ function StepReview({
   nTrials: number;
   dataFilters: DataFiltersJson;
   cvType: "cpcv" | "walkforward";
+  notifyOnStart: boolean;
+  setNotifyOnStart: (v: boolean) => void;
   notifyOnComplete: boolean;
   setNotifyOnComplete: (v: boolean) => void;
 }) {
   const algo = ALGOS.find((a) => a.value === algorithm)!;
   const cv = CV_OPTIONS.find((c) => c.value === cvType)!;
+
+  // Live ETA based on the current config — queries historical durations
+  // with a small debounce via React Query's built-in staleTime.
+  const etaQ = useQuery({
+    queryKey: ["optimizer", "estimate", nTrials, cvType, algorithm],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/optimizer/runs/estimate?nTrials=${nTrials}&cvStrategy=${cvType}&searchAlgorithm=${algorithm}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as {
+        estimatedSec: number | null;
+        basis: string;
+        sampleSize: number;
+      };
+    },
+    staleTime: 30_000,
+  });
 
   return (
     <div className="space-y-5">
@@ -730,6 +741,22 @@ function StepReview({
           className="h-9 text-sm"
         />
       </Field>
+
+      {etaQ.data?.estimatedSec != null && etaQ.data.estimatedSec > 0 && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3.5 py-2.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-primary">⏱</span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold">
+                Estimated ~{durationLabel(etaQ.data.estimatedSec * 1000)}
+              </div>
+              <div className="text-[13px] text-muted-foreground leading-snug">
+                {etaQ.data.basis}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-border/60 bg-card">
         <SummaryRow label="Algorithm">
@@ -758,28 +785,73 @@ function StepReview({
         </SummaryRow>
       </div>
 
-      <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-border/60 bg-card p-3.5 hover:bg-muted/20 transition-colors">
-        <Checkbox
-          checked={notifyOnComplete}
-          onCheckedChange={(v) => setNotifyOnComplete(Boolean(v))}
-          className="mt-0.5"
-        />
-        <div className="flex-1 space-y-0.5 min-w-0">
-          <div className="inline-flex items-center gap-1.5 text-sm font-semibold">
-            {notifyOnComplete ? (
-              <Bell className="size-3.5 text-primary" />
-            ) : (
-              <BellOff className="size-3.5 text-muted-foreground" />
-            )}
-            Notify on complete (Telegram)
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-foreground">
+            Telegram pings
           </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            Pings your chat with a formatted summary (best trial ROI, Sharpe,
-            drawdown, Pareto count) the moment this run hits a terminal status.
-          </p>
+          <div className="text-[11px] text-muted-foreground">
+            Pick either, both, or neither.
+          </div>
         </div>
-      </label>
+        <div className="grid grid-cols-2 gap-2.5">
+          <NotifyToggle
+            label="On start"
+            checked={notifyOnStart}
+            onCheckedChange={setNotifyOnStart}
+            description="Pings you the moment the run picks up — includes the time estimate and how many bets are in scope, so you know when to check back."
+          />
+          <NotifyToggle
+            label="On complete"
+            checked={notifyOnComplete}
+            onCheckedChange={setNotifyOnComplete}
+            description="Pings you when the run finishes — with the winning strategy's ROI, smoothness, biggest drawdown, and how many trade-off options were found."
+          />
+        </div>
+      </div>
     </div>
+  );
+}
+
+function NotifyToggle({
+  label,
+  checked,
+  onCheckedChange,
+  description,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+  description: string;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex items-start gap-2.5 cursor-pointer rounded-lg border p-3 transition-colors",
+        checked
+          ? "border-primary/50 bg-primary/5"
+          : "border-border/60 bg-card hover:bg-muted/20",
+      )}
+    >
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(v) => onCheckedChange(Boolean(v))}
+        className="mt-0.5"
+      />
+      <div className="flex-1 space-y-0.5 min-w-0">
+        <div className="inline-flex items-center gap-1.5 text-sm font-semibold">
+          {checked ? (
+            <Bell className="size-3.5 text-primary" />
+          ) : (
+            <BellOff className="size-3.5 text-muted-foreground" />
+          )}
+          {label}
+        </div>
+        <p className="text-[13px] text-muted-foreground leading-snug">
+          {description}
+        </p>
+      </div>
+    </label>
   );
 }
 
@@ -845,70 +917,6 @@ function Field({
 }
 
 /**
- * Compact selectable card — used in the 3-col algorithm grid. Shows
- * label + tagline + optional "Recommended" pill; full help text is one
- * click away on the TermTooltip info icon in the corner.
- */
-function CompactChoiceCard({
-  selected,
-  onSelect,
-  label,
-  tagline,
-  term,
-  recommended,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  label: string;
-  tagline: string;
-  term: TermId;
-  recommended?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        "relative text-left rounded-lg border transition-all p-3 flex flex-col gap-1 group",
-        selected
-          ? "border-primary bg-primary/5 shadow-sm"
-          : "border-border bg-card hover:border-foreground/30 hover:bg-muted/30",
-      )}
-    >
-      <div className="flex items-start justify-between gap-1.5">
-        <span className="font-semibold text-sm leading-tight">{label}</span>
-        <span
-          aria-hidden
-          className={cn(
-            "shrink-0 mt-0.5 size-4 rounded-full border-2 flex items-center justify-center transition-colors",
-            selected
-              ? "border-primary bg-primary"
-              : "border-muted-foreground/40 group-hover:border-foreground/60",
-          )}
-        >
-          {selected && (
-            <span className="size-1.5 rounded-full bg-primary-foreground" />
-          )}
-        </span>
-      </div>
-      <p className="text-xs text-muted-foreground leading-snug line-clamp-2 min-h-[32px]">
-        {tagline}
-      </p>
-      <div className="flex items-center justify-between pt-0.5">
-        {recommended ? (
-          <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-            Recommended
-          </span>
-        ) : (
-          <span aria-hidden />
-        )}
-        <TermTooltip term={term} iconOnly />
-      </div>
-    </button>
-  );
-}
-
-/**
  * Larger selectable card for the 2-card CV picker where there's space
  * for a full help blurb inline.
  */
@@ -969,7 +977,7 @@ function ChoiceCard({
           )}
         </span>
       </div>
-      <p className="text-xs text-muted-foreground leading-relaxed">
+      <p className="text-[13px] text-muted-foreground leading-relaxed">
         {help} <TermTooltip term={term} iconOnly />
       </p>
     </button>

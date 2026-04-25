@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * AlphaSearch unified workbench.
+ * Optimisation unified workbench.
  *
  * Single-page scope-switched layout replacing the old Tabs shell:
  *   - Runs       — list of optimization runs with live progress
@@ -24,12 +24,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { RunsTable } from "@/components/lab/alphasearch/RunsTable";
-import { SubmitRunSheet } from "@/components/lab/alphasearch/SubmitRunSheet";
-import { QuickRunButton } from "@/components/lab/alphasearch/QuickRunButton";
-import { SchedulesTable } from "@/components/lab/alphasearch/SchedulesTable";
-import { CreateScheduleSheet } from "@/components/lab/alphasearch/CreateScheduleSheet";
-import { StrategiesTable } from "@/components/lab/alphasearch/StrategiesTable";
+import { RunsTable } from "@/components/lab/optimisation/RunsTable";
+import { SubmitRunSheet } from "@/components/lab/optimisation/SubmitRunSheet";
+import { QuickRunButton } from "@/components/lab/optimisation/QuickRunButton";
+import { SchedulesTable } from "@/components/lab/optimisation/SchedulesTable";
+import { CreateScheduleSheet } from "@/components/lab/optimisation/CreateScheduleSheet";
+import { StrategiesTable } from "@/components/lab/optimisation/StrategiesTable";
 
 type Scope = "runs" | "schedules" | "strategies";
 const SCOPES: Scope[] = ["runs", "schedules", "strategies"];
@@ -38,7 +38,7 @@ function isScope(v: string | null): v is Scope {
   return v === "runs" || v === "schedules" || v === "strategies";
 }
 
-export default function AlphaSearchPage() {
+export default function OptimisationPage() {
   const router = useRouter();
   const params = useSearchParams();
   const scope: Scope = isScope(params.get("scope"))
@@ -50,7 +50,7 @@ export default function AlphaSearchPage() {
     if (next === "runs") qs.delete("scope");
     else qs.set("scope", next);
     const query = qs.toString();
-    router.replace(query ? `/lab/alphasearch?${query}` : "/lab/alphasearch", {
+    router.replace(query ? `/lab/optimisation?${query}` : "/lab/optimisation", {
       scroll: false,
     });
   };
@@ -77,7 +77,7 @@ export default function AlphaSearchPage() {
 
   return (
     <AppShell
-      title="AlphaSearch"
+      title="Optimisation"
       edgeToEdge
       actions={<TopActions scope={scope} />}
     >

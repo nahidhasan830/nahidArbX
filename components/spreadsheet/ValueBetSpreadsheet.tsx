@@ -33,11 +33,11 @@ import { toast } from "sonner";
 import {
   PROVIDER_IDS,
   getProviderShortName,
+  getProviderColorClasses,
   type ProviderKey,
 } from "@/lib/providers/registry";
 import {
   transformToSpreadsheetRows,
-  getUniqueMarketTypes,
   type ValueBetEvent,
   type SpreadsheetRow as SpreadsheetRowData,
 } from "@/lib/formatting/spreadsheet";
@@ -45,10 +45,7 @@ import { useBulkAnalysisPreferences } from "@/components/hooks/useBulkAnalysisPr
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  SpreadsheetToolbar,
-  getProviderBadgeClasses,
-} from "./SpreadsheetToolbar";
+import { SpreadsheetToolbar } from "./SpreadsheetToolbar";
 import {
   ValueBetDetailsModal,
   type LiveMatchInfo,
@@ -333,8 +330,6 @@ export function ValueBetSpreadsheet({
     return map;
   }, [events]);
 
-  const marketTypes = useMemo(() => getUniqueMarketTypes(events), [events]);
-
   const visibleProviders = useMemo(
     () =>
       PROVIDER_IDS.filter(
@@ -583,6 +578,18 @@ export function ValueBetSpreadsheet({
       showOnlyValue={prefs.showOnlyValue}
       onToggleShowOnlyValue={() => prefs.setShowOnlyValue(!prefs.showOnlyValue)}
       valueRowCount={valueRowCount}
+      selectedMarketTypes={prefs.selectedMarketTypes}
+      onMarketsChange={(markets) =>
+        prefs.setSelectedMarketTypes(new Set(markets))
+      }
+      selectedSoftProviders={prefs.selectedSoftProviders}
+      onSoftProvidersChange={(providers) =>
+        prefs.setSelectedSoftProviders(
+          new Set(providers) as Parameters<
+            typeof prefs.setSelectedSoftProviders
+          >[0],
+        )
+      }
       evRangeMin={prefs.evRangeMin}
       evRangeMax={prefs.evRangeMax}
       onEvRangeChange={(min, max) => {
@@ -595,10 +602,8 @@ export function ValueBetSpreadsheet({
         prefs.setSoftOddsRangeMin(min);
         prefs.setSoftOddsRangeMax(max);
       }}
-      selectedSoftProviders={prefs.selectedSoftProviders}
-      onToggleSoftProvider={prefs.toggleSoftProvider}
-      onSelectAllSoftProviders={prefs.selectAllSoftProviders}
-      onDeselectAllSoftProviders={prefs.deselectAllSoftProviders}
+      timeFilter={prefs.timeFilter}
+      onTimeFilterChange={prefs.setTimeFilter}
       showOnlySuspicious={prefs.showOnlySuspicious}
       onToggleShowOnlySuspicious={() =>
         prefs.setShowOnlySuspicious(!prefs.showOnlySuspicious)
@@ -606,17 +611,8 @@ export function ValueBetSpreadsheet({
       suspiciousCount={suspiciousCount}
       suspiciousThresholdPct={prefs.suspiciousThresholdPct}
       onSuspiciousThresholdChange={prefs.setSuspiciousThresholdPct}
-      minProviderCount={prefs.minProviderCount}
-      onMinProviderCountChange={prefs.setMinProviderCount}
       searchTerm={searchTerm}
       onSearchChange={onSearchChange}
-      selectedMarketTypes={prefs.selectedMarketTypes}
-      onToggleMarketType={prefs.toggleMarketType}
-      onSelectAllMarketTypes={() => prefs.selectAllMarketTypes(marketTypes)}
-      onDeselectAllMarketTypes={prefs.deselectAllMarketTypes}
-      marketTypes={marketTypes}
-      timeFilter={prefs.timeFilter}
-      onTimeFilterChange={prefs.setTimeFilter}
       totalRows={rows.length}
       onReset={() => {
         prefs.resetFilters();
@@ -729,7 +725,7 @@ export function ValueBetSpreadsheet({
             {visibleProviders.map((providerId) => (
               <th
                 key={providerId}
-                className={`text-center px-2 h-8 font-semibold text-[11px] whitespace-nowrap ${getProviderBadgeClasses(providerId)}`}
+                className={`text-center px-2 h-8 font-semibold text-[11px] whitespace-nowrap ${getProviderColorClasses(providerId)}`}
                 style={{ width: "calc(var(--col-provider-size) * 1px)" }}
               >
                 {getProviderShortName(providerId)}

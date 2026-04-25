@@ -69,6 +69,7 @@ export async function createSchedule(
       cvStrategy: cv,
       dataFilters: req.dataFilters ?? {},
       notifyOnComplete: req.notifyOnComplete ?? false,
+      notifyOnStart: req.notifyOnStart ?? false,
       nextFireAt: next.toISOString(),
       createdBy: req.createdBy ?? null,
     })

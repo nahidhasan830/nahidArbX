@@ -64,6 +64,8 @@ const QuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === "true")),
+  oddsMin: z.coerce.number().positive().optional(),
+  oddsMax: z.coerce.number().positive().optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(200),
   offset: z.coerce.number().int().min(0).default(0),
 });

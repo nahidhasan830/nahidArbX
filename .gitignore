@@ -56,3 +56,13 @@ logs/
 # Auth database
 /data/
 scratch/
+
+# Python (services/optimizer/)
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+services/optimizer/.venv/
+.pytest_cache/
+.coverage
+htmlcov/

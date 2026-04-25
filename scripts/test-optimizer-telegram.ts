@@ -146,9 +146,9 @@ function buildEvent(
     },
     createdBy: "manual",
     error: null,
-    dashboardUrl: baseUrl ? `${baseUrl}/lab/alphasearch/${runId}` : undefined,
+    dashboardUrl: baseUrl ? `${baseUrl}/lab/optimisation/${runId}` : undefined,
     topTrialUrl: baseUrl
-      ? `${baseUrl}/lab/alphasearch/${runId}#trial=42`
+      ? `${baseUrl}/lab/optimisation/${runId}#trial=42`
       : undefined,
   };
 }
@@ -187,7 +187,7 @@ async function main() {
       "\n✅ Telegram notification path exercised end-to-end. Check your chat.",
     );
     console.log(
-      `   The synthetic run is viewable at ${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/lab/alphasearch/${runId}`,
+      `   The synthetic run is viewable at ${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/lab/optimisation/${runId}`,
     );
   } finally {
     client.release();

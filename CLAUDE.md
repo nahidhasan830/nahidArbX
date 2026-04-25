@@ -2,15 +2,35 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Cloud-only runtime policy (READ FIRST)
+## Keep in sync with AGENTS.md
 
-**Never run any service locally.** The operator does not start `npm run dev`, the Python optimizer sidecar, `cloud-sql-proxy`, or any other service on their machine. Every change is verified in production.
+This file and [`AGENTS.md`](AGENTS.md) are intentional mirrors. CLAUDE.md is the full-form reference; AGENTS.md is a terse index whose entries point back here ("See CLAUDE.md 'X' section for full rule"). **When you add, change, or remove a rule in either file, update the other in the same commit.** A new CLAUDE.md rule needs a one-liner in AGENTS.md that cross-references it; a new AGENTS.md entry needs a full-form section in CLAUDE.md. Drift between the two is a documentation bug — fix it when you notice it.
 
-- Next.js prod: `https://nahidarbx.store`
-- Python optimizer sidecar: Cloud Run — `nahidarbx-optimizer`, project `nahidarbx-6e73`, region `asia-south1`. Redeploy with `bash services/optimizer/redeploy.sh` (or rely on the Cloud Build push trigger on `services/optimizer/**` changes when it's wired).
-- Database: Cloud SQL Postgres (`nahidarbx-6e73:asia-south1:nahidarbx-db`).
+## Solo-developer workflow — no feature branches
 
-Do **not** instruct the operator to `brew install` anything, run `npm run dev`, boot `uv run uvicorn`, or `curl localhost:*`. Always verify against the cloud URL (e.g. `curl https://<service>/health`), never localhost. When a backend change needs to take effect, push + redeploy — don't ask the operator to restart a local process.
+This is a solo-developer personal project. There is **no branching discipline** — every change lands on the working branch (currently `feat/alphasearch-phase-1`, treated as `master`). Don't propose feature branches, don't worry about branch hygiene, don't separate "my changes" from "the user's WIP" when committing. When asked to commit, **commit everything that's relevant** (my changes + any in-flight uncommitted work that overlaps with the same files), in as few commits as the work logically warrants. Don't fragment a coherent change across multiple commits because of branch politics — there are no other contributors to coordinate with.
+
+## Runtime policy
+
+**The production domain (`nahidarbx.store`) is no longer active. The app runs on localhost.**
+
+- Next.js dev: `http://localhost:3000` (start with `npm run dev`)
+- Python optimisation sidecar: Cloud Run **Job** — `nahidarbx-optimizer-job`, project `nahidarbx-6e73`, region `asia-south1`. Each sweep is one Job execution; the Next.js side triggers it via the Cloud Run Admin API. Redeploy with `bash services/optimizer/redeploy.sh`. (Migrated from Cloud Run Service on 2026-04-25 — see "Cloud Run lesson" section below.)
+- Database: Cloud SQL Postgres (`nahidarbx-6e73:asia-south1:nahidarbx-db`) — requires `cloud-sql-proxy --port 5432 nahidarbx-6e73:asia-south1:nahidarbx-db` for local access.
+
+Verify UI changes at `http://localhost:3000`. Verify backend/API changes by curling localhost after `npm run dev` is running.
+
+## Cloud Run lesson — Service vs. Job for batch work
+
+**On 2026-04-25 a 10,000-trial Optimisation sweep got stuck at 3,150 trials forever.** Root cause: the Python sidecar was deployed as a Cloud Run **Service**. `POST /run/start` returned 202 immediately and the trial loop ran as a background `asyncio.create_task`. Once that request completed, the Service had zero in-flight requests, and Cloud Run's autoscaler reaped the instance ~15 minutes later — killing the orphaned async task. The DB row stayed at `status='running'` forever.
+
+**`--no-cpu-throttling` does NOT prevent this.** That flag keeps CPU allocated _while the instance is alive_. It does **not** stop the autoscaler from terminating idle instances when there are no in-flight requests. The previous fix attempt (commit `e448213`) added `--no-cpu-throttling` and was insufficient — the autoscaler reaped instances anyway.
+
+**The only Service-side fix that actually works is `--min-instances=1`** (instance is always alive, never reaped). Cost: ~$80–100/mo for an always-on 6 vCPU / 12 GiB instance, even when idle.
+
+**The architecturally correct fix is Cloud Run Jobs** (what we did). One execution per sweep, billed only while running, no autoscaler-reap surface, 7-day max task timeout. Migration touched: `services/optimizer/app/job.py` (new entrypoint), `lib/optimizer/api-client.ts` (rewritten to call the Cloud Run Admin API), `cloudbuild.yaml` (deploys a Job, not a Service), `lib/optimizer/scheduler.ts` (atomic `claimQueuedRun` to prevent race-double-trigger). The Python `runner.py` was untouched — it was already shaped correctly (DB-only state, no HTTP context).
+
+**Rule for any future long-running batch work in this repo:** if the task takes > a few seconds and isn't tied to an HTTP request, **deploy as a Cloud Run Job, not a Service**. Reach for a Service only for genuine HTTP receivers. Don't try to paper over the Service-vs-batch mismatch with `--no-cpu-throttling` — it doesn't fix the actual problem.
 
 ## Commands
 
@@ -19,14 +39,14 @@ npm run dev      # Start development server (http://localhost:3000)
 npm run build    # Production build
 npm run lint     # Run ESLint
 
-# AlphaSearch optimizer sidecar (Python — services/optimizer/)
+# Optimisation sidecar (Python — services/optimizer/, runs as Cloud Run Job)
 cd services/optimizer && uv sync                                  # install deps
-cd services/optimizer && uv run uvicorn app.main:app --port 8001 --reload   # dev
+cd services/optimizer && RUN_ID=<some-id> uv run python -m app.job  # local one-shot
 ```
 
 UI verification is manual — the user exercises the app in-browser after changes. Do not run Playwright E2E suites as part of "post-change verification."
 
-The optimizer sidecar runs separately from the Next.js app. Boot order doesn't matter — the Next.js scheduler retries every 30s if the sidecar is unreachable. See `docs/alphasearch.md` for the full user-facing guide and `services/optimizer/README.md` for engineering notes.
+The optimizer sidecar runs separately from the Next.js app. Boot order doesn't matter — the Next.js scheduler retries every 30s if the sidecar is unreachable. User-facing documentation lives in the in-app tooltips on `/lab/optimisation` (sourced from [`lib/lab/glossary.ts`](lib/lab/glossary.ts)); engineering notes are in [`services/optimizer/README.md`](services/optimizer/README.md).
 
 ## Architecture
 
@@ -94,12 +114,12 @@ NahidArbX is a real-time value-bet finder for betting providers using a family/a
 | `/dashboard`                                       | Central betting-account dashboard (root view)                                  |
 | `/value-bets`                                      | Value-bet / arb finder (formerly `/admin`)                                     |
 | `/bets`                                            | Bets history — captured value bets, settlement + review (formerly `/backtest`) |
-| `/lab/alphasearch`                                 | Strategy parameter optimizer (sweeps configs against historical bets)          |
+| `/lab/optimisation`                                | Strategy parameter optimizer (sweeps configs against historical bets)          |
 | `/api/betting-accounts`                            | GET: live balance/exposure per account                                         |
 | `/api/value-bets`                                  | GET: arb data, POST: manual sync                                               |
 | `/api/markets/[eventId]`                           | GET: odds for specific event                                                   |
-| `/api/optimizer/runs`                              | POST: queue a new run; GET: list runs                                          |
-| `/api/optimizer/runs/[id]` + `/trials` + `/cancel` | Per-run detail / trial list / cancellation                                     |
+| `/api/optimizer/runs`                              | POST: queue a new run + trigger Cloud Run Job; GET: list runs                  |
+| `/api/optimizer/runs/[id]` + `/trials` + `/cancel` | Per-run detail / trial list / DB-driven cancel (Job polls flag every 2s)       |
 
 ## Critical Rules
 
@@ -127,6 +147,19 @@ NahidArbX is a real-time value-bet finder for betting providers using a family/a
 6. **Prefer deterministic settlement first.** The pure `settleBet(row, score)` handles 80%+ of markets with zero AI involvement given a score from any free tier (match_scores cache, live feed, football-data.org). AI is last-resort, not default.
 7. **Before enabling AI, always verify the free tiers are maxed out.** Check `FOOTBALL_DATA_API_KEY` is set, the live-score feed is persisting to `match_scores`, and the cache hit rate on Tier 0 is high. If you're burning AI calls because the free tiers aren't wired up, fix that first.
 8. **Audit settlement_runs regularly.** The `settlement_runs` table logs every tick's tier hits + estimated cost; if `tier3_hits` or `tier4_hits` suddenly spikes, investigate.
+
+## IPRoyal residential proxy — fallback only, never pre-emptive
+
+SofaScore sits behind Cloudflare. Cloud Run egress IPs trip Cloudflare's adaptive bot-score cap after a few hundred requests and start returning 403s — this is what left 21 bets in "ready to settle" limbo with `tier2_hits=0` for hours on 2026-04-25. The fallback is an IPRoyal residential pool (498 sticky-session proxies at `sessions/iproyal/proxies.txt`, 168h TTL per session). Implementation: [`lib/settle/sources/iproyal-proxy.ts`](lib/settle/sources/iproyal-proxy.ts); wired into [`lib/settle/sources/sofascore.ts`](lib/settle/sources/sofascore.ts).
+
+**Non-negotiable defaults:**
+
+1. **Direct first, proxy on failure only.** Every SofaScore call tries the direct (Cloud Run egress) request first. A proxy is used ONLY when the direct call returns 403, OR when a recent direct 403 has put "direct" on a 10-minute cooldown. Never route pre-emptively, never route because "it's safer" — the fallback only exists to unblock actual 403s.
+2. **Residential proxies are a metered resource.** IPRoyal bills per GB of bandwidth. Overusing the pool burns budget AND speeds up the 168h session rotation (finite pool → running out on a weekend means no fallback when we actually need one). Keep fallback scope narrow: SofaScore's small JSON responses only.
+3. **Don't reach for the proxy from other sources.** ESPN, football-data.org, Pinnacle, NineWickets, Gemini, etc. are NOT Cloudflare-blocked and do NOT need proxy routing. Adding proxy support to those paths wastes bandwidth and is a misread of the actual problem.
+4. **Cooldowns are intentional.** Per-proxy 30-min cooldown on 403 and global 10-min direct-cooldown after a direct 403 exist to prevent hammering Cloudflare/IPRoyal into broader bans. Don't shorten or remove them without understanding why the previous value was "stuck for hours."
+5. **`sessions/iproyal/proxies.txt` is gitignored and must stay that way.** It contains proxy credentials. If the file is missing, `getProxyAgent()` returns null and SofaScore silently reverts to direct-only — which will re-stall settlement whenever Cloud Run IPs get blocked.
+6. **If you find yourself wanting to use the proxy for anything besides SofaScore fallback, stop and reconsider.** The right answer is almost always "fix the non-SofaScore source properly" (better headers, backoff, caching, different tier), not "route it through IPRoyal too."
 
 ## Critical Algorithms
 
@@ -245,6 +278,50 @@ Pinnacle requires browser automation to capture Bearer tokens:
 - Extend market types in `lib/atoms/types.ts`: `AtomMarketType`
 - Add new families/atoms in `lib/atoms/atoms.json`
 
+## Fix scripts — the agent runs them, not the operator
+
+Whenever resolving a system issue requires a script run (DB migration, data backfill, cache invalidation, schema repair, secret rotation, redeploy, etc.), **the agent executes the script directly** rather than handing the operator a command to run. This is durable authorization from the operator: standing instruction, not per-incident approval.
+
+**How to apply this:**
+
+- After identifying the fix, run it from the agent shell using the same env the app uses (`.env` at repo root, ADC for GCP). Do not output a "please run X" instruction in place of running it.
+- If the script touches production state (Cloud SQL DDL, Cloud Run deploys, Postgres data writes), still announce _what_ you're about to do in one short sentence before invoking — transparency, not approval-seeking.
+- After running, verify the outcome — re-curl the endpoint, re-query the table, confirm the post-check passes — and report the result.
+- If the script fails (network, permissions, missing credential), surface the error verbatim and ask for the specific unblocker. Do not silently fall back to "you do it."
+- Existing fix runners live in `scripts/` — extend them in place rather than creating a new one each time. The Cloud-SQL-aware migration runner is `scripts/apply-pending-migrations.ts` (uses `@google-cloud/cloud-sql-connector` + IAM ADC, no proxy).
+- Standing destructive-action restrictions still apply (no `DROP TABLE` without explicit say-so, no `git push --force`, no spend-cap-busting AI runs) — see "Executing actions with care" in the system prompt.
+
+## Typography tiers (prose vs. chrome)
+
+Every piece of text in the app falls into one of two tiers. Pick the right one:
+
+| Tier       | What it is                                                                                                                                                                 | Size                                                                                      | Rationale                                                                                            |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Prose**  | Sentences the user has to _read_ — tooltip bodies, description paragraphs, help text under form fields, empty-state copy, error messages, section intros, long-form labels | **`text-sm` (14px) minimum**, `text-[13px]` acceptable for secondary captions             | Readability at laptop-viewing distance. The user consumes these to _learn_ something, not just scan. |
+| **Chrome** | Labels on controls users _scan_ — toolbar buttons, pill filters, table cells, spreadsheet cells, badge counters, stat numbers, key/value metric labels                     | `text-[11px]` / `text-xs` (12px) — keep small per the April-2026 toolbar-consistency rule | Information density. Spreadsheet surfaces with 20+ visible columns would be unusable at 14px.        |
+
+**Heuristic** — if the element is inside a `<Button>`, `<Badge>`, table `<td>`, tab-row, or toolbar wrapper → chrome (small). If it's a `<p>`, a `<label className="text-muted-foreground">` describing what to enter, a `<CardDescription>`, a tooltip body, or a standalone explanatory block → prose (14px). **Never** put a full-sentence explanation at `text-[11px]`.
+
+Existing debts: pre-April-2026 code has a lot of `text-[11px]` on prose elements (tooltip bodies, description blocks, help captions). Fix them as you touch them. Toolbar buttons at `text-[11px]` are correct and should stay.
+
+## Explanatory copy — always contextualize to betting
+
+Whenever you write user-facing explanations (tooltips, empty states, section intros, form-field help text, error messages, glossary entries, docs), follow this pattern:
+
+1. **Definition** — a one-line plain-English definition (non-contextual, so a new reader can grasp the concept).
+2. **Basic analogy/example** — optional, only when the concept is abstract (e.g. CPCV, DSR, Pareto). Keep it short and vivid — a dart-board, a cinema-seat, a car-shopping analogy. Skip this for self-evident terms.
+3. **Betting-context example** — a concrete illustration using _this app's domain_: real-looking numbers (e.g. "+3.2% EV", "800 settled bets", "Kelly 0.25"), real providers (Pinnacle, NineWickets Exchange, NineWickets Sportsbook), real markets (1X2, Asian Handicap, BTTS, O/U 2.5). This is the part that makes the concept land for the operator.
+4. **Objective / what you'll achieve** — especially for choices (algorithms, samplers, samplers, kelly fractions, strategies). One sentence on the tangible outcome: "pick this when you want X", "this unlocks Y", "use this if you care about Z over W." Never leave a choice without an answer to _"why would I pick this one?"_
+
+**Rules of thumb:**
+
+- Never ship a tooltip or help string that's only non-contextual. If a reader can't translate the term to their own bet history, the copy failed.
+- Prefer concrete numbers over hand-wavy ranges ("ROI 5.2% across 800 bets" beats "decent ROI on a reasonable sample").
+- Prefer app-specific nouns over generic finance language ("placed bets", "settled bets", "soft book", "sharp book", "value bet", "EV cutoff") over "trades", "positions", "signals".
+- When in doubt, err on the side of longer, betting-flavored copy — tooltips and docs are read once per concept; clarity compounds.
+
+This rule applies everywhere in the app: `/lab/optimisation` tooltips, `/bets` filter explanations, `/value-bets` column headers, API error payloads, onboarding copy, empty states, toast messages. The glossary at [`lib/lab/glossary.ts`](lib/lab/glossary.ts) is the reference implementation — new explanatory copy should follow its `short` / `long` / `example` / `objective` structure.
+
 ## Dashboard Design Philosophy
 
 **The Table is a Universe Container**
@@ -293,9 +370,11 @@ GEMINI_LITE_MODEL=gemini-3.1-flash-lite-preview # "lite" tier (high-volume bulk)
 # Bets-history DB (Cloud SQL Postgres) — see `## Database` section below
 DATABASE_URL=postgresql://nahidarbx_app:<pw>@127.0.0.1:5432/nahidarbx
 
-# AlphaSearch optimizer (Python sidecar — services/optimizer/)
-OPTIMIZER_URL=http://localhost:8001            # prod: internal Cloud Run URL
-OPTIMIZER_SHARED_SECRET=                       # HMAC token; both sides must match
+# Optimisation sidecar (Python — services/optimizer/, runs as Cloud Run Job)
+GCP_PROJECT_ID=nahidarbx-6e73                  # Cloud Run Admin API target
+GCP_REGION=asia-south1                         # ditto
+OPTIMIZER_JOB_NAME=nahidarbx-optimizer-job     # Job name to trigger executions on
+# OPTIMIZER_URL / OPTIMIZER_SHARED_SECRET are obsolete (Job has no HTTP surface)
 ```
 
 ## Database (bets-history — Phase 1+)

@@ -79,7 +79,7 @@ export function RunsTable() {
               >
                 <td className="px-3 py-2">
                   <Link
-                    href={`/lab/alphasearch/${r.id}`}
+                    href={`/lab/optimisation/${r.id}`}
                     className="font-medium text-primary hover:underline"
                   >
                     {r.name}

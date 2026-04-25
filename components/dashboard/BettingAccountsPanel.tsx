@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import {
   AlertCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -37,7 +38,6 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -212,9 +212,7 @@ const PROVIDER_COLOR: Record<string, string> = {
 export function BettingAccountsPanel(props: BettingAccountsPanelProps) {
   const { accounts } = props;
 
-  // Recent bets feed — shared across all account slides because the
-  // endpoint already segments by vendor. Each slide filters to its
-  // own vendor/provider.
+  // Recent bets feed — for the modal on each account card.
   const [recent, setRecent] = useState<RecentBetsResponse | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -229,8 +227,6 @@ export function BettingAccountsPanel(props: BettingAccountsPanelProps) {
       }
     }
     load();
-    // Refresh every 60s so the preview row stays current without
-    // hammering the main-site API (every call kicks Playwright).
     const id = setInterval(load, 60_000);
     return () => {
       cancelled = true;
@@ -238,139 +234,52 @@ export function BettingAccountsPanel(props: BettingAccountsPanelProps) {
     };
   }, []);
 
-  // Embla is mounted at the panel root so the card header can render
-  // nav controls alongside the title — arrows floating over card
-  // content looked cramped and occluded the turnover bar.
-  const [emblaRef, emblaApi] = useEmblaCarousel({
-    loop: false,
-    align: "start",
-    containScroll: "trimSnaps",
-    dragFree: false,
-  });
-  const [selected, setSelected] = useState(0);
-  const [canPrev, setCanPrev] = useState(false);
-  const [canNext, setCanNext] = useState(false);
-
-  const onSelect = useCallback(() => {
-    if (!emblaApi) return;
-    setSelected(emblaApi.selectedScrollSnap());
-    setCanPrev(emblaApi.canScrollPrev());
-    setCanNext(emblaApi.canScrollNext());
-  }, [emblaApi]);
-
-  useEffect(() => {
-    if (!emblaApi) return;
-    onSelect();
-    emblaApi.on("select", onSelect);
-    emblaApi.on("reInit", onSelect);
-    return () => {
-      emblaApi.off("select", onSelect);
-      emblaApi.off("reInit", onSelect);
-    };
-  }, [emblaApi, onSelect]);
-
-  const hasAccounts = !!accounts && accounts.length > 0;
-  const showControls = hasAccounts && accounts!.length > 1;
-  const activeAccount = hasAccounts ? accounts![selected] : null;
-
   return (
     <TooltipProvider delayDuration={120}>
-      <Card className="py-3 gap-3 glass-panel border-border/50">
-        <CardHeader className="pb-0 px-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <CardTitle className="text-sm flex items-center gap-2 min-w-0">
-              Betting Accounts
-              {activeAccount && (
-                <span className="text-[11px] text-muted-foreground font-normal truncate">
-                  ·{" "}
-                  <span className="text-foreground/80">
-                    {activeAccount.providerDisplayName}
-                  </span>
-                </span>
-              )}
-            </CardTitle>
-            {showControls && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1">
-                  {accounts!.map((a, i) => (
-                    <button
-                      key={a.provider}
-                      type="button"
-                      aria-label={`Go to ${a.providerDisplayName}`}
-                      onClick={() => emblaApi?.scrollTo(i)}
-                      className={cn(
-                        "h-1.5 rounded-full transition-all",
-                        i === selected
-                          ? "w-5 bg-foreground"
-                          : "w-1.5 bg-muted hover:bg-muted-foreground/40",
-                      )}
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={!canPrev}
-                    onClick={() => emblaApi?.scrollPrev()}
-                    className="size-7 rounded-full"
-                    aria-label="Previous account"
-                  >
-                    <ChevronLeft className="size-4" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    disabled={!canNext}
-                    onClick={() => emblaApi?.scrollNext()}
-                    className="size-7 rounded-full"
-                    aria-label="Next account"
-                  >
-                    <ChevronRight className="size-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="px-4">
+      <div className="flex flex-col h-full">
+        {/* Sticky section header */}
+        <div className="px-4 py-3 border-b border-border/30 flex items-center justify-between shrink-0">
+          <span className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground/50">
+            Accounts
+          </span>
+          {accounts && accounts.length > 0 && (
+            <span className="text-[10px] data-text text-muted-foreground/40 tabular-nums">
+              {accounts.length}
+            </span>
+          )}
+        </div>
+
+        {/* Account cards */}
+        <div className="flex-1 overflow-y-auto">
           {accounts === null ? (
             <AccountsSkeleton />
           ) : accounts.length === 0 ? (
-            <div className="text-xs text-muted-foreground py-4 text-center">
-              No betting accounts configured.
+            <div className="px-4 py-8 text-xs text-muted-foreground/60 text-center">
+              No accounts configured.
             </div>
           ) : (
-            <div ref={emblaRef} className="overflow-hidden">
-              <div className="flex">
-                {accounts.map((account) => (
-                  <div
-                    key={account.provider}
-                    className="shrink-0 grow-0 basis-full min-w-0"
-                  >
-                    <AccountCard
-                      account={account}
-                      overview={
-                        account.provider === "ninewickets-sportsbook"
-                          ? props.overview9W
-                          : null
-                      }
-                      recent={recent}
-                      onToggleAutoPlace={props.onToggleAutoPlace}
-                      onRelogin={props.onRelogin}
-                      reloginBusy={props.reloginInProgress.has(
-                        account.provider,
-                      )}
-                      onToggleAutoLogin={props.onToggleAutoLogin}
-                      autoLoginBusy={props.autoLoginBusy}
-                    />
-                  </div>
-                ))}
-              </div>
+            <div className="divide-y divide-border/20">
+              {accounts.map((account) => (
+                <AccountCard
+                  key={account.provider}
+                  account={account}
+                  overview={
+                    account.provider === "ninewickets-sportsbook"
+                      ? props.overview9W
+                      : null
+                  }
+                  recent={recent}
+                  onToggleAutoPlace={props.onToggleAutoPlace}
+                  onRelogin={props.onRelogin}
+                  reloginBusy={props.reloginInProgress.has(account.provider)}
+                  onToggleAutoLogin={props.onToggleAutoLogin}
+                  autoLoginBusy={props.autoLoginBusy}
+                />
+              ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </TooltipProvider>
   );
 }
@@ -402,6 +311,11 @@ function AccountCard({
 }: AccountCardProps) {
   const hasError = !!account.error;
   const dim = account.isDemo;
+  // Treat accounts with zero/null balance and no error as "inactive"
+  const isInactive =
+    !hasError &&
+    (account.balance === null || account.balance === 0) &&
+    (account.exposure === null || account.exposure === 0);
   const canRelogin =
     !account.isDemo &&
     (hasError ||
@@ -475,211 +389,231 @@ function AccountCard({
     return [];
   }, [recent, account.provider]);
 
-  // Two-column layout: Pending (left) | Settled (right), each sorted
-  // newest-first. Keeps live exposure visually separate from historical
-  // P&L — they're different mental models and the operator looks at
-  // them for different reasons. `accountBets` is already newest-first
-  // (sorted server-side in the recent-bets API), so slicing preserves
-  // order.
-  const pendingBets = accountBets.filter((b) => b.status === "pending");
-  const settledBets = accountBets.filter((b) => b.status === "settled");
-  const COLUMN_PREVIEW_CAP = 4;
-  const pendingPreview = pendingBets.slice(0, COLUMN_PREVIEW_CAP);
-  const settledPreview = settledBets.slice(0, COLUMN_PREVIEW_CAP);
-  const pendingExtra = Math.max(0, pendingBets.length - pendingPreview.length);
-  const settledExtra = Math.max(0, settledBets.length - settledPreview.length);
-
   const [betsModalOpen, setBetsModalOpen] = useState(false);
+
+  // Turnover summary — pick the first active item for the inline bar.
+  const activeTurnover = turnoverItems.length > 0 ? turnoverItems[0] : null;
+  const turnoverPct =
+    activeTurnover && activeTurnover.total > 0
+      ? Math.min(1, activeTurnover.current / activeTurnover.total)
+      : null;
 
   return (
     <div
       className={cn(
-        "rounded-lg border border-border/40 bg-card/80 backdrop-blur-sm p-2.5 space-y-2",
-        hasError && "border-destructive/40",
-        autoLogin &&
-          !autoLogin.enabled &&
-          "border-amber-500/30 bg-amber-500/[0.03]",
-        dim && "opacity-60 grayscale",
+        "acc-card",
+        hasError && "acc-card--error",
+        isInactive && "acc-card--inactive",
+        autoLogin && !autoLogin.enabled && "acc-card--paused",
+        dim && "opacity-50",
       )}
     >
-      {/* Header — provider identity + status on the left, account
-          controls (auto-login / re-login / auto-place) on the right.
-          Lifting the controls up from the footer reclaims a whole
-          row of vertical space and keeps all provider-level toggles
-          in one glance-zone. */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <Wallet className="size-4 text-muted-foreground shrink-0" />
+      {/* ── Card Header ── */}
+      <div className="acc-card-header">
+        <div className="flex items-center gap-2.5 min-w-0">
           <span
             className={cn(
-              "text-sm font-semibold truncate",
-              PROVIDER_COLOR[account.provider] ?? "text-foreground",
+              "acc-provider-dot",
+              hasError
+                ? "bg-danger"
+                : account.provider.includes("sportsbook")
+                  ? "bg-amber-400"
+                  : "bg-cyan-400",
             )}
-          >
-            {account.providerDisplayName}
-          </span>
-          {account.isDemo && (
-            <Badge
-              variant="outline"
-              className="text-[9px] h-4 px-1.5 uppercase tracking-wide"
-            >
-              Demo
-            </Badge>
-          )}
-          {/* Identity trail — folded into the header so the card
-              doesn't need a dedicated bottom row just for it. */}
-          {account.username && (
-            <span className="text-[10px] text-muted-foreground truncate flex items-center gap-1">
-              <span className="opacity-60">·</span>
-              <span className="truncate">{account.username}</span>
-              <span className="opacity-60">·</span>
-              <Eye className="size-2.5 shrink-0" />
-              <span className="truncate">
-                {formatRelative(account.lastSyncedAt)}
-              </span>
-            </span>
-          )}
-          <SessionBadge session={account.session} isDemo={account.isDemo} />
-          <StatusBadge account={account} reloginBusy={reloginBusy} />
-        </div>
-        <div className="flex items-center gap-2">
-          {(autoLogin && !account.isDemo) || canRelogin ? (
-            <div className="flex items-center gap-1.5">
-              {autoLogin && !account.isDemo && (
-                <AutoLoginToggle
-                  state={autoLogin}
-                  busy={autoLoginBusy}
-                  onToggle={onToggleAutoLogin}
-                />
-              )}
-              {canRelogin && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-5 px-1.5 text-[9px]"
-                  disabled={reloginBusy}
-                  onClick={() => onRelogin(account.provider)}
-                  title="Force a fresh Playwright login for this account"
-                >
-                  {reloginBusy ? (
-                    <Loader2 className="size-2.5 mr-0.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-2.5 mr-0.5" />
-                  )}
-                  {reloginBusy ? "…" : "Re-login"}
-                </Button>
-              )}
-            </div>
-          ) : null}
-          <AutoPlaceToggle
-            provider={account.provider}
-            enabled={account.autoPlaceEnabled}
-            disabled={account.isDemo || hasError}
-            onChange={onToggleAutoPlace}
           />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-foreground/90 truncate leading-tight">
+              {account.providerDisplayName}
+            </div>
+            {account.username && (
+              <div className="text-[10px] text-muted-foreground/40 data-text truncate">
+                {account.username} · {formatRelative(account.lastSyncedAt)}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <StatusBadge account={account} reloginBusy={reloginBusy} />
+          <SessionBadge session={account.session} isDemo={account.isDemo} />
         </div>
       </div>
 
-      {/* Connection-level error banner */}
-      {hasError && (
-        <div className="text-[10.5px] text-destructive flex items-start gap-1 leading-tight">
-          <AlertCircle className="size-3 shrink-0 mt-0.5" />
-          <span className="break-all">{account.error}</span>
+      {/* ── Body: error, inactive, or stats ── */}
+      {hasError ? (
+        <div className="acc-card-body">
+          <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2.5 text-[11px] text-destructive flex items-start gap-2 leading-snug">
+            <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
+            <span className="break-all">{account.error}</span>
+          </div>
+        </div>
+      ) : isInactive ? (
+        <div className="acc-card-body">
+          <div className="acc-inactive-banner">
+            <span className="text-[11px] text-muted-foreground/40">
+              No funds · not active
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="acc-card-body">
+          {/* ── Primary balance ── */}
+          <div className="acc-balance-row">
+            <div className="acc-stat acc-stat--hero">
+              <div className="acc-stat-label">Available</div>
+              <div className="acc-stat-value acc-stat-value--hero text-emerald-400 data-text">
+                {bettable !== null ? money(bettable, account.currency) : "—"}
+              </div>
+            </div>
+
+            <div className="acc-stat">
+              <div className="acc-stat-label">Withdrawable</div>
+              {overview === null && !mainSiteErr ? (
+                <Skeleton className="h-4 w-24 rounded mt-0.5" />
+              ) : (
+                <div
+                  className={cn(
+                    "acc-stat-value data-text",
+                    Boolean(turnoverInfo && !turnoverInfo.canWithdraw)
+                      ? "text-amber-400"
+                      : "text-foreground/80",
+                  )}
+                >
+                  {withdrawable !== null
+                    ? money(withdrawable, account.currency)
+                    : "—"}
+                </div>
+              )}
+            </div>
+
+            <div className="acc-stat">
+              <div className="acc-stat-label">Exposure</div>
+              <div
+                className={cn(
+                  "acc-stat-value data-text",
+                  (exposure ?? 0) > 0 ? "text-amber-400" : "text-foreground/80",
+                )}
+              >
+                {exposure !== null ? money(exposure, account.currency) : "—"}
+              </div>
+            </div>
+
+            {account.minBet !== null && (
+              <div className="acc-stat">
+                <div className="acc-stat-label">Min Bet</div>
+                <div className="acc-stat-value data-text text-foreground/60">
+                  {money(account.minBet, account.currency)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Turnover — always visible when overview is relevant ── */}
+          {(overview !== null || !turnoverErr) && (
+            <div className="acc-turnover">
+              <div className="acc-turnover-header">
+                <span className="acc-stat-label">Turnover</span>
+                {overview === null ? (
+                  <Loader2 className="size-3 text-muted-foreground/30 animate-spin" />
+                ) : activeTurnover ? (
+                  <span className="text-[10px] data-text text-muted-foreground/60">
+                    {activeTurnover.current.toLocaleString()} /{" "}
+                    {activeTurnover.total.toLocaleString()} {account.currency} ·{" "}
+                    {(turnoverPct! * 100).toFixed(0)}%
+                  </span>
+                ) : turnoverInfo?.canWithdraw ? (
+                  <span className="text-[10px] text-emerald-400 font-medium">
+                    ✓ Ready to withdraw
+                  </span>
+                ) : null}
+              </div>
+              {overview === null ? (
+                <Skeleton className="h-1.5 w-full rounded-full" />
+              ) : activeTurnover ? (
+                <div className="acc-turnover-track">
+                  <div
+                    className={cn(
+                      "acc-turnover-fill",
+                      turnoverPct! >= 1
+                        ? "bg-emerald-500"
+                        : turnoverPct! >= 0.5
+                          ? "bg-amber-400"
+                          : "bg-danger",
+                    )}
+                    style={{ width: `${Math.min(100, turnoverPct! * 100)}%` }}
+                  />
+                </div>
+              ) : (
+                <div className="acc-turnover-track">
+                  <div
+                    className={cn(
+                      "acc-turnover-fill",
+                      turnoverInfo?.canWithdraw
+                        ? "bg-emerald-500"
+                        : "bg-muted/30",
+                    )}
+                    style={{ width: turnoverInfo?.canWithdraw ? "100%" : "0%" }}
+                  />
+                </div>
+              )}
+              {overview !== null && !activeTurnover && (
+                <div className="text-[10px] text-muted-foreground/50 mt-0.5">
+                  {turnoverInfo?.canWithdraw
+                    ? "No outstanding requirement"
+                    : "No active bonus turnover"}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Balance + turnover tiles — 4 equal columns. Turnover sits
-          inline as the 4th tile; when multiple bonuses are active, its
-          internal mini-carousel (dotted nav) cycles between them so
-          the row height stays bounded. */}
-      {!hasError && (
-        <div className="grid grid-cols-4 gap-2">
-          <BalanceTile
-            label="Available"
-            value={bettable}
-            currency={account.currency}
-            big
-            valueClass="text-emerald-500"
-          />
-          <BalanceTile
-            label="Withdrawable"
-            value={withdrawable}
-            currency={account.currency}
-            big
-            errorHint={mainSiteErr}
-            // Overview hasn't responded yet — suppress the "—" fallback
-            // and show a shimmer instead so the operator doesn't read
-            // "no withdrawable balance" while the fetch is still in
-            // flight. Once overview resolves either way (data or
-            // `errors.mainSite`), the loading state lifts and the tile
-            // renders its real content or the error hint.
-            loading={overview === null && !mainSiteErr}
-            locked={Boolean(turnoverInfo && !turnoverInfo.canWithdraw)}
-            lockedHint={
-              turnoverInfo && !turnoverInfo.canWithdraw
-                ? "Locked until turnover is complete"
-                : null
-            }
-          />
-          <BalanceTile
-            label="Exposure"
-            value={exposure}
-            currency={account.currency}
-            big
-            valueClass={(exposure ?? 0) > 0 ? "text-amber-400" : undefined}
-          />
-          <TurnoverTile
-            items={turnoverItems}
-            canWithdraw={turnoverInfo?.canWithdraw ?? false}
-            error={turnoverErr}
-            loading={overview === null && !turnoverErr}
-          />
+      {/* ── Controls footer ── */}
+      <div className="acc-card-footer">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {autoLogin && !account.isDemo && (
+            <AutoLoginToggle
+              state={autoLogin}
+              busy={autoLoginBusy}
+              onToggle={onToggleAutoLogin}
+            />
+          )}
+          {canRelogin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+              disabled={reloginBusy}
+              onClick={() => onRelogin(account.provider)}
+            >
+              {reloginBusy ? (
+                <Loader2 className="size-3 mr-1 animate-spin" />
+              ) : (
+                <RefreshCw className="size-3 mr-1" />
+              )}
+              Re-login
+            </Button>
+          )}
+          {recent && accountBets.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+              onClick={() => setBetsModalOpen(true)}
+            >
+              <Eye className="size-3 mr-1" />
+              {accountBets.length} bets
+            </Button>
+          )}
         </div>
-      )}
+        <AutoPlaceToggle
+          provider={account.provider}
+          enabled={account.autoPlaceEnabled}
+          disabled={account.isDemo || hasError}
+          onChange={onToggleAutoPlace}
+        />
+      </div>
 
-      {/* Recent activity — split into Pending | Settled. Pending =
-          live exposure the operator is watching; settled = historical
-          P&L. Different mental models → different columns, both
-          newest-first. On narrow viewports (<md) columns stack so
-          each row stays readable. */}
-      {!hasError && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <BetColumn
-            title="Pending"
-            accent="amber"
-            bets={pendingPreview}
-            extra={pendingExtra}
-            totalLabel={
-              recent ? (pendingBets.length > 0 ? null : "none") : null
-            }
-            currency={account.currency}
-            periodDays={recent?.periodDays ?? null}
-            emptyText={recent ? "No pending bets." : null}
-            loading={!recent}
-            onOpenModal={() => setBetsModalOpen(true)}
-          />
-          <BetColumn
-            title="Settled"
-            accent="neutral"
-            bets={settledPreview}
-            extra={settledExtra}
-            totalLabel={
-              recent ? (settledBets.length > 0 ? null : "none") : null
-            }
-            currency={account.currency}
-            periodDays={recent?.periodDays ?? null}
-            emptyText={
-              recent
-                ? `No settled bets in the last ${recent.periodDays} days.`
-                : null
-            }
-            loading={!recent}
-            onOpenModal={() => setBetsModalOpen(true)}
-          />
-        </div>
-      )}
-
-      {/* Modal — opens on any recent-bets preview click */}
+      {/* Recent bets modal */}
       {recent && (
         <RecentBetsModal
           open={betsModalOpen}
@@ -689,7 +623,6 @@ function AccountCard({
           periodDays={recent.periodDays}
           totals={{
             ...recent.totals,
-            // Re-scope totals to this account's bets only.
             totalProfitLoss: sumOrNull(accountBets.map((b) => b.profit)),
             totalTurnover: sumOrNull(accountBets.map((b) => b.turnover)),
             totalBetAmount: accountBets.reduce((s, b) => s + (b.stake ?? 0), 0),
@@ -759,16 +692,16 @@ function TurnoverTile({
   ) => {
     const border =
       tone === "ready"
-        ? "border-emerald-500/30 bg-emerald-500/[0.04]"
+        ? "border-emerald-500/20 bg-emerald-500/[0.03]"
         : tone === "error"
-          ? "border-amber-500/30 bg-amber-500/[0.04]"
+          ? "border-amber-500/20 bg-amber-500/[0.03]"
           : tone === "active"
-            ? "border-amber-500/40 bg-amber-500/[0.05]"
-            : "border-border/60 bg-background/40";
+            ? "border-amber-500/25 bg-amber-500/[0.04]"
+            : "balance-tile--default border-[oklch(1_0_0/5%)]";
     return (
       <div
         className={cn(
-          "rounded border px-2.5 py-1.5 flex flex-col leading-tight gap-1 min-w-0 overflow-hidden h-full",
+          "rounded-lg px-2.5 py-1.5 flex flex-col leading-tight gap-1 min-w-0 overflow-hidden h-full",
           border,
         )}
       >
@@ -995,10 +928,8 @@ function BalanceTile({
   const core = (
     <div
       className={cn(
-        "rounded-md border px-2.5 py-2 flex flex-col leading-tight gap-0.5 min-w-0 relative overflow-hidden h-full",
-        locked
-          ? "border-amber-500/25 bg-amber-500/[0.03]"
-          : "border-border/40 bg-background/30",
+        "fintech-stat flex flex-col leading-tight gap-0.5 min-w-0 h-full",
+        locked ? "fintech-stat--locked" : "",
       )}
     >
       <div className="text-[9px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
@@ -1109,7 +1040,7 @@ function BetColumn({
       </div>
 
       {loading ? (
-        <div className="flex-1 rounded-md border border-border/30 bg-background/20 min-h-[180px] overflow-hidden space-y-0">
+        <div className="flex-1 rounded-lg border border-border/20 bg-background/15 min-h-[140px] overflow-hidden space-y-0">
           {/* Skeleton bet rows — mimics the actual row structure to
               prevent height jumps when real data arrives. */}
           {[0, 1, 2, 3].map((i) => (
@@ -1126,7 +1057,7 @@ function BetColumn({
           ))}
         </div>
       ) : bets.length === 0 ? (
-        <div className="flex-1 rounded-md border border-border/30 bg-background/15 px-2 py-3 text-[11px] text-muted-foreground/60 flex items-center justify-center text-center min-h-[180px]">
+        <div className="flex-1 rounded-lg border border-border/20 bg-background/10 px-2 py-3 text-[11px] text-muted-foreground/60 flex items-center justify-center text-center min-h-[140px]">
           {emptyText}
         </div>
       ) : (
@@ -1162,7 +1093,7 @@ function BetList({
   onOpenModal: () => void;
 }) {
   return (
-    <div className="flex-1 rounded-md border border-border/30 bg-background/20 divide-y divide-border/30 overflow-hidden">
+    <div className="flex-1 rounded-lg border border-border/20 bg-background/10 divide-y divide-border/20 overflow-hidden">
       {bets.map((bet) => (
         <button
           key={bet.id}
@@ -1539,46 +1470,43 @@ function AutoPlaceToggle({
 
 function AccountsSkeleton() {
   return (
-    <div className="rounded-lg border border-border/40 bg-card/60 p-3.5 space-y-3">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-4 w-20" />
-      </div>
-      <div className="grid grid-cols-4 gap-2">
-        <Skeleton className="h-[60px] w-full rounded-md" />
-        <Skeleton className="h-[60px] w-full rounded-md" />
-        <Skeleton className="h-[60px] w-full rounded-md" />
-        <Skeleton className="h-[60px] w-full rounded-md" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {/* Match the actual bet-row structure height to prevent jumps */}
-        <div className="rounded-md border border-border/30 bg-background/15 min-h-[180px] space-y-0">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="px-2.5 py-2 border-b border-border/15">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-4 w-11 rounded" />
-                <Skeleton className="h-3.5 flex-1 rounded" />
-                <Skeleton className="h-3.5 w-20 rounded" />
-              </div>
-              <div className="mt-1.5 pl-[52px]">
-                <Skeleton className="h-2.5 w-3/4 rounded" />
-              </div>
-            </div>
-          ))}
+    <div className="space-y-1.5">
+      {/* First card — expanded skeleton */}
+      <div className="fintech-card overflow-hidden">
+        <div className="px-3 py-2.5 flex items-center gap-2">
+          <Skeleton className="size-6 rounded-md" />
+          <Skeleton className="h-4 w-28 rounded" />
+          <div className="ml-auto flex items-center gap-1.5">
+            <Skeleton className="h-4 w-12 rounded-full" />
+            <Skeleton className="size-3.5 rounded" />
+          </div>
         </div>
-        <div className="rounded-md border border-border/30 bg-background/15 min-h-[180px] space-y-0">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="px-2.5 py-2 border-b border-border/15">
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-4 w-11 rounded" />
-                <Skeleton className="h-3.5 flex-1 rounded" />
-                <Skeleton className="h-3.5 w-20 rounded" />
-              </div>
-              <div className="mt-1.5 pl-[52px]">
-                <Skeleton className="h-2.5 w-3/4 rounded" />
-              </div>
+        <div className="px-3 pb-3 space-y-3">
+          <div className="space-y-1">
+            <Skeleton className="h-2.5 w-20 rounded" />
+            <Skeleton className="h-6 w-32 rounded" />
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <Skeleton className="h-[44px] rounded-lg" />
+            <Skeleton className="h-[44px] rounded-lg" />
+          </div>
+          <Skeleton className="h-1 w-full rounded-full" />
+          <div className="border-t border-border/30 pt-2 flex items-center gap-2">
+            <Skeleton className="h-5 w-16 rounded" />
+            <Skeleton className="h-5 w-16 rounded" />
+            <div className="ml-auto">
+              <Skeleton className="h-5 w-20 rounded" />
             </div>
-          ))}
+          </div>
+        </div>
+      </div>
+      {/* Second card — collapsed skeleton */}
+      <div className="fintech-card overflow-hidden">
+        <div className="px-3 py-2 flex items-center gap-2">
+          <Skeleton className="size-6 rounded-md" />
+          <Skeleton className="h-4 w-24 rounded" />
+          <Skeleton className="h-4 w-20 rounded ml-auto" />
+          <Skeleton className="size-3.5 rounded" />
         </div>
       </div>
     </div>

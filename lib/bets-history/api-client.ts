@@ -36,6 +36,10 @@ export type ListFilters = {
    * Platform is pre-match only; see in-play.md.
    */
   preMatchOnly?: boolean;
+  /** Filter bets whose soft (bookmaker) odds are ≥ this value. Maps from strategy filter `odds_lo`. */
+  oddsMin?: number;
+  /** Filter bets whose soft (bookmaker) odds are ≤ this value. Maps from strategy filter `odds_hi`. */
+  oddsMax?: number;
   limit?: number;
   offset?: number;
 };

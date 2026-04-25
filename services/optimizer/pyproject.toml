@@ -1,12 +1,10 @@
 [project]
-name = "alphasearch-optimizer"
-version = "0.1.0"
-description = "AlphaSearch — strategy parameter optimizer sidecar for nahidArbX"
+name = "nahidarbx-optimizer"
+version = "0.2.0"
+description = "Optimisation sidecar — one Cloud Run Job execution per sweep, for nahidArbX"
 requires-python = ">=3.12"
 dependencies = [
-    # Web framework
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.32.0",
+    # Config (no longer a web framework — runs as a Cloud Run Job).
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
 

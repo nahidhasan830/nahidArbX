@@ -57,7 +57,7 @@ export const persistValueBets = async (
     commissionPct: number;
     softOdds: number;
     detectedAt: Date | string | number;
-    /** AlphaSearch (Phase 3): live-strategy id that claimed this detection. */
+    /** Optimisation (Phase 3): live-strategy id that claimed this detection. */
     strategyId?: string | null;
   }>,
 ): Promise<PersistResult> => {
@@ -125,7 +125,7 @@ export const persistValueBets = async (
       firstSeenAt: detectedIso,
       lastSeenAt: detectedIso,
       tickCount: 1,
-      // AlphaSearch attribution — null when no live strategy matched.
+      // Optimisation attribution — null when no live strategy matched.
       strategyId: vb.strategyId ?? null,
       // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
@@ -218,6 +218,10 @@ export type ListFilters = {
    * first detected at or after kickoff. Platform is pre-match only.
    */
   preMatchOnly?: boolean;
+  /** Filter bets whose soft (bookmaker) odds are ≥ this value. */
+  oddsMin?: number;
+  /** Filter bets whose soft (bookmaker) odds are ≤ this value. */
+  oddsMax?: number;
   limit?: number;
   offset?: number;
 };
@@ -281,6 +285,12 @@ const buildFilterClauses = (filters: ListFilters) => {
   }
   if (filters.preMatchOnly) {
     clauses.push(sql`${bets.firstSeenAt} < ${bets.eventStartTime}`);
+  }
+  if (filters.oddsMin !== undefined) {
+    clauses.push(sql`${bets.softOdds} >= ${filters.oddsMin}`);
+  }
+  if (filters.oddsMax !== undefined) {
+    clauses.push(sql`${bets.softOdds} <= ${filters.oddsMax}`);
   }
   return clauses;
 };

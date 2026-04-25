@@ -11,11 +11,14 @@
 
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
-import { startRun } from "./api-client";
+import { triggerJobExecution } from "./api-client";
 import { runAutoValidation } from "./auto-validation";
 import { recomputeLiveMetrics } from "./live-metrics-aggregator";
-import { processPendingRunNotifications } from "./notifier-tick";
-import { createRun, listQueuedRuns } from "./repository";
+import {
+  processPendingRunNotifications,
+  processPendingRunStartedNotifications,
+} from "./notifier-tick";
+import { claimQueuedRun, createRun, listQueuedRuns } from "./repository";
 import {
   listDueSchedules,
   scheduleCreatedBy,
@@ -74,6 +77,7 @@ async function fireDueSchedules(): Promise<void> {
         searchSpace: sched.searchSpace as SearchSpaceJson,
         dataFilters: sched.dataFilters as DataFiltersJson,
         notifyOnComplete: sched.notifyOnComplete,
+        notifyOnStart: sched.notifyOnStart,
         createdBy: scheduleCreatedBy(sched.id),
       });
       await updateScheduleAfterFire(sched.id, run.id);
@@ -130,8 +134,17 @@ async function tick(): Promise<void> {
     }
   }
 
-  // 4. Telegram notification for runs that just hit a terminal status.
-  //    At-most-once delivery guaranteed by `optimization_runs.notified_at`.
+  // 4a. Telegram "run started" ping — once the sidecar sets started_at.
+  //     At-most-once via `optimization_runs.started_notified_at`.
+  try {
+    await processPendingRunStartedNotifications();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(tag, `processPendingRunStartedNotifications failed: ${msg}`);
+  }
+
+  // 4b. Telegram notification for runs that just hit a terminal status.
+  //     At-most-once delivery guaranteed by `optimization_runs.notified_at`.
   try {
     await processPendingRunNotifications();
   } catch (err) {
@@ -139,20 +152,31 @@ async function tick(): Promise<void> {
     logger.warn(tag, `processPendingRunNotifications failed: ${msg}`);
   }
 
-  // 5. Kick the sidecar for every queued run.
+  // 5. Trigger a Cloud Run Job execution for every queued run.
+  //    Atomic claim: `claimQueuedRun` flips status='queued'→'running' in a
+  //    single UPDATE; only the winning caller actually triggers the Job, so
+  //    a concurrent immediate-kick from `kickRunNow` can't double-fire.
   try {
     const queued = await listQueuedRuns();
     if (queued.length === 0) return;
 
-    logger.info(tag, `Found ${queued.length} queued run(s); kicking sidecar`);
+    logger.info(tag, `Found ${queued.length} queued run(s); triggering Jobs`);
     for (const run of queued) {
       try {
-        await startRun(run.id);
+        const claimed = await claimQueuedRun(run.id);
+        if (!claimed) {
+          // Another caller (e.g. POST /api/optimizer/runs immediate kick) won
+          // the race and already triggered the Job. Nothing to do.
+          continue;
+        }
+        await triggerJobExecution(run.id);
         state.totalKickoffs += 1;
       } catch (err) {
-        // Don't crash the loop — sidecar might be down; we'll retry next tick.
+        // Don't crash the loop — Cloud Run might be down; we'll retry next
+        // tick. (The runner will pick up the run row regardless of which
+        // tick wins; the Job execution just needs to start.)
         const msg = err instanceof Error ? err.message : String(err);
-        logger.warn(tag, `Failed to kick run ${run.id}: ${msg}`);
+        logger.warn(tag, `Failed to trigger run ${run.id}: ${msg}`);
         state.lastError = msg;
       }
     }
@@ -204,12 +228,19 @@ export function getOptimizerSchedulerStatus(): {
 
 /**
  * Kicks a single run immediately (called from POST /api/optimizer/runs so
- * the user doesn't wait up to 30s for the next poll). Failures are silent —
- * the scheduler will retry on its next tick.
+ * the user doesn't wait up to 30s for the next poll). Atomic-claims the
+ * row before triggering so concurrent ticks/kicks can't double-fire.
+ * Failures are silent — the scheduler will retry on its next tick.
  */
 export async function kickRunNow(runId: string): Promise<void> {
   try {
-    await startRun(runId);
+    const claimed = await claimQueuedRun(runId);
+    if (!claimed) {
+      // Already claimed by the scheduler tick — Job is in flight or running.
+      logger.info(tag, `Run ${runId} already claimed; skipping immediate kick`);
+      return;
+    }
+    await triggerJobExecution(runId);
     state.totalKickoffs += 1;
     logger.info(tag, `Run ${runId} kicked immediately`);
   } catch (err) {

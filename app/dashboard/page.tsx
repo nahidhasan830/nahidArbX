@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
-  Banknote,
-  CircleDot,
-  Percent,
-  Target,
-  TrendingDown,
   TrendingUp,
+  TrendingDown,
+  Activity,
+  Target,
+  BarChart3,
+  Layers,
+  Clock,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -194,9 +195,6 @@ export default function DashboardPage() {
   );
   const [overview9W, setOverview9W] = useState<Overview9W | null>(null);
   const [autoLoginBusy, setAutoLoginBusy] = useState(false);
-  // Prevents the 15s interval from firing a second load() while the
-  // previous one is still waiting on a slow endpoint. Without this
-  // we'd stack concurrent fetches on an already-stuck backend.
   const loadInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -204,12 +202,7 @@ export default function DashboardPage() {
     loadInFlightRef.current = true;
     setIsRefreshing(true);
     setFetchError(null);
-    // Fire all four feeds independently so one slow backend (a stuck
-    // 9W session capture can take 30-60s) doesn't freeze the whole
-    // dashboard while the other three endpoints have fresh data
-    // ready. Each fetch gets its own timeout via AbortController;
-    // when it fires, we keep the previous state for that slice
-    // rather than showing skeletons forever.
+
     const timeoutFetch = async (
       url: string,
       timeoutMs = 12_000,
@@ -227,16 +220,12 @@ export default function DashboardPage() {
       }
     };
 
-    // Track fetch errors per slice without letting any one of them
-    // poison the whole view. Accounts + stats are the critical path
-    // (hydrates the KPI strip + accounts panel); overview + bets are
-    // additive.
     const errors: string[] = [];
 
     const loadAccounts = (async () => {
       try {
         const res = await timeoutFetch("/api/accounts");
-        if (!res) return; // timeout — keep previous state
+        if (!res) return;
         if (!res.ok) throw new Error(`accounts HTTP ${res.status}`);
         const a = (await res.json()) as { accounts: BettingAccount[] };
         setAccounts(a.accounts);
@@ -263,14 +252,11 @@ export default function DashboardPage() {
 
     const loadOverview = (async () => {
       try {
-        // Overview is the most likely to hang (bundles queryPlayerInfo,
-        // turnover, unmatched, reconciliation). Give it a bit more
-        // runway than the rest but still cap so it can't lock us up.
         const res = await timeoutFetch("/api/providers/9w/overview", 15_000);
-        if (!res || !res.ok) return; // non-fatal
+        if (!res || !res.ok) return;
         setOverview9W((await res.json()) as Overview9W);
       } catch {
-        // non-fatal; per-card error surfaces via overview.errors
+        // non-fatal
       }
     })();
 
@@ -329,7 +315,6 @@ export default function DashboardPage() {
           } | null;
           throw new Error(body?.error ?? `HTTP ${res.status}`);
         }
-        // Pull fresh account data so the new expiry + balance show up.
         await load();
       } catch (err) {
         setFetchError(
@@ -346,19 +331,6 @@ export default function DashboardPage() {
     [load],
   );
 
-  // Auto-relogin trigger. When an account comes back with an auth-
-  // style error ("not authorized", "1001", "session expired", etc.)
-  // we kick off a Re-login in the background so the operator doesn't
-  // have to click the button.
-  //
-  // Guards:
-  //   • Auto-login toggle must be ON. If the operator explicitly
-  //     flipped it off they're using the book elsewhere (phone, etc.)
-  //     and our login would kick them off — defeats the whole point
-  //     of the toggle.
-  //   • Rate-limited to once-per-provider-per-minute so we never
-  //     cascade into a login storm. 9W's single-session rule means
-  //     hammering login actively fights the operator's other device.
   const autoReloginAttemptsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     if (!accounts) return;
@@ -382,8 +354,6 @@ export default function DashboardPage() {
 
   const handleToggleAutoPlace = useCallback(
     async (provider: string, enabled: boolean) => {
-      // Optimistically flip the local state so the toggle feels responsive;
-      // roll back if the API call fails.
       setAccounts((prev) =>
         prev
           ? prev.map((a) =>
@@ -425,7 +395,7 @@ export default function DashboardPage() {
       titleBadge={
         totals ? (
           <Badge variant="secondary" className="ml-2 text-[10px] data-text">
-            {totals.betCount} bets tracked
+            {totals.betCount} bets
           </Badge>
         ) : null
       }
@@ -440,201 +410,154 @@ export default function DashboardPage() {
           />
         </div>
       }
+      edgeToEdge
     >
-      <main className="space-y-8">
+      <div className="db-root">
+        {/* Error banner */}
         {fetchError && (
-          <div className="glass-panel border-destructive/40 animate-fade-up">
-            <div className="py-3 px-4 flex items-center gap-2 text-sm text-destructive">
-              <AlertCircle className="size-4" />
-              Failed to load: {fetchError}
-            </div>
+          <div className="db-error-banner">
+            <AlertCircle className="size-3.5 shrink-0" />
+            <span>{fetchError}</span>
           </div>
         )}
 
-        {/* KPI strip — elevated metric pods with state-aware accents.
-            Each pod gets a coloured left border + subtle inner glow
-            based on its data (green = profit, red = loss, amber = open). */}
-        <section className="animate-fade-up" style={{ animationDelay: "0ms" }}>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <MetricPod
-              icon={
-                (totals?.totalProfit ?? 0) >= 0 ? (
-                  <TrendingUp className="size-3.5" />
-                ) : (
-                  <TrendingDown className="size-3.5" />
-                )
-              }
-              label="Total P&L"
-              value={signedMoney(totals?.totalProfit, currency)}
-              sub={
-                totals
-                  ? `ROI ${signedPct(totals.roiPct)} · exp ${signedMoney(
-                      totals.expectedProfit,
-                      currency,
-                    )}`
-                  : undefined
-              }
-              tone={podTone(totals?.totalProfit)}
-              loading={!totals}
-            />
-            <MetricPod
-              icon={<Target className="size-3.5" />}
-              label="Avg CLV"
-              value={
-                totals?.avgClvPct !== null && totals?.avgClvPct !== undefined
-                  ? signedPct(totals.avgClvPct)
-                  : "—"
-              }
-              sub={
-                totals?.pctBeatClv !== null && totals?.pctBeatClv !== undefined
-                  ? `${totals.pctBeatClv.toFixed(0)}% beat close`
-                  : undefined
-              }
-              tone={podTone(totals?.avgClvPct ?? 0)}
-              loading={!totals}
-            />
-            <MetricPod
-              icon={<Percent className="size-3.5" />}
-              label="Win Rate"
-              value={totals ? `${totals.winRatePct.toFixed(1)}%` : "—"}
-              sub={
-                totals && stats
-                  ? `${totals.settledCount} settled · ${
-                      stats.streaks.currentType === "none"
-                        ? "no streak"
-                        : `${stats.streaks.currentLen}${stats.streaks.currentType} streak`
-                    }`
-                  : undefined
-              }
-              tone="brand"
-              loading={!totals}
-            />
-            <MetricPod
-              icon={<CircleDot className="size-3.5" />}
-              label="Open Bets"
-              value={totals ? String(totals.openBets) : "—"}
-              sub={
-                totals
-                  ? `${money(totals.openStake, currency)} at stake`
-                  : undefined
-              }
-              tone={totals && totals.openBets > 0 ? "warning" : "neutral"}
-              loading={!totals}
-            />
-            <MetricPod
-              icon={<Banknote className="size-3.5" />}
-              label="Max DD"
-              value={totals ? money(totals.maxDrawdown, currency) : "—"}
-              sub={
-                stats
-                  ? `Kelly δ ${signedPct(stats.kellyAdherence.avgDeviationPct)}`
-                  : undefined
-              }
-              tone="neutral"
-              loading={!totals}
-            />
-          </div>
-        </section>
-
-        {/* Betting Accounts — full-row carousel */}
-        <section className="animate-fade-up" style={{ animationDelay: "80ms" }}>
-          <BettingAccountsPanel
-            accounts={accounts}
-            overview9W={overview9W}
-            onToggleAutoPlace={handleToggleAutoPlace}
-            onRelogin={handleRelogin}
-            reloginInProgress={reloginInProgress}
-            onToggleAutoLogin={handleAutoLoginToggle}
-            autoLoginBusy={autoLoginBusy}
+        {/* ── KPI STRIP ── */}
+        <div className="db-kpi-strip">
+          <KpiCard
+            icon={<TrendingUp className="size-3.5" />}
+            label="Total P&L"
+            value={signedMoney(totals?.totalProfit, currency)}
+            sub={totals ? `ROI ${signedPct(totals.roiPct)}` : undefined}
+            tone={podTone(totals?.totalProfit)}
+            loading={!totals}
           />
-        </section>
+          <KpiCard
+            icon={<Activity className="size-3.5" />}
+            label="Avg CLV"
+            value={
+              totals?.avgClvPct != null ? signedPct(totals.avgClvPct) : "—"
+            }
+            sub={
+              totals?.pctBeatClv != null
+                ? `${totals.pctBeatClv.toFixed(0)}% beat close`
+                : undefined
+            }
+            tone={podTone(totals?.avgClvPct)}
+            loading={!totals}
+          />
+          <KpiCard
+            icon={<Target className="size-3.5" />}
+            label="Win Rate"
+            value={totals ? `${totals.winRatePct.toFixed(1)}%` : "—"}
+            sub={totals && stats ? `${totals.settledCount} settled` : undefined}
+            tone="brand"
+            loading={!totals}
+          />
+          <KpiCard
+            icon={<Layers className="size-3.5" />}
+            label="Open Bets"
+            value={totals ? String(totals.openBets) : "—"}
+            sub={
+              totals
+                ? `${money(totals.openStake, currency)} at stake`
+                : undefined
+            }
+            tone={totals && totals.openBets > 0 ? "warning" : "neutral"}
+            loading={!totals}
+          />
+          <KpiCard
+            icon={<TrendingDown className="size-3.5" />}
+            label="Max Drawdown"
+            value={totals ? money(totals.maxDrawdown, currency) : "—"}
+            sub={
+              stats
+                ? `Kelly δ ${signedPct(stats.kellyAdherence.avgDeviationPct)}`
+                : undefined
+            }
+            tone="neutral"
+            loading={!totals}
+          />
+          <KpiCard
+            icon={<BarChart3 className="size-3.5" />}
+            label="Turnover"
+            value={totals ? money(totals.totalStake, currency) : "—"}
+            sub={
+              totals
+                ? `avg ${money(totals.avgStake, currency)} · ${totals.avgOdds.toFixed(2)}x`
+                : undefined
+            }
+            tone="neutral"
+            loading={!totals}
+          />
+        </div>
 
-        {/* P&L Curve + Activity Heatmap — glass panel cards */}
-        <section
-          className="grid grid-cols-1 xl:grid-cols-2 gap-4 animate-fade-up"
-          style={{ animationDelay: "160ms" }}
-        >
-          <div className="glass-panel p-0 overflow-hidden">
-            <div className="px-4 pt-4 pb-1">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold tracking-tight">
+        {/* ── MAIN BODY ── */}
+        <div className="db-body">
+          {/* Left column: charts */}
+          <div className="db-charts-col">
+            {/* P&L Chart card */}
+            <div className="db-card db-pnl-card">
+              <div className="db-card-header">
+                <div className="db-card-title">
+                  <span className="db-card-dot db-card-dot--brand" />
                   P&L Curve
-                </h3>
+                </div>
                 <ChartLegend />
               </div>
+              <div className="db-chart-body">
+                {stats ? (
+                  <PnlChart
+                    data={stats.pnlSeries}
+                    currency={currency}
+                    height="100%"
+                  />
+                ) : (
+                  <Skeleton className="h-full w-full rounded-xl" />
+                )}
+              </div>
             </div>
-            <div className="px-4 pb-4">
-              {stats ? (
-                <PnlChart
-                  data={stats.pnlSeries}
-                  currency={currency}
-                  height={200}
-                />
-              ) : (
-                <Skeleton className="h-[200px] w-full rounded-lg" />
-              )}
-              {totals && (
-                <div className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
-                  <InlineStat
-                    label="Turnover"
-                    value={money(totals.totalStake, currency)}
-                  />
-                  <InlineStat
-                    label="Max DD"
-                    value={money(totals.maxDrawdown, currency)}
-                    valueClass="text-danger"
-                  />
-                  <InlineStat
-                    label="Avg stake"
-                    value={money(totals.avgStake, currency)}
-                  />
-                  <InlineStat
-                    label="Avg odds"
-                    value={totals.avgOdds.toFixed(2)}
-                  />
+
+            {/* Heatmap card */}
+            <div className="db-card db-heatmap-card">
+              <div className="db-card-header">
+                <div className="db-card-title">
+                  <Clock className="size-3" />
+                  Activity Heatmap
                 </div>
-              )}
+              </div>
+              <div className="db-heatmap-body">
+                {stats ? (
+                  <Heatmap cells={stats.heatmap} currency={currency} />
+                ) : (
+                  <Skeleton className="h-[130px] w-full rounded-xl" />
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="glass-panel p-0 overflow-hidden flex flex-col">
-            <div className="px-4 pt-4 pb-1">
-              <h3 className="text-sm font-semibold tracking-tight">
-                Activity Heatmap
-              </h3>
-            </div>
-            <div className="px-4 pb-4 flex-1 flex flex-col">
-              {stats ? (
-                <Heatmap cells={stats.heatmap} currency={currency} />
-              ) : (
-                <Skeleton className="flex-1 w-full min-h-[160px] rounded-lg" />
-              )}
-            </div>
+          {/* Right column: accounts */}
+          <div className="db-accounts-col">
+            <BettingAccountsPanel
+              accounts={accounts}
+              overview9W={overview9W}
+              onToggleAutoPlace={handleToggleAutoPlace}
+              onRelogin={handleRelogin}
+              reloginInProgress={reloginInProgress}
+              onToggleAutoLogin={handleAutoLoginToggle}
+              autoLoginBusy={autoLoginBusy}
+            />
           </div>
-        </section>
-      </main>
+        </div>
+      </div>
     </AppShell>
   );
 }
 
-// Account-row UI lives in `<BettingAccountsPanel>` — see
-// `components/dashboard/BettingAccountsPanel.tsx`.
-
-// --------------------------- Small shared components ---------------------------
+// --------------------------- KPI Card ---------------------------
 
 type PodTone = "positive" | "negative" | "warning" | "brand" | "neutral";
 
-/**
- * Elevated metric pod — the primary KPI display unit.
- *
- * Design language: dark semi-transparent card with a coloured left-border
- * accent + subtle inner glow, both keyed to the data state. Icons are back
- * (small, muted) to give the eye an anchor when scanning the strip.
- *
- * Numbers use the mono font (JetBrains Mono) via `data-text` class for
- * that trading-terminal feel.
- */
-function MetricPod({
+function KpiCard({
   icon,
   label,
   value,
@@ -649,17 +572,6 @@ function MetricPod({
   tone?: PodTone;
   loading?: boolean;
 }) {
-  const toneClass =
-    tone === "positive"
-      ? "metric-pod--positive"
-      : tone === "negative"
-        ? "metric-pod--negative"
-        : tone === "warning"
-          ? "metric-pod--warning"
-          : tone === "brand"
-            ? "metric-pod--brand"
-            : "";
-
   const valueColor =
     tone === "positive"
       ? "text-emerald-400"
@@ -669,99 +581,64 @@ function MetricPod({
           ? "text-amber-400"
           : tone === "brand"
             ? "text-cyan-400"
-            : "text-foreground";
+            : "text-foreground/90";
+
+  const accentClass =
+    tone === "positive"
+      ? "db-kpi--positive"
+      : tone === "negative"
+        ? "db-kpi--negative"
+        : tone === "warning"
+          ? "db-kpi--warning"
+          : tone === "brand"
+            ? "db-kpi--brand"
+            : "";
 
   return (
-    <div className={cn("metric-pod", toneClass)}>
-      {/* Label row with icon */}
-      <div className="flex items-center gap-1.5 mb-1.5">
-        {icon && <span className="text-muted-foreground/60">{icon}</span>}
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium truncate">
-          {label}
-        </span>
+    <div className={cn("db-kpi-card", accentClass)}>
+      <div className="db-kpi-label">
+        {icon && <span className="opacity-60">{icon}</span>}
+        <span>{label}</span>
       </div>
-      {/* Value */}
       {loading ? (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 mt-1">
           <div className="h-5 w-24 rounded animate-shimmer" />
           <div
-            className="h-3 w-32 rounded animate-shimmer"
-            style={{ animationDelay: "0.15s" }}
+            className="h-3 w-28 rounded animate-shimmer"
+            style={{ animationDelay: "0.12s" }}
           />
         </div>
       ) : (
         <>
-          <div
-            className={cn(
-              "text-lg font-semibold leading-tight data-text",
-              valueColor,
-            )}
-          >
+          <div className={cn("db-kpi-value data-text", valueColor)}>
             {value}
           </div>
-          {sub && (
-            <div className="mt-1 text-[10.5px] text-muted-foreground/80 truncate data-text leading-tight">
-              {sub}
-            </div>
-          )}
+          {sub && <div className="db-kpi-sub data-text">{sub}</div>}
         </>
       )}
     </div>
   );
 }
 
-/**
- * Tight inline `label·value` pair used under chart cards. Muted
- * labels and bright values — no card-lines, no bordered tiles.
- */
-function InlineStat({
-  label,
-  value,
-  valueClass,
-}: {
-  label: string;
-  value: string;
-  valueClass?: string;
-}) {
-  return (
-    <span className="whitespace-nowrap">
-      <span className="text-muted-foreground/70">{label}</span>{" "}
-      <span className={cn("text-foreground data-text font-medium", valueClass)}>
-        {value}
-      </span>
-    </span>
-  );
-}
+// --------------------------- Chart Legend ---------------------------
 
 function ChartLegend() {
   return (
-    <div className="flex items-center gap-3 text-[10px] text-muted-foreground/70">
-      <LegendItem color="bg-cyan-400" label="Actual P&L" />
-      <LegendItem color="bg-muted-foreground/60" label="Expected (EV)" dashed />
-    </div>
-  );
-}
-
-function LegendItem({
-  color,
-  label,
-  dashed,
-}: {
-  color: string;
-  label: string;
-  dashed?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className={cn(
-          "inline-block w-4 h-0.5 rounded-full",
-          color,
-          dashed &&
-            "[background-image:repeating-linear-gradient(90deg,currentColor_0,currentColor_3px,transparent_3px,transparent_6px)] [background-color:transparent]",
-        )}
-      />
-      {label}
+    <div className="flex items-center gap-3 text-[10px] text-muted-foreground/60">
+      <span className="flex items-center gap-1.5">
+        <span className="inline-block w-4 h-0.5 rounded-full bg-cyan-400" />
+        Actual
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span
+          className="inline-block w-4 h-0.5 rounded-full"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(90deg,rgb(148,163,184) 0,rgb(148,163,184) 3px,transparent 3px,transparent 6px)",
+          }}
+        />
+        Expected
+      </span>
     </div>
   );
 }
@@ -792,14 +669,6 @@ function signedPct(v: number | null | undefined): string {
   return `${sign}${Math.abs(v).toFixed(2)}%`;
 }
 
-function pnlClass(v: number | null | undefined): string | undefined {
-  if (v === null || v === undefined) return undefined;
-  if (v > 0) return "text-emerald-400";
-  if (v < 0) return "text-danger";
-  return undefined;
-}
-
-/** Maps a numeric value to a metric-pod visual tone. */
 function podTone(v: number | null | undefined): PodTone {
   if (v === null || v === undefined) return "neutral";
   if (v > 0) return "positive";
@@ -807,14 +676,6 @@ function podTone(v: number | null | undefined): PodTone {
   return "neutral";
 }
 
-/**
- * Heuristic: does this error string look like the book kicked us off
- * and a fresh login would fix it? We match on 9W's two failure
- * modes (status 1001 + "not authorized" envelope, and the generic
- * "session expired" variants that bubble up from SessionExpiredError).
- * Transport errors (timeouts, 5xx) deliberately fall through — no point
- * re-logging when the book isn't reachable at all.
- */
 function looksLikeAuthError(err: string | null | undefined): boolean {
   if (!err) return false;
   const s = err.toLowerCase();

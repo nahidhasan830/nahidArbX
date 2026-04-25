@@ -19,13 +19,19 @@
  *   by team names + kickoff window. No per-event lookup needed.
  */
 
-import axios from "axios";
+import axios, { type AxiosRequestConfig } from "axios";
 import { compareTwoStrings } from "string-similarity";
 import type { SettleEvent } from "../waterfall";
 import type { MatchScore } from "../types";
 import { logger } from "../../shared/logger";
 import { applyTeamAlias, learnTeamAlias } from "../aliases";
 import { singleton } from "../../util/singleton";
+import {
+  getProxyAgent,
+  isDirectOnCooldown,
+  reportDirect403,
+  reportProxy403,
+} from "./iproyal-proxy";
 
 const BASE_URL = "https://api.sofascore.com/api/v1";
 const MATCH_SCORE_THRESHOLD = 0.65;
@@ -34,8 +40,9 @@ const HTTP_TIMEOUT_MS = 15_000;
 
 /**
  * Browser-ish headers defeat the laziest of Cloudflare's fingerprinters.
- * Not a silver bullet — if SofaScore starts returning 403s from our IP
- * range, expect the fallback chain to short-circuit at this tier.
+ * When the direct request still 403s (Cloud Run IPs hit the adaptive
+ * bot-score cap after a few hundred requests), `fetchSofaUrl` transparently
+ * retries via the IPRoyal residential pool in `./iproyal-proxy`.
  */
 const BROWSER_HEADERS = {
   "User-Agent":
@@ -223,37 +230,103 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
   const seenIds = new Set<number>();
 
   for (const url of urls) {
-    try {
-      const { data } = await axios.get<SofaScheduled>(url, {
-        headers: BROWSER_HEADERS,
-        timeout: HTTP_TIMEOUT_MS,
-      });
-      for (const e of data.events ?? []) {
-        if (seenIds.has(e.id)) continue;
-        seenIds.add(e.id);
-        collected.push(e);
-      }
-    } catch (err) {
-      const status = (err as { response?: { status?: number } }).response
-        ?.status;
-      if (status === 403) {
-        logger.warn(
-          "SofaScoreSource",
-          `403 for ${url} — Cloudflare blocked. Consider residential IP.`,
-        );
-      } else if (status !== 404) {
-        // /inverse 404s for some dates — treat as non-fatal.
-        logger.warn(
-          "SofaScoreSource",
-          `GET ${url} failed: ${(err as Error).message}`,
-        );
-      }
+    const events = await fetchSofaUrl<SofaScheduled>(url);
+    if (!events) continue;
+    for (const e of events.events ?? []) {
+      if (seenIds.has(e.id)) continue;
+      seenIds.add(e.id);
+      collected.push(e);
     }
   }
 
   eventsByDate.set(date, { fetchedAt: Date.now(), events: collected });
   return collected;
 };
+
+/**
+ * GET a SofaScore URL with residential-proxy fallback on Cloudflare 403.
+ *
+ * Strategy:
+ *   1. If direct isn't on a recent-403 cooldown, try direct.
+ *   2. On direct 403 (or if direct is on cooldown), try via IPRoyal.
+ *   3. If the current proxy also 403s, rotate once and retry.
+ *   4. All other errors (404, timeout, etc.) return null without burning
+ *      a proxy — they're not Cloudflare blocks.
+ *
+ * Returns `null` on non-recoverable failure; the shape of a successful
+ * response depends on the caller (SofaScheduled vs SofaStatsResponse).
+ */
+async function fetchSofaUrl<T>(url: string): Promise<T | null> {
+  const baseCfg: AxiosRequestConfig = {
+    headers: BROWSER_HEADERS,
+    timeout: HTTP_TIMEOUT_MS,
+  };
+
+  // 1) Direct (unless recently 403'd)
+  if (!isDirectOnCooldown()) {
+    try {
+      const { data } = await axios.get<T>(url, baseCfg);
+      return data;
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response
+        ?.status;
+      if (status === 403) {
+        reportDirect403();
+        logger.warn(
+          "SofaScoreSource",
+          `403 direct for ${url} — falling back to IPRoyal proxy.`,
+        );
+        // fall through to proxy attempt
+      } else if (status === 404) {
+        return null;
+      } else {
+        logger.warn(
+          "SofaScoreSource",
+          `GET ${url} failed: ${(err as Error).message}`,
+        );
+        return null;
+      }
+    }
+  }
+
+  // 2) Proxy fallback — up to 2 attempts (rotate on 403)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const proxy = getProxyAgent();
+    if (!proxy) {
+      logger.warn(
+        "SofaScoreSource",
+        `No IPRoyal proxy available — cannot retry ${url}.`,
+      );
+      return null;
+    }
+    try {
+      const { data } = await axios.get<T>(url, {
+        ...baseCfg,
+        httpsAgent: proxy.agent,
+        proxy: false,
+      });
+      logger.info(
+        "SofaScoreSource",
+        `Resolved via IPRoyal proxy ${proxy.label} (attempt ${attempt + 1}).`,
+      );
+      return data;
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response
+        ?.status;
+      if (status === 403) {
+        reportProxy403(proxy.label);
+        continue;
+      }
+      if (status === 404) return null;
+      logger.warn(
+        "SofaScoreSource",
+        `Proxy ${proxy.label} GET ${url} failed: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+  return null;
+}
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
 
@@ -281,25 +354,21 @@ interface SofaStatsResponse {
 const fetchEventCorners = async (
   sofaEventId: number,
 ): Promise<{ home: number; away: number } | null> => {
-  try {
-    const { data } = await axios.get<SofaStatsResponse>(
-      `${BASE_URL}/event/${sofaEventId}/statistics`,
-      { headers: BROWSER_HEADERS, timeout: HTTP_TIMEOUT_MS },
-    );
-    for (const period of data.statistics ?? []) {
-      for (const g of period.groups ?? []) {
-        for (const item of g.statisticsItems ?? []) {
-          if (item.key === "cornerKicks") {
-            if (item.homeValue == null || item.awayValue == null) return null;
-            return { home: item.homeValue, away: item.awayValue };
-          }
+  const data = await fetchSofaUrl<SofaStatsResponse>(
+    `${BASE_URL}/event/${sofaEventId}/statistics`,
+  );
+  if (!data) return null;
+  for (const period of data.statistics ?? []) {
+    for (const g of period.groups ?? []) {
+      for (const item of g.statisticsItems ?? []) {
+        if (item.key === "cornerKicks") {
+          if (item.homeValue == null || item.awayValue == null) return null;
+          return { home: item.homeValue, away: item.awayValue };
         }
       }
     }
-    return null;
-  } catch {
-    return null;
   }
+  return null;
 };
 
 /**

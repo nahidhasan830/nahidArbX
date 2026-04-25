@@ -16,8 +16,14 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TermTooltip } from "@/components/ui/TermTooltip";
-import type { OptimizationStrategyRow } from "@/lib/optimizer/strategies";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type {
+  OptimizationStrategyRow,
+  StrategyFilters,
+  StrategySizing,
+} from "@/lib/optimizer/strategies";
 import { ValidationHistory } from "./ValidationHistory";
+import { formatMarketType } from "@/lib/formatting/labels";
 
 const REFRESH_MS = 10_000;
 
@@ -107,8 +113,12 @@ export function StrategiesTable() {
             <th className="px-1 w-6"></th>
             <th className="px-3 py-2 font-medium">Name / status</th>
             <th className="px-3 py-2 font-medium text-right">
-              <TermTooltip term="roi">OOS ROI</TermTooltip>{" "}
-              <TermTooltip term="ci" iconOnly />
+              <TooltipProvider delayDuration={200}>
+                <TermTooltip term="roi">OOS ROI</TermTooltip>
+              </TooltipProvider>{" "}
+              <TooltipProvider delayDuration={200}>
+                <TermTooltip term="ci" iconOnly />
+              </TooltipProvider>
             </th>
             <th className="px-3 py-2 font-medium text-right">Live ROI</th>
             <th className="px-3 py-2 font-medium text-right">Live n</th>
@@ -258,7 +268,14 @@ export function StrategiesTable() {
                   <tr className="border-t border-border/40 bg-muted/10">
                     <td className="px-1"></td>
                     <td colSpan={6} className="px-3 py-3">
-                      <div onClick={(e) => e.stopPropagation()}>
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="space-y-4"
+                      >
+                        <StrategyConfigPanel
+                          filters={s.filters as StrategyFilters}
+                          sizing={s.sizing as StrategySizing}
+                        />
                         <ValidationHistory strategyId={s.id} />
                       </div>
                     </td>
@@ -269,6 +286,105 @@ export function StrategiesTable() {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Strategy config panel ─────────────────────────────────────────────────────
+
+const FILTER_LABELS: Record<string, string> = {
+  min_ev_pct: "Min EV %",
+  max_odds_age_sec: "Max odds age (s)",
+  min_sharp_prob: "Min sharp prob",
+  odds_lo: "Odds min",
+  odds_hi: "Odds max",
+  min_tick_count: "Min ticks",
+  pre_match_only: "Pre-match only",
+  soft_providers: "Providers",
+  market_types: "Markets",
+};
+
+const SIZING_LABELS: Record<string, string> = {
+  kelly_fraction: "Kelly fraction",
+  kelly_cap_pct: "Kelly cap %",
+  staking_scheme: "Staking scheme",
+};
+
+function fmtFilterValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "—";
+    if (key === "market_types")
+      return (value as string[]).map(formatMarketType).join(", ");
+    return (value as string[]).join(", ");
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value)
+      ? value.toFixed(3).replace(/\.?0+$/, "")
+      : "—";
+  }
+  return String(value);
+}
+
+function ConfigGrid({
+  title,
+  entries,
+}: {
+  title: string;
+  entries: [string, unknown][];
+}) {
+  const active = entries.filter(
+    ([, v]) =>
+      v !== null &&
+      v !== undefined &&
+      !(Array.isArray(v) && (v as unknown[]).length === 0),
+  );
+  if (active.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+        {title}
+      </p>
+      <div className="rounded-md border border-border/60 bg-muted/30 divide-y divide-border/40">
+        {active.map(([k, v]) => (
+          <div
+            key={k}
+            className="flex items-center justify-between px-2.5 py-1 text-[11px]"
+          >
+            <span className="text-muted-foreground shrink-0">
+              {FILTER_LABELS[k] ?? SIZING_LABELS[k] ?? k}
+            </span>
+            <span className="tabular-nums font-medium text-right ml-4 max-w-[60%] truncate">
+              {fmtFilterValue(k, v)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StrategyConfigPanel({
+  filters,
+  sizing,
+}: {
+  filters: StrategyFilters | null | undefined;
+  sizing: StrategySizing | null | undefined;
+}) {
+  const filterEntries = filters
+    ? (Object.entries(filters) as [string, unknown][])
+    : [];
+  const sizingEntries = sizing
+    ? (Object.entries(sizing) as [string, unknown][])
+    : [];
+
+  if (filterEntries.length === 0 && sizingEntries.length === 0) return null;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
+      <ConfigGrid title="Filters" entries={filterEntries} />
+      <ConfigGrid title="Sizing" entries={sizingEntries} />
     </div>
   );
 }

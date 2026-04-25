@@ -31,7 +31,7 @@ import {
 import { syncBus } from "../events/event-bus";
 import { singleton } from "../util/singleton";
 
-const DEFAULT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const MIN_INTERVAL_MS = 30 * 1000;
 
 interface SchedulerState {

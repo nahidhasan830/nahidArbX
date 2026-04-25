@@ -53,7 +53,7 @@ export function Heatmap({
       {/* Grid — flex-1 so rows stretch to fill the card's vertical
           space; cells inherit row height via h-full and stop leaving
           the card half-empty when the sibling chart is taller. */}
-      <div className="flex-1 grid grid-cols-[auto_1fr] gap-x-2 grid-rows-[auto_repeat(7,minmax(0,1fr))] min-h-[140px]">
+      <div className="flex-1 grid grid-cols-[auto_1fr] gap-x-2 grid-rows-[auto_repeat(7,minmax(0,1fr))] min-h-[168px]">
         {/* hour ticks row */}
         <div className="col-start-2 grid grid-cols-24 gap-[2px] text-[9px] text-muted-foreground">
           {Array.from({ length: 24 }, (_, h) => (

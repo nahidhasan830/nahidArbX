@@ -7,8 +7,17 @@
  *
  *   <TermTooltip term="dsr">Deflated Sharpe</TermTooltip>
  *
- * The tooltip also shows a "Learn more →" link pointing to the relevant
- * anchor in `docs/alphasearch.md` when the glossary entry has one.
+ * The tooltip shows two flowing paragraphs (no rigid section labels):
+ *   - short      (bold one-line headline)
+ *   - example    (plain-English explanation that includes a concrete
+ *                 betting illustration — provider, market, real-looking
+ *                 numbers — without the old "For your bets:" prefix)
+ *   - objective  (italic one-liner shown ONLY on choice-type entries
+ *                 like algorithms / staking schemes — answers
+ *                 "why pick this?" without the old "What you'll achieve:" prefix)
+ *
+ * The legacy `long` field is no longer rendered. See CLAUDE.md →
+ * "Explanatory copy" for the plain-language voice convention.
  */
 
 import * as React from "react";
@@ -45,27 +54,22 @@ export function TermTooltip({
             className={`inline-flex items-center gap-1 cursor-help underline decoration-dotted decoration-muted-foreground/60 underline-offset-2 ${className ?? ""}`}
           >
             {!iconOnly && children}
-            <Info className="size-3 text-muted-foreground" aria-hidden />
+            <Info className="size-3.5 text-muted-foreground" aria-hidden />
           </span>
         </TooltipTrigger>
         <TooltipContent
           side="top"
           align="start"
-          className="max-w-sm space-y-1.5 leading-relaxed"
+          className="max-w-md space-y-2.5 leading-relaxed px-3.5 py-3"
         >
-          <p className="text-xs font-medium">{entry.short}</p>
-          {entry.long && (
-            <p className="text-[11px] text-muted-foreground">{entry.long}</p>
+          <p className="text-sm font-semibold text-foreground">{entry.short}</p>
+          {entry.example && (
+            <p className="text-[13px] text-muted-foreground">{entry.example}</p>
           )}
-          {entry.learnMoreHref && (
-            <a
-              href={entry.learnMoreHref}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[11px] text-primary hover:underline"
-            >
-              Learn more →
-            </a>
+          {entry.objective && (
+            <p className="text-[13px] italic text-muted-foreground">
+              {entry.objective}
+            </p>
           )}
         </TooltipContent>
       </Tooltip>

@@ -1,5 +1,5 @@
 /**
- * AlphaSearch — Telegram notification for completed optimizer runs.
+ * Optimisation — Telegram notification for completed optimizer runs.
  *
  * Runs on the same interval as `scheduler.ts` (one tick function call per
  * 30s poll). Claims every row in `optimization_runs` that:
@@ -29,7 +29,7 @@
  *     needing to re-query the DB.
  */
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import {
   optimizationRuns,
@@ -38,9 +38,18 @@ import {
   type OptimizationTrialRow,
 } from "../db/schema";
 import { notify } from "../notifier";
-import type { OptimizerRunCompletedEvent } from "../notifier/types";
+import type {
+  OptimizerRunCompletedEvent,
+  OptimizerRunStartedEvent,
+} from "../notifier/types";
 import { logger } from "../shared/logger";
-import type { RunSummaryJson } from "./types";
+import {
+  formatCvStrategyLabel,
+  formatScopeSummary,
+  getEstimatedRunDurationSec,
+  previewDataset,
+} from "./repository";
+import type { CvStrategyJson, DataFiltersJson, RunSummaryJson } from "./types";
 
 const tag = "OptimizerNotifierTick";
 const CLAIM_BATCH_LIMIT = 10;
@@ -109,10 +118,10 @@ function toEvent(
     best,
     createdBy: run.createdBy ?? "manual",
     error: run.error ?? null,
-    dashboardUrl: baseUrl ? `${baseUrl}/lab/alphasearch/${run.id}` : undefined,
+    dashboardUrl: baseUrl ? `${baseUrl}/lab/optimisation/${run.id}` : undefined,
     topTrialUrl:
       baseUrl && bestTrial
-        ? `${baseUrl}/lab/alphasearch/${run.id}#trial=${bestTrial.trialIndex}`
+        ? `${baseUrl}/lab/optimisation/${run.id}#trial=${bestTrial.trialIndex}`
         : undefined,
   };
 }
@@ -191,6 +200,133 @@ export async function processPendingRunNotifications(): Promise<number> {
       logger.warn(
         tag,
         `Failed to dispatch notification for run ${run.id}: ${msg}`,
+      );
+    }
+  }
+  return sent;
+}
+
+// ─── "Run started" Telegram ping ─────────────────────────────────────────
+//
+// Mirrors processPendingRunNotifications but keyed off `started_at` and
+// `started_notified_at`. Fires once the sidecar picks a queued run up, so
+// the operator knows what's cooking plus the estimated finish time. The
+// claim query also matches runs that have already moved past `running`
+// (e.g. a very short run that completed between polls) — we still want
+// to send the "started" ping in that case for audit completeness.
+
+async function buildRunStartedEvent(
+  run: OptimizationRunRow,
+): Promise<OptimizerRunStartedEvent> {
+  const baseUrl = appBaseUrl();
+  const startedAt = (run.startedAt ?? new Date().toISOString()) as string;
+
+  // Resolve bet count + scope summary from the stored data_filters. Swallow
+  // any preview errors — an ETA line with no scope is still useful.
+  let betCount: number | null = null;
+  try {
+    const preview = await previewDataset(
+      (run.dataFilters ?? {}) as DataFiltersJson,
+    );
+    betCount = preview.included;
+  } catch (err) {
+    logger.warn(
+      tag,
+      `previewDataset failed for run ${run.id}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ETA — independent of preview; safe to fall through to null on error.
+  let estimatedDurationSec: number | null = null;
+  let estimationBasis: string | null = null;
+  try {
+    const est = await getEstimatedRunDurationSec({
+      nTrialsTarget: run.nTrialsTarget,
+      cvStrategy: ((run.cvStrategy as CvStrategyJson | null)?.type ??
+        "cpcv") as string,
+      searchAlgorithm: run.searchAlgorithm,
+    });
+    estimatedDurationSec = est.estimatedSec;
+    estimationBasis = est.basis;
+  } catch (err) {
+    logger.warn(
+      tag,
+      `ETA lookup failed for run ${run.id}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const estimatedFinishAt =
+    estimatedDurationSec != null
+      ? new Date(
+          new Date(startedAt).getTime() + estimatedDurationSec * 1000,
+        ).toISOString()
+      : null;
+
+  return {
+    type: "optimizer:run_started",
+    at: new Date().toISOString(),
+    runId: run.id,
+    name: run.name,
+    searchAlgorithm: run.searchAlgorithm,
+    rngSeed: run.rngSeed,
+    nTrialsTarget: run.nTrialsTarget,
+    cvStrategyLabel: formatCvStrategyLabel(run.cvStrategy as CvStrategyJson),
+    startedAt,
+    betCount,
+    scopeSummary: formatScopeSummary(run.dataFilters as DataFiltersJson),
+    estimatedDurationSec,
+    estimationBasis,
+    estimatedFinishAt,
+    createdBy: run.createdBy ?? "manual",
+    dashboardUrl: baseUrl ? `${baseUrl}/lab/optimisation/${run.id}` : undefined,
+  };
+}
+
+/**
+ * Claim every pending "run started" notification and fire it. Called from
+ * the same scheduler tick as processPendingRunNotifications.
+ */
+export async function processPendingRunStartedNotifications(): Promise<number> {
+  const claimed: OptimizationRunRow[] = await db
+    .update(optimizationRuns)
+    .set({ startedNotifiedAt: sql`now()` })
+    .where(
+      and(
+        eq(optimizationRuns.notifyOnStart, true),
+        isNotNull(optimizationRuns.startedAt),
+        isNull(optimizationRuns.startedNotifiedAt),
+      ),
+    )
+    .returning();
+
+  if (claimed.length === 0) return 0;
+
+  // Cap per tick to respect Telegram rate limits (same pattern as the
+  // completion ping). Overflow is released for the next tick.
+  const batch = claimed.slice(0, CLAIM_BATCH_LIMIT);
+  if (claimed.length > CLAIM_BATCH_LIMIT) {
+    const overflow = claimed.slice(CLAIM_BATCH_LIMIT).map((r) => r.id);
+    await db
+      .update(optimizationRuns)
+      .set({ startedNotifiedAt: null })
+      .where(inArray(optimizationRuns.id, overflow));
+  }
+
+  let sent = 0;
+  for (const run of batch) {
+    try {
+      const event = await buildRunStartedEvent(run);
+      await notify(event);
+      sent += 1;
+      logger.info(
+        tag,
+        `Sent run-started notification for run ${run.id} (ETA ${event.estimatedDurationSec ?? "—"}s, dataset ${event.betCount ?? "—"})`,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        tag,
+        `Failed to dispatch run-started notification for run ${run.id}: ${msg}`,
       );
     }
   }

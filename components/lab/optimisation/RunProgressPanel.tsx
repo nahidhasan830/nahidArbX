@@ -19,6 +19,7 @@
  */
 
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   AlertCircle,
@@ -39,8 +40,6 @@ import type { OptimizationRunRow } from "@/lib/optimizer/repository";
 
 export interface RunProgressPanelProps {
   run: OptimizationRunRow;
-  /** Number of trials currently completed (may be fresher than run.nTrialsDone). */
-  trialsCompleted?: number;
 }
 
 type StageState = "pending" | "running" | "done" | "failed";
@@ -57,10 +56,7 @@ interface Stage {
 
 // ── Main component ───────────────────────────────────────────────────────
 
-export function RunProgressPanel({
-  run,
-  trialsCompleted,
-}: RunProgressPanelProps) {
+export function RunProgressPanel({ run }: RunProgressPanelProps) {
   const isTerminal =
     run.status === "completed" ||
     run.status === "failed" ||
@@ -68,12 +64,57 @@ export function RunProgressPanel({
 
   // Throughput / ETA — tracked in a ref so we don't re-render for every
   // tick but still show a smooth number that averages over the last ~30s.
-  const done = trialsCompleted ?? run.nTrialsDone;
+  // `nTrialsDone` is sourced from the run row (same as the top status strip),
+  // not from the trials API which caps at limit=500 and would freeze the
+  // panel mid-sweep on large runs.
+  const done = run.nTrialsDone;
   const target = run.nTrialsTarget;
   const pct =
     target === 0 ? 0 : Math.min(100, Math.round((done / target) * 100));
 
   const { throughput, etaSeconds } = useThroughput({ done, target, run });
+
+  // Fallback ETA for the early window where throughput hasn't measured yet.
+  // Pulls from the historical p50 endpoint so the user sees a real number
+  // immediately instead of "ETA updating…".
+  const cvType = (run.cvStrategy as { type?: string } | null)?.type ?? "cpcv";
+  const estimateQ = useQuery({
+    queryKey: [
+      "optimizer",
+      "estimate",
+      run.nTrialsTarget,
+      cvType,
+      run.searchAlgorithm,
+    ],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/optimizer/runs/estimate?nTrials=${run.nTrialsTarget}&cvStrategy=${cvType}&searchAlgorithm=${run.searchAlgorithm}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as {
+        estimatedSec: number | null;
+        basis: string;
+        sampleSize: number;
+      };
+    },
+    enabled: !isTerminal,
+    staleTime: 60_000,
+  });
+
+  // Prefer the live throughput-based ETA; fall back to the historical p50
+  // when we haven't measured throughput yet.
+  const resolvedEtaSec = (() => {
+    if (etaSeconds != null && etaSeconds > 0) return etaSeconds;
+    const est = estimateQ.data?.estimatedSec;
+    if (est == null || est <= 0) return null;
+    // Scale the p50 by remaining progress — if 30% already done, show 70% of p50.
+    const fracRemaining = target > 0 ? 1 - Math.min(1, done / target) : 1;
+    return Math.max(1, Math.round(est * fracRemaining));
+  })();
+  const etaBasis =
+    etaSeconds != null && etaSeconds > 0
+      ? "live throughput"
+      : (estimateQ.data?.basis ?? null);
 
   const stages = buildStages(run, done, throughput);
 
@@ -103,7 +144,7 @@ export function RunProgressPanel({
                 {target > 0 && ` · ${pct}%`}
               </span>
             </h2>
-            <p className="text-xs text-muted-foreground leading-snug mt-0.5">
+            <p className="text-[13px] text-muted-foreground leading-snug mt-0.5">
               Watching the Python sidecar. Each stage below lights up as the
               optimizer advances.
             </p>
@@ -129,8 +170,8 @@ export function RunProgressPanel({
             <span>
               {run.status === "failed"
                 ? ""
-                : etaSeconds != null && etaSeconds > 0
-                  ? `~${formatEta(etaSeconds)} remaining`
+                : resolvedEtaSec != null && resolvedEtaSec > 0
+                  ? `~${formatEta(resolvedEtaSec)} remaining${etaBasis ? ` · ${etaBasis}` : ""}`
                   : "ETA updating…"}
             </span>
           </div>
@@ -143,7 +184,7 @@ export function RunProgressPanel({
         </ol>
 
         {run.status === "failed" && run.error && (
-          <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2.5 flex items-start gap-2 text-xs text-red-600 dark:text-red-400">
+          <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2.5 flex items-start gap-2 text-[13px] text-red-600 dark:text-red-400">
             <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
             <span className="leading-relaxed break-words">{run.error}</span>
           </div>
@@ -249,7 +290,7 @@ function QueuedCard() {
       <Loader2 className="size-4 animate-spin text-primary" />
       <div className="min-w-0">
         <h2 className="text-sm font-semibold">Queued</h2>
-        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+        <p className="text-[13px] text-muted-foreground mt-0.5 leading-relaxed">
           The sidecar will pick this run up within ~30 seconds. Telegram
           notification fires when the run completes.
         </p>
@@ -310,7 +351,7 @@ function StageRow({ stage, last }: { stage: Stage; last: boolean }) {
             <Icon className="size-3.5 text-muted-foreground" />
             <span className="text-sm font-semibold">{stage.label}</span>
           </div>
-          <p className="text-xs text-muted-foreground leading-snug mt-0.5">
+          <p className="text-[13px] text-muted-foreground leading-snug mt-0.5">
             {stage.caption}
             {stage.id === "splits" && (
               <>

@@ -1,5 +1,7 @@
-# AlphaSearch optimizer sidecar — Python 3.12 + FastAPI + Optuna.
-# Built by Cloud Build, deployed to Cloud Run service `nahidarbx-optimizer`.
+# Optimisation sidecar — Python 3.12 + Optuna.
+# Built by Cloud Build, deployed to Cloud Run Job `nahidarbx-optimizer-job`.
+# Each Job execution runs `python -m app.job`, reads RUN_ID from env, runs
+# one full optimization sweep to completion, then exits.
 
 FROM python:3.12-slim AS base
 
@@ -19,8 +21,5 @@ RUN uv pip install --system --no-cache .
 
 COPY app ./app
 
-# Cloud Run injects PORT (defaults 8080). Local dev sets PORT=8001.
-ENV PORT=8080
-EXPOSE 8080
-
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Cloud Run Jobs don't take HTTP traffic — no PORT, no EXPOSE.
+CMD ["python", "-m", "app.job"]

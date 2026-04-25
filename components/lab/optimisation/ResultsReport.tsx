@@ -84,10 +84,12 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
   // ── Question 1: Did we find an edge? ──────────────────────────────────
   const edgeVerdict: { tone: Tone; headline: string; detail: string } = (() => {
     if (actionableWinner) {
+      const survived =
+        nOk === 1 ? "1 strategy passed" : `${nOk} strategies passed`;
       return {
         tone: "positive",
-        headline: "Yes — at least one trial survived every quality gate.",
-        detail: `Trial #${actionableWinner.trialIndex} has n=${actionableWinner.sampleSize ?? "?"}, a DSR of ${actionableWinner.deflatedSharpe?.toFixed(2) ?? "—"}, and a 95% ROI CI entirely above zero. Promote with confidence.`,
+        headline: `Yes — ${survived} every safety check (out of ${trials.length} tried).`,
+        detail: `Strategy #${actionableWinner.trialIndex} won on ${actionableWinner.sampleSize ?? "?"} bets, with strong evidence the result is real skill rather than luck, and even the bottom of its believable range is above zero. Safe to take this one live.`,
       };
     }
     if (nOk === 0 && nLow > 0) {
@@ -95,15 +97,15 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
         tone: "warning",
         headline:
           "Not yet — nothing crosses the high-confidence bar, but there are hints.",
-        detail: `${nLow} trial${nLow === 1 ? "" : "s"} passed the "Low confidence" bar (n≥${MIN_SAMPLE_FOR_CREDIT}, some statistical signal) but none have the n≥100, DSR≥0.8, CI>0 trifecta we need to trust a promotion. Run more trials or widen the search space.`,
+        detail: `${nLow} strategy${nLow === 1 ? "" : "ies"} survived the lowest bar (at least ${MIN_SAMPLE_FOR_CREDIT} bets and some signal) but none cleared the bar we'd want before going live: 100+ bets, strong evidence it's not luck, and a believable range that stays above zero. Either run more trials or widen the menu of knobs.`,
       };
     }
     return {
       tone: "danger",
       headline:
-        "No — this run didn't find a positive edge in your historical bets.",
+        "No — this run didn't find a real edge in your historical bets.",
       detail:
-        "Either the filter ranges we swept exclude the profitable region of your data, the dataset is too small, or there isn't a persistent edge to find at these settings. Try widening the search space or collecting more settled bets before the next run.",
+        "Either the knob ranges you set rule out the profitable corner of your data, your bet history is too small, or there's no persistent edge here at all. Widen the menu of knobs or collect more settled bets before the next run.",
     };
   })();
 
@@ -123,7 +125,7 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
     {
       label: (
         <span className="inline-flex items-center gap-1">
-          <TermTooltip term="pbo">PBO (overfit risk)</TermTooltip>
+          <TermTooltip term="pbo">Overfit risk (PBO)</TermTooltip>
         </span>
       ),
       value: pbo != null ? `${(pbo * 100).toFixed(1)}%` : "—",
@@ -139,15 +141,15 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
         pbo == null
           ? "Not available."
           : pbo < 0.05
-            ? "Low overfit risk — the top configs generalise well across CV folds."
+            ? "Looks real — the winning strategies hold up well on bets they were never trained on."
             : pbo < 0.3
-              ? "Borderline — the winning config didn't dominate every fold. Watch drift once live."
-              : "Search space is too aggressive for this dataset. Narrow the dimensions or get more bets.",
+              ? "Borderline — the winner didn't dominate every test. Watch the live ROI carefully."
+              : "You searched too hard — the winner probably won't survive on new bets. Narrow the menu of knobs or wait for more bets.",
     },
     {
       label: (
         <span className="inline-flex items-center gap-1">
-          <TermTooltip term="wrc">WRC p-value</TermTooltip>
+          <TermTooltip term="wrc">Beats baseline (WRC)</TermTooltip>
         </span>
       ),
       value: wrc != null ? wrc.toFixed(3) : "—",
@@ -163,15 +165,15 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
         wrc == null
           ? "Not available."
           : wrc < 0.05
-            ? "Winner beats a baseline by more than chance alone would explain."
+            ? "The winner clearly beats the dumb 'bet everything' baseline."
             : wrc < 0.2
-              ? "Weak evidence that the winner beats the baseline — run more trials."
-              : "Best trial is statistically indistinguishable from the baseline.",
+              ? "Slim margin over the baseline — run a longer search before promoting."
+              : "The winner isn't really beating a 'bet everything' fallback. Don't promote.",
     },
     {
       label: (
         <span className="inline-flex items-center gap-1">
-          <TermTooltip term="pareto">Pareto frontier size</TermTooltip>
+          <TermTooltip term="pareto">Trade-off options</TermTooltip>
         </span>
       ),
       value: nPareto != null ? String(nPareto) : "—",
@@ -187,13 +189,13 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
         nPareto == null
           ? "Not available."
           : nPareto >= 3
-            ? "Multiple configs on the frontier — you can pick ROI-max vs. drawdown-min."
+            ? "Several strategies to choose from — you can pick higher ROI or smaller drawdown."
             : nPareto === 1
-              ? "Only one config on the frontier — trade-off options are thin."
-              : "Empty frontier — no non-dominated configs at all.",
+              ? "Only one strategy worth considering."
+              : "Nothing worth considering.",
     },
     {
-      label: "Trials that passed every gate",
+      label: "Strategies that passed every check",
       value: (
         <span className="tabular-nums">
           {nOk} / {trials.length}{" "}
@@ -205,10 +207,10 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
       tone: okPct >= 10 ? "positive" : okPct >= 2 ? "warning" : "danger",
       note:
         okPct >= 10
-          ? "Healthy pass rate — the search is finding real configs, not just lucky ones."
+          ? "Healthy pass rate — the search is finding real strategies, not just lucky ones."
           : okPct >= 2
-            ? "Only a small share of trials pass the confidence bar. Widen the search or run more trials."
-            : `${nUnreliable} unreliable trials means the current filter ranges aren't finding an edge in your bets.`,
+            ? "Only a small share survive every check. Widen the search or run more trials."
+            : `${nUnreliable} unreliable strategies means the current knob ranges aren't finding an edge in your bets.`,
     },
   ];
 
@@ -219,7 +221,7 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
         <VerdictIcon tone={edgeVerdict.tone} />
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">Results report</h2>
-          <p className="text-xs text-muted-foreground leading-snug mt-0.5">
+          <p className="text-[13px] text-muted-foreground leading-snug mt-0.5">
             What we learned from this run, in plain English.
           </p>
         </div>
@@ -244,7 +246,7 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
             {confidenceRows.map((r, idx) => (
               <li
                 key={idx}
-                className="grid grid-cols-[180px_80px_1fr] gap-3 items-start px-3 py-2 text-xs"
+                className="grid grid-cols-[180px_80px_1fr] gap-3 items-start px-3 py-2 text-[13px]"
               >
                 <span className="text-muted-foreground inline-flex items-center gap-1">
                   {r.label}
@@ -262,7 +264,7 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
                 >
                   {r.value}
                 </span>
-                <span className="text-[11px] text-muted-foreground leading-snug">
+                <span className="text-[13px] text-muted-foreground leading-snug">
                   {r.note}
                 </span>
               </li>
@@ -272,18 +274,18 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
 
         {/* Q3 — best actionable trial */}
         <Block
-          eyebrow="3. What's the best actionable trial?"
+          eyebrow="3. What's the best strategy to take live?"
           headline={
             actionableWinner
-              ? `Trial #${actionableWinner.trialIndex} — promote this one.`
-              : "No trial passed the confidence bar. Don't promote anything yet."
+              ? `Strategy #${actionableWinner.trialIndex} — promote this one.`
+              : "No strategy passed the safety bar. Don't promote anything yet."
           }
           headlineTone={actionableWinner ? "positive" : "warning"}
           detail={
             actionableWinner
-              ? `ROI ${fmtPct(actionableWinner.oosRoiMean)} (95% CI ${fmtPct(actionableWinner.oosRoiCiLow)} → ${fmtPct(actionableWinner.oosRoiCiHigh)}), Sharpe ${fmtNum(actionableWinner.oosSharpe)}, DSR ${fmtNum(actionableWinner.deflatedSharpe)}, n=${actionableWinner.sampleSize ?? "?"}. This isn't always the composite-max winner — it's the highest-ranked trial that also passes the n≥100 · DSR≥0.8 · CI>0 gate.`
+              ? `ROI ${fmtPct(actionableWinner.oosRoiMean)} on ${actionableWinner.sampleSize ?? "?"} bets (believable range ${fmtPct(actionableWinner.oosRoiCiLow)} to ${fmtPct(actionableWinner.oosRoiCiHigh)}). This isn't always the highest-scoring trial — it's the highest-scoring one that also passed the safety bar (100+ bets, strong evidence it's not luck, believable range above zero).`
               : rawWinner
-                ? `The composite-max winner (Trial #${rawWinner.trialIndex}) is classified Unreliable. Promoting it would be betting on noise. Run a longer sweep or widen the search before promoting.`
+                ? `The top-scoring strategy (#${rawWinner.trialIndex}) didn't pass the safety bar — promoting it would be betting on noise. Run a longer search or widen the menu of knobs before promoting.`
                 : undefined
           }
         />
@@ -325,7 +327,7 @@ function Block({
         {headline}
       </p>
       {detail && (
-        <p className="text-xs text-muted-foreground leading-relaxed">
+        <p className="text-[13px] text-muted-foreground leading-relaxed">
           {detail}
         </p>
       )}
@@ -358,10 +360,9 @@ function confidenceHeadline(rows: Row[]): string {
   const danger = rows.filter((r) => r.tone === "danger").length;
   const warning = rows.filter((r) => r.tone === "warning").length;
   const positive = rows.filter((r) => r.tone === "positive").length;
-  if (danger > 0)
-    return "Mixed — one or more confidence checks flagged as problematic.";
-  if (warning > 0) return "Cautious — confidence signals are uneven.";
-  if (positive >= 3) return "Strong — most confidence checks land green.";
+  if (danger > 0) return "Mixed — one or more safety checks came back red.";
+  if (warning > 0) return "Cautious — the safety checks are uneven.";
+  if (positive >= 3) return "Strong — most safety checks land green.";
   return "Inconclusive.";
 }
 
@@ -389,7 +390,7 @@ export function UnreliableWinnerBanner({ run, trials }: ResultsReportProps) {
   if (q.quality !== "unreliable") return null;
 
   return (
-    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3.5 flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200">
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3.5 flex items-start gap-3 text-[13px] text-amber-900 dark:text-amber-200">
       <Flame className="size-4 shrink-0 mt-0.5 text-amber-600" />
       <div className="space-y-1 min-w-0">
         <p className="font-semibold text-amber-800 dark:text-amber-200">

@@ -107,8 +107,8 @@ const NAV_SECTIONS: NavSection[] = [
         feature: "diagnostics",
       },
       {
-        href: "/lab/alphasearch",
-        label: "AlphaSearch",
+        href: "/lab/optimisation",
+        label: "Optimisation",
         icon: FlaskConical,
       },
     ],
@@ -355,7 +355,13 @@ export function AppShell({
           </div>
         </header>
 
-        <div className={edgeToEdge ? "" : "p-4"}>{children}</div>
+        <div
+          className={
+            edgeToEdge ? "flex flex-col flex-1 min-h-0 overflow-hidden" : "p-4"
+          }
+        >
+          {children}
+        </div>
       </SidebarInset>
 
       {/* ─── Command Palette (⌘K) ─── */}

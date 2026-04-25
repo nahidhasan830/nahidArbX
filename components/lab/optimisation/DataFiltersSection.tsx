@@ -162,13 +162,13 @@ export function DataFiltersSection({
       )}
 
       {tooFew && (
-        <p className="text-[10px] text-amber-600">
+        <p className="text-[13px] text-amber-600">
           Below 50 bets — CPCV needs at least that many. Loosen filters or this
           run will fail.
         </p>
       )}
 
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-[13px] text-muted-foreground leading-relaxed">
         All sources start <strong>included</strong> (every checkbox ticked) —
         untick a box to drop that source from this run.
       </p>
@@ -177,7 +177,7 @@ export function DataFiltersSection({
       {allProviders.length > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-medium text-foreground/80">
+            <p className="text-[11px] font-medium text-foreground/80">
               Soft providers
             </p>
             <SelectAllToggle
@@ -231,7 +231,7 @@ export function DataFiltersSection({
       {allMarkets.length > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] font-medium text-foreground/80">
+            <p className="text-[11px] font-medium text-foreground/80">
               Market types
             </p>
             <SelectAllToggle
@@ -274,7 +274,7 @@ export function DataFiltersSection({
       {/* Date range + placed-only */}
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label className="text-[10px] font-medium text-foreground/80">
+          <label className="text-[11px] font-medium text-foreground/80">
             Event from
           </label>
           <Input
@@ -285,7 +285,7 @@ export function DataFiltersSection({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-[10px] font-medium text-foreground/80">
+          <label className="text-[11px] font-medium text-foreground/80">
             Event to
           </label>
           <Input

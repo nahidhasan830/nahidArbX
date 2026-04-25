@@ -103,7 +103,7 @@ export const bets = pgTable(
     settleAttempts: integer().notNull().default(0),
     lastSettleAttemptAt: ts(),
 
-    // AlphaSearch strategy attribution (Phase 3) — set at detection time
+    // Optimisation strategy attribution (Phase 3) — set at detection time
     // when a live strategy claims this bet. Lets us compute since-promotion
     // metrics per strategy and detect drift vs OOS estimate.
     strategyId: text(),
@@ -339,7 +339,7 @@ export type BettingSettingsRow = typeof bettingSettings.$inferSelect;
 export type NewBettingSettingsRow = typeof bettingSettings.$inferInsert;
 
 /**
- * AlphaSearch — parameter-optimization run.
+ * Optimisation — parameter-optimization run.
  *
  * Each row is one user-submitted (or scheduled) sweep over a search space.
  * The Next.js side creates the row with status='queued'; the Python sidecar
@@ -381,9 +381,19 @@ export const optimizationRuns = pgTable(
      *  terminal status. Manual runs default true; scheduled runs inherit
      *  this from the schedule's own `notify_on_complete` at fire time. */
     notifyOnComplete: boolean().notNull().default(true),
+    /** If true, the notifier tick fires a Telegram ping the moment the sidecar
+     *  picks the run up (status → running). Independent of `notify_on_complete`
+     *  — operators can opt into the start-ping only, the end-ping only, both,
+     *  or neither. Manual runs default true; scheduled runs inherit this from
+     *  the schedule's own `notify_on_start` at fire time. */
+    notifyOnStart: boolean().notNull().default(true),
     /** Idempotency stamp — the notifier tick sets this when it sends the
-     *  Telegram ping so it never sends twice for the same run. */
+     *  "run completed" Telegram ping so it never sends twice for the same run. */
     notifiedAt: ts(),
+    /** Idempotency stamp for the "run started" Telegram ping. Set once when
+     *  the sidecar picks the run up (status → running) so the notifier tick
+     *  doesn't re-send on subsequent polls. */
+    startedNotifiedAt: ts(),
     createdBy: text(),
     createdAt: tsNow(),
   },
@@ -394,11 +404,17 @@ export const optimizationRuns = pgTable(
     index("optimization_runs_queued_idx")
       .on(t.createdAt)
       .where(sql`${t.status} = 'queued'`),
-    // Notifier-tick claim query: pending Telegram notifications.
+    // Notifier-tick claim query: pending "run completed" Telegram pings.
     index("optimization_runs_notify_pending_idx")
       .on(t.completedAt)
       .where(
         sql`${t.notifyOnComplete} = true AND ${t.notifiedAt} IS NULL AND ${t.status} IN ('completed','failed','cancelled')`,
+      ),
+    // Notifier-tick claim query: pending "run started" Telegram pings.
+    index("optimization_runs_started_notify_pending_idx")
+      .on(t.startedAt)
+      .where(
+        sql`${t.notifyOnStart} = true AND ${t.startedAt} IS NOT NULL AND ${t.startedNotifiedAt} IS NULL`,
       ),
   ],
 );
@@ -407,7 +423,7 @@ export type OptimizationRunRow = typeof optimizationRuns.$inferSelect;
 export type NewOptimizationRunRow = typeof optimizationRuns.$inferInsert;
 
 /**
- * AlphaSearch — single trial result inside a run.
+ * Optimisation — single trial result inside a run.
  *
  * One row per (sampled config × full CV evaluation). The Python sidecar
  * writes these as the trial loop progresses; the Next.js UI reads them
@@ -456,7 +472,7 @@ export type OptimizationTrialRow = typeof optimizationTrials.$inferSelect;
 export type NewOptimizationTrialRow = typeof optimizationTrials.$inferInsert;
 
 /**
- * AlphaSearch — promoted live strategy.
+ * Optimisation — promoted live strategy.
  *
  * A strategy is a configuration that the value-detector consults on every
  * tick. When a detected value bet matches the strategy's `filters`, the
@@ -520,7 +536,7 @@ export type NewOptimizationStrategyRow =
   typeof optimizationStrategies.$inferInsert;
 
 /**
- * AlphaSearch Phase 5 — periodic re-validation of a live strategy.
+ * Optimisation Phase 5 — periodic re-validation of a live strategy.
  *
  * Every ~7 days the auto-validator re-evaluates each live strategy's
  * filters against the latest bet data and writes one row here. Three
@@ -562,7 +578,7 @@ export type StrategyValidationRow = typeof strategyValidations.$inferSelect;
 export type NewStrategyValidationRow = typeof strategyValidations.$inferInsert;
 
 /**
- * AlphaSearch — recurring optimization run.
+ * Optimisation — recurring optimization run.
  *
  * Defines a saved configuration that the optimizer scheduler will fire on
  * a schedule (e.g. "every day at 03:00 Asia/Dhaka"). Each fire creates a
@@ -595,6 +611,7 @@ export const optimizationSchedules = pgTable(
     cvStrategy: jsonb().notNull(),
     dataFilters: jsonb().notNull().default({}),
     notifyOnComplete: boolean().notNull().default(false),
+    notifyOnStart: boolean().notNull().default(false),
     lastFireAt: ts(),
     lastRunId: text(),
     nextFireAt: ts().notNull(),

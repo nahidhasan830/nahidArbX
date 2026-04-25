@@ -30,6 +30,7 @@ import type {
   NotificationChannel,
   NotificationEvent,
   OptimizerRunCompletedEvent,
+  OptimizerRunStartedEvent,
   SystemEvent,
 } from "./types";
 import { logger } from "@/lib/shared/logger";
@@ -123,6 +124,8 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatError(event);
     case "system":
       return formatSystem(event);
+    case "optimizer:run_started":
+      return formatOptimizerRunStarted(event);
     case "optimizer:run_completed":
       return formatOptimizerRunCompleted(event);
   }
@@ -341,6 +344,57 @@ const REASON_CATEGORY_LABEL: Record<
   book_rejection: "book",
   unknown: "unknown",
 };
+
+// --------------------------------------------------------------------
+// optimizer:run_started
+// --------------------------------------------------------------------
+
+function formatOptimizerRunStarted(
+  e: OptimizerRunStartedEvent,
+): FormattedMessage {
+  const lines: string[] = [];
+  lines.push(`🚀 <b>${esc(e.name)}</b> · Optimisation run started`);
+  lines.push(`🤖 Algorithm: <b>${esc(formatAlgorithm(e.searchAlgorithm))}</b>`);
+  lines.push(
+    `🧮 Trials: <b>${e.nTrialsTarget.toLocaleString()}</b> · 🎲 Seed <code>${e.rngSeed}</code>`,
+  );
+  lines.push(`🧪 Validation: <b>${esc(e.cvStrategyLabel)}</b>`);
+
+  if (e.betCount != null && e.betCount > 0) {
+    lines.push(
+      `📊 Dataset: <b>${e.betCount.toLocaleString()}</b> settled bets`,
+    );
+  }
+  if (e.scopeSummary) {
+    lines.push(`🎯 Scope: <i>${esc(e.scopeSummary)}</i>`);
+  }
+
+  // ETA block — omitted entirely when we have no basis for a guess, so we
+  // never mislead the operator with a fabricated finish time.
+  if (e.estimatedDurationSec != null && e.estimatedFinishAt != null) {
+    lines.push("───");
+    const etaLabel = durationLabel(e.estimatedDurationSec * 1000);
+    const basisSuffix = e.estimationBasis
+      ? ` <i>(${esc(e.estimationBasis)})</i>`
+      : "";
+    lines.push(`⏱ ETA: <b>~${esc(etaLabel)}</b>${basisSuffix}`);
+    lines.push(
+      `🗓 Expected finish: <b>${esc(formatAbsoluteTime(e.estimatedFinishAt))}</b>`,
+    );
+  }
+
+  lines.push(`🏷 Source: <code>${esc(e.createdBy || "manual")}</code>`);
+  lines.push(`🕒 Started: ${esc(formatAbsoluteTime(e.startedAt))}`);
+
+  const buttons: InlineKey[] = [];
+  if (e.dashboardUrl)
+    buttons.push({ text: "📊 Open run", url: e.dashboardUrl });
+
+  return {
+    text: lines.join("\n"),
+    buttons: buttons.length > 0 ? buttons : undefined,
+  };
+}
 
 // --------------------------------------------------------------------
 // optimizer:run_completed

@@ -1,4 +1,4 @@
-# Cloud Build pipeline for the AlphaSearch optimizer sidecar.
+# Cloud Build pipeline for the Optimisation sidecar.
 #
 # Trigger setup (one-time, via console or `gcloud builds triggers create github`):
 #   - Repo: this GitHub repo
@@ -12,7 +12,9 @@
 
 substitutions:
   _REGION: asia-south1
-  _SERVICE_NAME: nahidarbx-optimizer
+  _JOB_NAME: nahidarbx-optimizer-job
+  _OLD_SERVICE_NAME: nahidarbx-optimizer
+  _IMAGE_NAME: nahidarbx-optimizer
   _REPOSITORY: optimizer
   _SERVICE_ACCOUNT: optimizer-sa@nahidarbx-6e73.iam.gserviceaccount.com
   _CLOUD_SQL_INSTANCE: nahidarbx-6e73:asia-south1:nahidarbx-db
@@ -25,9 +27,9 @@ steps:
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:${SHORT_SHA}
       - -t
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:latest
       - .
 
   # 2. Push to Artifact Registry.
@@ -35,57 +37,85 @@ steps:
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:${SHORT_SHA}
   - id: push-latest
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest
+      - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:latest
 
-  # 3. Deploy to Cloud Run.
-  #    - min instances=0 (scale-to-zero, costs nothing when idle)
-  #    - max instances=3 (one heavy run per instance is plenty)
-  #    - 4 CPU / 8 GiB (Polars + Optuna in-memory work on 100k+ bets)
-  #    - DATABASE_URL is read from Secret Manager
-  #    - OPTIMIZER_SHARED_SECRET is read from Secret Manager
-  #    - Cloud SQL instance attached for connector access
-  #    - --ingress=internal so only the Next.js service can reach it
-  - id: deploy
+  # 3. Deploy as a Cloud Run Job (one execution per sweep).
+  #
+  #    Why Jobs and not Service: a Service runs an HTTP receiver and the
+  #    autoscaler reaps idle instances even with --no-cpu-throttling
+  #    (observed 2026-04-25 on run 00MODMUK35STEVK2ZB430FQDJO — instance
+  #    killed ~15 min after /run/start returned 202, leaving an orphaned
+  #    asyncio loop that died with the instance). Jobs are designed for
+  #    run-to-completion batch and don't have this surface — each
+  #    execution runs `python -m app.job` to completion, then exits.
+  #
+  #    Resource flags:
+  #    - --cpu=6 / --memory=12Gi matches the prior Service config (capped
+  #      by asia-south1 quota — see the regional quota note in the
+  #      previous Service deploy that's now removed).
+  #    - --task-timeout=21600 (6h) — generous against worst-case sweeps,
+  #      well below the 7-day Cloud Run Jobs ceiling.
+  #    - --max-retries=0 — let the Next.js scheduler control retry
+  #      semantics. Cloud Run's auto-retry on a real bug would just
+  #      double-bill without fixing anything.
+  #    - --parallelism=1 --tasks=1 — one container per execution; the
+  #      runner uses asyncio internally for trial-level concurrency.
+  #
+  #    Env / secrets:
+  #    - DATABASE_URL via Secret Manager.
+  #    - CLOUD_SQL_INSTANCE via env, attached for connector access.
+  #    - OPTIMIZER_PARALLEL=1 turns on the Semaphore/gather loop.
+  #    - OPTIMIZER_MAX_CONCURRENCY=6 matches the 6 vCPU ceiling.
+  #    - OPTIMIZER_SHARED_SECRET is gone — Jobs have no HTTP surface.
+  #
+  #    IAM: the Next.js host's runtime SA (locally, the operator's
+  #    `gcloud auth application-default login` identity) needs
+  #    roles/run.invoker on this Job to trigger executions. Grant with:
+  #      gcloud run jobs add-iam-policy-binding nahidarbx-optimizer-job \
+  #        --region=asia-south1 --member=user:<email> --role=roles/run.invoker
+  - id: deploy-job
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
       - run
+      - jobs
       - deploy
-      - ${_SERVICE_NAME}
-      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
+      - ${_JOB_NAME}
+      - --image=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:${SHORT_SHA}
       - --region=${_REGION}
       - --service-account=${_SERVICE_ACCOUNT}
-      - --min-instances=0
-      - --max-instances=3
-      - --cpu=4
-      - --memory=8Gi
-      - --concurrency=1
-      - --timeout=3600
-      # CPU must stay allocated even when no request is in flight —
-      # otherwise Cloud Run throttles the instance to ~5% CPU the
-      # moment /run/start returns 202 (fire-and-forget), killing the
-      # background trial loop mid-sweep (observed 2026-04-24 on run
-      # 00MOD1KTMS2L6ZMI1I0O5GG3IX, stuck at 22/50 after idle scale-down).
-      - --no-cpu-throttling
-      # Public ingress so the Next.js app (running locally on the operator's
-      # machine) can reach the sidecar. Auth is provided by the HMAC token
-      # in OPTIMIZER_SHARED_SECRET — verified inside main.py with constant-
-      # time compare. Lock down to --ingress=internal once Next.js also
-      # runs in the same VPC.
-      - --ingress=all
-      - --allow-unauthenticated
-      - --add-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
-      - --set-env-vars=CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE},LOG_LEVEL=INFO
-      - --set-secrets=DATABASE_URL=DATABASE_URL:latest,OPTIMIZER_SHARED_SECRET=OPTIMIZER_SHARED_SECRET:latest
+      - --cpu=6
+      - --memory=12Gi
+      - --task-timeout=21600
+      - --max-retries=0
+      - --parallelism=1
+      - --tasks=1
+      - --set-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
+      - --set-env-vars=CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE},LOG_LEVEL=INFO,OPTIMIZER_PARALLEL=1,OPTIMIZER_MAX_CONCURRENCY=6
+      - --set-secrets=DATABASE_URL=DATABASE_URL:latest
+
+  # 4. Delete the legacy Cloud Run Service. Idempotent: --quiet on a
+  #    missing service exits non-zero, so we tolerate the failure with
+  #    ||  true. After a few stable Job runs this step can be deleted.
+  - id: delete-old-service
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run services delete ${_OLD_SERVICE_NAME} \
+          --region=${_REGION} --quiet 2>/dev/null \
+          && echo "✓ Legacy Service ${_OLD_SERVICE_NAME} deleted" \
+          || echo "ℹ Legacy Service ${_OLD_SERVICE_NAME} already gone (or never existed)"
 
 images:
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}
-  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_SERVICE_NAME}:latest
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY

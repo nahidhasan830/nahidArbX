@@ -15,7 +15,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    // Explicitly declare this is NOT a public website
-    host: "https://nahidarbx.store",
+    // Internal tool — not a public website
   };
 }

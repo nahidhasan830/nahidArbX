@@ -176,7 +176,7 @@ export interface ValueBet {
   timestamp: number; // Soft odds timestamp (for staleness)
   sharpOddsAgeMs: number | null; // Sharp odds age at detection (ms) — latency diagnostic
 
-  // AlphaSearch attribution (Phase 3) — set by `attachStrategyMatches()` when
+  // Optimisation attribution (Phase 3) — set by `attachStrategyMatches()` when
   // a live promoted strategy claims this detection. NULL when no strategy
   // matches (the bet is still detected and surfaced; just unattributed).
   strategyId?: string | null;

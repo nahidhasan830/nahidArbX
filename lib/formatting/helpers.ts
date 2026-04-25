@@ -50,7 +50,7 @@ export function fmtRelative(iso: string): string {
   return `${durationLabel(-ms)} ago`;
 }
 
-function durationLabel(ms: number): string {
+export function durationLabel(ms: number): string {
   const mins = Math.round(Math.abs(ms) / 60_000);
   if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);

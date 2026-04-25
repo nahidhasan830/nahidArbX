@@ -793,3 +793,613 @@
   letter-spacing: -0.01em;
   color: oklch(0.88 0.005 250);
 }
+
+/* ============================================
+   ACCOUNT CARD: Premium Fintech Cards
+   ============================================ */
+
+/* Advanced futuristic card aesthetic instead of a basic glass panel */
+.fintech-card {
+  position: relative;
+  border-radius: 16px;
+  background: linear-gradient(
+    160deg,
+    oklch(0.18 0.01 250 / 80%),
+    oklch(0.12 0.01 250 / 95%)
+  );
+  border: 1px solid oklch(1 0 0 / 8%);
+  box-shadow:
+    0 8px 32px oklch(0 0 0 / 35%),
+    inset 0 1px 1px oklch(1 0 0 / 12%);
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Subtle animated noise / mesh gradient overlay */
+.fintech-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      circle at 100% 0%,
+      var(--card-glow, oklch(0.72 0.16 190 / 12%)),
+      transparent 50%
+    ),
+    radial-gradient(
+      circle at 0% 100%,
+      oklch(0.2 0.03 200 / 10%),
+      transparent 40%
+    );
+  pointer-events: none;
+  opacity: 0.7;
+  transition: opacity 0.4s ease;
+}
+
+.fintech-card:hover {
+  border-color: oklch(1 0 0 / 15%);
+  box-shadow:
+    0 12px 48px oklch(0 0 0 / 45%),
+    inset 0 1px 1px oklch(1 0 0 / 20%);
+}
+
+.fintech-card:hover::before {
+  opacity: 1;
+}
+
+/* Glowing text utility for hero balance */
+.fintech-text-glow {
+  text-shadow: 0 0 16px currentColor;
+}
+
+/* Error state — red glow */
+.fintech-card--error {
+  --card-glow: oklch(0.66 0.13 22 / 20%);
+  border-color: oklch(0.66 0.13 22 / 30%) !important;
+}
+
+/* Paused state — amber glow */
+.fintech-card--paused {
+  --card-glow: oklch(0.78 0.15 80 / 20%);
+  border-color: oklch(0.78 0.15 80 / 30%) !important;
+}
+
+/* Redesigned Provider Icon */
+.fintech-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, oklch(1 0 0 / 10%), oklch(1 0 0 / 2%));
+  border: 1px solid oklch(1 0 0 / 15%);
+  box-shadow: 0 4px 12px oklch(0 0 0 / 20%);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* Stats HUD */
+.fintech-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, oklch(0 0 0 / 20%), oklch(0 0 0 / 40%));
+  border: 1px solid oklch(1 0 0 / 4%);
+  position: relative;
+  overflow: hidden;
+}
+
+.fintech-stat::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(1 0 0 / 10%),
+    transparent
+  );
+}
+
+.fintech-stat--locked {
+  background: linear-gradient(
+    180deg,
+    oklch(0.78 0.15 80 / 4%),
+    oklch(0.78 0.15 80 / 8%)
+  );
+  border-color: oklch(0.78 0.15 80 / 15%);
+}
+
+/* ============================================
+   METRIC POD: Tighter for compact layout
+   ============================================ */
+
+/* Override default metric-pod padding for density */
+@media (min-width: 1024px) {
+  .metric-pod {
+    padding: 10px 12px;
+  }
+}
+
+/* ============================================
+   ACCOUNTS SIDEBAR: Scrollable container
+   ============================================ */
+
+.accounts-sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.4 0 0 / 30%) transparent;
+}
+
+.accounts-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.accounts-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.accounts-sidebar::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0 0 / 30%);
+  border-radius: 4px;
+}
+
+/* ============================================
+   DASHBOARD TICKER BAR
+   Bloomberg-style horizontal KPI strip — no cards, pure typography
+   ============================================ */
+
+.dashboard-ticker {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid oklch(1 0 0 / 6%);
+  background: oklch(0.155 0.008 250 / 70%);
+  backdrop-filter: blur(12px);
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dashboard-ticker::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-ticker__sep {
+  width: 1px;
+  background: oklch(1 0 0 / 8%);
+  margin: 8px 0;
+  flex-shrink: 0;
+}
+
+/* ============================================
+   ACCOUNTS RAIL
+   Right sidebar — pure surface, no outer box
+   ============================================ */
+
+.dashboard-accounts-rail {
+  background: oklch(0.155 0.008 250 / 50%);
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.35 0.01 250) transparent;
+}
+
+.dashboard-accounts-rail::-webkit-scrollbar {
+  width: 3px;
+}
+
+.dashboard-accounts-rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-accounts-rail::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.01 250);
+  border-radius: 3px;
+}
+
+/* ============================================================
+   DASHBOARD v2 — Modern Bento Layout
+   db-* classes used by app/dashboard/page.tsx
+   ============================================================ */
+
+/* Root — fills the remaining flex space inside the AppShell content wrapper */
+.db-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Error banner */
+.db-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--destructive);
+  background: oklch(0.66 0.13 22 / 8%);
+  border-bottom: 1px solid oklch(0.66 0.13 22 / 20%);
+  flex-shrink: 0;
+}
+
+/* KPI strip — 6-column grid, collapses to 3 on narrow screens */
+.db-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
+  border-bottom: 1px solid oklch(1 0 0 / 6%);
+  background: oklch(0.155 0.008 250 / 60%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 1200px) {
+  .db-kpi-strip {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Individual KPI cell */
+.db-kpi-card {
+  position: relative;
+  padding: 14px 16px 12px;
+  border-right: 1px solid oklch(1 0 0 / 6%);
+  cursor: default;
+  transition: background 0.2s ease;
+  overflow: hidden;
+}
+
+.db-kpi-card:last-child {
+  border-right: none;
+}
+
+/* Bottom accent bar — slides up on hover */
+.db-kpi-card::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: oklch(0.55 0 0);
+  opacity: 0;
+  transition:
+    opacity 0.25s ease,
+    background 0.25s ease;
+}
+
+.db-kpi-card:hover {
+  background: oklch(1 0 0 / 2.5%);
+}
+.db-kpi-card:hover::before {
+  opacity: 1;
+}
+
+/* Tone: bottom accent colour */
+.db-kpi--positive::before {
+  background: oklch(0.72 0.19 168);
+}
+.db-kpi--negative::before {
+  background: oklch(0.66 0.13 22);
+}
+.db-kpi--warning::before {
+  background: oklch(0.78 0.15 80);
+}
+.db-kpi--brand::before {
+  background: oklch(0.72 0.16 190);
+}
+
+/* Tone: ambient corner glow */
+.db-kpi--positive {
+  background-image: radial-gradient(
+    ellipse at 100% 0%,
+    oklch(0.72 0.19 168 / 4%),
+    transparent 60%
+  );
+}
+.db-kpi--negative {
+  background-image: radial-gradient(
+    ellipse at 100% 0%,
+    oklch(0.66 0.13 22 / 4%),
+    transparent 60%
+  );
+}
+.db-kpi--warning {
+  background-image: radial-gradient(
+    ellipse at 100% 0%,
+    oklch(0.78 0.15 80 / 4%),
+    transparent 60%
+  );
+}
+.db-kpi--brand {
+  background-image: radial-gradient(
+    ellipse at 100% 0%,
+    oklch(0.72 0.16 190 / 5%),
+    transparent 60%
+  );
+}
+
+.db-kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: oklch(0.55 0.015 250);
+  margin-bottom: 6px;
+}
+
+.db-kpi-value {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.db-kpi-sub {
+  margin-top: 4px;
+  font-size: 10px;
+  color: oklch(0.5 0.012 250);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Main body */
+.db-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Left column — charts stack */
+.db-charts-col {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid oklch(1 0 0 / 6%);
+}
+
+/* Right column — accounts */
+.db-accounts-col {
+  width: 45%;
+  flex-shrink: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.35 0.01 250) transparent;
+  background: oklch(0.155 0.008 250 / 35%);
+}
+.db-accounts-col::-webkit-scrollbar {
+  width: 3px;
+}
+.db-accounts-col::-webkit-scrollbar-track {
+  background: transparent;
+}
+.db-accounts-col::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0.01 250);
+  border-radius: 3px;
+}
+
+/* Cards */
+.db-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.db-pnl-card {
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid oklch(1 0 0 / 6%);
+}
+
+.db-heatmap-card {
+  flex-shrink: 0;
+  min-height: 220px;
+  border-top: 1px solid oklch(1 0 0 / 6%);
+}
+
+.db-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 6px;
+  flex-shrink: 0;
+}
+
+.db-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.5 0.012 250);
+}
+
+.db-card-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.db-card-dot--brand {
+  background: oklch(0.72 0.16 190);
+  box-shadow: 0 0 6px oklch(0.72 0.16 190 / 60%);
+}
+
+/* Chart body — fills remaining height, lets Recharts ResponsiveContainer measure it */
+.db-chart-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 8px 10px;
+}
+
+/* Heatmap body */
+.db-heatmap-body {
+  padding: 2px 16px 14px;
+}
+
+/* ============================================================
+   ACCOUNT CARDS — always-open, full-detail layout
+   acc-* classes used by BettingAccountsPanel.tsx
+   ============================================================ */
+
+.acc-card {
+  padding: 0;
+  border-bottom: 1px solid oklch(1 0 0 / 6%);
+  transition: background 0.2s ease;
+}
+
+.acc-card--error {
+  background: oklch(0.66 0.13 22 / 4%);
+  border-left: 2px solid oklch(0.66 0.13 22 / 40%);
+}
+
+.acc-card--paused {
+  background: oklch(0.78 0.15 80 / 3%);
+  border-left: 2px solid oklch(0.78 0.15 80 / 30%);
+}
+
+/* Header */
+.acc-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 8px;
+  gap: 12px;
+}
+
+.acc-provider-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Body */
+.acc-card-body {
+  padding: 0 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Balance stat row — auto-fill columns, min 90px each */
+.acc-balance-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+}
+
+/* Individual stat cell */
+.acc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: oklch(0 0 0 / 15%);
+  border: 1px solid oklch(1 0 0 / 4%);
+}
+
+.acc-stat--hero {
+  background: oklch(0.72 0.19 168 / 5%);
+  border-color: oklch(0.72 0.19 168 / 12%);
+}
+
+.acc-stat-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: oklch(0.52 0.012 250);
+}
+
+.acc-stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+
+.acc-stat-value--hero {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+/* Turnover section */
+.acc-turnover {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: oklch(0 0 0 / 12%);
+  border: 1px solid oklch(1 0 0 / 4%);
+}
+
+.acc-turnover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.acc-turnover-track {
+  height: 5px;
+  border-radius: 999px;
+  background: oklch(1 0 0 / 8%);
+  overflow: hidden;
+}
+
+.acc-turnover-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.acc-card--inactive {
+  opacity: 0.45;
+}
+
+.acc-inactive-banner {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: oklch(0 0 0 / 10%);
+  border: 1px dashed oklch(1 0 0 / 8%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+}
+
+/* Footer controls */
+.acc-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px 10px;
+  gap: 8px;
+  border-top: 1px solid oklch(1 0 0 / 5%);
+}

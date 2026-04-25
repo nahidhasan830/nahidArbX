@@ -93,17 +93,17 @@ export async function register() {
     );
   }
 
-  // AlphaSearch optimizer queue poller — kicks the Python sidecar for any
+  // Optimisation queue poller — kicks the Python sidecar for any
   // optimization_runs row in status='queued'. No-op if the sidecar is down;
   // the next tick (30s) will retry.
   if (!isOptimizerSchedulerActive()) {
     startOptimizerScheduler();
     logger.info(
       "Boot",
-      `AlphaSearch optimizer scheduler started (sidecar: ${process.env.OPTIMIZER_URL ?? "http://localhost:8001"})`,
+      `Optimisation scheduler started (Cloud Run Job: ${process.env.OPTIMIZER_JOB_NAME ?? "<unset>"} in ${process.env.GCP_REGION ?? "<unset>"})`,
     );
   } else {
-    logger.info("Boot", "AlphaSearch optimizer scheduler already running");
+    logger.info("Boot", "Optimisation scheduler already running");
   }
 
   // ── Telegram startup ping ────────────────────────────────────────────

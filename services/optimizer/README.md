@@ -1,10 +1,10 @@
-# AlphaSearch Optimizer Sidecar
+# Optimisation Sidecar
 
-Python FastAPI service that runs parameter-optimization sweeps over historical
+Python service that runs parameter-optimization sweeps over historical
 bets data for the nahidArbX value-bet finder. This is the engine behind the
-`/lab/alphasearch` workbench in the Next.js app.
+`/lab/optimisation` workbench in the Next.js app.
 
-> **User-facing documentation lives at [`docs/alphasearch.md`](../../docs/alphasearch.md).**
+> **User-facing documentation lives in the in-app tooltips on `/lab/optimisation`** (sourced from [`lib/lab/glossary.ts`](../../lib/lab/glossary.ts)).
 > This README is for engineers working on the sidecar itself.
 
 ## What it does
@@ -136,13 +136,39 @@ app/
 
 ```bash
 uv run pytest                  # all tests
+uv run pytest tests/test_placebo.py -v    # just the placebo suite
 uv run ruff check app          # lint
 uv run ruff format app         # format
 uv run mypy app                # type-check
 ```
 
-A snapshot test in `tests/test_pnl_parity.py` pins our Python `compute_pnl`
-output to the canonical Next.js implementation in
+### Correctness tests (`tests/`)
+
+We ship three tiers of statistical-correctness gates that catch silent
+bugs in CPCV / bootstrap / DSR / PSR / PBO / Pareto / Kelly math. None
+of these tests touch Postgres — they build synthetic bets via
+`tests/conftest.py::make_synthetic_bets`, then hit the pure pipeline
+directly.
+
+- **`test_placebo.py`** — zero-edge bets (P(win) = 1/odds exactly) run
+  through many evaluator configs. No config may report a confidently
+  positive OOS ROI (95% CI lower bound > 0). If this fails, the
+  statistical layer is leaking — look for look-ahead, embargo off-by-one,
+  or bootstrap seed issues. This is the single most valuable gate.
+- **`test_determinism.py`** — same input + same seed must produce
+  bitwise-identical output for `evaluate_trial`, `make_cpcv_splits`,
+  `stationary_bootstrap_ci`, `deflated_sharpe`, `probabilistic_sharpe`,
+  and `pbo_score`. Catches silent non-determinism from lib upgrades.
+- **`test_known_answer.py`** — bets with a universal +3% edge (P(win)
+  = 1/odds + 0.03). The default config MUST detect a meaningfully
+  positive OOS ROI with CI lower bound > 0. Placebo proves we don't
+  hallucinate edges; known-answer proves we find real ones.
+
+Run these before and after every sidecar redeploy. They're fast (< 30s
+total) and run offline — no DB, no secrets needed.
+
+A separate snapshot test in `tests/test_pnl_parity.py` pins our Python
+`compute_pnl` output to the canonical Next.js implementation in
 `lib/db/repositories/bets.ts::computePnl()` for a fixed sample. **Do not
 break this test** — TS/Python evaluator divergence is a class of bugs we
 explicitly designed against.

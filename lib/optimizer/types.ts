@@ -1,5 +1,5 @@
 /**
- * Shared types for the AlphaSearch optimizer feature.
+ * Shared types for the Optimisation feature.
  *
  * Mirrors the Python sidecar's `search_space.py` and the columns in
  * `optimization_runs` / `optimization_trials`. Keep these in sync — the
@@ -105,4 +105,7 @@ export interface CreateRunRequest {
   createdBy?: string;
   /** Default = true. When true, a Telegram ping fires on terminal status. */
   notifyOnComplete?: boolean;
+  /** Default = true. When true, a Telegram ping fires the moment the sidecar
+   *  picks the run up (status → running). Independent of `notifyOnComplete`. */
+  notifyOnStart?: boolean;
 }

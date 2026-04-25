@@ -65,6 +65,8 @@ const QuerySchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === "true")),
+  oddsMin: z.coerce.number().positive().optional(),
+  oddsMax: z.coerce.number().positive().optional(),
 });
 
 export async function GET(request: NextRequest) {

@@ -38,7 +38,7 @@ export function PnlChart({
 }: {
   data: PnlPoint[];
   currency?: string;
-  height?: number;
+  height?: number | string;
 }) {
   // Pretty-format dates once so the tooltip reads as "Apr 19"
   // rather than the raw ISO string.

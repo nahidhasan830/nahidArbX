@@ -22433,2514 +22433,6 @@
       "status": "confirmed",
       "confirmedAt": "2026-04-17T20:49:30.824Z"
     },
-    "nm-ninewickets-exchange-35517947-pinnacle-1628527332": {
-      "id": "nm-ninewickets-exchange-35517947-pinnacle-1628527332",
-      "eventA": {
-        "id": "ninewickets-exchange-35517947",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "SJK Akatemia 2",
-        "awayTeam": "FF Jaro II",
-        "competition": "Finnish Kakkonen",
-        "startTime": "2026-04-22T15:30:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527332",
-        "provider": "pinnacle",
-        "homeTeam": "SJK Akatemia II",
-        "awayTeam": "FF Jaro II",
-        "competition": "Finland - Kakkonen Group C",
-        "startTime": "2026-04-22T15:30:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.9347826086956521,
-        "homeHomeSimilarity": 0.8695652173913043,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.10526315789473684,
-        "bestOrientation": "normal",
-        "competitionScore": 0.5294117647058824,
-        "competitionA": "finnish kakkonen",
-        "competitionB": "finland kakkonen group c",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8131713554987211
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.5294117647058824,
-            "competitionA": "Finnish Kakkonen",
-            "competitionB": "Finland - Kakkonen Group C"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8131713554987211,
-            "threshold": 0.85,
-            "gap": 0.03682864450127887
-          }
-        }
-      ],
-      "detectedAt": "2026-04-21T15:46:01.796Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35489353-pinnacle-1628587006": {
-      "id": "nm-ninewickets-exchange-35489353-pinnacle-1628587006",
-      "eventA": {
-        "id": "ninewickets-exchange-35489353",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Rubio Nu",
-        "awayTeam": "Libertad",
-        "competition": "Paraguayan Primera Division",
-        "startTime": "2026-04-21T20:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628587006",
-        "provider": "pinnacle",
-        "homeTeam": "Rubio Nu",
-        "awayTeam": "Libertad Asuncion",
-        "competition": "Paraguay - Reserve League",
-        "startTime": "2026-04-21T20:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.19047619047619047,
-        "awayHomeSimilarity": 0.19047619047619047,
-        "bestOrientation": "normal",
-        "competitionScore": 0.3404255319148936,
-        "competitionA": "paraguay - division profesional",
-        "competitionB": "paraguay reserve league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8021276595744681
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.3404255319148936,
-            "competitionA": "Paraguayan Primera Division",
-            "competitionB": "Paraguay - Reserve League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8021276595744681,
-            "threshold": 0.85,
-            "gap": 0.0478723404255319
-          }
-        }
-      ],
-      "detectedAt": "2026-04-21T19:10:01.485Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35504777-pinnacle-1628535759": {
-      "id": "nm-ninewickets-exchange-35504777-pinnacle-1628535759",
-      "eventA": {
-        "id": "ninewickets-exchange-35504777",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "IA Akranes",
-        "awayTeam": "KA Akureyri",
-        "competition": "Icelandic Urvalsdeild",
-        "startTime": "2026-04-22T18:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628535759",
-        "provider": "pinnacle",
-        "homeTeam": "IA Akranes",
-        "awayTeam": "KA Akureyri",
-        "competition": "Iceland - Premier League",
-        "startTime": "2026-04-22T18:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.23529411764705882,
-        "awayHomeSimilarity": 0.23529411764705882,
-        "bestOrientation": "normal",
-        "competitionScore": 0.3076923076923077,
-        "competitionA": "icelandic urvalsdeild",
-        "competitionB": "iceland - premier league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7923076923076923
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.3076923076923077,
-            "competitionA": "Icelandic Urvalsdeild",
-            "competitionB": "Iceland - Premier League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7923076923076923,
-            "threshold": 0.85,
-            "gap": 0.05769230769230771
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:56.852Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35515635-pinnacle-1628527428": {
-      "id": "nm-ninewickets-exchange-35515635-pinnacle-1628527428",
-      "eventA": {
-        "id": "ninewickets-exchange-35515635",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Ferencvaros",
-        "awayTeam": "Gyori",
-        "competition": "Hungarian Cup",
-        "startTime": "2026-04-22T18:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527428",
-        "provider": "pinnacle",
-        "homeTeam": "Ferencvaros",
-        "awayTeam": "Gyori ETO",
-        "competition": "Hungary - Cup",
-        "startTime": "2026-04-22T18:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.4,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.7,
-        "competitionA": "hungarian cup",
-        "competitionB": "hungary cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.4,
-            "teamA": {
-              "home": "Ferencvaros",
-              "away": "Gyori"
-            },
-            "teamB": {
-              "home": "Ferencvaros",
-              "away": "Gyori ETO"
-            }
-          }
-        },
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.7,
-            "competitionA": "Hungarian Cup",
-            "competitionB": "Hungary - Cup"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7,
-            "threshold": 0.85,
-            "gap": 0.15000000000000002
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:56.908Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35517822-pinnacle-1628527420": {
-      "id": "nm-ninewickets-exchange-35517822-pinnacle-1628527420",
-      "eventA": {
-        "id": "ninewickets-exchange-35517822",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Keflavik",
-        "awayTeam": "Breidablik",
-        "competition": "Icelandic Urvalsdeild",
-        "startTime": "2026-04-22T18:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527420",
-        "provider": "pinnacle",
-        "homeTeam": "Keflavik",
-        "awayTeam": "Breidablik",
-        "competition": "Iceland - Premier League",
-        "startTime": "2026-04-22T18:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.14285714285714285,
-        "awayHomeSimilarity": 0.14285714285714285,
-        "bestOrientation": "normal",
-        "competitionScore": 0.3076923076923077,
-        "competitionA": "icelandic urvalsdeild",
-        "competitionB": "iceland - premier league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7923076923076923
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.3076923076923077,
-            "competitionA": "Icelandic Urvalsdeild",
-            "competitionB": "Iceland - Premier League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7923076923076923,
-            "threshold": 0.85,
-            "gap": 0.05769230769230771
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:56.963Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35504837-pinnacle-1628527415": {
-      "id": "nm-ninewickets-exchange-35504837-pinnacle-1628527415",
-      "eventA": {
-        "id": "ninewickets-exchange-35504837",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "AaB",
-        "awayTeam": "B93 Copenhagen",
-        "competition": "Danish 1st Division",
-        "startTime": "2026-04-23T17:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527415",
-        "provider": "pinnacle",
-        "homeTeam": "AaB",
-        "awayTeam": "B 93",
-        "competition": "Denmark - Division 1",
-        "startTime": "2026-04-23T17:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6428571428571428,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.2857142857142857,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "sweden - division 1 sodra",
-        "competitionB": "sweden - division 1 sodra",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7499999999999999
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.2857142857142857,
-            "teamA": {
-              "home": "AaB",
-              "away": "B93 Copenhagen"
-            },
-            "teamB": {
-              "home": "AaB",
-              "away": "B 93"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7499999999999999,
-            "threshold": 0.85,
-            "gap": 0.10000000000000009
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.018Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35508167-pinnacle-1628416986": {
-      "id": "nm-ninewickets-exchange-35508167-pinnacle-1628416986",
-      "eventA": {
-        "id": "ninewickets-exchange-35508167",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Birmingham",
-        "awayTeam": "Preston",
-        "competition": "English Sky Bet Championship",
-        "startTime": "2026-04-22T18:45:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628416986",
-        "provider": "pinnacle",
-        "homeTeam": "Birmingham City",
-        "awayTeam": "Preston North End",
-        "competition": "England - Championship",
-        "startTime": "2026-04-22T18:45:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7090909090909091,
-        "homeHomeSimilarity": 0.8181818181818182,
-        "awayAwaySimilarity": 0.6,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "indonesian championship",
-        "competitionB": "indonesian championship",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7963636363636364
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.8181818181818182,
-            "awayScore": 0.6,
-            "teamA": {
-              "home": "Birmingham",
-              "away": "Preston"
-            },
-            "teamB": {
-              "home": "Birmingham City",
-              "away": "Preston North End"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7963636363636364,
-            "threshold": 0.85,
-            "gap": 0.05363636363636359
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.073Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35512934-pinnacle-1628542071": {
-      "id": "nm-ninewickets-exchange-35512934-pinnacle-1628542071",
-      "eventA": {
-        "id": "ninewickets-exchange-35512934",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "LDU",
-        "awayTeam": "Aucas",
-        "competition": "Ecuadorian Serie A",
-        "startTime": "2026-04-23T01:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628542071",
-        "provider": "pinnacle",
-        "homeTeam": "LDU Quito",
-        "awayTeam": "Aucas",
-        "competition": "Ecuador - Serie A",
-        "startTime": "2026-04-23T01:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7222222222222222,
-        "homeHomeSimilarity": 0.4444444444444444,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "ecuadorian serie a",
-        "competitionB": "ecuadorian serie a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8055555555555556
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.4444444444444444,
-            "awayScore": 1,
-            "teamA": {
-              "home": "LDU",
-              "away": "Aucas"
-            },
-            "teamB": {
-              "home": "LDU Quito",
-              "away": "Aucas"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8055555555555556,
-            "threshold": 0.85,
-            "gap": 0.0444444444444444
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.128Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35487562-pinnacle-1628448542": {
-      "id": "nm-ninewickets-exchange-35487562-pinnacle-1628448542",
-      "eventA": {
-        "id": "ninewickets-exchange-35487562",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Mazatlan FC",
-        "awayTeam": "Toluca",
-        "competition": "Mexican Liga MX",
-        "startTime": "2026-04-23T01:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628448542",
-        "provider": "pinnacle",
-        "homeTeam": "Mazatlan",
-        "awayTeam": "Deportivo Toluca",
-        "competition": "Mexico - Liga MX",
-        "startTime": "2026-04-23T01:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.763157894736842,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.5263157894736842,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "liga mx",
-        "competitionB": "liga mx",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8342105263157893
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.5263157894736842,
-            "teamA": {
-              "home": "Mazatlan FC",
-              "away": "Toluca"
-            },
-            "teamB": {
-              "home": "Mazatlan",
-              "away": "Deportivo Toluca"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8342105263157893,
-            "threshold": 0.85,
-            "gap": 0.015789473684210686
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.185Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518755-pinnacle-1628526942": {
-      "id": "nm-ninewickets-exchange-35518755-pinnacle-1628526942",
-      "eventA": {
-        "id": "ninewickets-exchange-35518755",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Al Bataeh",
-        "awayTeam": "Al Ain",
-        "competition": "UAE Arabian Gulf League",
-        "startTime": "2026-04-23T16:45:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628526942",
-        "provider": "pinnacle",
-        "homeTeam": "Al Bataeh",
-        "awayTeam": "Al Ain",
-        "competition": "UAE - Pro League",
-        "startTime": "2026-04-23T16:45:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.18181818181818182,
-        "awayHomeSimilarity": 0.18181818181818182,
-        "bestOrientation": "normal",
-        "competitionScore": 0.4666666666666667,
-        "competitionA": "uae arabian gulf league",
-        "competitionB": "uae pro league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.84
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.4666666666666667,
-            "competitionA": "UAE Arabian Gulf League",
-            "competitionB": "UAE - Pro League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.84,
-            "threshold": 0.85,
-            "gap": 0.010000000000000009
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.240Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35492897-pinnacle-1628441717": {
-      "id": "nm-ninewickets-exchange-35492897-pinnacle-1628441717",
-      "eventA": {
-        "id": "ninewickets-exchange-35492897",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Porto",
-        "awayTeam": "Sporting Lisbon",
-        "competition": "Portuguese Cup",
-        "startTime": "2026-04-22T19:45:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628441717",
-        "provider": "pinnacle",
-        "homeTeam": "Porto",
-        "awayTeam": "Sporting CP",
-        "competition": "Portugal - Cup",
-        "startTime": "2026-04-22T19:45:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.78,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.56,
-        "homeAwaySimilarity": 0.5263157894736842,
-        "awayHomeSimilarity": 0.3,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "fa cup",
-        "competitionB": "fa cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8459999999999999
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.56,
-            "teamA": {
-              "home": "Porto",
-              "away": "Sporting Lisbon"
-            },
-            "teamB": {
-              "home": "Porto",
-              "away": "Sporting CP"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8459999999999999,
-            "threshold": 0.85,
-            "gap": 0.004000000000000115
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.295Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35511085-pinnacle-1628557907": {
-      "id": "nm-ninewickets-exchange-35511085-pinnacle-1628557907",
-      "eventA": {
-        "id": "ninewickets-exchange-35511085",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Al Mokawloon",
-        "awayTeam": "Al Ittihad (EGY)",
-        "competition": "Egyptian Premier",
-        "startTime": "2026-04-23T15:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628557907",
-        "provider": "pinnacle",
-        "homeTeam": "Al Mokawloon Al Arab",
-        "awayTeam": "Al Ittihad Al Sakandary",
-        "competition": "Egypt - Premier League",
-        "startTime": "2026-04-23T15:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6512820512820513,
-        "homeHomeSimilarity": 0.7692307692307693,
-        "awayAwaySimilarity": 0.5333333333333333,
-        "homeAwaySimilarity": 0.13793103448275862,
-        "awayHomeSimilarity": 0.07407407407407407,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "azerbaijan - premier league",
-        "competitionB": "azerbaijan - premier league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7558974358974359
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.7692307692307693,
-            "awayScore": 0.5333333333333333,
-            "teamA": {
-              "home": "Al Mokawloon",
-              "away": "Al Ittihad (EGY)"
-            },
-            "teamB": {
-              "home": "Al Mokawloon Al Arab",
-              "away": "Al Ittihad Al Sakandary"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7558974358974359,
-            "threshold": 0.85,
-            "gap": 0.09410256410256412
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.350Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35520709-pinnacle-1628896150": {
-      "id": "nm-ninewickets-exchange-35520709-pinnacle-1628896150",
-      "eventA": {
-        "id": "ninewickets-exchange-35520709",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Proxy Work Club",
-        "awayTeam": "El Seka Elhadeed",
-        "competition": "Egyptian 2nd Division",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628896150",
-        "provider": "pinnacle",
-        "homeTeam": "Proxy",
-        "awayTeam": "El Sekka El Hadid",
-        "competition": "Egypt - 2nd Division A",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6346153846153846,
-        "homeHomeSimilarity": 0.5,
-        "awayAwaySimilarity": 0.7692307692307693,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.972972972972973,
-        "competitionA": "egyptian 2nd division",
-        "competitionB": "egyptian 2nd division a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.736122661122661
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.5,
-            "awayScore": 0.7692307692307693,
-            "teamA": {
-              "home": "Proxy Work Club",
-              "away": "El Seka Elhadeed"
-            },
-            "teamB": {
-              "home": "Proxy",
-              "away": "El Sekka El Hadid"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.736122661122661,
-            "threshold": 0.85,
-            "gap": 0.11387733887733897
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.405Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35514050-pinnacle-1628527426": {
-      "id": "nm-ninewickets-exchange-35514050-pinnacle-1628527426",
-      "eventA": {
-        "id": "ninewickets-exchange-35514050",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "IBV",
-        "awayTeam": "KR Reykjavik",
-        "competition": "Icelandic Urvalsdeild",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527426",
-        "provider": "pinnacle",
-        "homeTeam": "IBV",
-        "awayTeam": "KR Reykjavik",
-        "competition": "Iceland - Premier League",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.3076923076923077,
-        "competitionA": "icelandic urvalsdeild",
-        "competitionB": "iceland - premier league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7923076923076923
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.3076923076923077,
-            "competitionA": "Icelandic Urvalsdeild",
-            "competitionB": "Iceland - Premier League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7923076923076923,
-            "threshold": 0.85,
-            "gap": 0.05769230769230771
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.460Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518685-pinnacle-1628751402": {
-      "id": "nm-ninewickets-exchange-35518685-pinnacle-1628751402",
-      "eventA": {
-        "id": "ninewickets-exchange-35518685",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Maleyeit Kafr El Zayiat",
-        "awayTeam": "Olympic El Qanal",
-        "competition": "Egyptian 2nd Division",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628751402",
-        "provider": "pinnacle",
-        "homeTeam": "Maleyet Kafr El Zayiat",
-        "awayTeam": "El Qanah",
-        "competition": "Egypt - 2nd Division A",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7226173541963016,
-        "homeHomeSimilarity": 0.918918918918919,
-        "awayAwaySimilarity": 0.5263157894736842,
-        "homeAwaySimilarity": 0.08,
-        "awayHomeSimilarity": 0.12903225806451613,
-        "bestOrientation": "normal",
-        "competitionScore": 0.972972972972973,
-        "competitionA": "egyptian 2nd division",
-        "competitionB": "egyptian 2nd division a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.797724039829303
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.918918918918919,
-            "awayScore": 0.5263157894736842,
-            "teamA": {
-              "home": "Maleyeit Kafr El Zayiat",
-              "away": "Olympic El Qanal"
-            },
-            "teamB": {
-              "home": "Maleyet Kafr El Zayiat",
-              "away": "El Qanah"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.797724039829303,
-            "threshold": 0.85,
-            "gap": 0.05227596017069702
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.516Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518687-pinnacle-1628573499": {
-      "id": "nm-ninewickets-exchange-35518687-pinnacle-1628573499",
-      "eventA": {
-        "id": "ninewickets-exchange-35518687",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Raya Sporting FC",
-        "awayTeam": "El Mansurah",
-        "competition": "Egyptian 2nd Division",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628573499",
-        "provider": "pinnacle",
-        "homeTeam": "Raya SC",
-        "awayTeam": "El Mansoura",
-        "competition": "Egypt - 2nd Division A",
-        "startTime": "2026-04-23T13:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7142857142857143,
-        "homeHomeSimilarity": 0.42857142857142855,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.1,
-        "awayHomeSimilarity": 0.16666666666666666,
-        "bestOrientation": "normal",
-        "competitionScore": 0.972972972972973,
-        "competitionA": "egyptian 2nd division",
-        "competitionB": "egyptian 2nd division a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7918918918918919
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.42857142857142855,
-            "awayScore": 1,
-            "teamA": {
-              "home": "Raya Sporting FC",
-              "away": "El Mansurah"
-            },
-            "teamB": {
-              "home": "Raya SC",
-              "away": "El Mansoura"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7918918918918919,
-            "threshold": 0.85,
-            "gap": 0.05810810810810807
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.570Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518743-pinnacle-1628640463": {
-      "id": "nm-ninewickets-exchange-35518743-pinnacle-1628640463",
-      "eventA": {
-        "id": "ninewickets-exchange-35518743",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Al-Ittihad Kalba",
-        "awayTeam": "Bani Yas",
-        "competition": "UAE Arabian Gulf League",
-        "startTime": "2026-04-23T14:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628640463",
-        "provider": "pinnacle",
-        "homeTeam": "Al Ittihad Kalba",
-        "awayTeam": "Bani Yas",
-        "competition": "UAE - Pro League",
-        "startTime": "2026-04-23T14:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.10526315789473684,
-        "awayHomeSimilarity": 0.10526315789473684,
-        "bestOrientation": "normal",
-        "competitionScore": 0.4666666666666667,
-        "competitionA": "uae arabian gulf league",
-        "competitionB": "uae pro league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.84
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.4666666666666667,
-            "competitionA": "UAE Arabian Gulf League",
-            "competitionB": "UAE - Pro League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.84,
-            "threshold": 0.85,
-            "gap": 0.010000000000000009
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T00:02:57.625Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35515616-pinnacle-1628527369": {
-      "id": "nm-ninewickets-exchange-35515616-pinnacle-1628527369",
-      "eventA": {
-        "id": "ninewickets-exchange-35515616",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Apollon Limassol",
-        "awayTeam": "APOEL",
-        "competition": "Cypriot Cup",
-        "startTime": "2026-04-22T16:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527369",
-        "provider": "pinnacle",
-        "homeTeam": "Apollon Limassol",
-        "awayTeam": "APOEL Nicosia",
-        "competition": "Cyprus - Cup",
-        "startTime": "2026-04-22T16:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7666666666666666,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.5333333333333333,
-        "homeAwaySimilarity": 0.16,
-        "awayHomeSimilarity": 0.2222222222222222,
-        "bestOrientation": "normal",
-        "competitionScore": 0.5882352941176471,
-        "competitionA": "cypriot cup",
-        "competitionB": "cyprus cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7131372549019608
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.5333333333333333,
-            "teamA": {
-              "home": "Apollon Limassol",
-              "away": "APOEL"
-            },
-            "teamB": {
-              "home": "Apollon Limassol",
-              "away": "APOEL Nicosia"
-            }
-          }
-        },
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.5882352941176471,
-            "competitionA": "Cypriot Cup",
-            "competitionB": "Cyprus - Cup"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7131372549019608,
-            "threshold": 0.85,
-            "gap": 0.1368627450980392
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T04:03:02.200Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35519325-pinnacle-1628757191": {
-      "id": "nm-ninewickets-exchange-35519325-pinnacle-1628757191",
-      "eventA": {
-        "id": "ninewickets-exchange-35519325",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "North District U22",
-        "awayTeam": "Southern District U22",
-        "competition": "Hong Kong U22",
-        "startTime": "2026-04-22T10:45:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628757191",
-        "provider": "pinnacle",
-        "homeTeam": "North District",
-        "awayTeam": "Southern District",
-        "competition": "Hong Kong - U22 League",
-        "startTime": "2026-04-22T10:45:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.873015873015873,
-        "homeHomeSimilarity": 0.8888888888888888,
-        "awayAwaySimilarity": 0.8571428571428571,
-        "homeAwaySimilarity": 0.5,
-        "awayHomeSimilarity": 0.5333333333333333,
-        "bestOrientation": "normal",
-        "competitionScore": 0.7692307692307693,
-        "competitionA": "hong kong u22",
-        "competitionB": "hong kong u22 league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8418803418803418
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.7692307692307693,
-            "competitionA": "Hong Kong U22",
-            "competitionB": "Hong Kong - U22 League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8418803418803418,
-            "threshold": 0.85,
-            "gap": 0.008119658119658202
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T04:47:02.223Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518721-pinnacle-1628488869": {
-      "id": "nm-ninewickets-exchange-35518721-pinnacle-1628488869",
-      "eventA": {
-        "id": "ninewickets-exchange-35518721",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Cebrayil FK",
-        "awayTeam": "Energetik Mingechevir",
-        "competition": "Azerbaijan 1st Division",
-        "startTime": "2026-04-22T12:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628488869",
-        "provider": "pinnacle",
-        "homeTeam": "Cabrayil",
-        "awayTeam": "Energetik Mingechevir",
-        "competition": "Azerbaijan - Division 1",
-        "startTime": "2026-04-22T12:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.8125,
-        "homeHomeSimilarity": 0.625,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.8947368421052632,
-        "competitionA": "azerbaijan 1st division",
-        "competitionB": "azerbaijan division 1",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.837171052631579
-      },
-      "failureReasons": [
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.837171052631579,
-            "threshold": 0.85,
-            "gap": 0.012828947368420995
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T06:03:02.273Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35521070-pinnacle-1628459091": {
-      "id": "nm-ninewickets-exchange-35521070-pinnacle-1628459091",
-      "eventA": {
-        "id": "ninewickets-exchange-35521070",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Visakha FC",
-        "awayTeam": "ISI Dangkor Senchey FC",
-        "competition": "Cambodian Premier League",
-        "startTime": "2026-04-22T11:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628459091",
-        "provider": "pinnacle",
-        "homeTeam": "Visakha",
-        "awayTeam": "ISI Dangkor Senchey",
-        "competition": "Cambodia - Cup",
-        "startTime": "2026-04-22T11:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.09090909090909091,
-        "awayHomeSimilarity": 0.09090909090909091,
-        "bestOrientation": "normal",
-        "competitionScore": 0.45161290322580644,
-        "competitionA": "cambodian premier league",
-        "competitionB": "cambodia cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8354838709677419
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.45161290322580644,
-            "competitionA": "Cambodian Premier League",
-            "competitionB": "Cambodia - Cup"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8354838709677419,
-            "threshold": 0.85,
-            "gap": 0.014516129032258074
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T06:39:02.694Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35519329-pinnacle-1628751399": {
-      "id": "nm-ninewickets-exchange-35519329-pinnacle-1628751399",
-      "eventA": {
-        "id": "ninewickets-exchange-35519329",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Eastern District U22",
-        "awayTeam": "Lee Man FC U22",
-        "competition": "Hong Kong U22",
-        "startTime": "2026-04-22T12:45:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628751399",
-        "provider": "pinnacle",
-        "homeTeam": "Eastern District",
-        "awayTeam": "Lee Man",
-        "competition": "Hong Kong - U22 League",
-        "startTime": "2026-04-22T12:45:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.8088578088578089,
-        "homeHomeSimilarity": 0.8484848484848485,
-        "awayAwaySimilarity": 0.7692307692307693,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.7692307692307693,
-        "competitionA": "hong kong u22",
-        "competitionB": "hong kong u22 league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7969696969696969
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.7692307692307693,
-            "competitionA": "Hong Kong U22",
-            "competitionB": "Hong Kong - U22 League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7969696969696969,
-            "threshold": 0.85,
-            "gap": 0.053030303030303094
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T06:47:02.425Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35497153-pinnacle-1628535378": {
-      "id": "nm-ninewickets-exchange-35497153-pinnacle-1628535378",
-      "eventA": {
-        "id": "ninewickets-exchange-35497153",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Always Ready",
-        "awayTeam": "Oriente Petrolero",
-        "competition": "Bolivian Liga de Futbol Profesional",
-        "startTime": "2026-04-22T19:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628535378",
-        "provider": "pinnacle",
-        "homeTeam": "Always Ready",
-        "awayTeam": "Oriente Petrolero",
-        "competition": "Bolivia - Primera Division",
-        "startTime": "2026-04-22T19:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.43137254901960786,
-        "competitionA": "bolivian liga de futbol profesional",
-        "competitionB": "bolivia primera division",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8294117647058823
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.43137254901960786,
-            "competitionA": "Bolivian Liga de Futbol Profesional",
-            "competitionB": "Bolivia - Primera Division"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8294117647058823,
-            "threshold": 0.85,
-            "gap": 0.020588235294117685
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T07:15:03.250Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518732-pinnacle-1629017492": {
-      "id": "nm-ninewickets-exchange-35518732-pinnacle-1629017492",
-      "eventA": {
-        "id": "ninewickets-exchange-35518732",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Shkendija",
-        "awayTeam": "KF Shkendija Haracine",
-        "competition": "Republic of North Macedonian Soccer",
-        "startTime": "2026-04-22T12:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1629017492",
-        "provider": "pinnacle",
-        "homeTeam": "Shkendija",
-        "awayTeam": "Shkendija Haracine",
-        "competition": "North Macedonia - Cup",
-        "startTime": "2026-04-22T12:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.9705882352941176,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.9411764705882353,
-        "homeAwaySimilarity": 0.6666666666666666,
-        "awayHomeSimilarity": 0.6153846153846154,
-        "bestOrientation": "normal",
-        "competitionScore": 0.5652173913043478,
-        "competitionA": "republic of north macedonian soccer",
-        "competitionB": "north macedonia cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8489769820971866
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.5652173913043478,
-            "competitionA": "Republic of North Macedonian Soccer",
-            "competitionB": "North Macedonia - Cup"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8489769820971866,
-            "threshold": 0.85,
-            "gap": 0.001023017902813339
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T07:27:02.713Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35520355-pinnacle-1629019842": {
-      "id": "nm-ninewickets-exchange-35520355-pinnacle-1629019842",
-      "eventA": {
-        "id": "ninewickets-exchange-35520355",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Aigle Royal du Moungo",
-        "awayTeam": "Coton S De Garoua",
-        "competition": "Cameroonese Elite One",
-        "startTime": "2026-04-22T14:30:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1629019842",
-        "provider": "pinnacle",
-        "homeTeam": "Aigle Royal de Moungo",
-        "awayTeam": "Coton Sport",
-        "competition": "Cameroon - Elite One",
-        "startTime": "2026-04-22T14:30:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6684491978609626,
-        "homeHomeSimilarity": 0.8823529411764706,
-        "awayAwaySimilarity": 0.45454545454545453,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.2,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "cameroonese elite one",
-        "competitionB": "cameroonese elite one",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7679144385026737
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.8823529411764706,
-            "awayScore": 0.45454545454545453,
-            "teamA": {
-              "home": "Aigle Royal du Moungo",
-              "away": "Coton S De Garoua"
-            },
-            "teamB": {
-              "home": "Aigle Royal de Moungo",
-              "away": "Coton Sport"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7679144385026737,
-            "threshold": 0.85,
-            "gap": 0.08208556149732626
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T08:38:27.371Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35520350-pinnacle-1628934205": {
-      "id": "nm-ninewickets-exchange-35520350-pinnacle-1628934205",
-      "eventA": {
-        "id": "ninewickets-exchange-35520350",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Colombe du Dja et Lobo",
-        "awayTeam": "Gazelle de Garoua",
-        "competition": "Cameroonese Elite One",
-        "startTime": "2026-04-22T15:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628934205",
-        "provider": "pinnacle",
-        "homeTeam": "Colombe",
-        "awayTeam": "Gazelle FA de Garoua",
-        "competition": "Cameroon - Elite One",
-        "startTime": "2026-04-22T15:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6942028985507247,
-        "homeHomeSimilarity": 0.5217391304347826,
-        "awayAwaySimilarity": 0.8666666666666667,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "cameroonese elite one",
-        "competitionB": "cameroonese elite one",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7859420289855072
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.5217391304347826,
-            "awayScore": 0.8666666666666667,
-            "teamA": {
-              "home": "Colombe du Dja et Lobo",
-              "away": "Gazelle de Garoua"
-            },
-            "teamB": {
-              "home": "Colombe",
-              "away": "Gazelle FA de Garoua"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7859420289855072,
-            "threshold": 0.85,
-            "gap": 0.06405797101449273
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T09:03:15.843Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35509130-pinnacle-1628561741": {
-      "id": "nm-ninewickets-exchange-35509130-pinnacle-1628561741",
-      "eventA": {
-        "id": "ninewickets-exchange-35509130",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Zorya",
-        "awayTeam": "Shakhtar",
-        "competition": "Ukrainian Premier League",
-        "startTime": "2026-04-23T12:30:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628561741",
-        "provider": "pinnacle",
-        "homeTeam": "Zorya Luhansk",
-        "awayTeam": "Shakhtar Donetsk",
-        "competition": "Ukraine - Premier League",
-        "startTime": "2026-04-23T12:30:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7666666666666666,
-        "homeHomeSimilarity": 0.5333333333333333,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.16,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "bosnia and herzegovina - premier liga",
-        "competitionB": "bosnia and herzegovina - premier liga",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8366666666666667
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.5333333333333333,
-            "awayScore": 1,
-            "teamA": {
-              "home": "Zorya",
-              "away": "Shakhtar"
-            },
-            "teamB": {
-              "home": "Zorya Luhansk",
-              "away": "Shakhtar Donetsk"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8366666666666667,
-            "threshold": 0.85,
-            "gap": 0.013333333333333308
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T09:48:29.352Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35497166-pinnacle-1628530421": {
-      "id": "nm-ninewickets-exchange-35497166-pinnacle-1628530421",
-      "eventA": {
-        "id": "ninewickets-exchange-35497166",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Real Potosi",
-        "awayTeam": "Guabira",
-        "competition": "Bolivian Liga de Futbol Profesional",
-        "startTime": "2026-04-22T22:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628530421",
-        "provider": "pinnacle",
-        "homeTeam": "Real Potosi",
-        "awayTeam": "Guabira",
-        "competition": "Bolivia - Primera Division",
-        "startTime": "2026-04-22T22:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.43137254901960786,
-        "competitionA": "bolivian liga de futbol profesional",
-        "competitionB": "bolivia primera division",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8294117647058823
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.43137254901960786,
-            "competitionA": "Bolivian Liga de Futbol Profesional",
-            "competitionB": "Bolivia - Primera Division"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8294117647058823,
-            "threshold": 0.85,
-            "gap": 0.020588235294117685
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T10:57:39.645Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35522285-pinnacle-1628776337": {
-      "id": "nm-ninewickets-exchange-35522285-pinnacle-1628776337",
-      "eventA": {
-        "id": "ninewickets-exchange-35522285",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "FC Van Yerevan",
-        "awayTeam": "BKMA Yerevan",
-        "competition": "Armenian Premier League",
-        "startTime": "2026-04-23T11:30:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628776337",
-        "provider": "pinnacle",
-        "homeTeam": "FC Van",
-        "awayTeam": "BKMA Yerevan",
-        "competition": "Armenia - Premier League",
-        "startTime": "2026-04-23T11:30:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6818181818181819,
-        "homeHomeSimilarity": 0.36363636363636365,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.631578947368421,
-        "awayHomeSimilarity": 0.3333333333333333,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "armenian premier league",
-        "competitionB": "armenian premier league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7772727272727273
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.36363636363636365,
-            "awayScore": 1,
-            "teamA": {
-              "home": "FC Van Yerevan",
-              "away": "BKMA Yerevan"
-            },
-            "teamB": {
-              "home": "FC Van",
-              "away": "BKMA Yerevan"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7772727272727273,
-            "threshold": 0.85,
-            "gap": 0.07272727272727264
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T14:41:37.553Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35521668-pinnacle-1628557906": {
-      "id": "nm-ninewickets-exchange-35521668-pinnacle-1628557906",
-      "eventA": {
-        "id": "ninewickets-exchange-35521668",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "SK Super Nova",
-        "awayTeam": "Liepajas Metalurgs",
-        "competition": "Latvian Virsliga",
-        "startTime": "2026-04-23T15:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628557906",
-        "provider": "pinnacle",
-        "homeTeam": "Super Nova",
-        "awayTeam": "Liepaja",
-        "competition": "Latvia - Virsliga",
-        "startTime": "2026-04-23T15:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.75,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.5,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "latvia - virsliga",
-        "competitionB": "latvia - virsliga",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.825
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.5,
-            "teamA": {
-              "home": "SK Super Nova",
-              "away": "Liepajas Metalurgs"
-            },
-            "teamB": {
-              "home": "Super Nova",
-              "away": "Liepaja"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.825,
-            "threshold": 0.85,
-            "gap": 0.025000000000000022
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T15:13:37.519Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35522799-pinnacle-1628527397": {
-      "id": "nm-ninewickets-exchange-35522799-pinnacle-1628527397",
-      "eventA": {
-        "id": "ninewickets-exchange-35522799",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Excelsior (W)",
-        "awayTeam": "Nac Breda (W)",
-        "competition": "Dutch Ladies Eredivisie",
-        "startTime": "2026-04-22T16:45:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628527397",
-        "provider": "pinnacle",
-        "homeTeam": "Excelsior",
-        "awayTeam": "NAC Breda",
-        "competition": "Netherlands - Eredivisie Women",
-        "startTime": "2026-04-22T16:45:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.9372549019607843,
-        "homeHomeSimilarity": 0.9411764705882353,
-        "awayAwaySimilarity": 0.9333333333333333,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.6206896551724138,
-        "competitionA": "ladies eredivisie",
-        "competitionB": "eredivisie women",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8422853279242731
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.6206896551724138,
-            "competitionA": "Dutch Ladies Eredivisie",
-            "competitionB": "Netherlands - Eredivisie Women"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8422853279242731,
-            "threshold": 0.85,
-            "gap": 0.007714672075726847
-          }
-        }
-      ],
-      "detectedAt": "2026-04-22T15:25:37.427Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35421929-pinnacle-1628535806": {
-      "id": "nm-ninewickets-exchange-35421929-pinnacle-1628535806",
-      "eventA": {
-        "id": "ninewickets-exchange-35421929",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Atletico MG",
-        "awayTeam": "Ceara SC Fortaleza",
-        "competition": "Brazilian Cup",
-        "startTime": "2026-04-23T22:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628535806",
-        "provider": "pinnacle",
-        "homeTeam": "Atletico Mineiro",
-        "awayTeam": "Ceara",
-        "competition": "Brazil - Cup",
-        "startTime": "2026-04-23T22:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7352941176470589,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.47058823529411764,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.07407407407407407,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "fa cup",
-        "competitionB": "fa cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8147058823529412
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.47058823529411764,
-            "teamA": {
-              "home": "Atletico MG",
-              "away": "Ceara SC Fortaleza"
-            },
-            "teamB": {
-              "home": "Atletico Mineiro",
-              "away": "Ceara"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8147058823529412,
-            "threshold": 0.85,
-            "gap": 0.03529411764705881
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T00:01:59.629Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35512697-pinnacle-1628530435": {
-      "id": "nm-ninewickets-exchange-35512697-pinnacle-1628530435",
-      "eventA": {
-        "id": "ninewickets-exchange-35512697",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Deportivo Pasto",
-        "awayTeam": "Santa Fe",
-        "competition": "Colombian Primera A",
-        "startTime": "2026-04-23T23:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628530435",
-        "provider": "pinnacle",
-        "homeTeam": "Deportivo Pasto",
-        "awayTeam": "Independiente Santa Fe",
-        "competition": "Colombia - Primera A",
-        "startTime": "2026-04-23T23:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.74,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.48,
-        "homeAwaySimilarity": 0.125,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "colombian primera a",
-        "competitionB": "colombian primera a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8180000000000001
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.48,
-            "teamA": {
-              "home": "Deportivo Pasto",
-              "away": "Santa Fe"
-            },
-            "teamB": {
-              "home": "Deportivo Pasto",
-              "away": "Independiente Santa Fe"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8180000000000001,
-            "threshold": 0.85,
-            "gap": 0.03199999999999992
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T00:01:59.696Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35514893-pinnacle-1628896041": {
-      "id": "nm-ninewickets-exchange-35514893-pinnacle-1628896041",
-      "eventA": {
-        "id": "ninewickets-exchange-35514893",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Patro Eisden Maasmechelen",
-        "awayTeam": "KFCO Beerschot Wilrijk",
-        "competition": "Belgian Challenger Pro League",
-        "startTime": "2026-04-23T18:30:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628896041",
-        "provider": "pinnacle",
-        "homeTeam": "Patro Eisden Maasmechelen",
-        "awayTeam": "Beerschot",
-        "competition": "Belgium - Challenger Pro League",
-        "startTime": "2026-04-23T18:30:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7666666666666666,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.5333333333333333,
-        "homeAwaySimilarity": 0.06060606060606061,
-        "awayHomeSimilarity": 0.04878048780487805,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "belgium - challenger pro league",
-        "competitionB": "belgium - challenger pro league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8366666666666667
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.5333333333333333,
-            "teamA": {
-              "home": "Patro Eisden Maasmechelen",
-              "away": "KFCO Beerschot Wilrijk"
-            },
-            "teamB": {
-              "home": "Patro Eisden Maasmechelen",
-              "away": "Beerschot"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8366666666666667,
-            "threshold": 0.85,
-            "gap": 0.013333333333333308
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T00:01:59.818Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35504900-pinnacle-1628587021": {
-      "id": "nm-ninewickets-exchange-35504900-pinnacle-1628587021",
-      "eventA": {
-        "id": "ninewickets-exchange-35504900",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Vikingur Reykjavik",
-        "awayTeam": "Stjarnan",
-        "competition": "Icelandic Urvalsdeild",
-        "startTime": "2026-04-23T19:15:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628587021",
-        "provider": "pinnacle",
-        "homeTeam": "Vikingur Reykjavik",
-        "awayTeam": "Stjarnan",
-        "competition": "Iceland - Premier League",
-        "startTime": "2026-04-23T19:15:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0.08,
-        "awayHomeSimilarity": 0.08,
-        "bestOrientation": "normal",
-        "competitionScore": 0.3076923076923077,
-        "competitionA": "icelandic urvalsdeild",
-        "competitionB": "iceland - premier league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7923076923076923
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.3076923076923077,
-            "competitionA": "Icelandic Urvalsdeild",
-            "competitionB": "Iceland - Premier League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7923076923076923,
-            "threshold": 0.85,
-            "gap": 0.05769230769230771
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T00:02:00.067Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518741-pinnacle-1628573553": {
-      "id": "nm-ninewickets-exchange-35518741-pinnacle-1628573553",
-      "eventA": {
-        "id": "ninewickets-exchange-35518741",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Viimsi JK",
-        "awayTeam": "JK Welco Elekter",
-        "competition": "Estonian Esiliiga",
-        "startTime": "2026-04-23T16:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628573553",
-        "provider": "pinnacle",
-        "homeTeam": "Viimsi JK",
-        "awayTeam": "Tartu JK Welco",
-        "competition": "Estonia - Esiliiga A",
-        "startTime": "2026-04-23T16:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.75,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.5,
-        "homeAwaySimilarity": 0.1111111111111111,
-        "awayHomeSimilarity": 0.1,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "estonia - esiliiga a",
-        "competitionB": "estonia - esiliiga a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.825
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.5,
-            "teamA": {
-              "home": "Viimsi JK",
-              "away": "JK Welco Elekter"
-            },
-            "teamB": {
-              "home": "Viimsi JK",
-              "away": "Tartu JK Welco"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.825,
-            "threshold": 0.85,
-            "gap": 0.025000000000000022
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T04:14:02.623Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35518754-pinnacle-1628573552": {
-      "id": "nm-ninewickets-exchange-35518754-pinnacle-1628573552",
-      "eventA": {
-        "id": "ninewickets-exchange-35518754",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "FC Maardu",
-        "awayTeam": "FC Tallinn",
-        "competition": "Estonian Esiliiga",
-        "startTime": "2026-04-23T16:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628573552",
-        "provider": "pinnacle",
-        "homeTeam": "Maardu Linnameeskond",
-        "awayTeam": "FC Tallinn",
-        "competition": "Estonia - Esiliiga A",
-        "startTime": "2026-04-23T16:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.717391304347826,
-        "homeHomeSimilarity": 0.43478260869565216,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.25,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "estonia - esiliiga a",
-        "competitionB": "estonia - esiliiga a",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8021739130434782
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.43478260869565216,
-            "awayScore": 1,
-            "teamA": {
-              "home": "FC Maardu",
-              "away": "FC Tallinn"
-            },
-            "teamB": {
-              "home": "Maardu Linnameeskond",
-              "away": "FC Tallinn"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8021739130434782,
-            "threshold": 0.85,
-            "gap": 0.047826086956521796
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T04:14:02.683Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35521845-pinnacle-1628967757": {
-      "id": "nm-ninewickets-exchange-35521845-pinnacle-1628967757",
-      "eventA": {
-        "id": "ninewickets-exchange-35521845",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Tulevik Viljandi",
-        "awayTeam": "Parnu JK Vaprus U21",
-        "competition": "Estonian Esiliiga B",
-        "startTime": "2026-04-23T16:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628967757",
-        "provider": "pinnacle",
-        "homeTeam": "Viljandi JK Tulevik",
-        "awayTeam": "Parnu Vaprus II",
-        "competition": "Estonia - Esiliiga B",
-        "startTime": "2026-04-23T16:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7666666666666666,
-        "homeHomeSimilarity": 0.8666666666666667,
-        "awayAwaySimilarity": 0.6666666666666666,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.06451612903225806,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "estonian esiliiga b",
-        "competitionB": "estonian esiliiga b",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8366666666666667
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.8666666666666667,
-            "awayScore": 0.6666666666666666,
-            "teamA": {
-              "home": "Tulevik Viljandi",
-              "away": "Parnu JK Vaprus U21"
-            },
-            "teamB": {
-              "home": "Viljandi JK Tulevik",
-              "away": "Parnu Vaprus II"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8366666666666667,
-            "threshold": 0.85,
-            "gap": 0.013333333333333308
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T04:17:59.820Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35520890-pinnacle-1628557877": {
-      "id": "nm-ninewickets-exchange-35520890-pinnacle-1628557877",
-      "eventA": {
-        "id": "ninewickets-exchange-35520890",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Agsu",
-        "awayTeam": "Sabail",
-        "competition": "Azerbaijan 1st Division",
-        "startTime": "2026-04-23T12:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628557877",
-        "provider": "pinnacle",
-        "homeTeam": "Difai Agsu",
-        "awayTeam": "Sabail",
-        "competition": "Azerbaijan - Division 1",
-        "startTime": "2026-04-23T12:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7727272727272727,
-        "homeHomeSimilarity": 0.5454545454545454,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.15384615384615385,
-        "bestOrientation": "normal",
-        "competitionScore": 0.8947368421052632,
-        "competitionA": "azerbaijan 1st division",
-        "competitionB": "azerbaijan division 1",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8093301435406699
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.5454545454545454,
-            "awayScore": 1,
-            "teamA": {
-              "home": "Agsu",
-              "away": "Sabail"
-            },
-            "teamB": {
-              "home": "Difai Agsu",
-              "away": "Sabail"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8093301435406699,
-            "threshold": 0.85,
-            "gap": 0.04066985645933008
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T06:05:59.740Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35497441-pinnacle-1628598129": {
-      "id": "nm-ninewickets-exchange-35497441-pinnacle-1628598129",
-      "eventA": {
-        "id": "ninewickets-exchange-35497441",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "San Antonio Bulo Bulo",
-        "awayTeam": "CDT Real Oruro",
-        "competition": "Bolivian Liga de Futbol Profesional",
-        "startTime": "2026-04-23T19:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628598129",
-        "provider": "pinnacle",
-        "homeTeam": "San Antonio Bulo Bulo",
-        "awayTeam": "Real Oruro",
-        "competition": "Bolivia - Primera Division",
-        "startTime": "2026-04-23T19:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.9210526315789473,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.8421052631578947,
-        "homeAwaySimilarity": 0.08,
-        "awayHomeSimilarity": 0.07142857142857142,
-        "bestOrientation": "normal",
-        "competitionScore": 0.43137254901960786,
-        "competitionA": "bolivian liga de futbol profesional",
-        "competitionB": "bolivia primera division",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7741486068111454
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.43137254901960786,
-            "competitionA": "Bolivian Liga de Futbol Profesional",
-            "competitionB": "Bolivia - Primera Division"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7741486068111454,
-            "threshold": 0.85,
-            "gap": 0.07585139318885459
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T07:14:00.172Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35516080-pinnacle-1628901057": {
-      "id": "nm-ninewickets-exchange-35516080-pinnacle-1628901057",
-      "eventA": {
-        "id": "ninewickets-exchange-35516080",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Tapatio",
-        "awayTeam": "Cancun FC",
-        "competition": "Mexican Liga de Ascenso",
-        "startTime": "2026-04-24T01:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628901057",
-        "provider": "pinnacle",
-        "homeTeam": "Tapatio",
-        "awayTeam": "Cancun",
-        "competition": "Mexico - Liga de Expansión MX",
-        "startTime": "2026-04-24T01:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.42857142857142855,
-        "competitionA": "liga de ascenso",
-        "competitionB": "liga de expansion mx",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8285714285714285
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.42857142857142855,
-            "competitionA": "Mexican Liga de Ascenso",
-            "competitionB": "Mexico - Liga de Expansión MX"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8285714285714285,
-            "threshold": 0.85,
-            "gap": 0.021428571428571463
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T10:58:00.321Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35520985-pinnacle-1628586975": {
-      "id": "nm-ninewickets-exchange-35520985-pinnacle-1628586975",
-      "eventA": {
-        "id": "ninewickets-exchange-35520985",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Vllaznia Shkoder",
-        "awayTeam": "Dinamo Tirana",
-        "competition": "Albanian Cup",
-        "startTime": "2026-04-23T17:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628586975",
-        "provider": "pinnacle",
-        "homeTeam": "Vllaznia Shkoder",
-        "awayTeam": "Dinamo City",
-        "competition": "Albania - Cup",
-        "startTime": "2026-04-23T17:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.75,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.5,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "albanian cup",
-        "competitionB": "albanian cup",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.825
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 1,
-            "awayScore": 0.5,
-            "teamA": {
-              "home": "Vllaznia Shkoder",
-              "away": "Dinamo Tirana"
-            },
-            "teamB": {
-              "home": "Vllaznia Shkoder",
-              "away": "Dinamo City"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.825,
-            "threshold": 0.85,
-            "gap": 0.025000000000000022
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T11:02:00.602Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35497406-pinnacle-1628613307": {
-      "id": "nm-ninewickets-exchange-35497406-pinnacle-1628613307",
-      "eventA": {
-        "id": "ninewickets-exchange-35497406",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Real Tomayapo",
-        "awayTeam": "The Strongest",
-        "competition": "Bolivian Liga de Futbol Profesional",
-        "startTime": "2026-04-24T00:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628613307",
-        "provider": "pinnacle",
-        "homeTeam": "Real Tomayapo",
-        "awayTeam": "The Strongest",
-        "competition": "Bolivia - Primera Division",
-        "startTime": "2026-04-24T00:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 1,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.43137254901960786,
-        "competitionA": "bolivian liga de futbol profesional",
-        "competitionB": "bolivia primera division",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8294117647058823
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.43137254901960786,
-            "competitionA": "Bolivian Liga de Futbol Profesional",
-            "competitionB": "Bolivia - Primera Division"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8294117647058823,
-            "threshold": 0.85,
-            "gap": 0.020588235294117685
-          }
-        }
-      ],
-      "detectedAt": "2026-04-23T12:14:00.895Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-exchange-35506732-pinnacle-1628702948": {
-      "id": "nm-ninewickets-exchange-35506732-pinnacle-1628702948",
-      "eventA": {
-        "id": "ninewickets-exchange-35506732",
-        "provider": "ninewickets-exchange",
-        "homeTeam": "Ludogorets",
-        "awayTeam": "CSKA 1948 Sofia",
-        "competition": "Bulgarian A League",
-        "startTime": "2026-04-25T10:15:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628702948",
-        "provider": "pinnacle",
-        "homeTeam": "Ludogorets Razgrad",
-        "awayTeam": "CSKA 1948",
-        "competition": "Bulgaria - First League",
-        "startTime": "2026-04-25T10:15:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.868421052631579,
-        "homeHomeSimilarity": 1,
-        "awayAwaySimilarity": 0.7368421052631579,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 0.7272727272727273,
-        "competitionA": "bulgarian a league",
-        "competitionB": "bulgaria first league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8260765550239234
-      },
-      "failureReasons": [
-        {
-          "type": "competition_mismatch",
-          "details": {
-            "score": 0.7272727272727273,
-            "competitionA": "Bulgarian A League",
-            "competitionB": "Bulgaria - First League"
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8260765550239234,
-            "threshold": 0.85,
-            "gap": 0.02392344497607657
-          }
-        }
-      ],
-      "detectedAt": "2026-04-24T00:01:26.192Z",
-      "status": "pending"
-    },
     "nm-ninewickets-exchange-35524373-pinnacle-1628718986": {
       "id": "nm-ninewickets-exchange-35524373-pinnacle-1628718986",
       "eventA": {
@@ -29570,9 +27062,2567 @@
       ],
       "detectedAt": "2026-04-24T12:16:48.331Z",
       "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530460-pinnacle-1628776362": {
+      "id": "nm-ninewickets-sportsbook-35530460-pinnacle-1628776362",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530460",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Imisli FK",
+        "awayTeam": "FK Sumqayit",
+        "competition": "Azerbaijan Premier League",
+        "startTime": "2026-04-25T12:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628776362",
+        "provider": "pinnacle",
+        "homeTeam": "Imisli",
+        "awayTeam": "Sumgayit",
+        "competition": "Azerbaijan - Premier League",
+        "startTime": "2026-04-25T12:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7666666666666666,
+        "homeHomeSimilarity": 0.5333333333333333,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.125,
+        "awayHomeSimilarity": 0.11764705882352941,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "azerbaijan - premier league",
+        "competitionB": "azerbaijan - premier league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8366666666666667
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5333333333333333,
+            "awayScore": 1,
+            "teamA": {
+              "home": "Imisli FK",
+              "away": "FK Sumqayit"
+            },
+            "teamB": {
+              "home": "Imisli",
+              "away": "Sumgayit"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8366666666666667,
+            "threshold": 0.85,
+            "gap": 0.013333333333333308
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T13:33:15.569Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530295-pinnacle-1628768413": {
+      "id": "nm-ninewickets-sportsbook-35530295-pinnacle-1628768413",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530295",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "IL Sandviken Bergen",
+        "awayTeam": "Pors",
+        "competition": "Norwegian 2nd Division",
+        "startTime": "2026-04-25T11:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628768413",
+        "provider": "pinnacle",
+        "homeTeam": "Sandviken",
+        "awayTeam": "Pors Grenland",
+        "competition": "Norway - 2nd Division",
+        "startTime": "2026-04-25T11:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7142857142857143,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.42857142857142855,
+        "homeAwaySimilarity": 0.2222222222222222,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "norwegian 2nd division",
+        "competitionB": "norwegian 2nd division",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.42857142857142855,
+            "teamA": {
+              "home": "IL Sandviken Bergen",
+              "away": "Pors"
+            },
+            "teamB": {
+              "home": "Sandviken",
+              "away": "Pors Grenland"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8,
+            "threshold": 0.85,
+            "gap": 0.04999999999999993
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T15:09:16.563Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35514304-pinnacle-1628755796": {
+      "id": "nm-ninewickets-sportsbook-35514304-pinnacle-1628755796",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35514304",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Okzhetpes",
+        "awayTeam": "FK Kaisar",
+        "competition": "Kazakhstan Premier League",
+        "startTime": "2026-04-25T10:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628755796",
+        "provider": "pinnacle",
+        "homeTeam": "Okzhetpes",
+        "awayTeam": "Kaisar Kyzylorda",
+        "competition": "Kazakhstan - Premier League",
+        "startTime": "2026-04-25T10:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7380952380952381,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.47619047619047616,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "azerbaijan - premier league",
+        "competitionB": "azerbaijan - premier league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8166666666666667
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.47619047619047616,
+            "teamA": {
+              "home": "Okzhetpes",
+              "away": "FK Kaisar"
+            },
+            "teamB": {
+              "home": "Okzhetpes",
+              "away": "Kaisar Kyzylorda"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8166666666666667,
+            "threshold": 0.85,
+            "gap": 0.033333333333333326
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T15:13:17.108Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35531105-pinnacle-1628674703": {
+      "id": "nm-ninewickets-sportsbook-35531105-pinnacle-1628674703",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35531105",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Dukla Banska Bystrica",
+        "awayTeam": "FK Puchov",
+        "competition": "Slovakian 2 Liga",
+        "startTime": "2026-04-25T14:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628674703",
+        "provider": "pinnacle",
+        "homeTeam": "Dukla Banska Bystrica",
+        "awayTeam": "Puchov",
+        "competition": "Slovakia - 2. Liga",
+        "startTime": "2026-04-25T14:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7666666666666666,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.5333333333333333,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0.07407407407407407,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "slovakia  2 liga",
+        "competitionB": "slovakia 2 liga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8366666666666667
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.5333333333333333,
+            "teamA": {
+              "home": "Dukla Banska Bystrica",
+              "away": "FK Puchov"
+            },
+            "teamB": {
+              "home": "Dukla Banska Bystrica",
+              "away": "Puchov"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8366666666666667,
+            "threshold": 0.85,
+            "gap": 0.013333333333333308
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T15:25:17.611Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530990-pinnacle-1628791514": {
+      "id": "nm-ninewickets-sportsbook-35530990-pinnacle-1628791514",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530990",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Throttur",
+        "awayTeam": "Njardvik",
+        "competition": "Icelandic 1 Deild",
+        "startTime": "2026-04-25T14:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628791514",
+        "provider": "pinnacle",
+        "homeTeam": "Throttur Reykjavik",
+        "awayTeam": "UMF Njardvik",
+        "competition": "Iceland - 1. Deild",
+        "startTime": "2026-04-25T14:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7161125319693095,
+        "homeHomeSimilarity": 0.6086956521739131,
+        "awayAwaySimilarity": 0.8235294117647058,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0.2608695652173913,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "icelandic 1 deild",
+        "competitionB": "icelandic 1 deild",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8012787723785166
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.6086956521739131,
+            "awayScore": 0.8235294117647058,
+            "teamA": {
+              "home": "Throttur",
+              "away": "Njardvik"
+            },
+            "teamB": {
+              "home": "Throttur Reykjavik",
+              "away": "UMF Njardvik"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8012787723785166,
+            "threshold": 0.85,
+            "gap": 0.04872122762148334
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T15:41:17.132Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530187-pinnacle-1628791520": {
+      "id": "nm-ninewickets-sportsbook-35530187-pinnacle-1628791520",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530187",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "EPS",
+        "awayTeam": "Tampereen Ilves II",
+        "competition": "Finnish Kakkonen",
+        "startTime": "2026-04-25T14:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628791520",
+        "provider": "pinnacle",
+        "homeTeam": "EPS",
+        "awayTeam": "Ilves II",
+        "competition": "Finland - Kakkonen Group B",
+        "startTime": "2026-04-25T14:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7857142857142857,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.5714285714285714,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 0.5294117647058824,
+        "competitionA": "finnish kakkonen",
+        "competitionB": "finland kakkonen group b",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7088235294117646
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.5714285714285714,
+            "teamA": {
+              "home": "EPS",
+              "away": "Tampereen Ilves II"
+            },
+            "teamB": {
+              "home": "EPS",
+              "away": "Ilves II"
+            }
+          }
+        },
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.5294117647058824,
+            "competitionA": "Finnish Kakkonen",
+            "competitionB": "Finland - Kakkonen Group B"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7088235294117646,
+            "threshold": 0.85,
+            "gap": 0.14117647058823535
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T15:57:17.453Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35515079-pinnacle-1628755740": {
+      "id": "nm-ninewickets-sportsbook-35515079-pinnacle-1628755740",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35515079",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Ceahlaul",
+        "awayTeam": "CS FC Dinamo Bucuresti",
+        "competition": "Romanian Liga II",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628755740",
+        "provider": "pinnacle",
+        "homeTeam": "Ceahlaul Piatra Neamt",
+        "awayTeam": "CS Dinamo Bucharest",
+        "competition": "Romania - Liga 2",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.68625,
+        "homeHomeSimilarity": 0.56,
+        "awayAwaySimilarity": 0.8125,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0.058823529411764705,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "romanian liga ii",
+        "competitionB": "romanian liga ii",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.780375
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.56,
+            "awayScore": 0.8125,
+            "teamA": {
+              "home": "Ceahlaul",
+              "away": "CS FC Dinamo Bucuresti"
+            },
+            "teamB": {
+              "home": "Ceahlaul Piatra Neamt",
+              "away": "CS Dinamo Bucharest"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.780375,
+            "threshold": 0.85,
+            "gap": 0.06962499999999994
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T21:13:17.330Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35514003-pinnacle-1628751411": {
+      "id": "nm-ninewickets-sportsbook-35514003-pinnacle-1628751411",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35514003",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Concordia Chiajna",
+        "awayTeam": "ACS Fotbal Club Bacau",
+        "competition": "Romanian Liga II",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628751411",
+        "provider": "pinnacle",
+        "homeTeam": "Concordia Chiajna",
+        "awayTeam": "FC Bacau",
+        "competition": "Romania - Liga 2",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6904761904761905,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.38095238095238093,
+        "homeAwaySimilarity": 0.10526315789473684,
+        "awayHomeSimilarity": 0.0625,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "romanian liga ii",
+        "competitionB": "romanian liga ii",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7833333333333332
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.38095238095238093,
+            "teamA": {
+              "home": "Concordia Chiajna",
+              "away": "ACS Fotbal Club Bacau"
+            },
+            "teamB": {
+              "home": "Concordia Chiajna",
+              "away": "FC Bacau"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7833333333333332,
+            "threshold": 0.85,
+            "gap": 0.06666666666666676
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T21:13:17.424Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35513831-pinnacle-1628755746": {
+      "id": "nm-ninewickets-sportsbook-35513831-pinnacle-1628755746",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35513831",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "CS Afumati",
+        "awayTeam": "CSM Satu Mare",
+        "competition": "Romanian Liga II",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628755746",
+        "provider": "pinnacle",
+        "homeTeam": "Afumati",
+        "awayTeam": "Olimpia Satu Mare",
+        "competition": "Romania - Liga 2",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7202380952380952,
+        "homeHomeSimilarity": 0.8571428571428571,
+        "awayAwaySimilarity": 0.5833333333333334,
+        "homeAwaySimilarity": 0.36363636363636365,
+        "awayHomeSimilarity": 0.375,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "romanian liga ii",
+        "competitionB": "romanian liga ii",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8041666666666667
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.8571428571428571,
+            "awayScore": 0.5833333333333334,
+            "teamA": {
+              "home": "CS Afumati",
+              "away": "CSM Satu Mare"
+            },
+            "teamB": {
+              "home": "Afumati",
+              "away": "Olimpia Satu Mare"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8041666666666667,
+            "threshold": 0.85,
+            "gap": 0.04583333333333328
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T21:13:17.512Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35513824-pinnacle-1628757205": {
+      "id": "nm-ninewickets-sportsbook-35513824-pinnacle-1628757205",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35513824",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "ACS Dumbravita",
+        "awayTeam": "CSM Scolar Resita",
+        "competition": "Romanian Liga II",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628757205",
+        "provider": "pinnacle",
+        "homeTeam": "Dumbravita",
+        "awayTeam": "Resita",
+        "competition": "Romania - Liga 2",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.763157894736842,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.5263157894736842,
+        "homeAwaySimilarity": 0.23529411764705882,
+        "awayHomeSimilarity": 0.23076923076923078,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "romanian liga ii",
+        "competitionB": "romanian liga ii",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8342105263157893
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.5263157894736842,
+            "teamA": {
+              "home": "ACS Dumbravita",
+              "away": "CSM Scolar Resita"
+            },
+            "teamB": {
+              "home": "Dumbravita",
+              "away": "Resita"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8342105263157893,
+            "threshold": 0.85,
+            "gap": 0.015789473684210686
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T21:13:17.601Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35532177-pinnacle-1628755741": {
+      "id": "nm-ninewickets-sportsbook-35532177-pinnacle-1628755741",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35532177",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Poli Iasi",
+        "awayTeam": "ACS Muscelul",
+        "competition": "Romanian Liga II",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628755741",
+        "provider": "pinnacle",
+        "homeTeam": "Politehnica Iasi",
+        "awayTeam": "AFC Muscelul Campulung 2022",
+        "competition": "Romania - Liga 2",
+        "startTime": "2026-04-25T08:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7121212121212122,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.42424242424242425,
+        "homeAwaySimilarity": 0.05405405405405406,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "romanian liga ii",
+        "competitionB": "romanian liga ii",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7984848484848485
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.42424242424242425,
+            "teamA": {
+              "home": "Poli Iasi",
+              "away": "ACS Muscelul"
+            },
+            "teamB": {
+              "home": "Politehnica Iasi",
+              "away": "AFC Muscelul Campulung 2022"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7984848484848485,
+            "threshold": 0.85,
+            "gap": 0.051515151515151514
+          }
+        }
+      ],
+      "detectedAt": "2026-04-24T21:41:19.343Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530197-pinnacle-1629068797": {
+      "id": "nm-ninewickets-sportsbook-35530197-pinnacle-1629068797",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530197",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Kawkab Marrakech",
+        "awayTeam": "Wydad Casablanca",
+        "competition": "Moroccan Botola Pro 1",
+        "startTime": "2026-04-25T19:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1629068797",
+        "provider": "pinnacle",
+        "homeTeam": "KAC Marrakech",
+        "awayTeam": "Wydad AC",
+        "competition": "Morocco - Botola Pro",
+        "startTime": "2026-04-25T19:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.5822222222222222,
+        "homeHomeSimilarity": 0.72,
+        "awayAwaySimilarity": 0.4444444444444444,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "moroccan botola pro 1",
+        "competitionB": "moroccan botola pro 1",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7075555555555555
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.72,
+            "awayScore": 0.4444444444444444,
+            "teamA": {
+              "home": "Kawkab Marrakech",
+              "away": "Wydad Casablanca"
+            },
+            "teamB": {
+              "home": "KAC Marrakech",
+              "away": "Wydad AC"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7075555555555555,
+            "threshold": 0.85,
+            "gap": 0.14244444444444448
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.162Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35514789-pinnacle-1628768479": {
+      "id": "nm-ninewickets-sportsbook-35514789-pinnacle-1628768479",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35514789",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Henan Songshan Longmen",
+        "awayTeam": "Shanghai Shenhua",
+        "competition": "Chinese Super League",
+        "startTime": "2026-04-26T12:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628768479",
+        "provider": "pinnacle",
+        "homeTeam": "Henan",
+        "awayTeam": "Shanghai Shenhua",
+        "competition": "China - Super League",
+        "startTime": "2026-04-26T12:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6739130434782609,
+        "homeHomeSimilarity": 0.34782608695652173,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.42857142857142855,
+        "awayHomeSimilarity": 0.2222222222222222,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "uzbekistan - super league",
+        "competitionB": "uzbekistan - super league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7717391304347825
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.34782608695652173,
+            "awayScore": 1,
+            "teamA": {
+              "home": "Henan Songshan Longmen",
+              "away": "Shanghai Shenhua"
+            },
+            "teamB": {
+              "home": "Henan",
+              "away": "Shanghai Shenhua"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7717391304347825,
+            "threshold": 0.85,
+            "gap": 0.0782608695652175
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.224Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35510675-pinnacle-1628790363": {
+      "id": "nm-ninewickets-sportsbook-35510675-pinnacle-1628790363",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35510675",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "NK Primorje",
+        "awayTeam": "NK Radomlje",
+        "competition": "Slovenian Premier League",
+        "startTime": "2026-04-26T13:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628790363",
+        "provider": "pinnacle",
+        "homeTeam": "Primorje",
+        "awayTeam": "Radomlje",
+        "competition": "Slovenia - Prva Liga",
+        "startTime": "2026-04-26T13:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.2222222222222222,
+        "awayHomeSimilarity": 0.2222222222222222,
+        "bestOrientation": "normal",
+        "competitionScore": 0.4444444444444444,
+        "competitionA": "slovenian premier league",
+        "competitionB": "slovenia prva liga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8333333333333333
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.4444444444444444,
+            "competitionA": "Slovenian Premier League",
+            "competitionB": "Slovenia - Prva Liga"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8333333333333333,
+            "threshold": 0.85,
+            "gap": 0.01666666666666672
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.288Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35525752-pinnacle-1628857926": {
+      "id": "nm-ninewickets-sportsbook-35525752-pinnacle-1628857926",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35525752",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "FC Dziugas",
+        "awayTeam": "VMFD Zalgiris",
+        "competition": "Lithuanian A Lyga",
+        "startTime": "2026-04-26T13:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628857926",
+        "provider": "pinnacle",
+        "homeTeam": "Dziugas",
+        "awayTeam": "Vilnius Zalgiris",
+        "competition": "Lithuania - A Lyga",
+        "startTime": "2026-04-26T13:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.74,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.48,
+        "homeAwaySimilarity": 0.07407407407407407,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "lithuania - a lyga",
+        "competitionB": "lithuania - a lyga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8180000000000001
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.48,
+            "teamA": {
+              "home": "FC Dziugas",
+              "away": "VMFD Zalgiris"
+            },
+            "teamB": {
+              "home": "Dziugas",
+              "away": "Vilnius Zalgiris"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8180000000000001,
+            "threshold": 0.85,
+            "gap": 0.03199999999999992
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.352Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35485378-pinnacle-1628252455": {
+      "id": "nm-ninewickets-sportsbook-35485378-pinnacle-1628252455",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35485378",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Torino",
+        "awayTeam": "Inter",
+        "competition": "Italian Serie A",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628252455",
+        "provider": "pinnacle",
+        "homeTeam": "Torino",
+        "awayTeam": "Internazionale",
+        "competition": "Italy - Serie A",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6818181818181819,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.36363636363636365,
+        "homeAwaySimilarity": 0.1111111111111111,
+        "awayHomeSimilarity": 0.14285714285714285,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "serie a",
+        "competitionB": "serie a",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7772727272727273
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.36363636363636365,
+            "teamA": {
+              "home": "Torino",
+              "away": "Inter"
+            },
+            "teamB": {
+              "home": "Torino",
+              "away": "Internazionale"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7772727272727273,
+            "threshold": 0.85,
+            "gap": 0.07272727272727264
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.415Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35511487-pinnacle-1628801595": {
+      "id": "nm-ninewickets-sportsbook-35511487-pinnacle-1628801595",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35511487",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "NK Celje",
+        "awayTeam": "NK Aluminij",
+        "competition": "Slovenian Premier League",
+        "startTime": "2026-04-26T15:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628801595",
+        "provider": "pinnacle",
+        "homeTeam": "Celje",
+        "awayTeam": "Aluminij",
+        "competition": "Slovenia - Prva Liga",
+        "startTime": "2026-04-26T15:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.13333333333333333,
+        "awayHomeSimilarity": 0.13333333333333333,
+        "bestOrientation": "normal",
+        "competitionScore": 0.4444444444444444,
+        "competitionA": "slovenian premier league",
+        "competitionB": "slovenia prva liga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8333333333333333
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.4444444444444444,
+            "competitionA": "Slovenian Premier League",
+            "competitionB": "Slovenia - Prva Liga"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8333333333333333,
+            "threshold": 0.85,
+            "gap": 0.01666666666666672
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.477Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35510753-pinnacle-1628801445": {
+      "id": "nm-ninewickets-sportsbook-35510753-pinnacle-1628801445",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35510753",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "APOEL",
+        "awayTeam": "Pafos FC",
+        "competition": "Cypriot 1st Division",
+        "startTime": "2026-04-26T14:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628801445",
+        "provider": "pinnacle",
+        "homeTeam": "APOEL Nicosia",
+        "awayTeam": "Pafos FC",
+        "competition": "Cyprus - 1st Division",
+        "startTime": "2026-04-26T14:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7666666666666666,
+        "homeHomeSimilarity": 0.5333333333333333,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0.13333333333333333,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "cypriot 1st division",
+        "competitionB": "cypriot 1st division",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8366666666666667
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5333333333333333,
+            "awayScore": 1,
+            "teamA": {
+              "home": "APOEL",
+              "away": "Pafos FC"
+            },
+            "teamB": {
+              "home": "APOEL Nicosia",
+              "away": "Pafos FC"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8366666666666667,
+            "threshold": 0.85,
+            "gap": 0.013333333333333308
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.540Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35518019-pinnacle-1628730828": {
+      "id": "nm-ninewickets-sportsbook-35518019-pinnacle-1628730828",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35518019",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Jeonbuk Motors",
+        "awayTeam": "Pohang Steelers",
+        "competition": "South Korean K1 League",
+        "startTime": "2026-04-26T05:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628730828",
+        "provider": "pinnacle",
+        "homeTeam": "Jeonbuk Motors",
+        "awayTeam": "Pohang Steelers",
+        "competition": "Korea Republic - K League 1",
+        "startTime": "2026-04-26T05:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.08,
+        "awayHomeSimilarity": 0.08,
+        "bestOrientation": "normal",
+        "competitionScore": 0.47368421052631576,
+        "competitionA": "south korea k1 league",
+        "competitionB": "korea republic - k league 1",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8421052631578947
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.47368421052631576,
+            "competitionA": "South Korean K1 League",
+            "competitionB": "Korea Republic - K League 1"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8421052631578947,
+            "threshold": 0.85,
+            "gap": 0.007894736842105288
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.602Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35510058-pinnacle-1628730829": {
+      "id": "nm-ninewickets-sportsbook-35510058-pinnacle-1628730829",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35510058",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Seoul E-Land FC",
+        "awayTeam": "Hwaseong FC",
+        "competition": "South Korean K2 League",
+        "startTime": "2026-04-26T05:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628730829",
+        "provider": "pinnacle",
+        "homeTeam": "Seoul E-Land",
+        "awayTeam": "Hwaseong",
+        "competition": "Korea Republic - K League 2",
+        "startTime": "2026-04-26T05:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.25,
+        "awayHomeSimilarity": 0.25,
+        "bestOrientation": "normal",
+        "competitionScore": 0.375,
+        "competitionA": "south korea k2 league",
+        "competitionB": "republic k league 2",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8125
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.375,
+            "competitionA": "South Korean K2 League",
+            "competitionB": "Korea Republic - K League 2"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8125,
+            "threshold": 0.85,
+            "gap": 0.03749999999999998
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.663Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35518014-pinnacle-1628751394": {
+      "id": "nm-ninewickets-sportsbook-35518014-pinnacle-1628751394",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35518014",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Gwangju FC",
+        "awayTeam": "FC Anyang",
+        "competition": "South Korean K1 League",
+        "startTime": "2026-04-26T07:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628751394",
+        "provider": "pinnacle",
+        "homeTeam": "Gwangju FC",
+        "awayTeam": "Anyang",
+        "competition": "Korea Republic - K League 1",
+        "startTime": "2026-04-26T07:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.3076923076923077,
+        "awayHomeSimilarity": 0.3076923076923077,
+        "bestOrientation": "normal",
+        "competitionScore": 0.47368421052631576,
+        "competitionA": "south korea k1 league",
+        "competitionB": "korea republic - k league 1",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8421052631578947
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.47368421052631576,
+            "competitionA": "South Korean K1 League",
+            "competitionB": "Korea Republic - K League 1"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8421052631578947,
+            "threshold": 0.85,
+            "gap": 0.007894736842105288
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.725Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35510060-pinnacle-1628757188": {
+      "id": "nm-ninewickets-sportsbook-35510060-pinnacle-1628757188",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35510060",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Yongin FC",
+        "awayTeam": "Gimhae City",
+        "competition": "South Korean K2 League",
+        "startTime": "2026-04-26T07:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628757188",
+        "provider": "pinnacle",
+        "homeTeam": "Yongin",
+        "awayTeam": "Gimhae",
+        "competition": "Korea Republic - K League 2",
+        "startTime": "2026-04-26T07:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.8571428571428572,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.7142857142857143,
+        "homeAwaySimilarity": 0.2,
+        "awayHomeSimilarity": 0.14285714285714285,
+        "bestOrientation": "normal",
+        "competitionScore": 0.375,
+        "competitionA": "south korea k2 league",
+        "competitionB": "republic k league 2",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7124999999999999
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.375,
+            "competitionA": "South Korean K2 League",
+            "competitionB": "Korea Republic - K League 2"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7124999999999999,
+            "threshold": 0.85,
+            "gap": 0.13750000000000007
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.786Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35525125-pinnacle-1628932628": {
+      "id": "nm-ninewickets-sportsbook-35525125-pinnacle-1628932628",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35525125",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Club Atletico La Paz",
+        "awayTeam": "Club Jaiba Brava",
+        "competition": "Mexican Liga de Ascenso",
+        "startTime": "2026-04-26T03:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628932628",
+        "provider": "pinnacle",
+        "homeTeam": "Atletico La Paz",
+        "awayTeam": "Jaiba Brava",
+        "competition": "Mexico - Liga de Expansión MX",
+        "startTime": "2026-04-26T03:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.8376623376623377,
+        "homeHomeSimilarity": 0.8571428571428571,
+        "awayAwaySimilarity": 0.8181818181818182,
+        "homeAwaySimilarity": 0.08,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 0.42857142857142855,
+        "competitionA": "liga de ascenso",
+        "competitionB": "liga de expansion mx",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7149350649350649
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.42857142857142855,
+            "competitionA": "Mexican Liga de Ascenso",
+            "competitionB": "Mexico - Liga de Expansión MX"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7149350649350649,
+            "threshold": 0.85,
+            "gap": 0.1350649350649351
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.848Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530113-pinnacle-1628806121": {
+      "id": "nm-ninewickets-sportsbook-35530113-pinnacle-1628806121",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530113",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Inter Milan (Res)",
+        "awayTeam": "Union Brescia",
+        "competition": "Italian Serie C",
+        "startTime": "2026-04-25T18:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628806121",
+        "provider": "pinnacle",
+        "homeTeam": "Internazionale U23",
+        "awayTeam": "Brescia",
+        "competition": "Italy - Serie C Group A",
+        "startTime": "2026-04-25T18:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6428571428571428,
+        "homeHomeSimilarity": 0.2857142857142857,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.17391304347826086,
+        "awayHomeSimilarity": 0.14814814814814814,
+        "bestOrientation": "normal",
+        "competitionScore": 0.9090909090909091,
+        "competitionA": "serie c group c",
+        "competitionB": "serie c group a",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7227272727272727
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.2857142857142857,
+            "awayScore": 1,
+            "teamA": {
+              "home": "Inter Milan (Res)",
+              "away": "Union Brescia"
+            },
+            "teamB": {
+              "home": "Internazionale U23",
+              "away": "Brescia"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7227272727272727,
+            "threshold": 0.85,
+            "gap": 0.12727272727272732
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.911Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35512653-pinnacle-1628815640": {
+      "id": "nm-ninewickets-sportsbook-35512653-pinnacle-1628815640",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35512653",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Nacional (Uru)",
+        "awayTeam": "Danubio",
+        "competition": "Uruguayan Primera Division",
+        "startTime": "2026-04-25T22:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628815640",
+        "provider": "pinnacle",
+        "homeTeam": "Nacional de Football",
+        "awayTeam": "Danubio",
+        "competition": "Uruguay - Primera Division",
+        "startTime": "2026-04-25T22:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7592592592592593,
+        "homeHomeSimilarity": 0.5185185185185185,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.125,
+        "awayHomeSimilarity": 0.08695652173913043,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "costa rican primera division",
+        "competitionB": "costa rican primera division",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8314814814814815
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5185185185185185,
+            "awayScore": 1,
+            "teamA": {
+              "home": "Nacional (Uru)",
+              "away": "Danubio"
+            },
+            "teamB": {
+              "home": "Nacional de Football",
+              "away": "Danubio"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8314814814814815,
+            "threshold": 0.85,
+            "gap": 0.01851851851851849
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:27.973Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35524245-pinnacle-1628815631": {
+      "id": "nm-ninewickets-sportsbook-35524245-pinnacle-1628815631",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35524245",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Emelec",
+        "awayTeam": "LDU",
+        "competition": "Ecuadorian Serie A",
+        "startTime": "2026-04-25T22:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628815631",
+        "provider": "pinnacle",
+        "homeTeam": "Emelec",
+        "awayTeam": "LDU Quito",
+        "competition": "Ecuador - Serie A",
+        "startTime": "2026-04-25T22:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7222222222222222,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.4444444444444444,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "ecuadorian serie a",
+        "competitionB": "ecuadorian serie a",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8055555555555556
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.4444444444444444,
+            "teamA": {
+              "home": "Emelec",
+              "away": "LDU"
+            },
+            "teamB": {
+              "home": "Emelec",
+              "away": "LDU Quito"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8055555555555556,
+            "threshold": 0.85,
+            "gap": 0.0444444444444444
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.034Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35515229-pinnacle-1628776305": {
+      "id": "nm-ninewickets-sportsbook-35515229-pinnacle-1628776305",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35515229",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Chongqing Tonglianglong",
+        "awayTeam": "Qingdao Youth Island",
+        "competition": "Chinese Super League",
+        "startTime": "2026-04-26T11:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628776305",
+        "provider": "pinnacle",
+        "homeTeam": "Chongqing Tonglianglong",
+        "awayTeam": "Qingdao West Coast",
+        "competition": "China - Super League",
+        "startTime": "2026-04-26T11:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6764705882352942,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.35294117647058826,
+        "homeAwaySimilarity": 0.15789473684210525,
+        "awayHomeSimilarity": 0.21052631578947367,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "uzbekistan - super league",
+        "competitionB": "uzbekistan - super league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7735294117647058
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.35294117647058826,
+            "teamA": {
+              "home": "Chongqing Tonglianglong",
+              "away": "Qingdao Youth Island"
+            },
+            "teamB": {
+              "home": "Chongqing Tonglianglong",
+              "away": "Qingdao West Coast"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7735294117647058,
+            "threshold": 0.85,
+            "gap": 0.07647058823529418
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.096Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35525426-pinnacle-1628858866": {
+      "id": "nm-ninewickets-sportsbook-35525426-pinnacle-1628858866",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35525426",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Nomme Kalju",
+        "awayTeam": "Parnu JK Vaprus",
+        "competition": "Estonian Premier League",
+        "startTime": "2026-04-26T11:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628858866",
+        "provider": "pinnacle",
+        "homeTeam": "Nomme Kalju",
+        "awayTeam": "Parnu Vaprus",
+        "competition": "Estonia - Meistriliiga",
+        "startTime": "2026-04-26T11:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.9090909090909092,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.8181818181818182,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 0.3157894736842105,
+        "competitionA": "estonian premier league",
+        "competitionB": "estonia meistriliiga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7311004784688995
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.3157894736842105,
+            "competitionA": "Estonian Premier League",
+            "competitionB": "Estonia - Meistriliiga"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7311004784688995,
+            "threshold": 0.85,
+            "gap": 0.1188995215311005
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.159Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35525425-pinnacle-1628858865": {
+      "id": "nm-ninewickets-sportsbook-35525425-pinnacle-1628858865",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35525425",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Paide Linnameeskond",
+        "awayTeam": "Tallinna FC Flora",
+        "competition": "Estonian Premier League",
+        "startTime": "2026-04-26T11:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628858865",
+        "provider": "pinnacle",
+        "homeTeam": "Paide Linnameeskond",
+        "awayTeam": "Flora Tallinn",
+        "competition": "Estonia - Meistriliiga",
+        "startTime": "2026-04-26T11:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.9347826086956521,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.8695652173913043,
+        "homeAwaySimilarity": 0.21428571428571427,
+        "awayHomeSimilarity": 0.27586206896551724,
+        "bestOrientation": "normal",
+        "competitionScore": 0.3157894736842105,
+        "competitionA": "estonian premier league",
+        "competitionB": "estonia meistriliiga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7490846681922195
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.3157894736842105,
+            "competitionA": "Estonian Premier League",
+            "competitionB": "Estonia - Meistriliiga"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7490846681922195,
+            "threshold": 0.85,
+            "gap": 0.10091533180778045
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.220Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35518565-pinnacle-1628870439": {
+      "id": "nm-ninewickets-sportsbook-35518565-pinnacle-1628870439",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35518565",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "LNZ-Lebedyn",
+        "awayTeam": "Metalist 1925",
+        "competition": "Ukrainian Premier League",
+        "startTime": "2026-04-26T12:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628870439",
+        "provider": "pinnacle",
+        "homeTeam": "LNZ Cherkasy",
+        "awayTeam": "Metalist 1925 Kharkiv",
+        "competition": "Ukraine - Premier League",
+        "startTime": "2026-04-26T12:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6052631578947368,
+        "homeHomeSimilarity": 0.21052631578947367,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0.06666666666666667,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "bosnia and herzegovina - premier liga",
+        "competitionB": "bosnia and herzegovina - premier liga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7236842105263157
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.21052631578947367,
+            "awayScore": 1,
+            "teamA": {
+              "home": "LNZ-Lebedyn",
+              "away": "Metalist 1925"
+            },
+            "teamB": {
+              "home": "LNZ Cherkasy",
+              "away": "Metalist 1925 Kharkiv"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7236842105263157,
+            "threshold": 0.85,
+            "gap": 0.12631578947368427
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.281Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35519783-pinnacle-1628870513": {
+      "id": "nm-ninewickets-sportsbook-35519783-pinnacle-1628870513",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35519783",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Polissya Zhytomyr",
+        "awayTeam": "Obolon-Brovar Kiev",
+        "competition": "Ukrainian Premier League",
+        "startTime": "2026-04-26T15:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628870513",
+        "provider": "pinnacle",
+        "homeTeam": "Polissya Zhytomyr",
+        "awayTeam": "Obolon",
+        "competition": "Ukraine - Premier League",
+        "startTime": "2026-04-26T15:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6282051282051282,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.2564102564102564,
+        "homeAwaySimilarity": 0.05128205128205128,
+        "awayHomeSimilarity": 0.06666666666666667,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "bosnia and herzegovina - premier liga",
+        "competitionB": "bosnia and herzegovina - premier liga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7397435897435897
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.2564102564102564,
+            "teamA": {
+              "home": "Polissya Zhytomyr",
+              "away": "Obolon-Brovar Kiev"
+            },
+            "teamB": {
+              "home": "Polissya Zhytomyr",
+              "away": "Obolon"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7397435897435897,
+            "threshold": 0.85,
+            "gap": 0.11025641025641031
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.343Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530597-pinnacle-1629046206": {
+      "id": "nm-ninewickets-sportsbook-35530597-pinnacle-1629046206",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530597",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Man City U21",
+        "awayTeam": "Arsenal U21",
+        "competition": "English Premier League 2 - Div 1",
+        "startTime": "2026-04-25T18:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1629046206",
+        "provider": "pinnacle",
+        "homeTeam": "Manchester City",
+        "awayTeam": "Arsenal",
+        "competition": "England - Premier League 2 U21",
+        "startTime": "2026-04-25T18:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6727272727272727,
+        "homeHomeSimilarity": 0.5454545454545454,
+        "awayAwaySimilarity": 0.8,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "premier league 2 div 1",
+        "competitionB": "premier league 2  div 1",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7709090909090909
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5454545454545454,
+            "awayScore": 0.8,
+            "teamA": {
+              "home": "Man City U21",
+              "away": "Arsenal U21"
+            },
+            "teamB": {
+              "home": "Manchester City",
+              "away": "Arsenal"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7709090909090909,
+            "threshold": 0.85,
+            "gap": 0.0790909090909091
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.406Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35522365-pinnacle-1628806088": {
+      "id": "nm-ninewickets-sportsbook-35522365-pinnacle-1628806088",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35522365",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Athlitiki Enosi Larissa",
+        "awayTeam": "Panserraikos",
+        "competition": "Greek Super League",
+        "startTime": "2026-04-26T17:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628806088",
+        "provider": "pinnacle",
+        "homeTeam": "Larissa",
+        "awayTeam": "Panserraikos",
+        "competition": "Greece - Super League",
+        "startTime": "2026-04-26T17:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7307692307692308,
+        "homeHomeSimilarity": 0.46153846153846156,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.11764705882352941,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "uzbekistan - super league",
+        "competitionB": "uzbekistan - super league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8115384615384615
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.46153846153846156,
+            "awayScore": 1,
+            "teamA": {
+              "home": "Athlitiki Enosi Larissa",
+              "away": "Panserraikos"
+            },
+            "teamB": {
+              "home": "Larissa",
+              "away": "Panserraikos"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8115384615384615,
+            "threshold": 0.85,
+            "gap": 0.038461538461538436
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.468Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35515562-pinnacle-1628815624": {
+      "id": "nm-ninewickets-sportsbook-35515562-pinnacle-1628815624",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35515562",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Cavalry",
+        "awayTeam": "Inter Toronto FC",
+        "competition": "Canadian Premier League",
+        "startTime": "2026-04-25T21:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628815624",
+        "provider": "pinnacle",
+        "homeTeam": "Cavalry",
+        "awayTeam": "York United",
+        "competition": "Canada - Premier League",
+        "startTime": "2026-04-25T21:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.2,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "canadian premier league",
+        "competitionB": "canadian premier league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.72
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.2,
+            "teamA": {
+              "home": "Cavalry",
+              "away": "Inter Toronto FC"
+            },
+            "teamB": {
+              "home": "Cavalry",
+              "away": "York United"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.72,
+            "threshold": 0.85,
+            "gap": 0.13
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.531Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35514917-pinnacle-1628751444": {
+      "id": "nm-ninewickets-sportsbook-35514917-pinnacle-1628751444",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35514917",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "B93 Copenhagen",
+        "awayTeam": "Middelfart",
+        "competition": "Danish 1st Division",
+        "startTime": "2026-04-26T10:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628751444",
+        "provider": "pinnacle",
+        "homeTeam": "B 93",
+        "awayTeam": "Middelfart",
+        "competition": "Denmark - Division 1",
+        "startTime": "2026-04-26T10:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6428571428571428,
+        "homeHomeSimilarity": 0.2857142857142857,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "sweden - division 1 sodra",
+        "competitionB": "sweden - division 1 sodra",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7499999999999999
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.2857142857142857,
+            "awayScore": 1,
+            "teamA": {
+              "home": "B93 Copenhagen",
+              "away": "Middelfart"
+            },
+            "teamB": {
+              "home": "B 93",
+              "away": "Middelfart"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7499999999999999,
+            "threshold": 0.85,
+            "gap": 0.10000000000000009
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.592Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35523001-pinnacle-1628858838": {
+      "id": "nm-ninewickets-sportsbook-35523001-pinnacle-1628858838",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35523001",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Almeria II",
+        "awayTeam": "Deportiva Minera",
+        "competition": "Spanish Segunda Federación - Group 4",
+        "startTime": "2026-04-26T10:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628858838",
+        "provider": "pinnacle",
+        "homeTeam": "Almeria II",
+        "awayTeam": "Minera",
+        "competition": "Spain - Segunda RFEF Group 4",
+        "startTime": "2026-04-26T10:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.763157894736842,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.5263157894736842,
+        "homeAwaySimilarity": 0.15384615384615385,
+        "awayHomeSimilarity": 0.09090909090909091,
+        "bestOrientation": "normal",
+        "competitionScore": 0.631578947368421,
+        "competitionA": "segunda federacion group 4",
+        "competitionB": "segunda rfef group 4",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7236842105263157
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.5263157894736842,
+            "teamA": {
+              "home": "Almeria II",
+              "away": "Deportiva Minera"
+            },
+            "teamB": {
+              "home": "Almeria II",
+              "away": "Minera"
+            }
+          }
+        },
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.631578947368421,
+            "competitionA": "Spanish Segunda Federación - Group 4",
+            "competitionB": "Spain - Segunda RFEF Group 4"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7236842105263157,
+            "threshold": 0.85,
+            "gap": 0.12631578947368427
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.658Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35517889-pinnacle-1628857011": {
+      "id": "nm-ninewickets-sportsbook-35517889-pinnacle-1628857011",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35517889",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Kryvbas Krivyi Rih",
+        "awayTeam": "Dynamo Kiev",
+        "competition": "Ukrainian Premier League",
+        "startTime": "2026-04-26T10:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628857011",
+        "provider": "pinnacle",
+        "homeTeam": "Kryvbas Kriviy Rih",
+        "awayTeam": "Dynamo Kyiv",
+        "competition": "Ukraine - Premier League",
+        "startTime": "2026-04-26T10:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7395833333333333,
+        "homeHomeSimilarity": 0.8125,
+        "awayAwaySimilarity": 0.6666666666666666,
+        "homeAwaySimilarity": 0.16666666666666666,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "bosnia and herzegovina - premier liga",
+        "competitionB": "bosnia and herzegovina - premier liga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.8177083333333333
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.8125,
+            "awayScore": 0.6666666666666666,
+            "teamA": {
+              "home": "Kryvbas Krivyi Rih",
+              "away": "Dynamo Kiev"
+            },
+            "teamB": {
+              "home": "Kryvbas Kriviy Rih",
+              "away": "Dynamo Kyiv"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.8177083333333333,
+            "threshold": 0.85,
+            "gap": 0.03229166666666672
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.720Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35512535-pinnacle-1628810261": {
+      "id": "nm-ninewickets-sportsbook-35512535-pinnacle-1628810261",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35512535",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Debreceni VSC",
+        "awayTeam": "Gyori",
+        "competition": "Hungarian NB I",
+        "startTime": "2026-04-26T17:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628810261",
+        "provider": "pinnacle",
+        "homeTeam": "Debreceni VSC",
+        "awayTeam": "Gyori ETO",
+        "competition": "Hungary - NB 1",
+        "startTime": "2026-04-26T17:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.7,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.4,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "hungarian nb i",
+        "competitionB": "hungarian nb i",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7899999999999999
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 1,
+            "awayScore": 0.4,
+            "teamA": {
+              "home": "Debreceni VSC",
+              "away": "Gyori"
+            },
+            "teamB": {
+              "home": "Debreceni VSC",
+              "away": "Gyori ETO"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7899999999999999,
+            "threshold": 0.85,
+            "gap": 0.06000000000000005
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.783Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35524632-pinnacle-1628932612": {
+      "id": "nm-ninewickets-sportsbook-35524632-pinnacle-1628932612",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35524632",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Club Atletico Morelia",
+        "awayTeam": "Mineros de Zacatecas",
+        "competition": "Mexican Liga de Ascenso",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628932612",
+        "provider": "pinnacle",
+        "homeTeam": "Atletico Morelia",
+        "awayTeam": "Mineros de Zacatecas",
+        "competition": "Mexico - Liga de Expansión MX",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.9375,
+        "homeHomeSimilarity": 0.875,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0.05714285714285714,
+        "awayHomeSimilarity": 0.06451612903225806,
+        "bestOrientation": "normal",
+        "competitionScore": 0.42857142857142855,
+        "competitionA": "liga de ascenso",
+        "competitionB": "liga de expansion mx",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7848214285714286
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.42857142857142855,
+            "competitionA": "Mexican Liga de Ascenso",
+            "competitionB": "Mexico - Liga de Expansión MX"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7848214285714286,
+            "threshold": 0.85,
+            "gap": 0.06517857142857142
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.845Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35526658-pinnacle-1628841486": {
+      "id": "nm-ninewickets-sportsbook-35526658-pinnacle-1628841486",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35526658",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Plaza Amador",
+        "awayTeam": "UMECIT",
+        "competition": "Panamanian Premier League",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628841486",
+        "provider": "pinnacle",
+        "homeTeam": "Plaza Amador",
+        "awayTeam": "UMECIT",
+        "competition": "Panama - Primera Division",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 0.3333333333333333,
+        "competitionA": "panamanian premier league",
+        "competitionB": "panama primera division",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7999999999999999
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.3333333333333333,
+            "competitionA": "Panamanian Premier League",
+            "competitionB": "Panama - Primera Division"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7999999999999999,
+            "threshold": 0.85,
+            "gap": 0.050000000000000044
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.905Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35526659-pinnacle-1628827430": {
+      "id": "nm-ninewickets-sportsbook-35526659-pinnacle-1628827430",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35526659",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Sporting San Miguelito",
+        "awayTeam": "Tauro FC",
+        "competition": "Panamanian Premier League",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628827430",
+        "provider": "pinnacle",
+        "homeTeam": "Sporting San Miguelito",
+        "awayTeam": "Tauro",
+        "competition": "Panama - Primera Division",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 1,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 0.3333333333333333,
+        "competitionA": "panamanian premier league",
+        "competitionB": "panama primera division",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7999999999999999
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.3333333333333333,
+            "competitionA": "Panamanian Premier League",
+            "competitionB": "Panama - Primera Division"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7999999999999999,
+            "threshold": 0.85,
+            "gap": 0.050000000000000044
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:28.967Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35526653-pinnacle-1628827429": {
+      "id": "nm-ninewickets-sportsbook-35526653-pinnacle-1628827429",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35526653",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Alianza FC (Pan)",
+        "awayTeam": "Arabe Unido",
+        "competition": "Panamanian Premier League",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628827429",
+        "provider": "pinnacle",
+        "homeTeam": "Alianza Panama",
+        "awayTeam": "Arabe Unido",
+        "competition": "Panama - Primera Division",
+        "startTime": "2026-04-26T01:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.8636363636363636,
+        "homeHomeSimilarity": 0.7272727272727273,
+        "awayAwaySimilarity": 1,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 0.3333333333333333,
+        "competitionA": "panamanian premier league",
+        "competitionB": "panama primera division",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7045454545454545
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.3333333333333333,
+            "competitionA": "Panamanian Premier League",
+            "competitionB": "Panama - Primera Division"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7045454545454545,
+            "threshold": 0.85,
+            "gap": 0.1454545454545455
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:00:29.028Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35530245-pinnacle-1628786059": {
+      "id": "nm-ninewickets-sportsbook-35530245-pinnacle-1628786059",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35530245",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Brunei DPMM FC",
+        "awayTeam": "Kuching FA",
+        "competition": "Malaysian Super League",
+        "startTime": "2026-04-25T12:15:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628786059",
+        "provider": "pinnacle",
+        "homeTeam": "DPMM",
+        "awayTeam": "Kuching City",
+        "competition": "Malaysia - Super League",
+        "startTime": "2026-04-25T12:15:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.5833333333333333,
+        "homeHomeSimilarity": 0.5,
+        "awayAwaySimilarity": 0.6666666666666666,
+        "homeAwaySimilarity": 0,
+        "awayHomeSimilarity": 0,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "malaysian super league",
+        "competitionB": "malaysian super league",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7083333333333333
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5,
+            "awayScore": 0.6666666666666666,
+            "teamA": {
+              "home": "Brunei DPMM FC",
+              "away": "Kuching FA"
+            },
+            "teamB": {
+              "home": "DPMM",
+              "away": "Kuching City"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7083333333333333,
+            "threshold": 0.85,
+            "gap": 0.14166666666666672
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T00:44:24.175Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35525540-pinnacle-1628776330": {
+      "id": "nm-ninewickets-sportsbook-35525540-pinnacle-1628776330",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35525540",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Harju JK Laagri",
+        "awayTeam": "Tammeka Tartu",
+        "competition": "Estonian Premier League",
+        "startTime": "2026-04-25T11:30:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628776330",
+        "provider": "pinnacle",
+        "homeTeam": "Harju JK Laagri",
+        "awayTeam": "Tartu JK Tammeka",
+        "competition": "Estonia - Meistriliiga",
+        "startTime": "2026-04-25T11:30:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.9230769230769231,
+        "homeHomeSimilarity": 1,
+        "awayAwaySimilarity": 0.8461538461538461,
+        "homeAwaySimilarity": 0.14814814814814814,
+        "awayHomeSimilarity": 0.08695652173913043,
+        "bestOrientation": "normal",
+        "competitionScore": 0.3157894736842105,
+        "competitionA": "estonian premier league",
+        "competitionB": "estonia meistriliiga",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7408906882591093
+      },
+      "failureReasons": [
+        {
+          "type": "competition_mismatch",
+          "details": {
+            "score": 0.3157894736842105,
+            "competitionA": "Estonian Premier League",
+            "competitionB": "Estonia - Meistriliiga"
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7408906882591093,
+            "threshold": 0.85,
+            "gap": 0.10910931174089067
+          }
+        }
+      ],
+      "detectedAt": "2026-04-25T01:32:25.512Z",
+      "status": "pending"
     }
   },
   "lastAnalysis": null,
   "patterns": [],
-  "version": 884
+  "version": 895
 }

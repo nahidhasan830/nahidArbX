@@ -1,5 +1,5 @@
 /**
- * Client-safe types + pure helpers for AlphaSearch schedules.
+ * Client-safe types + pure helpers for Optimisation schedules.
  *
  * IMPORTANT: This module must NOT import anything that pulls in
  * `lib/db/client.ts` (which loads `@google-cloud/cloud-sql-connector`,
@@ -36,6 +36,7 @@ export interface CreateScheduleRequest {
   };
   dataFilters?: Record<string, unknown>;
   notifyOnComplete?: boolean;
+  notifyOnStart?: boolean;
   createdBy?: string;
 }
 

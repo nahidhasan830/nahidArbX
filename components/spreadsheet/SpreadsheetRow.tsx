@@ -23,7 +23,7 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
 import { Copy, RefreshCw, X } from "lucide-react";
 import { Feature } from "@/components/auth/AuthProvider";
-import { getProviderBadgeClasses } from "./SpreadsheetToolbar";
+import { getProviderColorClasses as getProviderBadgeClasses } from "@/lib/providers/registry";
 import { OddsCell } from "./OddsCell";
 import {
   getProviderShortName,

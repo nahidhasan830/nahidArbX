@@ -113,7 +113,7 @@ async function main() {
 
   console.log(`\n${"═".repeat(92)}`);
   console.log(
-    `  AlphaSearch results report — ${runs.rows.length} completed run(s)`,
+    `  Optimisation results report — ${runs.rows.length} completed run(s)`,
   );
   console.log(`${"═".repeat(92)}\n`);
 

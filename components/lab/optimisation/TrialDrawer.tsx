@@ -48,7 +48,7 @@ export function TrialDrawer({
               </span>
             )}
           </SheetTitle>
-          <SheetDescription className="text-xs">
+          <SheetDescription className="text-[13px]">
             Sampled by <span className="font-medium">{trial.sampler}</span>. All
             metrics are{" "}
             <TermTooltip term="cpcv">out-of-sample (CPCV)</TermTooltip>.
@@ -172,7 +172,7 @@ export function TrialDrawer({
 
           {/* Promote to live strategy */}
           <section className="rounded-md border border-border/60 bg-muted/30 px-3 py-3 space-y-2">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[13px] text-muted-foreground leading-relaxed">
               <strong className="text-foreground">
                 Promote to live strategy
               </strong>{" "}
