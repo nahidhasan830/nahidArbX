@@ -188,7 +188,7 @@ export function transformToSpreadsheetRows(
 ): SpreadsheetRow[] {
   const {
     selectedProviders = new Set(PROVIDER_IDS),
-    minProviderCount = 2,
+    minProviderCount = 1,
     showOnlyValue = false,
     minEvPct = 0,
     searchTerm = "",
@@ -224,7 +224,7 @@ export function transformToSpreadsheetRows(
       if (timeFilter === "upcoming" && eventStart <= now) continue;
     }
 
-    // Filter by search term (event level)
+    // Filter by search term (event names only — use Markets filter for market types)
     if (searchLower) {
       const eventSearchable =
         `${event.homeTeam} ${event.awayTeam} ${event.competition}`.toLowerCase();

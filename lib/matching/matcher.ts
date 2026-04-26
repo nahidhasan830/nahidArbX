@@ -19,12 +19,14 @@ import {
   resetSyncCounters,
   getMatchCacheStats,
 } from "./match-cache";
-import { preNormalizeAll, type PreNormalizedNames } from "./normalize";
-import { getMatchingConfig } from "./config";
 import {
-  harvestFromMatchPair,
-  promoteStagedAliases,
-} from "./aliases/harvester";
+  preNormalizeAll,
+  preResolveAll,
+  pruneResolvedCache,
+  type PreNormalizedNames,
+} from "./normalize";
+import { getMatchingConfig } from "./config";
+import { harvestMatchPair } from "./entities/match-harvester";
 import { listDecisions, AI_AUTONOMOUS_THRESHOLD } from "./ai-decision-cache";
 import { locateEventBySide } from "./locate";
 
@@ -43,15 +45,26 @@ export interface MatchResult {
  * 4. Competition hard gate: reject if compScore < 0.3
  * 5. Merge matched events into single NormalizedEvent with multiple providers
  * 6. Unmatched events are handled by the Background Deep Matcher (Tier 2)
+ *
+ * Pre-resolves every event surface against the entity-resolution store
+ * before scoring, so the per-comparison hot path stays sync.
  */
-export function matchEvents(allEvents: NormalizedEvent[]): NormalizedEvent[] {
+export async function matchEvents(
+  allEvents: NormalizedEvent[],
+): Promise<NormalizedEvent[]> {
   resetSyncCounters();
+
+  // 0. Pre-resolve names against the entity store (Postgres-backed).
+  //    Async; runs once per sync. Failures degrade to plain normalize.
+  await preResolveAll(allEvents);
 
   // 1. Group by rounded start time
   const timeGroups = groupByTime(allEvents);
 
   // Track all current event keys for cache pruning
   const currentKeys = new Set(allEvents.map((e) => getEventStableKey(e)));
+  const currentEventIds = new Set(allEvents.map((e) => e.id));
+  pruneResolvedCache(currentEventIds);
 
   // Pre-normalize all event names once (avoids per-comparison normalization)
   const preNormalized = preNormalizeAll(allEvents);
@@ -131,18 +144,10 @@ export function matchEvents(allEvents: NormalizedEvent[]): NormalizedEvent[] {
   // Prune cache entries for events no longer present
   pruneCache(currentKeys);
 
-  // Promote alias candidates that have been seen enough times
-  const matchingConfig = getMatchingConfig();
-  if (matchingConfig.aliasHarvesting.enabled) {
-    const promoted = promoteStagedAliases();
-    const totalPromoted = promoted.team + promoted.competition;
-    if (totalPromoted > 0) {
-      logger.info(
-        "Matcher",
-        `Alias harvester promoted ${promoted.team} team + ${promoted.competition} comp aliases`,
-      );
-    }
-  }
+  // Note: alias promotion runs inline-but-fire-and-forget inside
+  // recordObservation() → autoResolve() (lib/matching/entities/auto-resolve.ts).
+  // Verdicts land ~150–250 ms after the sync returns; new aliases become
+  // effective on the next sync tick.
 
   // Reconcile cached SAME verdicts that didn't merge on their original sync
   // (e.g. provider event IDs rotated between AI analysis and the user's
@@ -381,12 +386,16 @@ function findMatchesInGroup(
           providersInGroup.add(p);
         }
 
-        // Harvest alias candidates from this confirmed match pair
+        // Record observations into the entity-resolution store.
+        // recordObservation() fires autoResolve() in the background;
+        // verdicts land asynchronously and become effective on the next
+        // sync tick. No staging file, no occurrence-counter ratchet,
+        // no global namespace.
         if (matchingConfig.aliasHarvesting.enabled) {
           const normI = preNormalized.get(sorted[i].id);
           const normJ = preNormalized.get(sorted[j].id);
           if (normI && normJ) {
-            harvestFromMatchPair(sorted[i], sorted[j], normI, normJ);
+            void harvestMatchPair(sorted[i], sorted[j], normI, normJ, score);
           }
         }
       } else if (isNearMatch(score)) {

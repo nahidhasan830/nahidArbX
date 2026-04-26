@@ -29,19 +29,14 @@ import {
 
 export interface SettleBatchOptions {
   /**
-   * Allow the paid AI fallback (Tier 3 url_context) for events the free
-   * tiers couldn't resolve. Default **false** — only set to true when the
-   * UI "AI settle" button is clicked.
-   */
-  allowAi?: boolean;
-  /**
    * Skip Tier 0 (DB cache) so the waterfall re-resolves events even when
    * an old score is cached. Useful for "Re-run default pipeline" in the UI.
    */
   bypassCache?: boolean;
   /**
-   * Skip every free tier and send events straight to Tier 3 (Gemini).
-   * Used by "Re-run with AI". Implies `allowAi: true`.
+   * Operator-triggered: send events straight to Tier 3 Gemini. The ONLY
+   * way this batch invokes paid AI; never set by the automatic
+   * scheduler. Set true by the manual "AI settle" dialog on `/bets`.
    */
   forceAi?: boolean;
   /** Which Gemini tier to use when Tier 3 fires. Defaults to Lite. */
@@ -122,8 +117,8 @@ export async function settleBatch(
   // `AI_MAX_PER_REQUEST_USD` (default $2). The UI also shows a
   // confirmation popup before calling, so this is the last-line-of-
   // defense for programmatic clients that bypass the UI.
-  const willUseAi = options.allowAi === true || options.forceAi === true;
-  const mode: AiMode = options.forceAi === true ? "force-ai" : "fallback";
+  const willUseAi = options.forceAi === true;
+  const mode: AiMode = willUseAi ? "force-ai" : "fallback";
   const model: AiModel = options.aiModel ?? "lite";
   if (willUseAi && eventMap.size > 0) {
     assertWithinRequestCeiling({
@@ -135,7 +130,6 @@ export async function settleBatch(
 
   const { scores, telemetry } = await resolveScores([...eventMap.values()], {
     needsCorners,
-    allowAi: options.allowAi === true || options.forceAi === true,
     bypassCache: options.bypassCache === true,
     forceAi: options.forceAi === true,
     aiModel: options.aiModel,

@@ -38,6 +38,14 @@ const MIGRATIONS = [
   "0024_widen_optimizer_metric_columns.sql",
   "0025_optimizer_run_started_notified_at.sql",
   "0026_optimizer_run_notify_on_start.sql",
+  "0027_drop_bets_strategy_id.sql",
+  "0028_betting_settings_active_strategies.sql",
+  "0029_drop_strategy_status.sql",
+  "0030_drop_strategy_validations.sql",
+  "0031_entities.sql",
+  "0032_entity_review_queue.sql",
+  "0033_entity_resolver_runs.sql",
+  "0034_matcher_rebuild.sql",
 ];
 
 async function buildPool(): Promise<Pool> {
@@ -99,12 +107,6 @@ async function main() {
   console.log("\nSchema post-checks:");
   const checks: Array<{ what: string; sql: string; expect: number }> = [
     {
-      what: "bets.strategy_id",
-      sql: `SELECT count(*)::int AS n FROM information_schema.columns
-              WHERE table_name = 'bets' AND column_name = 'strategy_id'`,
-      expect: 1,
-    },
-    {
       what: "optimization_runs.notified_at",
       sql: `SELECT count(*)::int AS n FROM information_schema.columns
               WHERE table_name = 'optimization_runs' AND column_name = 'notified_at'`,
@@ -129,9 +131,59 @@ async function main() {
       expect: 1,
     },
     {
-      what: "strategy_validations table",
+      what: "strategy_validations table dropped",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
               WHERE table_schema = 'public' AND table_name = 'strategy_validations'`,
+      expect: 0,
+    },
+    {
+      what: "entities table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'entities'`,
+      expect: 1,
+    },
+    {
+      what: "entity_names table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'entity_names'`,
+      expect: 1,
+    },
+    {
+      what: "name_observations table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'name_observations'`,
+      expect: 1,
+    },
+    {
+      what: "entity_review_queue table dropped (matcher rebuild)",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'entity_review_queue'`,
+      expect: 0,
+    },
+    {
+      what: "entity_resolver_runs table dropped (matcher rebuild)",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'entity_resolver_runs'`,
+      expect: 0,
+    },
+    {
+      what: "entity_trainer_runs table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'entity_trainer_runs'`,
+      expect: 1,
+    },
+    {
+      what: "entity_decision_blocklist table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'entity_decision_blocklist'`,
+      expect: 1,
+    },
+    {
+      what: "entity_names.surface_embedding migrated to vector(1024)",
+      sql: `SELECT count(*)::int AS n FROM pg_attribute a
+              JOIN pg_class c ON c.oid = a.attrelid
+              WHERE c.relname = 'entity_names' AND a.attname = 'surface_embedding'
+                AND format_type(a.atttypid, a.atttypmod) = 'vector(1024)'`,
       expect: 1,
     },
   ];

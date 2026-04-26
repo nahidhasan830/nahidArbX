@@ -17,6 +17,7 @@ import {
   type CornersScoreContext,
 } from "../mappings/pinnacle";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
+import type { AtomsFetchOptions } from "../../adapters/unified-registry";
 import { getLiveScore, getCornersScore } from "../../scores/store";
 import { getMultiSourceScore } from "../../scores/multi-source-store";
 
@@ -41,10 +42,6 @@ export { buildEventMarketsUrl } from "../../adapters/pinnacle/urls";
 // Types
 // ============================================
 
-export interface PinnacleFetchOptions {
-  fastMode?: boolean;
-}
-
 interface PinnacleRawData {
   parsed: PinnacleEventMarketsResponse;
   providerEventId: string;
@@ -57,19 +54,13 @@ interface PinnacleRawData {
 export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = "pinnacle";
 
-  private options?: PinnacleFetchOptions;
-
-  setOptions(options: PinnacleFetchOptions): void {
-    this.options = options;
-  }
-
   protected async fetchRawData(
     ctx: FetchContext,
   ): Promise<PinnacleRawData | null> {
     const url = buildEventMarketsUrl(ctx.providerEventId);
     const { data } = await fetchWithTokenRefresh(url, {
       timeout: 10000,
-      fastMode: this.options?.fastMode,
+      fastMode: ctx.options.fastMode,
     });
 
     const parsed = validateAndParse(
@@ -192,17 +183,25 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     return allEntries;
   }
 
+  /**
+   * Override base implementation to:
+   * 1. Suppress the noisy "token expired in fast mode" error path that's
+   *    expected during single-event live refreshes.
+   * 2. Use `logger.error` (vs base's `logger.warn`) for genuine failures.
+   */
   async fetchAndStoreOdds(
     providerEventId: string,
     normalizedEventId: string,
     homeTeam: string,
     awayTeam: string,
+    options: AtomsFetchOptions = {},
   ): Promise<number> {
     const ctx: FetchContext = {
       providerEventId,
       normalizedEventId,
       homeTeam,
       awayTeam,
+      options,
     };
 
     try {
@@ -218,14 +217,11 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
 
       return entries.length;
     } catch (error) {
-      // In fast mode, token expired errors are expected - skip silently
-      if (
-        this.options?.fastMode &&
+      const isExpectedFastModeMiss =
+        options.fastMode &&
         error instanceof Error &&
-        error.message.includes("fast mode")
-      ) {
-        // Skip silently in fast mode
-      } else {
+        error.message.includes("fast mode");
+      if (!isExpectedFastModeMiss) {
         logger.error(
           "PinnacleAtoms",
           `Error for event ${providerEventId}: ${formatError(error)}`,
@@ -299,16 +295,14 @@ export async function fetchAndStorePinnacleOdds(
   normalizedEventId: string,
   homeTeam: string,
   awayTeam: string,
-  options?: PinnacleFetchOptions,
+  options?: AtomsFetchOptions,
 ): Promise<number> {
-  if (options) {
-    adapterInstance.setOptions(options);
-  }
   return adapterInstance.fetchAndStoreOdds(
     providerEventId,
     normalizedEventId,
     homeTeam,
     awayTeam,
+    options,
   );
 }
 

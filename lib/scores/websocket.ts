@@ -20,6 +20,9 @@ import type {
 import { stateToPeriod } from "./types";
 import { config } from "../config";
 import { singleton } from "../util/singleton";
+import { logger } from "../shared/logger";
+
+const log = logger.withContext("Scores WS");
 
 // STOMP frame terminator
 const NULL_CHAR = "\x00";
@@ -115,7 +118,7 @@ function handleMessage(data: string): void {
         try {
           s.onReconnectCb();
         } catch (err) {
-          console.error("[Scores WS] Reconnect callback error:", err);
+          log.error("Reconnect callback error", err);
         }
       }
       break;
@@ -125,7 +128,7 @@ function handleMessage(data: string): void {
       break;
 
     case "ERROR":
-      console.error("[Scores WS] STOMP error:", frame.body);
+      log.error("STOMP error", frame.body);
       break;
 
     case "RECEIPT":
@@ -215,7 +218,7 @@ function handleScoreMessage(
       }
     }
   } catch (err) {
-    console.error("[Scores WS] Failed to parse score message:", err);
+    log.error("Failed to parse score message", err);
   }
 }
 
@@ -272,7 +275,19 @@ function sendHeartbeat(): void {
 // ============================================
 
 function connect(): void {
+  // MEMORY-LEAK GUARD — DO NOT REMOVE.
+  // ws.close() does NOT detach event listeners. Without removeAllListeners()
+  // the old socket's open/message/close/error closures (which capture `s`,
+  // module-level state, and indirectly the score store) stay attached to a
+  // closed socket and prevent it from being GC'd. The `reconnect()` helper
+  // below already does this correctly — keep `connect()` consistent so
+  // every reconnection path frees its predecessor cleanly.
   if (s.socket) {
+    try {
+      s.socket.removeAllListeners();
+    } catch {
+      // already detached — ignore
+    }
     s.socket.close();
     s.socket = null;
   }
@@ -302,7 +317,7 @@ function connect(): void {
   });
 
   s.socket.on("error", (err) => {
-    console.error("[Scores WS] Error:", err.message);
+    log.error("Error", err.message);
     s.failures++;
   });
 }

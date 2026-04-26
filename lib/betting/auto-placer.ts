@@ -15,11 +15,19 @@
  * Gates:
  *   1. Per-provider toggle (auto-place must be ON for the soft provider)
  *   2. Provider must have a registered adapter
+ *   3. If betting_settings.active_strategy_ids is non-empty, the bet must
+ *      match at least one of those strategies' filters. Empty preserves
+ *      the pre-strategy behaviour — every detected bet is eligible.
  */
 import { isAutoPlaceEnabled } from "./auto-place-config";
 import { getBettingProvider } from "./registry";
 import { placeBetForValueBet } from "./placer";
 import { getBetById, type ValueBetRow } from "@/lib/db/repositories/bets";
+import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
+import {
+  findMatchingActiveStrategy,
+  getActiveStrategies,
+} from "@/lib/optimizer/active-strategies";
 import { logger } from "@/lib/shared/logger";
 import type { ValueBet } from "@/lib/atoms/value-detector";
 
@@ -40,6 +48,27 @@ export async function maybeAutoPlace(vb: ValueBet): Promise<void> {
   }
 
   const stableId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
+
+  // Active-strategy gate. When the operator has designated one or more
+  // strategies in settings, only bets matching one of them get placed.
+  const { row: settings } = await getBettingSettings();
+  const activeIds = settings.activeStrategyIds ?? [];
+  if (activeIds.length > 0) {
+    const active = await getActiveStrategies(activeIds);
+    const matched = findMatchingActiveStrategy(vb, active);
+    if (!matched) {
+      logger.info(
+        "AutoPlacer",
+        `[${vb.softProvider}] ${stableId} → skipped: no active strategy matched (${activeIds.length} active)`,
+      );
+      return;
+    }
+    logger.info(
+      "AutoPlacer",
+      `[${vb.softProvider}] ${stableId} → matched strategy "${matched.name}"`,
+    );
+  }
+
   const row = await getBetById(stableId);
   if (!row) {
     logger.warn(
@@ -50,7 +79,7 @@ export async function maybeAutoPlace(vb: ValueBet): Promise<void> {
   }
 
   const outcome = await placeBetForValueBet({
-    valueBet: row as unknown as ValueBetRow, // eslint-disable-line @typescript-eslint/no-explicit-any
+    valueBet: row as unknown as ValueBetRow,
     kellyStake: vb.kellyStake,
     mode: "auto",
   });

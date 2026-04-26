@@ -120,6 +120,15 @@ export type DataTableProps<T> = {
   enableExpanding?: boolean;
   enableVirtualization?: boolean;
   rowHeight?: number;
+  /**
+   * Per-row height override. When provided, takes precedence over
+   * `rowHeight` for rows where it returns a number — used to give long
+   * rows extra vertical space (e.g. /telegram's `/optimise` usage line
+   * that needs to wrap onto two lines without breaking the layout).
+   * The virtualizer's `estimateSize` honours this so scroll math stays
+   * correct.
+   */
+  getRowHeight?: (row: T) => number;
 
   // Controlled row-selection (TanStack state) — opt-in.
   rowSelection?: RowSelectionState;
@@ -140,6 +149,9 @@ export type DataTableProps<T> = {
   // Slots.
   renderEmpty?: () => React.ReactNode;
   renderLoading?: () => React.ReactNode;
+  /** Rendered as a tbody row below the data rows once loading is finished
+   *  and there are no more pages. Use for end-of-list summaries. */
+  renderFooter?: () => React.ReactNode;
   loading?: boolean;
 
   // Styling.
@@ -341,6 +353,7 @@ export function DataTable<T>({
   enableExpanding = false,
   enableVirtualization = true,
   rowHeight,
+  getRowHeight,
   rowSelection,
   onRowSelectionChange,
   persistenceKey,
@@ -351,6 +364,7 @@ export function DataTable<T>({
   rowClassName,
   renderEmpty,
   renderLoading,
+  renderFooter,
   loading,
   className,
   density = "compact",
@@ -504,10 +518,18 @@ export function DataTable<T>({
   // Virtualization.
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const rows = table.getRowModel().rows;
+  const sizeForIndex = React.useCallback(
+    (index: number): number => {
+      const row = rows[index];
+      if (!row) return effectiveRowHeight;
+      return getRowHeight?.(row.original) ?? effectiveRowHeight;
+    },
+    [rows, effectiveRowHeight, getRowHeight],
+  );
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => effectiveRowHeight,
+    estimateSize: sizeForIndex,
     overscan: 12,
     enabled: enableVirtualization,
   });
@@ -656,7 +678,7 @@ export function DataTable<T>({
           <DataRow
             key={key}
             row={row}
-            rowHeight={effectiveRowHeight}
+            rowHeight={getRowHeight?.(row.original) ?? effectiveRowHeight}
             tdClassName={styleTokens.td}
             enableColumnResizing={enableColumnResizing}
             onRowClick={onRowClick}
@@ -683,6 +705,19 @@ export function DataTable<T>({
             </td>
           </tr>
         )}
+
+        {renderFooter &&
+          !showLoadingPlaceholder &&
+          !showEmpty &&
+          !hasNextPage &&
+          !isFetchingNextPage &&
+          rows.length > 0 && (
+            <tr>
+              <td colSpan={colSpan} className="px-4 py-2">
+                {renderFooter()}
+              </td>
+            </tr>
+          )}
       </tbody>
     </table>
   );

@@ -1,8 +1,8 @@
 /**
  * Next.js server-boot hook. Runs once per server process, before any
- * request is served. This is how the sync + auto-settlement schedulers
- * start: the system is headless, so the backend pipeline runs whether
- * or not anyone has opened the UI.
+ * request is served. This is how the sync + auto-settlement +
+ * entity-resolution schedulers start: the system is headless, so the
+ * backend pipeline runs whether or not anyone has opened the UI.
  */
 
 export async function register() {
@@ -12,26 +12,25 @@ export async function register() {
   const [
     { startScheduler, isSchedulerRunning },
     { startAutoSettleScheduler, isAutoSettleActive, getAutoSettleStatus },
-    { isAutoSettleDisabled, getKillSwitchState },
     { notify },
     { listAutoPlaceStates },
     { logger },
     { startOptimizerScheduler, isOptimizerSchedulerActive },
+    { startTelegramBot, isTelegramBotRunning },
+    { startResolverCacheListener, isResolverCacheListenerActive },
   ] = await Promise.all([
     import("./lib/background/fetcher"),
     import("./lib/settle/scheduler"),
-    import("./lib/settle/kill-switch"),
     import("./lib/notifier"),
     import("./lib/betting/auto-place-config"),
     import("./lib/shared/logger"),
     import("./lib/optimizer/scheduler"),
+    import("./lib/telegram/bot"),
+    import("./lib/matching/entities/resolver"),
   ]);
 
   // ── Startup diagnostics ──────────────────────────────────────────────
-  // Log the state of every subsystem that affects Telegram notifications
-  // so missing pings can be diagnosed from server logs without guessing.
 
-  // Telegram creds check
   const hasTelegramCreds =
     Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
     Boolean(process.env.TELEGRAM_CHAT_ID);
@@ -45,7 +44,6 @@ export async function register() {
     );
   }
 
-  // Auto-place toggle state
   const autoPlaceStates = listAutoPlaceStates();
   for (const ap of autoPlaceStates) {
     if (!ap.enabled) {
@@ -62,16 +60,6 @@ export async function register() {
     }
   }
 
-  // Kill-switch / auto-settle state
-  const killSwitch = getKillSwitchState();
-  if (killSwitch.disabled) {
-    logger.warn(
-      "Boot",
-      `Auto-settle kill-switch is ENGAGED (reason: ${killSwitch.reason ?? "none"}). ` +
-        "Settlement scheduler will NOT start — re-enable via the dashboard or delete sessions/auto-settle-config.json.",
-    );
-  }
-
   // ── Start schedulers ─────────────────────────────────────────────────
 
   if (!isSchedulerRunning()) {
@@ -81,21 +69,16 @@ export async function register() {
     logger.info("Boot", "Sync scheduler already running");
   }
 
-  if (!isAutoSettleActive() && !isAutoSettleDisabled()) {
+  // Auto-settle: there is no kill-switch any more. Automatic AI usage
+  // was removed entirely — settlement is deterministic Tier 0/1/2 only.
+  // Manual AI re-runs still exist via the /bets UI.
+  if (!isAutoSettleActive()) {
     startAutoSettleScheduler();
     logger.info("Boot", "Auto-settle scheduler started");
-  } else if (isAutoSettleActive()) {
-    logger.info("Boot", "Auto-settle scheduler already running");
   } else {
-    logger.warn(
-      "Boot",
-      "Auto-settle scheduler NOT started — kill-switch is engaged",
-    );
+    logger.info("Boot", "Auto-settle scheduler already running");
   }
 
-  // Optimisation queue poller — kicks the Python sidecar for any
-  // optimization_runs row in status='queued'. No-op if the sidecar is down;
-  // the next tick (30s) will retry.
   if (!isOptimizerSchedulerActive()) {
     startOptimizerScheduler();
     logger.info(
@@ -106,9 +89,29 @@ export async function register() {
     logger.info("Boot", "Optimisation scheduler already running");
   }
 
-  // ── Telegram startup ping ────────────────────────────────────────────
-  // Fire a system notification on boot so the operator can confirm
-  // Telegram connectivity immediately (no need to wait for a bet).
+  // Entity-resolution cross-worker cache listener — Postgres LISTEN on
+  // the entities_invalidate channel. The auto-resolver fires NOTIFY on
+  // every status flip; subscribers clear their LRU cache instantly so a
+  // promotion in one worker shows up in every other worker. The
+  // promoter + decay loop is gone (auto-resolve runs inline; weekly
+  // trainer Cloud Run Job handles model retraining).
+  if (!isResolverCacheListenerActive()) {
+    await startResolverCacheListener();
+    logger.info("Boot", "Entity-resolver cache listener started");
+  } else {
+    logger.info("Boot", "Entity-resolver cache listener already running");
+  }
+
+  if (!isTelegramBotRunning()) {
+    const started = startTelegramBot();
+    logger.info(
+      "Boot",
+      started
+        ? "Telegram control bot started (long-poll)"
+        : "Telegram control bot disabled (token/chat-id not set)",
+    );
+  }
+
   if (hasTelegramCreds) {
     const settleStatus = getAutoSettleStatus();
     notify({
@@ -117,7 +120,7 @@ export async function register() {
       severity: "info",
       message:
         `NahidArbX server started. Sync scheduler: ${isSchedulerRunning() ? "running" : "stopped"}. ` +
-        `Auto-settle: ${settleStatus.active ? "running" : killSwitch.disabled ? "kill-switch engaged" : "stopped"}. ` +
+        `Auto-settle: ${settleStatus.active ? "running" : "stopped"}. ` +
         `Auto-place providers: ${autoPlaceStates.map((p) => `${p.provider}=${p.enabled ? "ON" : "OFF"}`).join(", ")}.`,
     }).catch((err: unknown) => {
       logger.warn(

@@ -17,14 +17,16 @@ import {
   rejectNearMatch,
 } from "@/lib/matching/aliases/learner";
 import {
-  getAllTeamAliases,
-  getAllCompetitionAliases,
-  addTeamAlias,
-  addCompetitionAlias,
-  removeTeamAlias,
-  removeCompetitionAlias,
-  getAliasStats,
-} from "@/lib/matching/aliases/store";
+  ensureCompetitionEntity,
+  ensureTeamEntity,
+  recordObservation,
+} from "@/lib/matching/entities";
+import {
+  getEntityStats,
+  listEntities,
+  getEntityNamesForEntity,
+  setEntityNameStatus,
+} from "@/lib/db/repositories/entities";
 import {
   getMatchedEventsForVerification,
   unmatchEventCompletely,
@@ -51,12 +53,21 @@ export async function GET(request: Request) {
 
         const stats = getDiagnosticStats();
         const report = generateDiagnosticReport();
-        const aliasStats = getAliasStats();
+        const entityStats = await getEntityStats();
+        // Expose entity stats under both keys so older callers that still
+        // expect aliasStats see something coherent during the cutover.
+        const aliasStats = {
+          teamAliases: entityStats.namesActive,
+          competitionAliases: entityStats.entitiesActive,
+          autoLearned: entityStats.namesActive,
+          manual: 0,
+        };
 
         return NextResponse.json({
           stats,
           report,
           aliasStats,
+          entityStats,
         });
       }
 
@@ -102,10 +113,57 @@ export async function GET(request: Request) {
       }
 
       case "aliases": {
+        // Compatibility shim: returns flat lists of (source -> canonical)
+        // pairs by walking active entity_names rows. The /api/entities
+        // routes are the proper modern surface; this view just keeps the
+        // legacy AliasManager reads from 500ing during the UI cutover.
+        const teams = await listEntities({
+          kind: "team",
+          limit: 500,
+        });
+        const comps = await listEntities({
+          kind: "competition",
+          limit: 500,
+        });
+        const flatten = async (list: typeof teams) => {
+          const out: Array<{
+            source: string;
+            canonical: string;
+            addedAt: string;
+            addedBy?: string;
+            autoLearned: boolean;
+            occurrences: number;
+          }> = [];
+          for (const ent of list) {
+            const names = await getEntityNamesForEntity(ent.id);
+            for (const n of names) {
+              if (n.status !== "active") continue;
+              if (
+                n.surfaceRaw.toLowerCase() === ent.canonicalName.toLowerCase()
+              )
+                continue;
+              out.push({
+                source: n.surfaceRaw,
+                canonical: ent.canonicalName,
+                addedAt: n.firstSeenAt,
+                addedBy: n.provider,
+                autoLearned: n.provider !== "seed",
+                occurrences: n.positiveObs,
+              });
+            }
+          }
+          return out;
+        };
+        const stats = await getEntityStats();
         return NextResponse.json({
-          teamAliases: getAllTeamAliases(),
-          competitionAliases: getAllCompetitionAliases(),
-          stats: getAliasStats(),
+          teamAliases: await flatten(teams),
+          competitionAliases: await flatten(comps),
+          stats: {
+            teamAliases: stats.namesActive,
+            competitionAliases: stats.entitiesActive,
+            autoLearned: stats.namesActive,
+            manual: 0,
+          },
         });
       }
 
@@ -207,7 +265,7 @@ export async function POST(request: Request) {
           );
         }
 
-        const learned = confirmNearMatch(nearMatchId, userId);
+        const learned = await confirmNearMatch(nearMatchId, userId);
         if (!learned) {
           return NextResponse.json(
             { error: "Near-match not found or already processed" },
@@ -218,7 +276,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
           success: true,
           learned,
-          message: `Confirmed match. Learned ${learned.teamAliases.length} team aliases, ${learned.competitionAliases.length} competition aliases.`,
+          message: `Confirmed match. Recorded ${learned.teamAliases.length} team observations, ${learned.competitionAliases.length} competition observations.`,
         });
       }
 
@@ -250,15 +308,27 @@ export async function POST(request: Request) {
             { status: 400 },
           );
         }
-
-        addTeamAlias(source, canonical, {
-          autoLearned: false,
-          addedBy: userId,
+        const teamEntity = await ensureTeamEntity({ canonicalName: canonical });
+        if (!teamEntity) {
+          return NextResponse.json(
+            { error: "Failed to create canonical entity" },
+            { status: 500 },
+          );
+        }
+        await recordObservation({
+          kind: "team",
+          surface: source,
+          provider: "manual",
+          competitionId: null,
+          pairedWithEntityId: teamEntity.id,
+          matchScore: 1,
+          outcome: "manual-confirm",
+          source: "match-review",
+          metadata: { addedBy: userId ?? "manual" },
         });
-
         return NextResponse.json({
           success: true,
-          message: `Added team alias: "${source}" -> "${canonical}"`,
+          message: `Recorded team observation: "${source}" → "${canonical}"`,
         });
       }
 
@@ -270,36 +340,36 @@ export async function POST(request: Request) {
             { status: 400 },
           );
         }
-
-        addCompetitionAlias(source, canonical, {
-          autoLearned: false,
-          addedBy: userId,
-        });
-
-        return NextResponse.json({
-          success: true,
-          message: `Added competition alias: "${source}" -> "${canonical}"`,
-        });
-      }
-
-      case "remove-team-alias": {
-        const { source } = body;
-        if (!source) {
+        const compEntity = await ensureCompetitionEntity(canonical);
+        if (!compEntity) {
           return NextResponse.json(
-            { error: "Missing source" },
-            { status: 400 },
+            { error: "Failed to create competition entity" },
+            { status: 500 },
           );
         }
-
-        const success = removeTeamAlias(source);
+        await recordObservation({
+          kind: "competition",
+          surface: source,
+          provider: "manual",
+          competitionId: null,
+          pairedWithEntityId: compEntity.id,
+          matchScore: 1,
+          outcome: "manual-confirm",
+          source: "match-review",
+          metadata: { addedBy: userId ?? "manual" },
+        });
         return NextResponse.json({
-          success,
-          message: success
-            ? `Removed team alias: "${source}"`
-            : `Team alias not found: "${source}"`,
+          success: true,
+          message: `Recorded competition observation: "${source}" → "${canonical}"`,
         });
       }
 
+      // Removal in the entity model is per-name, not per-canonical. The
+      // legacy "remove the source→canonical row" semantic doesn't map
+      // cleanly; the EntityInspector UI exposes per-row retire instead.
+      // For backwards compat, this finds any active entity_name row whose
+      // surface_raw matches and retires that single row.
+      case "remove-team-alias":
       case "remove-competition-alias": {
         const { source } = body;
         if (!source) {
@@ -308,13 +378,29 @@ export async function POST(request: Request) {
             { status: 400 },
           );
         }
-
-        const success = removeCompetitionAlias(source);
+        const wantedKind =
+          action === "remove-team-alias" ? "team" : "competition";
+        const all = await listEntities({ kind: wantedKind, limit: 1000 });
+        let found = 0;
+        for (const ent of all) {
+          const names = await getEntityNamesForEntity(ent.id);
+          for (const n of names) {
+            if (
+              n.status === "active" &&
+              n.surfaceRaw.toLowerCase().trim() ===
+                String(source).toLowerCase().trim()
+            ) {
+              await setEntityNameStatus(n.id, "retired");
+              found++;
+            }
+          }
+        }
         return NextResponse.json({
-          success,
-          message: success
-            ? `Removed competition alias: "${source}"`
-            : `Competition alias not found: "${source}"`,
+          success: found > 0,
+          message:
+            found > 0
+              ? `Retired ${found} entity_name row(s) with surface "${source}"`
+              : `No active entity_name found with surface "${source}"`,
         });
       }
 

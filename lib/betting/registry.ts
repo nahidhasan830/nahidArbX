@@ -8,6 +8,7 @@
  */
 import type { BettingProviderAdapter } from "./types";
 import { ninewicketsSportsbookAdapter } from "./ninewickets/adapter";
+import { velkiSportsbookBettingAdapter } from "./velki/adapter";
 import { CONFIGURED_BETTING_PROVIDER_IDS } from "./configured-ids";
 
 // Re-export so server-side callers can still import from registry if they wish.
@@ -19,6 +20,7 @@ export { CONFIGURED_BETTING_PROVIDER_IDS };
  */
 export const BETTING_PROVIDERS: Record<string, BettingProviderAdapter> = {
   [ninewicketsSportsbookAdapter.providerId]: ninewicketsSportsbookAdapter,
+  [velkiSportsbookBettingAdapter.providerId]: velkiSportsbookBettingAdapter,
 };
 
 export function getBettingProvider(

@@ -40,6 +40,12 @@ export type ListFilters = {
   oddsMin?: number;
   /** Filter bets whose soft (bookmaker) odds are ≤ this value. Maps from strategy filter `odds_hi`. */
   oddsMax?: number;
+  /** Strategy `min_sharp_prob` — sharp true probability ≥ this value. */
+  minSharpProb?: number;
+  /** Strategy `max_odds_age_sec` (in ms here) — sharp odds age ≤ this. NULL ages pass. */
+  maxOddsAgeMs?: number;
+  /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
+  minTickCount?: number;
   limit?: number;
   offset?: number;
 };
@@ -236,15 +242,13 @@ export type ModelTier = "lite" | "flash" | "pro";
  */
 /**
  * Trigger settlement for a set of bet IDs. Modes:
- *   - default                  → free waterfall only (cache → live → ESPN → SofaScore)
- *   - `{ useAi: true }`        → free waterfall + AI fallback for misses
- *   - `{ bypassCache: true }`  → re-run waterfall ignoring cached scores
- *   - `{ forceAi: true, aiModel }` → skip free tiers, go straight to AI
+ *   - default                       → free waterfall only (cache → live → ESPN → SofaScore)
+ *   - `{ bypassCache: true }`       → re-run waterfall ignoring cached scores
+ *   - `{ forceAi: true, aiModel }`  → skip free tiers, go straight to Gemini Tier 3
  */
 export const aiLabelBets = async (
   ids: string[],
   opts?: {
-    useAi?: boolean;
     bypassCache?: boolean;
     forceAi?: boolean;
     aiModel?: ModelTier;
@@ -256,7 +260,6 @@ export const aiLabelBets = async (
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ids,
-      useAi: opts?.useAi === true,
       bypassCache: opts?.bypassCache === true,
       forceAi: opts?.forceAi === true,
       aiModel: opts?.aiModel,
@@ -435,9 +438,6 @@ export type SettlementRunRowApi = {
 export type SettlementStatus = {
   active: boolean;
   paused: boolean;
-  disabled: boolean;
-  disabledReason: string | null;
-  disabledAt: string | null;
   intervalMs: number;
   tickInFlight: boolean;
   lastStartedAt: number | null;
@@ -470,9 +470,7 @@ export type SettlementAction =
   | "stop"
   | "restart"
   | "pause"
-  | "resume"
-  | "disable"
-  | "enable";
+  | "resume";
 
 export const getSettlementStatus = async (opts?: {
   runs?: number;
@@ -490,7 +488,7 @@ export const getSettlementStatus = async (opts?: {
 
 export const postSettlementAction = async (
   action: SettlementAction,
-  opts?: { intervalMs?: number; reason?: string },
+  opts?: { intervalMs?: number },
 ): Promise<unknown> => {
   const res = await fetch(`/api/settlement`, {
     method: "POST",

@@ -55,7 +55,7 @@ export function Heatmap({
           the card half-empty when the sibling chart is taller. */}
       <div className="flex-1 grid grid-cols-[auto_1fr] gap-x-2 grid-rows-[auto_repeat(7,minmax(0,1fr))] min-h-[168px]">
         {/* hour ticks row */}
-        <div className="col-start-2 grid grid-cols-24 gap-[2px] text-[9px] text-muted-foreground">
+        <div className="col-start-2 grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[2px] text-[9px] text-muted-foreground">
           {Array.from({ length: 24 }, (_, h) => (
             <div
               key={h}
@@ -76,7 +76,7 @@ export function Heatmap({
             <div className="text-[10px] text-muted-foreground flex items-center justify-end pr-1 min-w-[28px]">
               {DOW_LABELS[dow]}
             </div>
-            <div className="grid grid-cols-24 gap-[2px] h-full">
+            <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[2px] h-full">
               {row.map((cell, hour) => {
                 const intensity = cell ? cell.stake / maxStake : 0;
                 return (
@@ -120,7 +120,7 @@ export function Heatmap({
           </div>
           <span>High</span>
         </div>
-        <div className="text-[10px] data-text">
+        <div className="text-[10px] font-mono tabular-nums tracking-tight">
           {totalBets === 0 ? (
             <span className="text-muted-foreground/40">No activity yet</span>
           ) : (
@@ -140,12 +140,6 @@ export function Heatmap({
           )}
         </div>
       </div>
-
-      <style jsx global>{`
-        .grid-cols-24 {
-          grid-template-columns: repeat(24, minmax(0, 1fr));
-        }
-      `}</style>
     </div>
   );
 }

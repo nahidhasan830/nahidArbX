@@ -74,7 +74,7 @@ export const LeagueSchema = z.tuple([
   z.number(),
   z.string(),
   z.array(EventSchema),
-  z.array(z.unknown()),
+  z.array(z.unknown()).nullable(),
 ]);
 
 // StatusGroup: exactly 2 elements [status, leagues[]]

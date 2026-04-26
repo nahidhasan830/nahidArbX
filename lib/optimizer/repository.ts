@@ -142,6 +142,65 @@ export async function claimQueuedRun(
   return row ?? null;
 }
 
+/**
+ * Reverts a `running` row back to `queued` — paired with `claimQueuedRun`
+ * for the case where the claim succeeded but the downstream Job trigger
+ * failed (Cloud Run Admin API timeout, ADC hiccup, network blip).
+ * Only flips rows that are still `running` AND have never started
+ * (`started_at IS NULL` — once the sidecar writes started_at, the row
+ * is in the sidecar's hands and we must not race it).
+ */
+export async function unclaimRun(runId: string): Promise<boolean> {
+  const result = await db
+    .update(optimizationRuns)
+    .set({ status: "queued" })
+    .where(
+      and(
+        eq(optimizationRuns.id, runId),
+        eq(optimizationRuns.status, "running"),
+        sql`${optimizationRuns.startedAt} IS NULL`,
+      ),
+    )
+    .returning({ id: optimizationRuns.id });
+  return result.length > 0;
+}
+
+/**
+ * Reconcile rows that have been `running` with no progress for too long.
+ *
+ * A run is considered "stuck on claim" if all of these hold:
+ *   - status = 'running'
+ *   - started_at IS NULL (the Cloud Run Job never began executing)
+ *   - n_trials_done = 0 (no progress)
+ *   - created_at is older than `staleAfterSec`
+ *
+ * This is the durable safety net for the failure mode where the Next.js
+ * process crashes BETWEEN `claimQueuedRun` and `triggerJobExecution` (so
+ * neither the inline rollback in `kickRunNow` nor the one in the
+ * scheduler tick gets a chance to run). Without this reconciler, the row
+ * would sit in `running` forever — exactly the bug that left
+ * "Quick 2026-04-25 16:17" stuck.
+ *
+ * Returns the IDs of rows that were reverted to `queued`.
+ */
+export async function reconcileStuckClaims(
+  staleAfterSec = 120,
+): Promise<string[]> {
+  const rows = await db
+    .update(optimizationRuns)
+    .set({ status: "queued" })
+    .where(
+      and(
+        eq(optimizationRuns.status, "running"),
+        sql`${optimizationRuns.startedAt} IS NULL`,
+        eq(optimizationRuns.nTrialsDone, 0),
+        sql`${optimizationRuns.createdAt} < NOW() - (${staleAfterSec} || ' seconds')::interval`,
+      ),
+    )
+    .returning({ id: optimizationRuns.id });
+  return rows.map((r) => r.id);
+}
+
 export async function listTrials(
   runId: string,
   opts: {

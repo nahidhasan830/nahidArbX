@@ -22,6 +22,7 @@ import { formatError } from "../../shared/errors";
 import { DebugFetcher } from "../../shared/debug-fetcher";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import type { DebugFetchResult } from "./debug-fetch";
+import type { AtomsFetchOptions } from "../../adapters/unified-registry";
 import { logger } from "../../shared/logger";
 
 /**
@@ -33,6 +34,7 @@ export interface FetchContext {
   normalizedEventId: string;
   homeTeam: string;
   awayTeam: string;
+  options: AtomsFetchOptions;
 }
 
 /**
@@ -73,12 +75,14 @@ export abstract class BaseAtomsAdapter {
     normalizedEventId: string,
     homeTeam: string,
     awayTeam: string,
+    options: AtomsFetchOptions = {},
   ): Promise<number> {
     const ctx: FetchContext = {
       providerEventId,
       normalizedEventId,
       homeTeam,
       awayTeam,
+      options,
     };
 
     try {
@@ -144,6 +148,7 @@ export abstract class BaseAtomsAdapter {
       normalizedEventId,
       homeTeam,
       awayTeam,
+      options: {},
     };
 
     const debug = new DebugFetcher(

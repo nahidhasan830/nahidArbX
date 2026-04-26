@@ -17,7 +17,7 @@
  * - Odd/Even → ODD_EVEN_GOALS
  */
 
-import { getFamilyIdByAtom, isValidAtom, getFamily } from "../registry";
+import { getFamilyIdByAtom, isValidAtom } from "../registry";
 import { matchTeamSide } from "../../shared/team-matching";
 import {
   formatLine,
@@ -94,7 +94,9 @@ function detectMarketType(
   marketName: string,
   apiSiteMarketType?: number,
 ): DetectedMarket | null {
-  const lower = marketName.toLowerCase();
+  const lower = marketName
+    .toLowerCase()
+    .replace(/over\/under/g, "over / under");
   const line = extractLine(marketName);
 
   // Use apiSiteMarketType to detect Half-Time markets (more reliable than name patterns)
@@ -183,7 +185,7 @@ function detectMarketType(
   // apiSiteMarketType: 10747
   if (
     lower.includes("team total corners") &&
-    lower.includes("over/under") &&
+    lower.includes("over / under") &&
     line !== null
   ) {
     return { marketType: "HOME_CORNERS_TOTAL", timeScope, line, marketName };
@@ -192,7 +194,7 @@ function detectMarketType(
   // Corners Total (Over/Under)
   if (
     (lower.includes("corner") || lower.includes("corners")) &&
-    (lower.includes("over/under") || lower.includes("total"))
+    (lower.includes("over / under") || lower.includes("total"))
   ) {
     if (line !== null) {
       return { marketType: "CORNERS", timeScope, line };
@@ -242,7 +244,7 @@ function detectMarketType(
   // Cards Total
   if (
     (lower.includes("card") || lower.includes("cards")) &&
-    (lower.includes("over/under") || lower.includes("total")) &&
+    (lower.includes("over / under") || lower.includes("total")) &&
     line !== null
   ) {
     return { marketType: "CARDS", timeScope, line };
@@ -600,7 +602,7 @@ export function extractSportsbookOdds(
     if (selection.odds <= 1) continue;
 
     // Try static mapping first
-    let atomId = mapSportsbookToAtom(
+    const atomId = mapSportsbookToAtom(
       market.apiSiteMarketType,
       selection.selectionName,
       market.marketName,
@@ -646,88 +648,6 @@ export const SPORTSBOOK_MARKET_TYPES = {
 // ============================================
 // Alias-Based Atom Derivation
 // ============================================
-
-/**
- * Derive an atom ID from a family ID and selection details.
- * Used when market alias provides the family but we need to determine the specific atom.
- */
-function deriveAtomFromAlias(
-  familyId: string,
-  selectionName: string,
-  handicap: number,
-  homeTeam: string,
-  awayTeam: string,
-): string | null {
-  const lower = selectionName.toLowerCase();
-
-  // Extract family components from ID (e.g., "ft_1x2" -> timeScope=FT, type=1X2)
-  const parts = familyId.split("_");
-  if (parts.length < 2) return null;
-
-  const timeScope = parts[0].toLowerCase();
-
-  // Match Result (1x2)
-  if (familyId.includes("1x2") || familyId.includes("match_result")) {
-    if (lower.includes("draw") || lower === "x") {
-      return `${timeScope}_x`;
-    }
-    const side = matchTeamSide(selectionName, homeTeam, awayTeam);
-    if (side === "home") return `${timeScope}_1`;
-    if (side === "away") return `${timeScope}_2`;
-    return null;
-  }
-
-  // Over/Under Total Goals
-  if (
-    familyId.includes("total") ||
-    familyId.includes("o_") ||
-    familyId.includes("u_")
-  ) {
-    const lineMatch = familyId.match(/_(\d+(?:_\d+)?)/);
-    if (lineMatch) {
-      const linePart = lineMatch[1].replace("_", ".");
-      if (lower.includes("over") || lower.startsWith("o ")) {
-        return `${timeScope}_o_${linePart.replace(".", "_")}`;
-      }
-      if (lower.includes("under") || lower.startsWith("u ")) {
-        return `${timeScope}_u_${linePart.replace(".", "_")}`;
-      }
-    }
-    return null;
-  }
-
-  // Asian Handicap
-  if (familyId.includes("ah") || familyId.includes("handicap")) {
-    const side = matchTeamSide(selectionName, homeTeam, awayTeam);
-    if (!side) return null;
-
-    // Use handicap value
-    const lineStr = formatHandicapLine(handicap);
-    return `${timeScope}_${side}_ah_${lineStr}`;
-  }
-
-  // BTTS
-  if (familyId.includes("btts")) {
-    if (lower.includes("yes") || lower === "btts") {
-      return `${timeScope}_btts_yes`;
-    }
-    if (lower.includes("no")) {
-      return `${timeScope}_btts_no`;
-    }
-    return null;
-  }
-
-  // DNB (Draw No Bet)
-  if (familyId.includes("dnb")) {
-    const side = matchTeamSide(selectionName, homeTeam, awayTeam);
-    if (side === "home") return `${timeScope}_dnb_home`;
-    if (side === "away") return `${timeScope}_dnb_away`;
-    return null;
-  }
-
-  // If we can't determine the specific atom, return null
-  return null;
-}
 
 export type SportsbookMarketType =
   (typeof SPORTSBOOK_MARKET_TYPES)[keyof typeof SPORTSBOOK_MARKET_TYPES];

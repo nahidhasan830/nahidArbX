@@ -1,15 +1,19 @@
 /**
- * LRU Cache for string similarity comparisons.
+ * LRU Cache for string-similarity comparisons.
  *
- * `compareTwoStrings()` (Dice coefficient) is called for every event pair
- * during matching. The same team name pairs ("Manchester United" vs "Man Utd")
- * are compared fresh each sync cycle. This cache stores results keyed by
+ * `bestSim()` is called for every event pair during matching. The
+ * same team-name pairs ("Manchester United" vs "Man Utd") are
+ * compared fresh each sync cycle. This cache stores results keyed by
  * sorted string pairs, giving ~80% hit rate across syncs.
+ *
+ * Backed by `bestSim` (max of Dice, Jaro-Winkler, token-set ratio,
+ * trigram Jaccard) — see `lib/matching/string-sim.ts` for why a
+ * hybrid beats single-algorithm Dice for team-name matching.
  *
  * Memory: ~100KB for 10K entries (two short strings + float per entry).
  */
 
-import { compareTwoStrings } from "string-similarity";
+import { bestSim } from "./string-sim";
 
 const MAX_CACHE_SIZE = 10_000;
 
@@ -17,14 +21,15 @@ const MAX_CACHE_SIZE = 10_000;
 const cache = new Map<string, number>();
 
 /**
- * Cached version of `compareTwoStrings` from string-similarity.
- * Dice coefficient is symmetric, so we sort the pair to deduplicate.
+ * Cached hybrid similarity. All four underlying algorithms (Dice,
+ * Jaro-Winkler, token-set ratio, trigram Jaccard) are symmetric, so
+ * we sort the pair to dedupe (a,b) and (b,a).
  */
 export function cachedCompareTwoStrings(a: string, b: string): number {
   // Fast path: identical strings
   if (a === b) return 1;
 
-  // Sort to normalize key (Dice coefficient is symmetric)
+  // Sort to normalize key (similarity is symmetric)
   const key = a < b ? `${a}\0${b}` : `${b}\0${a}`;
 
   const cached = cache.get(key);
@@ -35,7 +40,7 @@ export function cachedCompareTwoStrings(a: string, b: string): number {
     return cached;
   }
 
-  const result = compareTwoStrings(a, b);
+  const result = bestSim(a, b);
 
   // Evict oldest entry if at capacity
   if (cache.size >= MAX_CACHE_SIZE) {

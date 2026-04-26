@@ -18,6 +18,8 @@ import { DebugFetcher } from "../../shared/debug-fetcher";
 import {
   fetchGameMarkets,
   BetConstructError,
+  disconnect as disconnectBC,
+  reconnect as reconnectBC,
   type BCGame,
 } from "../../adapters/betconstruct/client";
 import {
@@ -25,6 +27,7 @@ import {
   isSupportedMarketType,
 } from "../mappings/betconstruct";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
+import { stopBCScorePolling } from "../../scores/bc-poller";
 import { logger } from "../../shared/logger";
 
 // ============================================
@@ -39,6 +42,27 @@ const PROVIDER: ProviderKey = "betconstruct";
 
 export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
+
+  /**
+   * BC keeps a persistent WebSocket and a 10s score poller alive independently
+   * of the sync pipeline, so toggling it from the UI needs explicit lifecycle
+   * handling. Other providers don't override these hooks.
+   */
+  async onEnable(): Promise<void> {
+    try {
+      await reconnectBC();
+    } catch (err) {
+      logger.warn(
+        "BetConstructAtoms",
+        `reconnect failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  onDisable(): void {
+    disconnectBC();
+    stopBCScorePolling();
+  }
 
   protected async fetchRawData(ctx: FetchContext): Promise<BCGame | null> {
     // Extract numeric game ID from provider event ID

@@ -17,6 +17,10 @@
  *              staking scheme, Kelly fraction). One short italic
  *              sentence that answers "why pick this one?". Skip
  *              entirely for metric/concept entries.
+ *   ranges:    For numeric metrics only. Direction + thresholds used to
+ *              render "Your value: X — verdict" when a live value is
+ *              passed to TermTooltip. Also provides a static guidanceNote
+ *              for column-header tooltips where no specific value exists.
  *   long:      DEPRECATED. The field is kept on the type for backwards
  *              compatibility but is no longer rendered. Leave it unset
  *              on every entry.
@@ -39,7 +43,50 @@ export interface GlossaryEntry {
    * fraction). Skip for metric/concept entries.
    */
   objective?: string;
+  /**
+   * Numeric range metadata. When present, TermTooltip shows either a
+   * static guidance note (no value prop) or a dynamic "Your value: X"
+   * verdict (value prop provided).
+   */
+  ranges?: GlossaryRanges;
 }
+
+// ── Range types ───────────────────────────────────────────────────────────
+
+export type RangeValueFormat = "pct_decimal" | "pct" | "decimal" | "integer";
+
+export interface GlossaryThreshold {
+  /**
+   * Boundary value.
+   * lower_is_better: value ≤ bound → this tier.
+   * higher_is_better: value ≥ bound → this tier.
+   */
+  bound: number;
+  tone: "positive" | "warning" | "danger";
+  /** Sentence shown in the "Your value: X — verdict" block. */
+  verdict: string;
+}
+
+export interface GlossaryRanges {
+  direction: "lower_is_better" | "higher_is_better";
+  /** How to format the raw numeric value in "Your value: X". */
+  valueFormat: RangeValueFormat;
+  /**
+   * Shown in column-header tooltips where no specific value is in scope.
+   * One short line: "Higher is better · above 5% = strong, 2–5% = decent…"
+   */
+  guidanceNote: string;
+  /**
+   * Sorted best-first:
+   *   higher_is_better → descending bounds (check value >= bound from highest)
+   *   lower_is_better  → ascending bounds  (check value <= bound from lowest)
+   */
+  thresholds: GlossaryThreshold[];
+  /** Applies when value is beyond every threshold in the bad direction. */
+  fallback: { tone: "positive" | "warning" | "danger"; verdict: string };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
 
 export type TermId = keyof typeof GLOSSARY;
 
@@ -49,17 +96,110 @@ export const GLOSSARY = {
     short: "Return on investment — how much you ended up ahead, in percent.",
     example:
       "Across 820 settled bets you staked 100,000 BDT total and finished at +4,250 BDT. That's an ROI of 4.25%. The number alone can mislead on a small sample — always look at the believable range next to it. If 'somewhere between 1.8% and 6.7%' you have a real edge; if 'somewhere between −1.2% and 9.1%' you don't know yet, you just need more bets.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "pct",
+      guidanceNote:
+        "Higher is better · above 5% = strong, 2–5% = decent, 0–2% = marginal, below 0% = losing",
+      thresholds: [
+        {
+          bound: 5.0,
+          tone: "positive",
+          verdict:
+            "Strong. 5%+ ROI on a solid sample is a real signal worth promoting and tracking live.",
+        },
+        {
+          bound: 2.0,
+          tone: "warning",
+          verdict:
+            "Decent. Profitable, but check the CI lower bound before promoting — if it dips below zero, you don't have statistical proof of an edge yet.",
+        },
+        {
+          bound: 0.0,
+          tone: "warning",
+          verdict:
+            "Marginal. Just above zero — the believable range likely straddles zero. More bets or a tighter search needed before this is promotable.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Losing. Below-zero ROI on unseen bets means no edge here, or the filter is pruning too aggressively.",
+      },
+    },
   },
   clv: {
     short:
       "Closing Line Value — how much better your odds were than the market's final odds.",
     example:
       "You backed Liverpool at NineWickets-Exchange on 2.10. By kick-off, Pinnacle's price on the same outcome had drifted to 1.95. Your CLV on that bet is +7.7% — the sharpest book in the world moved toward your side, which is what genuine edge looks like. CLV is the fastest signal that you're picking real value: ROI needs thousands of bets to settle down, CLV stabilises after about 50.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "pct",
+      guidanceNote:
+        "Higher is better · above 3% = strong signal, 1–3% = decent, 0–1% = marginal, below 0% = you're getting worse odds than the market",
+      thresholds: [
+        {
+          bound: 3.0,
+          tone: "positive",
+          verdict:
+            "Strong. 3%+ CLV is compelling evidence your picks consistently beat where the market moves — the kind of edge that sustains a long-term strategy.",
+        },
+        {
+          bound: 1.0,
+          tone: "warning",
+          verdict:
+            "Decent. 1–3% CLV is positive but could be noise on a small sample. It needs 100+ bets to stabilise into a reliable signal.",
+        },
+        {
+          bound: 0.0,
+          tone: "warning",
+          verdict:
+            "Marginal. Just above zero — you're roughly in line with where the market closes. Real CLV edge needs to be consistently positive across many bets.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Negative CLV. You're consistently getting worse odds than where the market moves. A filter or provider check may reveal why.",
+      },
+    },
   },
   sharpe: {
     short: "Sharpe ratio — return adjusted for how bumpy the equity curve is.",
     example:
       "Strategy A makes 4% ROI with smooth, steady growth → Sharpe ≈ 1.33. Strategy B makes the same 4% but with wild 15-bet losing streaks → Sharpe ≈ 0.50. Same headline ROI, very different ride. The higher-Sharpe strategy is the one you'll actually keep running because you won't panic-stop during a bad week.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "decimal",
+      guidanceNote:
+        "Higher is better · above 1.5 = excellent, 1–1.5 = good, 0.5–1 = marginal, below 0.5 = weak",
+      thresholds: [
+        {
+          bound: 1.5,
+          tone: "positive",
+          verdict:
+            "Excellent equity-curve smoothness — rare in betting and very promotable.",
+        },
+        {
+          bound: 1.0,
+          tone: "warning",
+          verdict:
+            "Good. The curve has some bumps but trends consistently upward.",
+        },
+        {
+          bound: 0.5,
+          tone: "warning",
+          verdict:
+            "Marginal. Real edge, but a bad week will feel severe. Check Sortino to see if upside swings or actual drawdowns drive the bumpiness.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Weak. Below 0.5, choppy periods dominate the growth. Check Sortino to understand where the bumpiness comes from.",
+      },
+    },
   },
   sortino: {
     short:
@@ -68,17 +208,110 @@ export const GLOSSARY = {
       "Two configs both make 5% ROI. Config X has big winning streaks and small losing streaks → high Sortino. Config Y has small winning streaks and occasional 10-bet losing ruts → low Sortino. Sortino is more honest than Sharpe for betting because it doesn't punish you for upside swings — only for the drawdowns that actually hurt your bankroll.",
     objective:
       "Prefer Sortino over Sharpe when picking a strategy to take live — it tracks the pain you'd actually feel.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "decimal",
+      guidanceNote:
+        "Higher is better · above 2 = excellent, 1–2 = good, 0.5–1 = marginal, below 0.5 = weak",
+      thresholds: [
+        {
+          bound: 2.0,
+          tone: "positive",
+          verdict:
+            "Excellent. The gains comfortably outweigh the losing stretches — this strategy would feel manageable in live operation.",
+        },
+        {
+          bound: 1.0,
+          tone: "warning",
+          verdict:
+            "Good. 1.0–2.0 is solid for a betting strategy. Some rough patches, but net growth is meaningful.",
+        },
+        {
+          bound: 0.5,
+          tone: "warning",
+          verdict:
+            "Marginal. Just above break-even on a risk-adjusted basis. Watch whether live performance holds this ratio.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Weak. Below 0.5, the downswings dominate the growth. The equity curve is too choppy to run with confidence.",
+      },
+    },
   },
   drawdown: {
     short:
       "Max drawdown — the biggest peak-to-trough loss the strategy ever had.",
     example:
       "Your bankroll climbs from 100k BDT to 135k, then a 22-bet losing streak drags it down to 98k before recovering. The biggest fall from peak was (135 − 98) / 135 ≈ 27%. That's a normal range for quarter-Kelly sizing. Full Kelly on the same bets would have been 50%+ — survivable on paper but the kind of fall that makes you pull the plug at the wrong moment.",
+    ranges: {
+      direction: "lower_is_better",
+      valueFormat: "pct_decimal",
+      guidanceNote:
+        "Lower is better · under 10% = excellent, 10–25% = normal, 25–40% = high, above 40% = very high",
+      thresholds: [
+        {
+          bound: 0.1,
+          tone: "positive",
+          verdict:
+            "Excellent. Under 10% is the sweet spot for quarter-Kelly — losing streaks sting briefly but recover fast.",
+        },
+        {
+          bound: 0.25,
+          tone: "warning",
+          verdict:
+            "Normal. 10–25% is typical for standard Kelly sizing. You'll feel the dip but can stay in the game.",
+        },
+        {
+          bound: 0.4,
+          tone: "warning",
+          verdict:
+            "High. Most real bankrolls start cracking emotionally in this range. Consider a lower Kelly fraction or tighter market filters.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Very high. Above 40%, most operators quit before the math says they should. Drop the Kelly fraction.",
+      },
+    },
   },
   sample_size: {
     short: "How many of your bets survived this configuration's filters.",
     example:
       "Config A demands EV ≥ 5% AND odds ≤ 3.0 — only 47 of your 1,200 settled bets pass. Even if those 47 show 12% ROI, the believable range is roughly −3% to +27% — basically no signal. Config B uses EV ≥ 2% and keeps 780 bets at 4.8% ROI with a believable range of 3.1% to 6.5%. Less flashy, way more trustworthy. Trials with fewer than 50 surviving bets get flagged as low confidence and shouldn't go live.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "integer",
+      guidanceNote:
+        "Higher is better · 300+ = reliable, 100–300 = adequate, 50–100 = low, below 50 = too small to trust",
+      thresholds: [
+        {
+          bound: 300,
+          tone: "positive",
+          verdict:
+            "Reliable. 300+ bets gives narrow believable ranges and real statistical power — the numbers mean something here.",
+        },
+        {
+          bound: 100,
+          tone: "warning",
+          verdict:
+            "Adequate. 100–300 bets is workable, but the believable range is still fairly wide. The ROI direction is more reliable than the exact figure.",
+        },
+        {
+          bound: 50,
+          tone: "warning",
+          verdict:
+            "Low. 50–100 bets — treat the ROI as a rough direction, not a firm number. Widen the EV cutoff to capture more bets.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Too small. Under 50 bets is effectively noise — even a 12% ROI could be pure luck. Collect more bets or widen filters.",
+      },
+    },
   },
   win_rate: {
     short: "What percentage of your decisive bets won.",
@@ -140,24 +373,124 @@ export const GLOSSARY = {
       "How likely the winning strategy is real skill rather than pure luck.",
     example:
       "If you tested 2,000 strategies, even random ones will throw up some impressive-looking winners — that's just statistics. This score discounts the headline performance by how many strategies you tried: the more you tried, the more the winner has to prove itself. Above 0.95 means the winner is very probably real. Below 0.7 means you searched so hard you were almost guaranteed to find a lucky-looking one.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "decimal",
+      guidanceNote:
+        "Higher is better · above 0.95 = strong, 0.70–0.95 = borderline, below 0.70 = unreliable",
+      thresholds: [
+        {
+          bound: 0.95,
+          tone: "positive",
+          verdict:
+            "Strong. 95%+ confidence the Sharpe came from real skill, not from testing 2,000 strategies until one looked lucky.",
+        },
+        {
+          bound: 0.7,
+          tone: "warning",
+          verdict:
+            "Borderline. Some signal but not enough confidence to promote. Run more trials or narrow the search space.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Unreliable. Below 0.70, the Sharpe ratio is too likely a lucky fluke from a large search. Don't promote on this alone.",
+      },
+    },
   },
   psr: {
     short:
       "How likely the winning strategy's smoothness is genuine, not a fluke.",
     example:
       "Your trial looks impressively smooth across 600 bets. This score asks: 'how likely is that smoothness real, given the sample size?' A score of 0.98 means 98% confident the underlying behaviour is genuinely smooth, not lucky variance. Promote only when this is above 0.95 — below that, the smoothness is statistically indistinguishable from random.",
+    ranges: {
+      direction: "higher_is_better",
+      valueFormat: "decimal",
+      guidanceNote:
+        "Higher is better · above 0.95 = strong, 0.70–0.95 = borderline, below 0.70 = weak",
+      thresholds: [
+        {
+          bound: 0.95,
+          tone: "positive",
+          verdict:
+            "Strong. 95%+ chance the smooth equity curve is real, not an artifact of sample size.",
+        },
+        {
+          bound: 0.7,
+          tone: "warning",
+          verdict:
+            "Borderline. Plausible signal but you need more bets or a more targeted search to trust it.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "Weak. Below 0.70, the smoothness you're seeing is statistically indistinguishable from random luck.",
+      },
+    },
   },
   pbo: {
     short:
       "How likely your 'best' configuration was just lucky rather than genuinely good.",
     example:
       "Your run scores 4% here — the best configuration ranks in the top half of fresh tests 96% of the time, which is strong evidence it's real. A score of 42% would mean your best is basically a coin-flip on new data — you searched too hard. Below 5% is excellent; above 30% means narrow your search or collect more bets before the next run.",
+    ranges: {
+      direction: "lower_is_better",
+      valueFormat: "pct_decimal",
+      guidanceNote:
+        "Lower is better · under 5% = excellent, 5–20% = borderline, above 20% = high overfit risk",
+      thresholds: [
+        {
+          bound: 0.05,
+          tone: "positive",
+          verdict:
+            "Excellent. Under 5% probability the winner just got lucky — the edge holds up well across different slices of your bet history.",
+        },
+        {
+          bound: 0.2,
+          tone: "warning",
+          verdict:
+            "Borderline. 5–20% chance the winner is a fluke. Watch live performance carefully for the first 100 bets.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "High overfit risk. Above 20%, there's a real chance you searched until a lucky strategy appeared. Narrow the search space or collect more bets.",
+      },
+    },
   },
   wrc: {
     short:
       "How likely the winning strategy beats a 'bet on everything' baseline by more than chance.",
     example:
       "Your winning configuration beats the baseline of 'bet flat on every detected value bet' with a score of 0.02 — only a 2% chance the difference is random. A score of 0.31 would mean the winner isn't really beating a dumb fallback. Below 0.05 is the cross-check you want before promoting anything live.",
+    ranges: {
+      direction: "lower_is_better",
+      valueFormat: "decimal",
+      guidanceNote:
+        "Lower is better · under 0.05 = beats baseline clearly, 0.05–0.20 = borderline, above 0.20 = no clear edge over 'bet everything'",
+      thresholds: [
+        {
+          bound: 0.05,
+          tone: "positive",
+          verdict:
+            "Beats the baseline clearly. Under 5% chance the winner's edge over 'bet everything flat' is random — genuine filtering value confirmed.",
+        },
+        {
+          bound: 0.2,
+          tone: "warning",
+          verdict:
+            "Slim margin. 5–20% — looks better than the baseline, but not conclusively. Run a longer search before promoting.",
+        },
+      ],
+      fallback: {
+        tone: "danger",
+        verdict:
+          "No clear edge. Above 20%, the winner doesn't clearly beat 'bet flat on every detected value bet'. Not ready to promote.",
+      },
+    },
   },
 
   // ── Sizing ─────────────────────────────────────────────────────────────
@@ -257,12 +590,6 @@ export const GLOSSARY = {
       "Live ROI has fallen outside the strategy's expected range — the edge may have decayed.",
     example:
       "Strategy promoted at 5.2% ROI with believable range 3.1% to 6.5%. Three months later, 78 settled bets give 0.8% live ROI — outside the lower end of that range. The drift chip lights up: maybe the soft book has tightened its lines, or the original estimate was too optimistic. Investigate before the next weekend.",
-  },
-  auto_validation: {
-    short:
-      "A weekly automated drift check. Three flagged checks in a row → auto-pause.",
-    example:
-      "Your 'BTTS at NineWickets-SB' strategy passes for six weeks (green dots). Week 7 the live ROI dips below the expected range (amber). Week 8 still amber. Week 9 amber → auto-pause with a note: 'live ROI −1.2% vs expected range 2.8% to 5.1% over 120 settled bets'. You investigate, decide the market tightened, and retire it.",
   },
 } satisfies Record<string, GlossaryEntry>;
 

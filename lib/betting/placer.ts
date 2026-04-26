@@ -37,8 +37,12 @@ import { computeStake, deriveEdge } from "./sizing";
 import { MIN_EV_PCT } from "@/lib/shared/constants";
 import {
   newPlacementId,
-  registerPendingConfirmation,
+  registerPendingConfirmation as nwRegisterPendingConfirmation,
 } from "@/lib/betting/ninewickets/placement-confirmation";
+import {
+  newPlacementId as velkiNewPlacementId,
+  registerPendingConfirmation as velkiRegisterPendingConfirmation,
+} from "@/lib/betting/velki/placement-confirmation";
 import type { ProviderKey } from "@/lib/atoms/types";
 import type { ValueBetRow } from "@/lib/bets-history/types";
 
@@ -51,6 +55,7 @@ import type { ValueBetRow } from "@/lib/bets-history/types";
  */
 const CONFIRMATION_REQUIRED_PROVIDERS = new Set<string>([
   "ninewickets-sportsbook",
+  "velki-sportsbook",
 ]);
 
 export type PlacementOutcome =
@@ -477,9 +482,10 @@ async function placeBetForValueBetImpl(
     //     the provider's bet-history feed the source of truth instead
     //     of the book's raw placement response.
     if (CONFIRMATION_REQUIRED_PROVIDERS.has(providerId)) {
-      const placementId = newPlacementId();
+      const isVelki = providerId === "velki-sportsbook";
+      const placementId = isVelki ? velkiNewPlacementId() : newPlacementId();
       const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-      registerPendingConfirmation({
+      const confirmPayload = {
         placementId,
         valueBetId: valueBet.id,
         eventId: valueBet.eventId,
@@ -521,7 +527,12 @@ async function placeBetForValueBetImpl(
         responsePayload: attempt.response,
         ticketIdHint: attempt.ticketId ?? null,
         balanceAtSubmit: accountInfo.balance,
-      });
+      } as const;
+      if (isVelki) {
+        velkiRegisterPendingConfirmation(confirmPayload);
+      } else {
+        nwRegisterPendingConfirmation(confirmPayload);
+      }
       return {
         status: "pending",
         placedBetId: placementId,

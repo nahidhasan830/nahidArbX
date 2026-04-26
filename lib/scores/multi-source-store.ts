@@ -322,8 +322,9 @@ function recalculateEntry(entry: MultiSourceScore): void {
         sources: ["pinnacle", "betconstruct"],
         detectedAt: now,
       };
-      console.warn(
-        `[Scores] Discrepancy for ${entry.eventId}: Pinnacle ${pinnacle.homeScore}-${pinnacle.awayScore} vs BC ${betconstruct.homeScore}-${betconstruct.awayScore} (using BC)`,
+      logger.warn(
+        "Scores",
+        `Discrepancy for ${entry.eventId}: Pinnacle ${pinnacle.homeScore}-${pinnacle.awayScore} vs BC ${betconstruct.homeScore}-${betconstruct.awayScore} (using BC)`,
       );
     }
   } else {

@@ -291,7 +291,7 @@ function QueuedCard() {
       <div className="min-w-0">
         <h2 className="text-sm font-semibold">Queued</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5 leading-relaxed">
-          The sidecar will pick this run up within ~30 seconds. Telegram
+          The sidecar will pick this run up within a few seconds. Telegram
           notification fires when the run completes.
         </p>
       </div>

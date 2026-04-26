@@ -1,11 +1,13 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   index,
   integer,
   jsonb,
   numeric,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -103,11 +105,6 @@ export const bets = pgTable(
     settleAttempts: integer().notNull().default(0),
     lastSettleAttemptAt: ts(),
 
-    // Optimisation strategy attribution (Phase 3) — set at detection time
-    // when a live strategy claims this bet. Lets us compute since-promotion
-    // metrics per strategy and detect drift vs OOS estimate.
-    strategyId: text(),
-
     // Timestamps
     createdAt: tsNow(),
     updatedAt: tsNow(),
@@ -117,9 +114,6 @@ export const bets = pgTable(
     index("bets_market_idx").on(t.marketType, t.timeScope),
     index("bets_soft_provider_idx").on(t.softProvider),
     index("bets_event_start_idx").on(t.eventStartTime),
-    index("bets_strategy_idx")
-      .on(t.strategyId)
-      .where(sql`${t.strategyId} IS NOT NULL`),
     // Settled non-pending rows (backtest queries)
     index("bets_outcome_idx")
       .on(t.outcome)
@@ -332,6 +326,11 @@ export const bettingSettings = pgTable("betting_settings", {
   maxBetsPerDay: integer(),
   cooldownAfterLossSec: integer(),
 
+  // Active strategies that gate auto-placement. Empty = global EV cutoff
+  // applies to everything. Non-empty = bets must match at least one of
+  // these strategies' filters or they're skipped.
+  activeStrategyIds: jsonb().$type<string[]>().notNull().default([]),
+
   updatedAt: tsNow(),
 });
 
@@ -510,23 +509,23 @@ export const optimizationStrategies = pgTable(
     sourceTrialId: text(),
     filters: jsonb().notNull(),
     sizing: jsonb().notNull(),
-    status: text().notNull().default("candidate"), // candidate | live | paused | retired
     metricsSnapshot: jsonb().notNull(),
     liveMetrics: jsonb(),
-    activatedAt: ts(),
-    pausedAt: ts(),
+    /**
+     * Soft-delete timestamp. NULL = strategy is available (selectable as a
+     * spreadsheet filter and as a settings-level auto-place gate). Non-null
+     * = archived; hidden from default lists, can be restored.
+     */
     retiredAt: ts(),
     createdBy: text(),
     createdAt: tsNow(),
     updatedAt: tsNow(),
   },
   (t) => [
-    index("optimization_strategies_status_idx").on(t.status),
-    // Hot path for value-detector: filter to live strategies only.
-    index("optimization_strategies_live_idx")
-      .on(t.id)
-      .where(sql`${t.status} = 'live'`),
     index("optimization_strategies_created_idx").on(t.createdAt.desc()),
+    index("optimization_strategies_active_idx")
+      .on(t.id)
+      .where(sql`${t.retiredAt} IS NULL`),
   ],
 );
 
@@ -534,48 +533,6 @@ export type OptimizationStrategyRow =
   typeof optimizationStrategies.$inferSelect;
 export type NewOptimizationStrategyRow =
   typeof optimizationStrategies.$inferInsert;
-
-/**
- * Optimisation Phase 5 — periodic re-validation of a live strategy.
- *
- * Every ~7 days the auto-validator re-evaluates each live strategy's
- * filters against the latest bet data and writes one row here. Three
- * consecutive `drift_flag=true` rows for the same strategy → auto-pause.
- *
- * The history is the audit trail: a paused strategy's `strategy_validations`
- * rows show why it was paused and when each drift was first detected.
- */
-export const strategyValidations = pgTable(
-  "strategy_validations",
-  {
-    id: text().primaryKey(),
-    strategyId: text()
-      .notNull()
-      .references(() => optimizationStrategies.id, { onDelete: "cascade" }),
-    ranAt: tsNow(),
-    nSettled: integer().notNull().default(0),
-    // Widened to numeric(14,4) in migration 0024 to match optimization_trials.
-    liveRoiPct: numeric({ precision: 14, scale: 4, mode: "number" }),
-    snapshotRoiMean: numeric({ precision: 14, scale: 4, mode: "number" }),
-    snapshotRoiCiLow: numeric({ precision: 14, scale: 4, mode: "number" }),
-    snapshotRoiCiHigh: numeric({ precision: 14, scale: 4, mode: "number" }),
-    /** True if liveRoiPct sits outside [snapshotRoiCiLow, snapshotRoiCiHigh]. */
-    driftFlag: boolean().notNull().default(false),
-    /** Running counter — bumped each consecutive flagged check; reset to 0 on a clean check. */
-    consecutiveDrifts: integer().notNull().default(0),
-    /** Set when this validation triggered an auto-pause action. */
-    triggeredAutoPause: boolean().notNull().default(false),
-    /** Optional free-form note (used for "auto-paused after N consecutive drifts"). */
-    note: text(),
-  },
-  (t) => [
-    index("strategy_validations_strategy_idx").on(t.strategyId, t.ranAt.desc()),
-    index("strategy_validations_ran_idx").on(t.ranAt.desc()),
-  ],
-);
-
-export type StrategyValidationRow = typeof strategyValidations.$inferSelect;
-export type NewStrategyValidationRow = typeof strategyValidations.$inferInsert;
 
 /**
  * Optimisation — recurring optimization run.
@@ -631,6 +588,210 @@ export type OptimizationScheduleRow = typeof optimizationSchedules.$inferSelect;
 export type NewOptimizationScheduleRow =
   typeof optimizationSchedules.$inferInsert;
 
+/**
+ * Entity Resolution — replaces the JSON alias store.
+ *
+ * Three tables jointly model identity, evidence, and audit:
+ *
+ *   - entities          — stable real-world things (teams, competitions)
+ *   - entity_names      — surface forms bound to entities, scoped by
+ *                         (provider, surface_normalized, competition_id)
+ *   - name_observations — append-only ledger of every match attempt
+ *
+ * The lookup hot path resolves on (provider, surface_normalized,
+ * competition_id), so "Athletic" in La Liga and "Athletic" in Colombian
+ * Primera A coexist as distinct rows pointing to distinct entities — the
+ * core fix for the old global-namespace tournament-blind store.
+ */
+export const entities = pgTable(
+  "entities",
+  {
+    id: text().primaryKey(),
+    kind: text().notNull(), // 'team' | 'competition'
+    canonicalName: text().notNull(),
+    country: text(),
+    gender: text(), // 'm' | 'f' | null (competitions are null)
+    parentId: text(),
+    metadata: jsonb().notNull().default({}),
+    createdAt: tsNow(),
+    retiredAt: ts(),
+  },
+  (t) => [
+    index("entities_kind_idx")
+      .on(t.kind)
+      .where(sql`${t.retiredAt} IS NULL`),
+    index("entities_canonical_idx")
+      .on(sql`lower(${t.canonicalName})`)
+      .where(sql`${t.retiredAt} IS NULL`),
+    index("entities_parent_idx")
+      .on(t.parentId)
+      .where(sql`${t.parentId} IS NOT NULL`),
+  ],
+);
+
+export type EntityRow = typeof entities.$inferSelect;
+export type NewEntityRow = typeof entities.$inferInsert;
+
+export const entityNames = pgTable(
+  "entity_names",
+  {
+    id: text().primaryKey(),
+    entityId: text().notNull(),
+    competitionId: text(), // NULL = global (rare)
+    provider: text().notNull(),
+    surfaceRaw: text().notNull(),
+    surfaceNormalized: text().notNull(),
+    // surface_embedding is vector(1024) in PG (BGE-M3 dim) but Drizzle has
+    // no native vector type — we read/write it via raw SQL from the
+    // entity-matcher service and skip it in normal selects. Omitted from
+    // the typed schema on purpose.
+    weight: real().notNull().default(1.0),
+    positiveObs: integer("positive_obs").notNull().default(0),
+    negativeObs: integer("negative_obs").notNull().default(0),
+    status: text().notNull(), // 'candidate' | 'active' | 'retired'
+    classifierScore: real("classifier_score"),
+    conformalPvalue: real("conformal_pvalue"),
+    firstSeenAt: tsNow(),
+    lastSeenAt: tsNow(),
+    promotedAt: ts(),
+    retiredAt: ts(),
+  },
+  (t) => [
+    uniqueIndex("entity_names_unique_surface").on(
+      t.provider,
+      t.surfaceNormalized,
+      t.competitionId,
+    ),
+    index("entity_names_active_lookup_idx")
+      .on(t.provider, t.surfaceNormalized, t.competitionId)
+      .where(sql`${t.status} = 'active'`),
+    index("entity_names_global_lookup_idx")
+      .on(t.surfaceNormalized)
+      .where(sql`${t.status} = 'active'`),
+    index("entity_names_entity_idx").on(t.entityId),
+    index("entity_names_candidate_idx")
+      .on(t.lastSeenAt.desc())
+      .where(sql`${t.status} = 'candidate'`),
+    index("entity_names_decay_idx")
+      .on(t.lastSeenAt)
+      .where(sql`${t.status} = 'active'`),
+  ],
+);
+
+export type EntityNameRow = typeof entityNames.$inferSelect;
+export type NewEntityNameRow = typeof entityNames.$inferInsert;
+
+export const nameObservations = pgTable(
+  "name_observations",
+  {
+    id: bigserial({ mode: "bigint" }).primaryKey(),
+    observedAt: tsNow(),
+    surfaceRaw: text().notNull(),
+    surfaceNormalized: text().notNull(),
+    competitionId: text(),
+    provider: text().notNull(),
+    pairedWithEntityId: text(),
+    matchScore: real("match_score"),
+    classifierScore: real("classifier_score"),
+    outcome: text().notNull(), // matched | rejected | near-match | manual-confirm | manual-reject
+    source: text().notNull(), // harvester | match-review | learner | settle
+    metadata: jsonb().notNull().default({}),
+  },
+  (t) => [
+    index("name_obs_lookup_idx").on(
+      t.surfaceNormalized,
+      t.competitionId,
+      t.observedAt.desc(),
+    ),
+    index("name_obs_recent_idx").on(t.observedAt.desc()),
+    index("name_obs_entity_idx")
+      .on(t.pairedWithEntityId, t.observedAt.desc())
+      .where(sql`${t.pairedWithEntityId} IS NOT NULL`),
+  ],
+);
+
+export type NameObservationRow = typeof nameObservations.$inferSelect;
+export type NewNameObservationRow = typeof nameObservations.$inferInsert;
+
+/**
+ * Weekly entity-trainer Cloud Run Job execution log. Replaces the old
+ * `entity_resolver_runs` (Splink/Leiden cleanup). Tracks per-run training
+ * accuracy plus shadow-mode fields (Layer 3 of the error-mitigation
+ * strategy): a freshly-trained model is "in shadow" — every auto-confirm
+ * goes to the operator inbox first as "model wants to confirm — agree?" —
+ * until 100 decisions accumulate with ≥99% operator agreement, at which
+ * point `promotedToTrustedAt` flips to non-NULL and full auto resumes.
+ */
+export const entityTrainerRuns = pgTable(
+  "entity_trainer_runs",
+  {
+    id: text().primaryKey(),
+    status: text().notNull(), // 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+    triggeredBy: text().notNull(),
+    cloudRunExecution: text(),
+    startedAt: ts(),
+    finishedAt: ts(),
+    durationMs: integer(),
+    pairsTrained: integer(),
+    accuracyBefore: real(),
+    accuracyAfter: real(),
+    promotedToTrustedAt: ts(),
+    shadowDecisionsSeen: integer().notNull().default(0),
+    shadowAgreements: integer().notNull().default(0),
+    artefactUri: text(),
+    error: text(),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("entity_trainer_runs_recent_idx").on(t.createdAt.desc()),
+    index("entity_trainer_runs_active_idx")
+      .on(t.status)
+      .where(sql`${t.status} IN ('queued','running')`),
+  ],
+);
+
+export type EntityTrainerRunRow = typeof entityTrainerRuns.$inferSelect;
+export type NewEntityTrainerRunRow = typeof entityTrainerRuns.$inferInsert;
+
+/**
+ * Override blocklist (Layer 1 of the error-mitigation strategy:
+ * reversibility). When the operator overrides an auto-decision, a row
+ * lands here with a 30-day expiry. The auto-resolver checks this before
+ * any potential auto-confirm — so the same wrong decision can't be
+ * re-applied by the next sync. After 30 days the entry expires (the
+ * model has had time to retrain on the negative signal by then).
+ */
+export const entityDecisionBlocklist = pgTable(
+  "entity_decision_blocklist",
+  {
+    id: bigserial({ mode: "bigint" }).primaryKey(),
+    provider: text().notNull(),
+    surfaceNormalized: text().notNull(),
+    competitionId: text(),
+    blockedEntityId: text().notNull(),
+    reason: text().notNull(), // 'manual-reject' | 'manual-confirm-undone' | 'tainted-cascade'
+    createdAt: tsNow(),
+    expiresAt: ts().notNull(),
+  },
+  (t) => [
+    // Can't use a partial index on `expires_at > now()` (now() isn't
+    // IMMUTABLE). Full index is fine — this table grows only on operator
+    // overrides and the daily expiry sweep keeps it bounded.
+    index("entity_blocklist_lookup_idx").on(
+      t.provider,
+      t.surfaceNormalized,
+      t.competitionId,
+      t.blockedEntityId,
+    ),
+    index("entity_blocklist_expiry_idx").on(t.expiresAt),
+  ],
+);
+
+export type EntityDecisionBlocklistRow =
+  typeof entityDecisionBlocklist.$inferSelect;
+export type NewEntityDecisionBlocklistRow =
+  typeof entityDecisionBlocklist.$inferInsert;
+
 export const schema = {
   bets,
   matchScores,
@@ -641,5 +802,9 @@ export const schema = {
   optimizationTrials,
   optimizationSchedules,
   optimizationStrategies,
-  strategyValidations,
+  entities,
+  entityNames,
+  nameObservations,
+  entityTrainerRuns,
+  entityDecisionBlocklist,
 };

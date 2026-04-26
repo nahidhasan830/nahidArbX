@@ -11,6 +11,7 @@
  */
 
 import { EventEmitter } from "events";
+import { logger } from "@/lib/shared/logger";
 
 // ============================================
 // Event Types
@@ -53,7 +54,7 @@ class SyncEventBus extends EventEmitter {
     super();
     this.setMaxListeners(100);
     this.on("error", (err) => {
-      console.error("[EventBus] Unhandled error:", err);
+      logger.error("EventBus", "Unhandled error", err);
     });
   }
 
@@ -91,7 +92,7 @@ class SyncEventBus extends EventEmitter {
       try {
         handler(event);
       } catch (err) {
-        console.error(`[EventBus] Handler error for ${id}:`, err);
+        logger.error("EventBus", `Handler error for ${id}`, err);
       }
     };
 

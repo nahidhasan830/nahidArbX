@@ -67,6 +67,9 @@ const QuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === "true")),
   oddsMin: z.coerce.number().positive().optional(),
   oddsMax: z.coerce.number().positive().optional(),
+  minSharpProb: z.coerce.number().min(0).max(1).optional(),
+  maxOddsAgeMs: z.coerce.number().int().nonnegative().optional(),
+  minTickCount: z.coerce.number().int().nonnegative().optional(),
 });
 
 export async function GET(request: NextRequest) {

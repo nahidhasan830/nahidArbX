@@ -1,173 +1,225 @@
 # Code Cleanup
 
-Perform a comprehensive code cleanup across both backend and frontend. Focus on eliminating duplication, using shared utilities, leveraging UI libraries, and removing redundant code.
+Perform a comprehensive code cleanup across the codebase. This is a **reusable checklist** — run it anytime to catch accumulated debt. Each phase includes scan commands and fix guidance.
 
-## Cleanup Checklist
-
-### Phase 1: Backend Code Duplication
-
-**1.1 URLSearchParams Helpers (ninewickets-sportsbook.ts)**
-
-- [ ] Extract `buildCatalogParams(providerEventId: string)` helper
-- [ ] Extract `buildOddsParams(providerEventId: string, marketIds: string[])` helper
-- [ ] Replace 3 duplicate blocks at lines ~89, ~184, ~207
-
-**1.2 Event Params Constant (ninewickets-exchange.ts)**
-
-- [ ] Create `DEFAULT_EVENT_PARAMS` constant
-- [ ] Extract `buildEventParams(type: number)` helper
-- [ ] Replace duplicate blocks at lines ~115, ~245
-
-**1.3 Deduplication Utility**
-
-- [ ] Create `lib/shared/deduplication.ts` with:
-  ```typescript
-  export function deduplicateById<T extends { id: string }>(items: T[]): T[];
-  ```
-- [ ] Replace Map-based deduplication in `ninewickets-exchange.ts` and `ninewickets-sportsbook.ts`
-
-**1.4 API Response Helpers (app/api/dashboard/route.ts)**
-
-- [ ] Extract `serializeSyncStatus(syncStatus)` helper
-- [ ] Replace duplicate serialization at lines ~246, ~282
-
-**1.5 Constants Extraction**
-
-- [ ] Create `lib/shared/constants.ts` with:
-  - `MATCH_THRESHOLD = 0.85`
-  - `SYNC_INTERVAL_MS = 60000`
-  - `PINNACLE_TIMEOUT_MS = 30000`
-  - `MIN_EV_PCT = 2.0`
-  - `VALUE_TOTAL_STAKE = 1000`
-- [ ] Update imports in matcher.ts, fetcher.ts, config.ts
+Work through phases in order. Skip phases that come back clean.
 
 ---
 
-### Phase 2: Frontend UI Improvements
+## Phase 1: Lint & Build Gate
 
-**2.1 Provider Badge Variants (components/ui/badge.tsx)**
+Run these first. Fix everything before proceeding — later phases assume a clean baseline.
 
-- [ ] Add CVA variants for providers:
-  ```typescript
-  pinnacle: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
-  "ninewickets-exchange": "bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 border border-violet-200 dark:border-violet-800"
-  "ninewickets-sportsbook": "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
-  ```
-- [ ] Replace `getProviderBadgeClasses()` in SpreadsheetToolbar.tsx with `<Badge variant={providerId}>`
-
-**2.2 OddsCell Component (components/ui/odds-cell.tsx)**
-
-- [ ] Create CVA-based component with variants: `arb`, `suspended`, `best`, `default`
-- [ ] Replace conditional className logic in ValueBetSpreadsheet.tsx lines ~98-106
-
-**2.3 Status Badge Variants**
-
-- [ ] Add `success`, `warning`, `info` variants to Badge
-- [ ] Use for sync status, match status indicators
-
----
-
-### Phase 3: Redundant Code Removal
-
-**3.1 Unused Imports**
-
-- [ ] Remove `import axios from "axios"` from `lib/adapters/pinnacle.ts:8`
-- [ ] Remove `BrowserContext` from `lib/auth/token-manager.ts:14`
-- [ ] Run `npm run lint` to find other unused imports
-
-**3.2 Console Statements**
-Replace with structured logger OR remove entirely:
-
-- [ ] `lib/background/fetcher.ts` - 10+ console.log statements
-- [ ] `lib/matching/matcher.ts:72-74` - matcher logging
-- [ ] `lib/atoms/value-detector.ts` - warning logs
-- [ ] `lib/shared/validation.ts:25` - error log
-- [ ] `lib/adapters/ninewickets-exchange.ts:137,223` - debug logs
-- [ ] `lib/atoms/registry.ts:61-68` - init logs
-
-**3.3 Commented Code**
-
-- [ ] Remove `lib/atoms/mappings/pinnacle.ts:470` - commented console.log
-
-**3.4 Unnecessary Logic**
-
-- [ ] Simplify ternary at `lib/matching/matcher.ts:140-143`
-- [ ] Clean up type assertions in `lib/store.ts:46-47`
-
-**3.5 Registry Flattening**
-
-- [ ] Evaluate if `lib/adapters/index.ts` can export directly instead of re-exporting from unified-registry
-
----
-
-### Phase 4: Type Safety
-
-**4.1 Remove Unnecessary Assertions**
-
-- [ ] `lib/store.ts:46` - Use proper type annotation instead of `as Record<>`
-- [ ] `lib/atoms/registry.ts:12` - Type the JSON import properly
-
-**4.2 Consistent Type Naming**
-
-- [ ] Decide on `Provider` vs `ProviderKey` - use one consistently
-- [ ] Update `lib/types.ts:5-8` to remove confusion
-
----
-
-### Phase 5: Optional Enhancements
-
-**5.1 Logger Service (if removing console.logs)**
-
-```typescript
-// lib/shared/logger.ts
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-
-export const logger = {
-  debug: (context: string, message: string, data?: unknown) => { ... },
-  info: (context: string, message: string, data?: unknown) => { ... },
-  warn: (context: string, message: string, data?: unknown) => { ... },
-  error: (context: string, message: string, data?: unknown) => { ... },
-};
+```bash
+npm run lint    # Fix all lint errors
+npm run build   # Fix all TypeScript errors
 ```
 
-**5.2 Provider UI Directory**
-
-- [ ] Create `components/providers/` for provider-specific UI
-- [ ] Move provider badge logic to `components/providers/ProviderBadge.tsx`
+If either fails, fix all errors before moving to Phase 2.
 
 ---
 
-## Verification Steps
+## Phase 2: Dead Code Scan
 
-After cleanup:
+### 2.1 Unused imports
 
-1. `npm run build` - No TypeScript errors
-2. `npm run lint` - No new lint issues
-3. `npm run dev` - Dashboard loads correctly
-4. Test manual sync - All providers fetch
-5. Check value-bet detection - EV/Kelly calculations unchanged
-6. Verify dark mode - All UI changes support dark theme
+```bash
+npm run lint   # ESLint catches unused imports
+```
+
+Fix all `no-unused-vars` and `@typescript-eslint/no-unused-vars` warnings.
+
+### 2.2 Imports to deleted/missing files
+
+```bash
+# Find imports that reference non-existent paths
+grep -rn "from ['\"]\./" lib/ components/ app/ --include='*.ts' --include='*.tsx' | while read line; do
+  file=$(echo "$line" | cut -d: -f1)
+  imp=$(echo "$line" | sed "s/.*from ['\"]//;s/['\"].*//" )
+  dir=$(dirname "$file")
+  resolved="$dir/$imp"
+  # Check .ts, .tsx, /index.ts variants
+  [ -f "${resolved}.ts" ] || [ -f "${resolved}.tsx" ] || [ -f "${resolved}/index.ts" ] || [ -f "${resolved}/index.tsx" ] || [ -f "$resolved" ] || echo "MISSING: $file → $imp"
+done
+```
+
+Delete or update any broken imports found.
+
+### 2.3 Unused exports
+
+Look for exports that nothing imports. Focus on `lib/` — component exports are harder to trace.
+
+```bash
+# For each exported function/const in lib/, check if it's imported elsewhere
+grep -roh "export \(function\|const\|class\|type\|interface\) \w\+" lib/ --include='*.ts' | sed 's/export \(function\|const\|class\|type\|interface\) //' | sort -u | while read name; do
+  count=$(grep -r "$name" lib/ components/ app/ --include='*.ts' --include='*.tsx' -l | wc -l)
+  [ "$count" -le 1 ] && echo "POSSIBLY UNUSED: $name"
+done
+```
+
+Review each hit — some are entry points (API routes, schedulers). Remove genuinely dead exports.
+
+### 2.4 Unused npm dependencies
+
+```bash
+# List all dependencies, check if they're imported anywhere
+cat package.json | jq -r '.dependencies // {} | keys[]' | while read dep; do
+  count=$(grep -r "from ['\"]$dep" lib/ components/ app/ middleware.ts --include='*.ts' --include='*.tsx' -l 2>/dev/null | wc -l)
+  [ "$count" -eq 0 ] && echo "UNUSED DEP: $dep"
+done
+```
+
+Cross-reference with indirect usage (peer deps, Next.js plugins, PostCSS). Remove genuinely unused packages.
 
 ---
 
-## Files Reference
+## Phase 3: Console Statement Audit
 
-**Create:**
+`lib/shared/logger.ts` is the structured logger. All runtime logging should use it.
 
-- `lib/shared/deduplication.ts`
-- `lib/shared/constants.ts`
-- `components/ui/odds-cell.tsx`
-- `lib/shared/logger.ts` (optional)
+```bash
+# Find all console.* calls outside of scripts/ and tests/
+grep -rn 'console\.\(log\|warn\|error\|debug\|info\)(' lib/ components/ app/ --include='*.ts' --include='*.tsx'
+```
 
-**Modify:**
+**Rules:**
 
-- `lib/atoms/adapters/ninewickets-sportsbook.ts`
-- `lib/adapters/ninewickets-exchange.ts`
-- `components/ui/badge.tsx`
-- `components/spreadsheet/SpreadsheetToolbar.tsx`
-- `components/spreadsheet/ValueBetSpreadsheet.tsx`
-- `app/api/dashboard/route.ts`
-- `lib/background/fetcher.ts`
-- `lib/matching/matcher.ts`
-- `lib/store.ts`
-- `lib/types.ts`
+- `console.log` for debug output → remove or replace with `logger.debug(context, message)`
+- `console.warn` for runtime warnings → replace with `logger.warn(context, message)`
+- `console.error` for caught errors → replace with `logger.error(context, message, error)`
+- In `scripts/` → leave alone (CLI scripts legitimately use console)
+- In auth code → skip if auth is parked
+
+---
+
+## Phase 4: Type Safety Sweep
+
+### 4.1 Explicit `any` usage
+
+```bash
+grep -rn ': any\b\|as any\b' lib/ components/ app/ --include='*.ts' --include='*.tsx'
+```
+
+Replace with proper types. Common patterns:
+
+- `Record<string, any>` → define the value type or use `unknown`
+- `as any` cast → fix the type mismatch at the source
+- Function params typed `any` → add proper parameter types
+- Exception: generic library wrappers (cache, circuit-breaker) may legitimately use `any`
+
+### 4.2 ESLint directive suppressions
+
+```bash
+grep -rn '// eslint-disable\|@ts-ignore\|@ts-expect-error\|@ts-nocheck' lib/ components/ app/ --include='*.ts' --include='*.tsx'
+```
+
+Review each suppression:
+
+- **`no-var` for globalThis singletons** → legitimate, leave alone
+- **`react-hooks/exhaustive-deps`** → fix the hook dependencies or restructure with `useCallback`/`useRef`
+- **`@typescript-eslint/no-explicit-any`** → fix the type (see 4.1)
+- **`@typescript-eslint/no-unused-vars`** → remove the unused variable
+- **`no-console`** → migrate to logger (see Phase 3)
+
+Goal: reduce suppressions to only genuinely necessary ones (globalThis singletons, rare framework edge cases).
+
+---
+
+## Phase 5: Typography Tier Audit
+
+Per CLAUDE.md typography tiers:
+
+- **Chrome** (buttons, badges, table cells, toolbar pills, stat numbers) → `text-[11px]` / `text-xs` is CORRECT
+- **Prose** (tooltip bodies, descriptions, help text, form labels, error messages, empty states) → `text-sm` (14px) minimum
+
+```bash
+# Find all text-[11px] and text-xs usage in components
+grep -rn 'text-\[11px\]\|text-xs' components/ --include='*.tsx'
+```
+
+For each hit, check context:
+
+- Inside `<Button>`, `<Badge>`, `<td>`, toolbar wrapper, filter pill → correct, leave alone
+- Inside `<p>`, `<label>`, tooltip body, `CardDescription`, help text, error message → bump to `text-sm`
+
+---
+
+## Phase 6: CSS Compliance
+
+Per CLAUDE.md, only these are allowed in `app/globals.css`:
+
+- `@import` statements and `@theme inline { }` block
+- `:root` / `.dark` CSS variable definitions
+- `@layer base { }` reset
+- Sonner toast overrides (third-party data attributes)
+- Scrollbar pseudo-elements
+
+```bash
+# Check for any custom component class blocks
+grep -n '^\.\|^  \.' app/globals.css | grep -v '^[0-9]*:\.dark'
+```
+
+If custom classes are found, migrate them to Tailwind utilities on the JSX elements, then delete the CSS rules. See CLAUDE.md "Styling" section for the migration steps.
+
+---
+
+## Phase 7: Component Size Check
+
+```bash
+# Find files over 500 lines
+find lib components app -name '*.ts' -o -name '*.tsx' | xargs wc -l 2>/dev/null | sort -rn | awk '$1 > 500 {print}'
+```
+
+Files over 1,000 lines are strong decomposition candidates. For each:
+
+1. Identify logical sub-sections (filter bar, detail panel, config section, etc.)
+2. Extract into separate files in the same directory
+3. Keep the original file as the composition root that imports sub-components
+4. Don't change the public API — only split internal concerns
+
+Files over 500 lines: review but don't force-split if the code is cohesive.
+
+---
+
+## Phase 8: Stale References
+
+### 8.1 References to renamed/deprecated concepts
+
+```bash
+# Check for references to old names that were renamed
+# (Update the list below as renames happen)
+grep -rn 'TODO\|FIXME\|HACK\|XXX' lib/ components/ app/ --include='*.ts' --include='*.tsx'
+```
+
+Address or remove each TODO/FIXME. If the fix is non-trivial, file it as a separate task.
+
+### 8.2 Duplicate logic
+
+Look for similar code blocks that could share a utility:
+
+- Repeated URL/query-param construction
+- Repeated error handling patterns in API routes
+- Repeated date formatting or number formatting
+- Repeated Zod schema patterns
+
+Extract shared utilities into `lib/shared/` or `lib/formatting/`.
+
+---
+
+## Phase 9: Verification
+
+After all cleanup:
+
+```bash
+npm run lint    # Zero errors
+npm run build   # Clean build
+```
+
+Then visually verify in browser:
+
+- `/dashboard` loads, accounts panel renders
+- `/value-bets` spreadsheet loads, sync works
+- `/bets` history table loads, filters work
+- `/lab/optimisation` runs table loads
+
+Report: number of files changed, lines added/removed, categories of fixes applied.

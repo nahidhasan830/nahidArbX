@@ -24,7 +24,7 @@ import { TriggerBadge } from "./TriggerBadge";
 // Slider bounds
 const ODDS_MIN = 1.01;
 const ODDS_MAX = 20.0;
-const ODDS_STEP = 0.05;
+const ODDS_STEP = 0.25;
 
 // Snap to edges = "no constraint"
 function toSlider(val: number | undefined, edge: number): number {

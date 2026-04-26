@@ -8,7 +8,11 @@
  * false positives (e.g., "Asociacion Deportiva" matching "Deportivo Saprissa").
  */
 
-import stringSimilarity from "string-similarity";
+import { bestSim } from "@/lib/matching/string-sim";
+
+// Drop-in shim so the legacy `stringSimilarity.compareTwoStrings(...)`
+// call sites keep their current shape.
+const stringSimilarity = { compareTwoStrings: bestSim };
 
 // ============================================
 // Normalization Helpers

@@ -17,6 +17,7 @@ import { debugFetchAndStorePinnacleOdds } from "@/lib/atoms/adapters/pinnacle";
 import { debugFetchAndStoreNwExchangeOdds } from "@/lib/atoms/adapters/ninewickets-exchange";
 import { debugFetchAndStoreNwSportsbookOdds } from "@/lib/atoms/adapters/ninewickets-sportsbook";
 import { debugFetchAndStoreBetConstructOdds } from "@/lib/atoms/adapters/betconstruct";
+import { debugFetchAndStoreVelkiSportsbookOdds } from "@/lib/atoms/adapters/velki-sportsbook";
 
 // Type for debug fetch functions
 type DebugFetchFn = (
@@ -34,6 +35,7 @@ const debugFetchers: Record<ProviderKey, DebugFetchFn> = {
   "ninewickets-exchange": debugFetchAndStoreNwExchangeOdds,
   "ninewickets-sportsbook": debugFetchAndStoreNwSportsbookOdds,
   betconstruct: debugFetchAndStoreBetConstructOdds,
+  "velki-sportsbook": debugFetchAndStoreVelkiSportsbookOdds,
 };
 
 export async function GET(

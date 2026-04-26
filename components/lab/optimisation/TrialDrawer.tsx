@@ -1,10 +1,20 @@
 "use client";
 
 /**
- * Side drawer with the full trial details — sampled config, fold-by-fold
- * metrics, "Promote to strategy" CTA (Phase 3).
+ * Side drawer with the full trial details. Layout is a flex column:
+ *
+ *   SheetHeader  ── trial #, sampler, on-line badge
+ *   <scroll>     ── summary metrics, settings, per-test breakdown
+ *   <footer>     ── one-line recap + Promote-to-strategy CTA (sticky)
+ *
+ * "Settings tried" uses `formatParam` from `lib/lab/param-labels.ts` so
+ * raw keys like `min_ev_pct` / provider-id arrays render as friendly
+ * labels and chips. The per-test breakdown uses `<DataTable>` so a
+ * 100-fold CPCV run virtualizes cleanly inside the sheet.
  */
 
+import * as React from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Sheet,
   SheetContent,
@@ -13,6 +23,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { TermTooltip } from "@/components/ui/TermTooltip";
+import { DataTable } from "@/components/ui/data-table";
+import { formatParam } from "@/lib/lab/param-labels";
 import type { OptimizationTrialRow } from "@/lib/optimizer/repository";
 import type { FoldMetricJson } from "@/lib/optimizer/types";
 import { PromoteToStrategy } from "./PromoteToStrategy";
@@ -35,11 +47,12 @@ export function TrialDrawer({
   if (!trial) return null;
   const params = (trial.params as Record<string, unknown>) ?? {};
   const folds = (trial.foldMetrics as FoldMetricJson[] | null) ?? [];
+  const paramEntries = Object.entries(params);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-lg overflow-y-auto">
-        <SheetHeader>
+      <SheetContent className="sm:max-w-lg !p-0 gap-0">
+        <SheetHeader className="border-b border-border/60 !pb-3">
           <SheetTitle className="flex items-center gap-2 text-sm">
             Trial #{trial.trialIndex}
             {trial.onPareto && (
@@ -58,139 +71,244 @@ export function TrialDrawer({
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-5 px-4 py-4 text-xs">
-          {/* Summary metrics */}
-          <section className="space-y-2">
-            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Summary
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <Metric label={<TermTooltip term="roi">ROI</TermTooltip>}>
-                {fmt(trial.oosRoiMean)}%{" "}
-                <span className="text-muted-foreground text-[10px]">
-                  [{fmt(trial.oosRoiCiLow, 1)}, {fmt(trial.oosRoiCiHigh, 1)}]
-                </span>
-              </Metric>
-              <Metric
-                label={
-                  <TermTooltip term="composite_score">Composite</TermTooltip>
-                }
-              >
-                {fmt(trial.compositeScore, 3)}
-              </Metric>
-              <Metric label={<TermTooltip term="sortino">Sortino</TermTooltip>}>
-                {fmt(trial.oosSortino)}
-              </Metric>
-              <Metric label={<TermTooltip term="sharpe">Sharpe</TermTooltip>}>
-                {fmt(trial.oosSharpe)}
-              </Metric>
-              <Metric label={<TermTooltip term="dsr">DSR</TermTooltip>}>
-                {fmt(trial.deflatedSharpe, 3)}
-              </Metric>
-              <Metric label={<TermTooltip term="psr">PSR</TermTooltip>}>
-                {fmt(trial.probabilisticSharpe, 3)}
-              </Metric>
-              <Metric label={<TermTooltip term="drawdown">Max DD</TermTooltip>}>
-                {fmt(trial.maxDrawdown)}
-              </Metric>
-              <Metric
-                label={
-                  <TermTooltip term="sample_size">Sample size</TermTooltip>
-                }
-              >
-                {trial.sampleSize ?? "—"}
-              </Metric>
-            </div>
-          </section>
-
-          {/* Sampled config */}
-          <section className="space-y-2">
-            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Settings tried
-            </h3>
-            <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1 text-[11px]">
-              {Object.entries(params).map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">{k}</span>
-                  <span className="tabular-nums text-right">
-                    {Array.isArray(v)
-                      ? v.join(", ")
-                      : typeof v === "number"
-                        ? v.toFixed(3).replace(/\.?0+$/, "")
-                        : String(v)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          {/* Per-fold metrics */}
-          <section className="space-y-2">
-            <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Per-test breakdown ({folds.length} tests on unseen bets)
-            </h3>
-            <div className="overflow-x-auto rounded-md border border-border/60">
-              <table className="w-full text-[10px]">
-                <thead className="bg-muted/40 text-muted-foreground">
-                  <tr className="text-left">
-                    <th className="px-2 py-1.5">Path</th>
-                    <th className="px-2 py-1.5 text-right">N</th>
-                    <th className="px-2 py-1.5 text-right">ROI</th>
-                    <th className="px-2 py-1.5 text-right">Sortino</th>
-                    <th className="px-2 py-1.5 text-right">Max DD</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {folds.slice(0, 50).map((f) => (
-                    <tr
-                      key={f.path_index}
-                      className="border-t border-border/60"
-                    >
-                      <td className="px-2 py-1 text-muted-foreground">
-                        {f.path_index}
-                      </td>
-                      <td className="px-2 py-1 text-right tabular-nums">
-                        {f.n_bets}
-                      </td>
-                      <td className="px-2 py-1 text-right tabular-nums">
-                        {fmt(f.roi_pct, 2)}%
-                      </td>
-                      <td className="px-2 py-1 text-right tabular-nums">
-                        {fmt(f.sortino, 2)}
-                      </td>
-                      <td className="px-2 py-1 text-right tabular-nums">
-                        {fmt(f.max_drawdown, 2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {folds.length > 50 && (
-                <p className="text-[10px] text-muted-foreground py-1.5 text-center">
-                  …showing first 50 of {folds.length} tests
-                </p>
-              )}
-            </div>
-          </section>
-
-          {/* Promote to live strategy */}
-          <section className="rounded-md border border-border/60 bg-muted/30 px-3 py-3 space-y-2">
-            <p className="text-[13px] text-muted-foreground leading-relaxed">
-              <strong className="text-foreground">
-                Promote to live strategy
-              </strong>{" "}
-              saves this configuration so the value-bet detector uses it on
-              every new tick. Matching bets get tagged with this strategy so you
-              can track its live performance separately.
-            </p>
-            <PromoteToStrategy
-              trialId={trial.id}
-              defaultName={`Trial #${trial.trialIndex} — ROI ${fmt(trial.oosRoiMean, 1)}%`}
-            />
-          </section>
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-4 text-xs">
+          <SummarySection trial={trial} />
+          <SettingsSection entries={paramEntries} />
+          <FoldsSection folds={folds} />
         </div>
+
+        <footer className="mt-auto border-t border-border/60 bg-card px-4 py-3 space-y-2">
+          <p className="text-[11px] text-muted-foreground tabular-nums">
+            #{trial.trialIndex} · ROI{" "}
+            <span className="text-foreground font-medium">
+              {fmt(trial.oosRoiMean, 2)}%
+            </span>{" "}
+            · {trial.sampleSize ?? "—"} bets · DSR{" "}
+            <span className="text-foreground">
+              {fmt(trial.deflatedSharpe, 2)}
+            </span>
+          </p>
+          <PromoteToStrategy
+            trialId={trial.id}
+            defaultName={`Trial #${trial.trialIndex} — ROI ${fmt(trial.oosRoiMean, 1)}%`}
+          />
+        </footer>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// ── Summary metrics ─────────────────────────────────────────────────────
+
+function SummarySection({ trial }: { trial: OptimizationTrialRow }) {
+  return (
+    <section className="space-y-1.5">
+      <SectionTitle>Summary</SectionTitle>
+      <div className="grid grid-cols-2 gap-1.5">
+        <Metric
+          label={
+            <TermTooltip term="roi" value={trial.oosRoiMean ?? undefined}>
+              ROI
+            </TermTooltip>
+          }
+        >
+          {fmt(trial.oosRoiMean)}%{" "}
+          <span className="text-muted-foreground text-[10px]">
+            [{fmt(trial.oosRoiCiLow, 1)}, {fmt(trial.oosRoiCiHigh, 1)}]
+          </span>
+        </Metric>
+        <Metric
+          label={<TermTooltip term="composite_score">Composite</TermTooltip>}
+        >
+          {fmt(trial.compositeScore, 3)}
+        </Metric>
+        <Metric
+          label={
+            <TermTooltip term="sortino" value={trial.oosSortino ?? undefined}>
+              Sortino
+            </TermTooltip>
+          }
+        >
+          {fmt(trial.oosSortino)}
+        </Metric>
+        <Metric
+          label={
+            <TermTooltip term="sharpe" value={trial.oosSharpe ?? undefined}>
+              Sharpe
+            </TermTooltip>
+          }
+        >
+          {fmt(trial.oosSharpe)}
+        </Metric>
+        <Metric
+          label={
+            <TermTooltip term="dsr" value={trial.deflatedSharpe ?? undefined}>
+              DSR
+            </TermTooltip>
+          }
+        >
+          {fmt(trial.deflatedSharpe, 3)}
+        </Metric>
+        <Metric
+          label={
+            <TermTooltip
+              term="psr"
+              value={trial.probabilisticSharpe ?? undefined}
+            >
+              PSR
+            </TermTooltip>
+          }
+        >
+          {fmt(trial.probabilisticSharpe, 3)}
+        </Metric>
+        <Metric
+          label={
+            <TermTooltip term="drawdown" value={trial.maxDrawdown ?? undefined}>
+              Max DD
+            </TermTooltip>
+          }
+        >
+          {fmt(trial.maxDrawdown)}
+        </Metric>
+        <Metric
+          label={
+            <TermTooltip
+              term="sample_size"
+              value={trial.sampleSize ?? undefined}
+            >
+              Sample size
+            </TermTooltip>
+          }
+        >
+          {trial.sampleSize ?? "—"}
+        </Metric>
+      </div>
+    </section>
+  );
+}
+
+// ── Settings tried ──────────────────────────────────────────────────────
+
+function SettingsSection({ entries }: { entries: [string, unknown][] }) {
+  if (entries.length === 0) {
+    return (
+      <section className="space-y-1.5">
+        <SectionTitle>Settings tried</SectionTitle>
+        <p className="text-[11px] text-muted-foreground">No params recorded.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="space-y-1.5">
+      <SectionTitle>Settings tried</SectionTitle>
+      <ul className="rounded-md border border-border/60 bg-muted/30 divide-y divide-border/40">
+        {entries.map(([k, v]) => {
+          const { label, rendered } = formatParam(k, v);
+          return (
+            <li
+              key={k}
+              className="flex items-start justify-between gap-3 px-3 py-1.5 text-[11px]"
+            >
+              <span className="text-muted-foreground shrink-0 pt-0.5">
+                {label}
+              </span>
+              <span className="tabular-nums text-right min-w-0">
+                {rendered}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+// ── Per-fold metrics ────────────────────────────────────────────────────
+
+function FoldsSection({ folds }: { folds: FoldMetricJson[] }) {
+  const columns = React.useMemo<ColumnDef<FoldMetricJson, unknown>[]>(
+    () => [
+      {
+        id: "path",
+        accessorKey: "path_index",
+        header: "Path",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">
+            {row.original.path_index}
+          </span>
+        ),
+        meta: { initialSize: 56 },
+      },
+      {
+        id: "n",
+        accessorKey: "n_bets",
+        header: "N",
+        cell: ({ row }) => row.original.n_bets,
+        meta: { align: "right", initialSize: 70 },
+      },
+      {
+        id: "roi",
+        accessorKey: "roi_pct",
+        header: "ROI",
+        cell: ({ row }) => `${fmt(row.original.roi_pct, 2)}%`,
+        meta: { align: "right", initialSize: 80 },
+      },
+      {
+        id: "sortino",
+        accessorKey: "sortino",
+        header: "Sortino",
+        cell: ({ row }) => fmt(row.original.sortino, 2),
+        meta: { align: "right", initialSize: 80 },
+      },
+      {
+        id: "maxDD",
+        accessorKey: "max_drawdown",
+        header: "Max DD",
+        cell: ({ row }) => fmt(row.original.max_drawdown, 2),
+        meta: { align: "right", initialSize: 80 },
+      },
+    ],
+    [],
+  );
+
+  if (folds.length === 0) {
+    return (
+      <section className="space-y-1.5">
+        <SectionTitle>Per-test breakdown</SectionTitle>
+        <p className="text-[11px] text-muted-foreground">
+          No fold-level metrics recorded.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-1.5">
+      <SectionTitle>
+        Per-test breakdown ({folds.length} tests on unseen bets)
+      </SectionTitle>
+      <div className="rounded-md border border-border/60 overflow-hidden">
+        <DataTable<FoldMetricJson>
+          data={folds}
+          columns={columns}
+          getRowId={(f) => String(f.path_index)}
+          enableSorting
+          enableVirtualization
+          density="compact"
+          className="max-h-64"
+        />
+      </div>
+    </section>
+  );
+}
+
+// ── Primitives ──────────────────────────────────────────────────────────
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      {children}
+    </h3>
   );
 }
 

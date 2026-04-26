@@ -7,39 +7,32 @@
 
 import pLimit from "p-limit";
 import { getEnabledAtomsAdapters } from "./adapters/registry";
-import { fetchAndStorePinnacleOdds } from "./adapters/pinnacle";
 import {
   beginFetchCycle,
   endFetchCycleCleanup,
   clearOddsForEvent,
 } from "./store";
-import { type ProviderKey, PROVIDER_REGISTRY } from "../providers/registry";
+import {
+  type ProviderKey,
+  PROVIDER_REGISTRY,
+  getProviderConcurrency,
+} from "../providers/registry";
 import { getProviderPolicy } from "../shared/circuit-breaker";
 import type { NormalizedEvent } from "../types";
 
 // ============================================
 // Per-Provider Concurrency Limiters
 // ============================================
+//
+// Concurrency is configured per provider in PROVIDER_REGISTRY[id].fetch.concurrency.
+// Limiters are lazily instantiated on first use and cached for the process lifetime.
 
-// Adaptive concurrency per provider (no rate limits on providers)
-const PROVIDER_CONCURRENCY: Partial<Record<ProviderKey, number>> = {
-  pinnacle: 25,
-  betconstruct: 50,
-  "ninewickets-exchange": 30,
-  "ninewickets-sportsbook": 30,
-};
-
-const DEFAULT_CONCURRENCY = 20;
-
-// Reusable p-limit instances per provider
 const providerLimiters = new Map<string, ReturnType<typeof pLimit>>();
 
 function getProviderLimiter(providerId: string): ReturnType<typeof pLimit> {
   let limiter = providerLimiters.get(providerId);
   if (!limiter) {
-    const concurrency =
-      PROVIDER_CONCURRENCY[providerId as ProviderKey] ?? DEFAULT_CONCURRENCY;
-    limiter = pLimit(concurrency);
+    limiter = pLimit(getProviderConcurrency(providerId));
     providerLimiters.set(providerId, limiter);
   }
   return limiter;
@@ -214,34 +207,25 @@ export async function fetchOddsForSingleEvent(
   const providerIds: string[] = [];
   const tasks: Promise<number>[] = [];
 
-  // Dynamically check each enabled adapter
+  // Single-event refreshes always run in fast mode: any adapter that does slow
+  // setup work (e.g. Pinnacle's interactive token capture) should bail rather
+  // than block the live UI. Adapters ignore the flag if it doesn't apply.
+  const liveOptions = { fastMode: true };
+
   for (const adapter of getEnabledAtomsAdapters()) {
     const providerId = adapter.providerId;
     if (event.providers[providerId]) {
       const providerEventId = event.providers[providerId]!.eventId;
       providerIds.push(providerId);
-
-      // Use fast mode for Pinnacle to skip slow token capture
-      if (providerId === "pinnacle") {
-        tasks.push(
-          fetchAndStorePinnacleOdds(
-            providerEventId,
-            event.id,
-            event.homeTeam,
-            event.awayTeam,
-            { fastMode: true },
-          ),
-        );
-      } else {
-        tasks.push(
-          adapter.fetchAndStoreOdds(
-            providerEventId,
-            event.id,
-            event.homeTeam,
-            event.awayTeam,
-          ),
-        );
-      }
+      tasks.push(
+        adapter.fetchAndStoreOdds(
+          providerEventId,
+          event.id,
+          event.homeTeam,
+          event.awayTeam,
+          liveOptions,
+        ),
+      );
     }
   }
 

@@ -23,6 +23,19 @@ import type { DebugFetchResult } from "../atoms/adapters/debug-fetch";
 // Types
 // ============================================
 
+/**
+ * Per-call options for `fetchAndStoreOdds`. Adapters that don't recognise
+ * an option should ignore it. New options should be additive.
+ */
+export interface AtomsFetchOptions {
+  /**
+   * Skip slow setup work (e.g. interactive token capture for Pinnacle).
+   * Used by single-event live refresh paths where blocking on a token
+   * grab is unacceptable.
+   */
+  fastMode?: boolean;
+}
+
 export interface AtomsProviderAdapter {
   providerId: ProviderKey;
   fetchAndStoreOdds(
@@ -30,7 +43,15 @@ export interface AtomsProviderAdapter {
     normalizedEventId: string,
     homeTeam: string,
     awayTeam: string,
+    options?: AtomsFetchOptions,
   ): Promise<number>;
+  /**
+   * Optional lifecycle hooks fired when the user toggles the provider in the
+   * UI. Adapters that hold persistent connections (WebSockets, pollers) should
+   * implement these so the providers API doesn't need provider-specific code.
+   */
+  onEnable?(): void | Promise<void>;
+  onDisable?(): void;
 }
 
 export interface AtomsProviderDebugAdapter {
@@ -51,11 +72,13 @@ import { pinnacleAdapter } from "./pinnacle";
 import { ninewicketsExchangeAdapter } from "./ninewickets-exchange";
 import { ninewicketsSportsbookAdapter } from "./ninewickets-sportsbook";
 import { betconstructAdapter } from "./betconstruct";
+import { velkiSportsbookAdapter } from "./velki-sportsbook";
 
 import { PinnacleAtomsAdapter } from "../atoms/adapters/pinnacle";
 import { NineWicketsExchangeAtomsAdapter } from "../atoms/adapters/ninewickets-exchange";
 import { NineWicketsSportsbookAtomsAdapter } from "../atoms/adapters/ninewickets-sportsbook";
 import { BetConstructAtomsAdapter } from "../atoms/adapters/betconstruct";
+import { VelkiSportsbookAtomsAdapter } from "../atoms/adapters/velki-sportsbook";
 
 // ============================================
 // Adapter Instances
@@ -65,6 +88,7 @@ const pinnacleAtomsAdapter = new PinnacleAtomsAdapter();
 const nwExchangeAtomsAdapter = new NineWicketsExchangeAtomsAdapter();
 const nwSportsbookAtomsAdapter = new NineWicketsSportsbookAtomsAdapter();
 const betconstructAtomsAdapter = new BetConstructAtomsAdapter();
+const velkiSportsbookAtomsAdapter = new VelkiSportsbookAtomsAdapter();
 
 // ============================================
 // Registry
@@ -91,6 +115,10 @@ const ADAPTERS: Record<ProviderKey, ProviderAdapters> = {
   betconstruct: {
     events: betconstructAdapter,
     atoms: betconstructAtomsAdapter,
+  },
+  "velki-sportsbook": {
+    events: velkiSportsbookAdapter,
+    atoms: velkiSportsbookAtomsAdapter,
   },
 };
 

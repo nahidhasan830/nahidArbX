@@ -15,7 +15,8 @@
  */
 import { NextResponse } from "next/server";
 import { getPlacedBetById } from "@/lib/db/repositories/bets";
-import { getPendingConfirmationByPlacementId } from "@/lib/betting/ninewickets/placement-confirmation";
+import { getPendingConfirmationByPlacementId as getNwPending } from "@/lib/betting/ninewickets/placement-confirmation";
+import { getPendingConfirmationByPlacementId as getVelkiPending } from "@/lib/betting/velki/placement-confirmation";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,7 +41,10 @@ export async function GET(
     });
   }
 
-  const pending = getPendingConfirmationByPlacementId(id);
+  // Both providers run their own in-memory tracker keyed by the same
+  // placementId namespace. The id is unique across providers (UUID v4),
+  // so probing both is safe — at most one returns a hit.
+  const pending = getNwPending(id) ?? getVelkiPending(id);
   if (pending) {
     return NextResponse.json({
       status: "pending",

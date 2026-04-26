@@ -20,10 +20,9 @@ import {
   restartScheduler,
   pauseScheduler,
   resumeScheduler,
-  isSchedulerPausedState,
   syncAll,
 } from "@/lib/background/fetcher";
-import { type ProviderKey } from "@/lib/providers/registry";
+import { type ProviderKey, PROVIDER_IDS } from "@/lib/providers/registry";
 import { getFamiliesForEvent, getAllOddsForAtom } from "@/lib/atoms/store";
 import { getFamily } from "@/lib/atoms/registry";
 import { getCachedVigData } from "@/lib/atoms/value-detector";
@@ -34,8 +33,6 @@ import {
   getDisplayScore,
   getMultiSourceDisplayScore,
   subscribeToScores,
-  type DisplayScore,
-  type MultiSourceDisplayScore,
   type ScoreSource,
   type ScoreConfidence,
 } from "@/lib/scores";
@@ -47,6 +44,48 @@ import { getTokenTTL } from "@/lib/auth/token-manager";
 // ============================================
 // Serialization Helpers
 // ============================================
+
+function buildConnectionHealth(): Record<string, unknown> {
+  const ps = getAllProviderStatus();
+  const bcHealth = getBCConnectionHealth();
+  const pinnacleTokenTTL = getTokenTTL();
+
+  const health: Record<string, unknown> = {
+    betconstruct: {
+      connected: bcHealth.connected,
+      consecutiveTimeouts: bcHealth.consecutiveTimeouts,
+      isReconnecting: bcHealth.isReconnecting,
+      pendingRequests: bcHealth.pendingRequests,
+    },
+    pinnacle: {
+      hasToken: pinnacleTokenTTL !== null && pinnacleTokenTTL > 0,
+      tokenTTL: pinnacleTokenTTL,
+      expiresIn:
+        pinnacleTokenTTL !== null
+          ? `${Math.round(pinnacleTokenTTL / 60000)}m`
+          : null,
+    },
+    scores: {
+      pinnacleWs: { connected: isScoreWebSocketConnected() },
+      bcPoller: {
+        active: isBCPollingActive(),
+        eventCount: getBCPollingCount(),
+      },
+    },
+  };
+
+  for (const id of PROVIDER_IDS) {
+    if (id === "betconstruct" || id === "pinnacle") continue;
+    const s = ps[id];
+    health[id] = {
+      status: s?.status ?? "unknown",
+      lastFetch: s?.lastFetch?.toISOString() ?? null,
+      error: s?.error ?? null,
+    };
+  }
+
+  return health;
+}
 
 function serializeSyncStatus(syncStatus: SyncStatus) {
   return {
@@ -465,48 +504,7 @@ export async function GET(request: Request) {
   // Get connection health for all providers (only if requested)
   let connectionHealth: Record<string, unknown> | undefined;
   if (needsField("connectionHealth")) {
-    const ps = providerStatus ?? getAllProviderStatus();
-    const bcHealth = getBCConnectionHealth();
-    const pinnacleTokenTTL = getTokenTTL();
-    const nwExchangeStatus = ps["ninewickets-exchange"];
-    const nwSportsbookStatus = ps["ninewickets-sportsbook"];
-
-    connectionHealth = {
-      betconstruct: {
-        connected: bcHealth.connected,
-        consecutiveTimeouts: bcHealth.consecutiveTimeouts,
-        isReconnecting: bcHealth.isReconnecting,
-        pendingRequests: bcHealth.pendingRequests,
-      },
-      pinnacle: {
-        hasToken: pinnacleTokenTTL !== null && pinnacleTokenTTL > 0,
-        tokenTTL: pinnacleTokenTTL,
-        expiresIn:
-          pinnacleTokenTTL !== null
-            ? `${Math.round(pinnacleTokenTTL / 60000)}m`
-            : null,
-      },
-      "ninewickets-exchange": {
-        status: nwExchangeStatus?.status ?? "unknown",
-        lastFetch: nwExchangeStatus?.lastFetch?.toISOString() ?? null,
-        error: nwExchangeStatus?.error ?? null,
-      },
-      "ninewickets-sportsbook": {
-        status: nwSportsbookStatus?.status ?? "unknown",
-        lastFetch: nwSportsbookStatus?.lastFetch?.toISOString() ?? null,
-        error: nwSportsbookStatus?.error ?? null,
-      },
-      // Score providers (separate from odds providers)
-      scores: {
-        pinnacleWs: {
-          connected: isScoreWebSocketConnected(),
-        },
-        bcPoller: {
-          active: isBCPollingActive(),
-          eventCount: getBCPollingCount(),
-        },
-      },
-    };
+    connectionHealth = buildConnectionHealth();
   }
 
   // Fast path for field-selected requests that don't need event analysis
@@ -554,47 +552,7 @@ export async function GET(request: Request) {
       {
         ...cached,
         providerStatus: providerStatus ?? getAllProviderStatus(),
-        connectionHealth:
-          connectionHealth ??
-          (() => {
-            // Compute connectionHealth on cache hit (cheap status data)
-            const ps = providerStatus ?? getAllProviderStatus();
-            const bcH = getBCConnectionHealth();
-            const pTTL = getTokenTTL();
-            const nwE = ps["ninewickets-exchange"];
-            const nwS = ps["ninewickets-sportsbook"];
-            return {
-              betconstruct: {
-                connected: bcH.connected,
-                consecutiveTimeouts: bcH.consecutiveTimeouts,
-                isReconnecting: bcH.isReconnecting,
-                pendingRequests: bcH.pendingRequests,
-              },
-              pinnacle: {
-                hasToken: pTTL !== null && pTTL > 0,
-                tokenTTL: pTTL,
-                expiresIn:
-                  pTTL !== null ? `${Math.round(pTTL / 60000)}m` : null,
-              },
-              "ninewickets-exchange": {
-                status: nwE?.status ?? "unknown",
-                lastFetch: nwE?.lastFetch?.toISOString() ?? null,
-                error: nwE?.error ?? null,
-              },
-              "ninewickets-sportsbook": {
-                status: nwS?.status ?? "unknown",
-                lastFetch: nwS?.lastFetch?.toISOString() ?? null,
-                error: nwS?.error ?? null,
-              },
-              scores: {
-                pinnacleWs: { connected: isScoreWebSocketConnected() },
-                bcPoller: {
-                  active: isBCPollingActive(),
-                  eventCount: getBCPollingCount(),
-                },
-              },
-            };
-          })(),
+        connectionHealth: connectionHealth ?? buildConnectionHealth(),
         lastUpdate: (lastUpdate ?? getLastUpdate())?.toISOString() || null,
         syncStatus: serializeSyncStatus(syncStatus ?? getSyncStatus()),
       },
@@ -663,15 +621,35 @@ export async function GET(request: Request) {
     });
   }
 
+  // Filter by market type at the event level: only include events that have
+  // at least one family of the selected market types. This is a display filter
+  // (which families to show), not a value-bet filter — so events with value bets
+  // in other markets still appear as long as they have families of the selected types.
+  if (selectedMarketTypes) {
+    eventsToAnalyze = eventsToAnalyze.filter((e) => {
+      const familyIds = getFamiliesForEvent(e.id);
+      return familyIds.some((fid) => {
+        const family = getFamily(fid);
+        return family && selectedMarketTypes.has(family.market_type);
+      });
+    });
+  }
+
   // Apply search filter
   let totalBeforePagination = eventsToAnalyze.length;
   if (search) {
-    eventsToAnalyze = eventsToAnalyze.filter(
-      (e) =>
+    eventsToAnalyze = eventsToAnalyze.filter((e) => {
+      if (
         e.homeTeam.toLowerCase().includes(search) ||
         e.awayTeam.toLowerCase().includes(search) ||
-        e.competition.toLowerCase().includes(search),
-    );
+        e.competition.toLowerCase().includes(search)
+      )
+        return true;
+      const fids = getFamiliesForEvent(e.id);
+      return fids.some((fid) =>
+        formatFamilyLabel(fid).toLowerCase().includes(search),
+      );
+    });
     totalBeforePagination = eventsToAnalyze.length;
   }
 

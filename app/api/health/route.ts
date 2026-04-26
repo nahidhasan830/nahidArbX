@@ -55,9 +55,6 @@ export async function GET(request: Request) {
 
   // Simple check: app is running and scheduler is active (for deployment health checks)
   const isAppHealthy = schedulerRunning;
-  // Full check: all critical components healthy
-  const isFullyHealthy = (bcHealthy || !bcEnabled) && schedulerRunning;
-
   // Simple health check (for load balancers and deployment)
   // Always returns OK - if this endpoint responds, the app is running
   if (simple) {

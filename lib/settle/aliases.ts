@@ -1,37 +1,40 @@
 /**
  * Settlement-specific alias helpers.
  *
- * Two concerns on top of the existing event-matching alias store
- * (`lib/matching/aliases/store.ts`, which is designed for provider-to-
- * provider team matching):
+ * Two concerns on top of the entity-resolution store:
  *
- *   1. A thin wrapper that consults the existing team alias store before
- *      we run fuzzy matching. If we've previously confirmed "Werder
- *      Bremen" corresponds to "SV Werder Bremen" on a score source, we
- *      can skip the similarity scoring next time.
+ *   1. A thin wrapper that consults the entity-resolver to canonicalize
+ *      a team name before settlement runs fuzzy matching against score
+ *      sources. Replaces the old in-memory `getTeamAliases()` lookup.
  *
- *   2. A brand-new `competition_slugs.json` store that maps the raw
- *      `competition` string we see on value_bets to the slug a given
- *      score source uses. Built incrementally as the pipeline resolves
- *      events — first pass hits hand-coded aliases, subsequent passes
- *      add learned mappings so the coverage graph expands over time.
+ *   2. A `competition_slugs.json` store that maps a normalized
+ *      competition string to the slug a given score source uses
+ *      (ESPN, football-data, SofaScore, etc.). This is per-source
+ *      mapping data, NOT alias data — kept separate from entities
+ *      because it's source-specific URL routing, not identity.
  *
- * No AI is required for this file. Learning happens organically as the
- * pipeline confirms matches; AI-assisted learning can layer on top by
- * calling `learnCompetitionSlug`/`addTeamAlias` with a verdict from
- * Gemini if/when the kill switch is flipped on.
+ * No automatic AI is involved. Alias confirmations from settlement
+ * paths flow through `recordObservation` with `source='settle'`, which
+ * the promoter weights heavily because score-source matches are a
+ * stronger truth signal than mere "two providers happened to match
+ * fixtures at the same minute."
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { addTeamAlias, getTeamAliases } from "../matching/aliases/store";
 import { logger } from "../shared/logger";
+import {
+  ensureCompetitionEntity,
+  ensureTeamEntity,
+  normalize as entityNormalize,
+  recordObservation,
+} from "../matching/entities";
 
 const DATA_DIR = path.join(process.cwd(), "data", "aliases");
 const SLUG_FILE = path.join(DATA_DIR, "competition-slugs.json");
 
-// ─── Competition-slug store ─────────────────────────────────────────────────
+// ─── Competition-slug store (source-specific URL routing) ────────────────
 
 const SlugEntry = z.object({
   /** Normalized competition string from value_bets. */
@@ -91,8 +94,8 @@ const ensureCache = (): Map<string, SlugEntryT> => {
 };
 
 /**
- * Normalize a competition string to a stable form. Mirrors the logic
- * ESPN/SofaScore adapters use so lookups hit consistently.
+ * Normalize a competition string for the slug-lookup table. Mirrors what
+ * the ESPN/SofaScore adapters use so lookups hit consistently.
  */
 export const normalizeCompetition = (raw: string | null): string =>
   (raw ?? "")
@@ -101,11 +104,6 @@ export const normalizeCompetition = (raw: string | null): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-/**
- * Lookup the learned slug for a given (competition, source). Returns
- * `null` if no alias has been learned yet — caller should fall back to
- * its hand-coded table.
- */
 export const lookupCompetitionSlug = (
   competition: string | null,
   source: string,
@@ -115,11 +113,6 @@ export const lookupCompetitionSlug = (
   return cache.get(key)?.slug ?? null;
 };
 
-/**
- * Persist a newly-discovered competition → slug mapping. Called by an
- * adapter once it successfully resolves events for that slug; subsequent
- * runs skip the slug-lookup table and go straight to the learned entry.
- */
 export const learnCompetitionSlug = (
   competition: string | null,
   source: string,
@@ -152,25 +145,65 @@ export const learnCompetitionSlug = (
     logger.info("SettleAliases", `Learned: "${norm}" on ${source} → ${slug}`);
   }
   saveSlugFile(file);
-  slugCache = null; // invalidate
+  slugCache = null;
 };
 
-// ─── Team alias helpers (reusing existing store) ─────────────────────────────
-
-/**
- * Apply learned team aliases before similarity scoring. Returns the
- * canonical form if one has been stored, or the input unchanged.
- */
-export const applyTeamAlias = (raw: string): string => {
-  const table = getTeamAliases();
-  const lower = raw.toLowerCase().trim();
-  return table[lower] ?? lower;
-};
+// ─── Team-name canonicalization (entity-resolver bridge) ─────────────────
 
 /**
- * Record a newly-confirmed team-name equivalence. Delegates to the
- * existing store so admin UIs see learned entries uniformly.
+ * Sync team-name normalization used by the score-source matchers
+ * (espn.ts, sofascore.ts) before they fuzzy-compare against scoreboard
+ * data. Delegates to the entity-resolution normalizer, which handles
+ * lowercase + NFD diacritic strip + Cyrillic/Greek/Vietnamese
+ * transliteration + club-token strip in one pass.
+ *
+ * No DB lookup happens here — this is a pure function. Persistent
+ * canonicalization is the entity-resolver's job and is consulted via
+ * `learnTeamAlias` below when a settle pipeline confirms a name pair.
  */
-export const learnTeamAlias = (source: string, canonical: string): void => {
-  addTeamAlias(source, canonical, { autoLearned: true, addedBy: "settle" });
-};
+export function applyTeamAlias(raw: string): string {
+  return entityNormalize(raw);
+}
+
+/**
+ * Record a confirmed team-name equivalence from a settlement source
+ * match. Builds (or fetches) the canonical entity and writes a positive
+ * observation. The promoter weights `source='settle'` heavily because
+ * scoreboard sources are tied to actual match results — a much stronger
+ * truth signal than provider-vs-provider fuzzy fixture matching.
+ *
+ * Two-arg overload kept for backwards-compatible callsites
+ * (`learnTeamAlias(ourName, theirName)`); pass `provider` / `competition`
+ * via the third options param when you have them.
+ */
+export async function learnTeamAlias(
+  surfaceRaw: string,
+  canonicalName: string,
+  opts: { provider?: string; competition?: string | null } = {},
+): Promise<void> {
+  try {
+    const compEntity = opts.competition
+      ? await ensureCompetitionEntity(opts.competition)
+      : null;
+    const teamEntity = await ensureTeamEntity({
+      canonicalName,
+      competitionId: compEntity?.id ?? null,
+    });
+    if (!teamEntity) return;
+    await recordObservation({
+      kind: "team",
+      surface: surfaceRaw,
+      provider: opts.provider ?? "settle",
+      competitionId: compEntity?.id ?? null,
+      pairedWithEntityId: teamEntity.id,
+      matchScore: 1,
+      outcome: "matched",
+      source: "settle",
+    });
+  } catch (err) {
+    logger.warn(
+      "SettleAliases",
+      `learnTeamAlias failed: ${(err as Error).message}`,
+    );
+  }
+}

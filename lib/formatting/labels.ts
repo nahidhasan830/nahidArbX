@@ -7,6 +7,8 @@
  * - Market types (e.g., TOTAL_GOALS → "Total Goals")
  */
 
+import atomsData from "@/lib/atoms/atoms.json";
+
 // Time scope display labels
 const TIME_SCOPE_LABELS: Record<string, string> = {
   ft: "", // Full Time - omit for cleaner display
@@ -30,7 +32,7 @@ export const MARKET_TYPE_LABELS: Record<string, string> = {
   AWAY_TEAM_TOTAL: "Away Total",
   CORNERS: "Corners",
   CORNERS_HANDICAP: "Corners Handicap",
-  CORNERS_EUROPEAN_HANDICAP: "Corners Handicap",
+  CORNERS_EUROPEAN_HANDICAP: "Corners European Handicap",
   HOME_CORNERS_TOTAL: "Home Corners",
   AWAY_CORNERS_TOTAL: "Away Corners",
   CARDS: "Cards",
@@ -392,4 +394,29 @@ export function formatAtomLabel(atomId: string): string {
   return meaningful
     .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
     .join(" ");
+}
+
+// ── Auto-derived market options ───────────────────────────────────────────────
+
+export interface MarketOption {
+  value: string;
+  label: string;
+}
+
+const _cachedMarketOptions: MarketOption[] = (() => {
+  const seen = new Set<string>();
+  const families = atomsData.families as Record<
+    string,
+    { market_type: string }
+  >;
+  for (const fam of Object.values(families)) {
+    seen.add(fam.market_type);
+  }
+  return Array.from(seen)
+    .sort((a, b) => formatMarketType(a).localeCompare(formatMarketType(b)))
+    .map((mt) => ({ value: mt, label: formatMarketType(mt) }));
+})();
+
+export function getMarketOptions(): MarketOption[] {
+  return _cachedMarketOptions;
 }

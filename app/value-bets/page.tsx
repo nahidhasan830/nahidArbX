@@ -5,7 +5,11 @@ import { useDebouncedValue } from "@/components/hooks/useDebouncedValue";
 import { ValueBetSpreadsheet } from "@/components/spreadsheet/ValueBetSpreadsheet";
 import { useBulkAnalysisPreferences } from "@/components/hooks/useBulkAnalysisPreferences";
 import { useInfiniteEvents } from "@/components/hooks/useInfiniteEvents";
-import { PROVIDER_IDS } from "@/lib/providers/registry";
+import {
+  PROVIDER_IDS,
+  getProviderDisplayName,
+  getProviderShortName,
+} from "@/lib/providers/registry";
 import { useEventStream } from "@/components/hooks/useEventStream";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
@@ -49,20 +53,11 @@ interface ConnectionHealth {
     tokenTTL: number | null;
     expiresIn: string | null;
   };
-  "ninewickets-exchange"?: {
-    status: string;
-    lastFetch: string | null;
-    error: string | null;
-  };
-  "ninewickets-sportsbook"?: {
-    status: string;
-    lastFetch: string | null;
-    error: string | null;
-  };
   scores?: {
     pinnacleWs: { connected: boolean };
     bcPoller: { active: boolean; eventCount: number };
   };
+  [providerId: string]: unknown;
 }
 
 // ============================================
@@ -97,11 +92,6 @@ function HealthStrip({
   connectionHealth: ConnectionHealth | null | undefined;
   isSSEConnected: boolean;
 }) {
-  const pinnacleOk = connectionHealth?.pinnacle?.hasToken ?? false;
-  const bcOk = connectionHealth?.betconstruct?.connected ?? false;
-  const nwExOk = connectionHealth?.["ninewickets-exchange"]?.status === "ok";
-  const nwSbOk = connectionHealth?.["ninewickets-sportsbook"]?.status === "ok";
-
   const providerRuntime = useProviderRuntimeState();
   const show = (id: string) =>
     providerRuntime.isLoading
@@ -109,6 +99,18 @@ function HealthStrip({
       : providerRuntime.isEnabled(
           id as Parameters<typeof providerRuntime.isEnabled>[0],
         );
+
+  const isProviderHealthy = (id: string): boolean => {
+    if (!connectionHealth) return false;
+    if (id === "pinnacle") return connectionHealth.pinnacle?.hasToken ?? false;
+    if (id === "betconstruct")
+      return connectionHealth.betconstruct?.connected ?? false;
+    const generic = connectionHealth[id] as
+      | { status?: string }
+      | null
+      | undefined;
+    return generic?.status === "ok";
+  };
 
   return (
     <Feature id="health-status">
@@ -126,40 +128,19 @@ function HealthStrip({
           />
           <span className="text-[10px] text-muted-foreground">Live</span>
         </div>
-        {show("pinnacle") && (
-          <HealthDot
-            label="PIN"
-            isHealthy={pinnacleOk}
-            tooltip={pinnacleOk ? "Pinnacle token active" : "No Pinnacle token"}
-          />
-        )}
-        {show("betconstruct") && (
-          <HealthDot
-            label="BC"
-            isHealthy={bcOk}
-            tooltip={
-              bcOk ? "BetConstruct connected" : "BetConstruct disconnected"
-            }
-          />
-        )}
-        {show("ninewickets-exchange") && (
-          <HealthDot
-            label="9W-Ex"
-            isHealthy={nwExOk}
-            tooltip={
-              nwExOk ? "9Wickets Exchange OK" : "9Wickets Exchange error"
-            }
-          />
-        )}
-        {show("ninewickets-sportsbook") && (
-          <HealthDot
-            label="9W-SB"
-            isHealthy={nwSbOk}
-            tooltip={
-              nwSbOk ? "9Wickets Sportsbook OK" : "9Wickets Sportsbook error"
-            }
-          />
-        )}
+        {PROVIDER_IDS.map((id) => {
+          if (!show(id)) return null;
+          const healthy = isProviderHealthy(id);
+          const name = getProviderDisplayName(id);
+          return (
+            <HealthDot
+              key={id}
+              label={getProviderShortName(id)}
+              isHealthy={healthy}
+              tooltip={healthy ? `${name} OK` : `${name} error`}
+            />
+          );
+        })}
       </div>
     </Feature>
   );
@@ -216,15 +197,9 @@ function SyncStatusDisplay({ syncStatus }: { syncStatus: SyncStatus | null }) {
   const progress = syncStatus.phaseProgress;
   const subPhase = progress?.subPhase;
 
-  const formatProvider = (name: string) => {
-    const map: Record<string, string> = {
-      pinnacle: "Pinnacle",
-      "ninewickets-exchange": "9Wickets Exchange",
-      "ninewickets-sportsbook": "9Wickets Sportsbook",
-      betconstruct: "BetConstruct",
-    };
-    return map[name] ?? name;
-  };
+  // Resolve via registry — picks up new providers automatically
+  // (e.g. velki-sportsbook → "Velki Sportsbook") with no edit here.
+  const formatProvider = (name: string) => getProviderDisplayName(name);
 
   return (
     <div className="flex-1 flex items-center justify-center">

@@ -6,10 +6,7 @@ import {
   apiSuccess,
 } from "@/lib/shared/api-response";
 import {
-  disableAutoSettleScheduler,
-  enableAutoSettleScheduler,
   getAutoSettleStatus,
-  isAutoSettleActive,
   pauseAutoSettleScheduler,
   restartAutoSettleScheduler,
   resumeAutoSettleScheduler,
@@ -27,7 +24,7 @@ import { and, eq, sql as dsql } from "drizzle-orm";
  * GET  → current scheduler status + recent settlement_runs (query
  *        `?runs=50`) + in-memory activity log (query `?log=100`).
  *
- * POST → body { action, intervalMs?, reason? }.
+ * POST → body { action, intervalMs? }.
  *        Actions:
  *          - run      — single tick synchronously, return result.
  *                       (default when body is missing)
@@ -36,28 +33,18 @@ import { and, eq, sql as dsql } from "drizzle-orm";
  *          - restart  — stop + start, optionally with new `intervalMs`.
  *          - pause    — keep timer running, skip ticks.
  *          - resume   — un-pause.
- *          - disable  — engage persistent kill switch + stop.
- *                       Accepts optional `reason`.
- *          - enable   — lift persistent kill switch (does NOT auto-start;
- *                       caller issues `start` if they want that).
+ *
+ * The `disable` / `enable` kill-switch actions were removed in 2026
+ * along with all automatic Gemini AI usage. Settlement is now
+ * deterministic Tier 0/1/2 only — no runaway-cost surface to gate.
  */
 
 const BodySchema = z
   .object({
     action: z
-      .enum([
-        "run",
-        "start",
-        "stop",
-        "restart",
-        "pause",
-        "resume",
-        "disable",
-        "enable",
-      ])
+      .enum(["run", "start", "stop", "restart", "pause", "resume"])
       .default("run"),
     intervalMs: z.number().int().positive().optional(),
-    reason: z.string().trim().max(500).optional(),
   })
   .optional();
 
@@ -107,7 +94,6 @@ export async function POST(request: NextRequest) {
   }
   const action = parsed.data?.action ?? "run";
   const intervalMs = parsed.data?.intervalMs;
-  const reason = parsed.data?.reason;
 
   try {
     switch (action) {
@@ -125,15 +111,6 @@ export async function POST(request: NextRequest) {
         return apiSuccess(getAutoSettleStatus());
       case "resume":
         resumeAutoSettleScheduler();
-        return apiSuccess(getAutoSettleStatus());
-      case "disable":
-        disableAutoSettleScheduler(reason);
-        return apiSuccess(getAutoSettleStatus());
-      case "enable":
-        enableAutoSettleScheduler();
-        // If the scheduler isn't running yet, bring it up — lifting
-        // the switch without starting would be surprising UX.
-        if (!isAutoSettleActive()) startAutoSettleScheduler(intervalMs);
         return apiSuccess(getAutoSettleStatus());
       case "run":
       default: {

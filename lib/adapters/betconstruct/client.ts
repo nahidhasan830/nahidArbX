@@ -11,6 +11,9 @@
  */
 
 import WebSocket from "ws";
+import { logger } from "../../shared/logger";
+
+const log = logger.withContext("BetConstruct");
 
 // Connection config
 const WS_URL = "wss://eu-swarm-newm.betconstruct.com/";
@@ -125,7 +128,19 @@ async function ensureConnection(): Promise<void> {
  */
 function connect(): Promise<void> {
   return new Promise((resolve, reject) => {
+    // MEMORY-LEAK GUARD — DO NOT REMOVE.
+    // ws.close() does NOT detach the open/message/close/error listeners
+    // attached below; those closures capture `pendingRequests`, the keep-
+    // alive timer, and the reconnect callback. Without removeAllListeners()
+    // every soft reconnect (e.g. on a 1006 from BetConstruct) leaks the
+    // previous socket + closures. `safeCloseWebSocket()` and `disconnect()`
+    // already handle this — keep `connect()` consistent.
     if (ws) {
+      try {
+        ws.removeAllListeners();
+      } catch {
+        // already detached — ignore
+      }
       ws.close();
       ws = null;
     }
@@ -154,7 +169,7 @@ function connect(): Promise<void> {
       handleMessage(data.toString());
     });
 
-    ws.on("close", (code, reason) => {
+    ws.on("close", (code, _reason) => {
       sessionId = null;
       stopKeepAlive();
 
@@ -172,7 +187,7 @@ function connect(): Promise<void> {
     });
 
     ws.on("error", (err) => {
-      console.error("[BetConstruct] WebSocket error:", err.message);
+      log.error("WebSocket error", err.message);
       clearTimeout(timeout);
       reject(err);
     });
@@ -233,7 +248,7 @@ function startKeepAlive(): void {
       // Successful ping - reset timeout counter
       consecutiveTimeouts = 0;
     } catch {
-      console.warn("[BetConstruct] Keep-alive failed, connection may be stale");
+      log.warn("Keep-alive failed, connection may be stale");
       consecutiveTimeouts++;
       checkHealthAndReconnect();
     }
@@ -281,8 +296,8 @@ function safeCloseWebSocket(): void {
     }
   } catch (err) {
     // Ignore close errors - the connection is dead anyway
-    console.warn(
-      "[BetConstruct] Error closing WebSocket (ignoring):",
+    log.warn(
+      "Error closing WebSocket (ignoring)",
       err instanceof Error ? err.message : err,
     );
   } finally {
@@ -318,20 +333,17 @@ async function forceReconnect(): Promise<void> {
       try {
         onReconnectCallback();
       } catch (err) {
-        console.error("[BetConstruct] Reconnect callback error:", err);
+        log.error("Reconnect callback error", err);
       }
     }
   } catch (err) {
-    console.error(
-      "[BetConstruct] Reconnect failed:",
-      err instanceof Error ? err.message : err,
-    );
+    log.error("Reconnect failed", err instanceof Error ? err.message : err);
     consecutiveReconnectFailures++;
 
     // Check if we should trigger a fatal failure (server restart)
     if (consecutiveReconnectFailures >= MAX_RECONNECT_FAILURES) {
-      console.error(
-        `[BetConstruct] FATAL: ${consecutiveReconnectFailures} consecutive reconnect failures - triggering server restart`,
+      log.error(
+        `FATAL: ${consecutiveReconnectFailures} consecutive reconnect failures - triggering server restart`,
       );
       if (onFatalFailureCallback) {
         onFatalFailureCallback();
@@ -351,9 +363,7 @@ async function forceReconnect(): Promise<void> {
  */
 function checkHealthAndReconnect(): void {
   if (consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
-    console.warn(
-      `[BetConstruct] ${consecutiveTimeouts} consecutive timeouts - forcing reconnect`,
-    );
+    log.warn(`${consecutiveTimeouts} consecutive timeouts - forcing reconnect`);
     forceReconnect();
   }
 }
@@ -392,7 +402,7 @@ function handleMessage(data: string): void {
     }
     // Subscription updates (rid = 0) can be handled here if needed
   } catch (err) {
-    console.error("[BetConstruct] Failed to parse message:", err);
+    log.error("Failed to parse message", err);
   }
 }
 

@@ -3,12 +3,16 @@
 /**
  * Settlement Activity Monitor — operator control panel for the
  * auto-settlement scheduler. Surfaces:
- *   - Live status + pause / resume / kill-switch controls
+ *   - Live status + pause / resume / start / stop controls
  *   - Stream of in-memory activity entries (tick starts/ends, errors)
- *   - Persistent `settlement_runs` history with tier-hit breakdown + cost
+ *   - Persistent `settlement_runs` history with tier-hit breakdown
  *
- * Opened via a toolbar button on `/backtest`. Uses SSE where possible,
+ * Opened via a toolbar button on `/bets`. Uses SSE where possible,
  * falls back to 5s polling.
+ *
+ * The kill-switch + AI controls were removed in 2026 along with all
+ * automatic Gemini AI usage — settlement is deterministic Tier 0/1/2
+ * only, so the panic-button surface no longer makes sense.
  */
 
 import { useMemo, useState } from "react";
@@ -17,12 +21,9 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
-  CircleSlash,
   Gauge,
   Pause,
   Play,
-  Power,
-  PowerOff,
   RefreshCw,
   Square,
   Zap,
@@ -56,16 +57,8 @@ type Props = {
 function statusTone(
   active: boolean,
   paused: boolean,
-  disabled: boolean,
   tickInFlight: boolean,
 ): { label: string; className: string; Icon: typeof Activity } {
-  if (disabled) {
-    return {
-      label: "Disabled",
-      className: "bg-red-500/20 text-red-300 border-red-500/40",
-      Icon: PowerOff,
-    };
-  }
   if (!active) {
     return {
       label: "Stopped",
@@ -159,26 +152,8 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
     setIntervalInput("");
   };
 
-  const handleDisable = async () => {
-    const reason = window.prompt(
-      "Reason for disabling auto-settlement (optional — goes into activity log):",
-      "",
-    );
-    if (reason === null) return; // cancelled
-    await runAction(
-      "disable",
-      { reason: reason.trim() || undefined },
-      "Auto-settlement disabled — kill switch engaged",
-    );
-  };
-
   const tone = status
-    ? statusTone(
-        status.active,
-        status.paused,
-        status.disabled,
-        status.tickInFlight,
-      )
+    ? statusTone(status.active, status.paused, status.tickInFlight)
     : null;
 
   const now = Date.now();
@@ -199,7 +174,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
   // meaningful while the scheduler is running and not paused/disabled.
   const nextTriggerAt: number | null = (() => {
     if (!status) return null;
-    if (!status.active || status.paused || status.disabled) return null;
+    if (!status.active || status.paused) return null;
     const base = status.lastStartedAt ?? lastFinishedTs;
     if (!base) return now; // just started — next tick any moment
     return base + status.intervalMs;
@@ -337,11 +312,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 </>
               )}
             </div>
-            {status?.disabled && status.disabledReason && (
-              <div className="text-[10px] text-red-300 max-w-md">
-                Kill-switch reason: {status.disabledReason}
-              </div>
-            )}
           </div>
 
           {/* Controls */}
@@ -351,9 +321,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
               size="sm"
               className="h-7 px-2.5 text-[11px]"
               onClick={() => runAction("run", undefined, "Tick triggered")}
-              disabled={
-                !!busy || !status || status.disabled || status.tickInFlight
-              }
+              disabled={!!busy || !status || status.tickInFlight}
             >
               <Zap className="size-3.5" /> Run now
             </Button>
@@ -366,7 +334,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 onClick={() =>
                   runAction("resume", undefined, "Scheduler resumed")
                 }
-                disabled={!!busy || status.disabled}
+                disabled={!!busy}
               >
                 <Play className="size-3.5" /> Resume
               </Button>
@@ -378,9 +346,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 onClick={() =>
                   runAction("pause", undefined, "Scheduler paused")
                 }
-                disabled={
-                  !!busy || !status || !status.active || status.disabled
-                }
+                disabled={!!busy || !status || !status.active}
               >
                 <Pause className="size-3.5" /> Pause
               </Button>
@@ -406,7 +372,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 onClick={() =>
                   runAction("start", undefined, "Scheduler started")
                 }
-                disabled={!!busy || status?.disabled}
+                disabled={!!busy}
               >
                 <Play className="size-3.5" /> Start
               </Button>
@@ -431,32 +397,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
               >
                 <Gauge className="size-3.5" /> Apply
               </Button>
-            </div>
-
-            <div className="ml-auto">
-              {status?.disabled ? (
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-7 px-2.5 text-[11px] bg-emerald-600 hover:bg-emerald-500"
-                  onClick={() =>
-                    runAction("enable", undefined, "Auto-settlement enabled")
-                  }
-                  disabled={!!busy}
-                >
-                  <Power className="size-3.5" /> Enable
-                </Button>
-              ) : (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="h-7 px-2.5 text-[11px]"
-                  onClick={handleDisable}
-                  disabled={!!busy}
-                >
-                  <PowerOff className="size-3.5" /> Disable (kill switch)
-                </Button>
-              )}
             </div>
           </div>
 
@@ -643,12 +583,7 @@ export function SettlementStatusChip({ onClick }: { onClick: () => void }) {
         <Activity className="size-3.5" /> Settlement
       </Button>
     );
-  const tone = statusTone(
-    status.active,
-    status.paused,
-    status.disabled,
-    status.tickInFlight,
-  );
+  const tone = statusTone(status.active, status.paused, status.tickInFlight);
   return (
     <Button
       variant="outline"
@@ -660,11 +595,7 @@ export function SettlementStatusChip({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       title={`Settlement: ${tone.label} — click to open monitor`}
     >
-      {status.disabled ? (
-        <CircleSlash className="size-3.5" />
-      ) : (
-        <tone.Icon className="size-3.5" />
-      )}
+      <tone.Icon className="size-3.5" />
       <span className="hidden sm:inline">Settlement</span>
       <span className="opacity-80">·</span>
       <span>{tone.label}</span>

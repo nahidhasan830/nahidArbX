@@ -26,6 +26,7 @@ import {
   CircleHelp,
   X,
   Plus,
+  Info,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
+import {
+  formatFilterChips,
+  formatStrategyDetails,
+} from "@/lib/optimizer/format-strategy";
+import type {
+  StrategyFilters,
+  StrategySizing,
+} from "@/lib/optimizer/strategy-filters";
 import { cn } from "@/lib/utils";
 
 interface Settings {
@@ -71,6 +81,11 @@ interface Settings {
   maxConcurrentExposureBdt: number | null;
   maxBetsPerDay: number | null;
   cooldownAfterLossSec: number | null;
+  /**
+   * Strategies the auto-placer must match before placing a bet. Empty =
+   * the global EV cutoff applies to everything (pre-strategy behaviour).
+   */
+  activeStrategyIds: string[];
   updatedAt: string;
 }
 
@@ -266,6 +281,7 @@ export function BettingStrategyForm() {
   const activeSafetyRails = SAFETY_FIELDS.filter(
     (f) => draft[f.key] !== null,
   ).length;
+  const activeStrategiesCount = draft.activeStrategyIds?.length ?? 0;
 
   return (
     <TooltipProvider>
@@ -276,19 +292,20 @@ export function BettingStrategyForm() {
             <Settings2 className="size-4 shrink-0 text-muted-foreground" />
             <span className="text-sm font-medium">Strategy &amp; limits</span>
           </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
             <StrategyPill label={kellyLabel} />
-            <span className="opacity-50">·</span>
             <StrategyPill label={`cap ${draft.kellyCapPct}%`} />
-            <span className="opacity-50">·</span>
             <StrategyPill label={bankrollLabel} />
             {activeSafetyRails > 0 && (
-              <>
-                <span className="opacity-50">·</span>
-                <StrategyPill
-                  label={`${activeSafetyRails} safety rail${activeSafetyRails === 1 ? "" : "s"}`}
-                />
-              </>
+              <StrategyPill
+                label={`${activeSafetyRails} safety rail${activeSafetyRails === 1 ? "" : "s"}`}
+              />
+            )}
+            {activeStrategiesCount > 0 && (
+              <StrategyPill
+                label={`${activeStrategiesCount} active strateg${activeStrategiesCount === 1 ? "y" : "ies"}`}
+                tone="accent"
+              />
             )}
           </div>
         </div>
@@ -309,7 +326,10 @@ export function BettingStrategyForm() {
 
           {/* SIZING — primary, most visible. Kelly fraction + cap side
               by side to read as a unit. */}
-          <Section title="Sizing" hint="How much to stake per bet.">
+          <Section
+            title="Sizing"
+            hint="How much to stake on each value bet. Kelly fraction picks the aggressiveness; the cap is a hard ceiling on any single bet as a percentage of bankroll."
+          >
             <div className="grid grid-cols-2 gap-2">
               <MiniField
                 label="Kelly fraction"
@@ -339,7 +359,7 @@ export function BettingStrategyForm() {
           {/* BANKROLL — what Kelly sizes against. */}
           <Section
             title="Bankroll"
-            hint="Reference balance Kelly sizes against."
+            hint="The reference balance Kelly sizes against. Live balance auto-adjusts as bets settle; manual is a fixed number you set yourself."
           >
             <label className="flex items-center gap-2 text-xs select-none h-7">
               <Checkbox
@@ -347,9 +367,6 @@ export function BettingStrategyForm() {
                 onCheckedChange={(v) => setField("useLiveBalance", v === true)}
               />
               <span>Use provider live balance</span>
-              <span className="ml-auto text-[10px] text-muted-foreground/70">
-                self-adjusting
-              </span>
             </label>
             {!draft.useLiveBalance && (
               <Row label="Manual balance">
@@ -377,7 +394,10 @@ export function BettingStrategyForm() {
           </Section>
 
           {/* QUALITY — which bets pass the filter. */}
-          <Section title="Bet quality" hint="Which opportunities are eligible.">
+          <Section
+            title="Bet quality"
+            hint="Which opportunities are eligible for auto-placement. Bets below Min EV or computed from stale sharp odds are dropped before sizing runs."
+          >
             <Row
               label="Min EV"
               help="Bets below this EV percentage are ignored entirely — never surfaced to auto-placement."
@@ -405,8 +425,17 @@ export function BettingStrategyForm() {
             </Row>
           </Section>
 
+          {/* ACTIVE STRATEGIES — gate auto-placement by saved strategies. */}
+          <ActiveStrategiesSection
+            value={draft.activeStrategyIds}
+            onChange={(ids) => setField("activeStrategyIds", ids)}
+          />
+
           {/* ROUNDING — stake shaping applied after Kelly. */}
-          <Section title="Rounding" hint="Stake shaping applied after Kelly.">
+          <Section
+            title="Rounding"
+            hint="Stake shaping applied after Kelly. Bumps tiny stakes up to Min stake and snaps the final number to the nearest Stake bucket so place-orders stay neat."
+          >
             <Row
               label="Min stake"
               help="Stakes below this are clamped up (or the bet is skipped if balance can't cover it)."
@@ -496,12 +525,278 @@ function formatKellyFractionLabel(v: number): string {
 }
 
 // ------------------------------------------------------------------
+// Active strategies — multi-select gate for auto-placement.
+//
+// When non-empty, the auto-placer only places bets that match at least
+// one of the selected strategies' filters. Empty = global EV cutoff
+// applies to everything.
+// ------------------------------------------------------------------
+function ActiveStrategiesSection({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const { data: strategies, isLoading } = useApplicableStrategies();
+  const list = strategies ?? [];
+  const selected = new Set(value);
+  // Surface stale selections (strategy retired or hard-deleted) so the
+  // user can clean them out — silently dropping would mask the issue.
+  const knownIds = new Set(list.map((s) => s.id));
+  const staleIds = value.filter((id) => !knownIds.has(id));
+
+  const toggle = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange([...next]);
+  };
+
+  const trailing =
+    list.length > 1 ? (
+      selected.size === list.length ? (
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          className="text-[10px] text-muted-foreground hover:text-foreground tracking-normal normal-case"
+        >
+          Clear
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onChange(list.map((s) => s.id))}
+          className="text-[10px] text-muted-foreground hover:text-foreground tracking-normal normal-case"
+        >
+          Select all
+        </button>
+      )
+    ) : null;
+
+  return (
+    <Section
+      title="Active strategies"
+      hint="Auto-place only bets that match at least one selected strategy. Leave empty to fall back on the global Min EV cutoff."
+      trailing={trailing}
+    >
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-2">
+          <Loader2 className="size-3 animate-spin" /> Loading strategies…
+        </div>
+      ) : list.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-2.5 py-3 text-[11px] text-muted-foreground leading-relaxed">
+          No strategies yet. Promote a trial from{" "}
+          <span className="font-medium text-foreground">/lab/optimisation</span>{" "}
+          to gate auto-placement on it here.
+        </div>
+      ) : (
+        <div className="rounded-md border border-border/60 bg-muted/30 divide-y divide-border/40 max-h-56 overflow-y-auto">
+          {list.map((s) => (
+            <StrategyRow
+              key={s.id}
+              name={s.name}
+              description={s.description}
+              filters={s.filters as StrategyFilters}
+              sizing={s.sizing as StrategySizing | null}
+              checked={selected.has(s.id)}
+              onToggle={() => toggle(s.id)}
+            />
+          ))}
+        </div>
+      )}
+      {staleIds.length > 0 && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10.5px] text-amber-700 dark:text-amber-300 leading-tight flex items-center justify-between gap-2">
+          <span>
+            {staleIds.length} selected strateg
+            {staleIds.length === 1 ? "y" : "ies"} no longer exist
+          </span>
+          <button
+            type="button"
+            onClick={() => onChange(value.filter((id) => knownIds.has(id)))}
+            className="text-amber-700 dark:text-amber-300 hover:underline font-medium"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------------
+// One strategy entry. Click anywhere on the row to toggle. The info
+// icon hover reveals a structured tooltip with the full filter +
+// sizing config in human-readable form, so the user doesn't have to
+// open /lab/optimisation to confirm what they're enabling.
+// ------------------------------------------------------------------
+function StrategyRow({
+  name,
+  description,
+  filters,
+  sizing,
+  checked,
+  onToggle,
+}: {
+  name: string;
+  description: string | null;
+  filters: StrategyFilters;
+  sizing: StrategySizing | null;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const chips = formatFilterChips(filters);
+  const details = formatStrategyDetails(filters, sizing);
+  return (
+    <label
+      className={cn(
+        "flex items-start gap-2 px-2 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors",
+        checked && "bg-cyan-500/10",
+      )}
+    >
+      <Checkbox
+        checked={checked}
+        onCheckedChange={onToggle}
+        className="mt-0.5"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-medium truncate">{name}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => e.preventDefault()}
+                className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
+                aria-label={`${name} configuration`}
+              >
+                <Info className="size-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="left"
+              align="start"
+              className="max-w-[280px] p-0 overflow-hidden"
+            >
+              <StrategyConfigTooltip
+                name={name}
+                description={description}
+                details={details}
+              />
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        {chips.length > 0 ? (
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
+            {chips.map((c, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center rounded-sm bg-background/80 border border-border/60 px-1 py-px text-[9.5px] font-medium tabular-nums text-muted-foreground"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        ) : (
+          description && (
+            <div className="mt-0.5 text-[10px] text-muted-foreground truncate">
+              {description}
+            </div>
+          )
+        )}
+      </div>
+    </label>
+  );
+}
+
+// ------------------------------------------------------------------
+// Tooltip body for a strategy. Uses two stacked sections (filters,
+// sizing) with right-aligned values — same visual rhythm as the
+// optimisation report, so the user's eye recognises it instantly.
+// ------------------------------------------------------------------
+function StrategyConfigTooltip({
+  name,
+  description,
+  details,
+}: {
+  name: string;
+  description: string | null;
+  details: ReturnType<typeof formatStrategyDetails>;
+}) {
+  return (
+    <div className="text-[11px] leading-snug">
+      <div className="px-2.5 py-2 border-b border-border/60 bg-muted/40">
+        <div className="font-semibold text-foreground">{name}</div>
+        {description && (
+          <div className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
+            {description}
+          </div>
+        )}
+      </div>
+      <div className="px-2.5 py-2 space-y-2">
+        <div>
+          <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/80 font-medium mb-1">
+            Filters
+          </div>
+          <dl className="space-y-0.5">
+            {details.filters.map((row) => (
+              <div
+                key={row.label}
+                className="grid grid-cols-[auto_1fr] gap-2 items-baseline"
+              >
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd className="text-foreground text-right tabular-nums break-words">
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+        {details.sizing.length > 0 && (
+          <div>
+            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/80 font-medium mb-1">
+              Sizing
+            </div>
+            <dl className="space-y-0.5">
+              {details.sizing.map((row) => (
+                <div
+                  key={row.label}
+                  className="grid grid-cols-[auto_1fr] gap-2 items-baseline"
+                >
+                  <dt className="text-muted-foreground">{row.label}</dt>
+                  <dd className="text-foreground text-right tabular-nums break-words">
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
 // Strategy summary pill in the header. Compact neutral chip — the
 // colour the user cares about (P&L) lives elsewhere.
 // ------------------------------------------------------------------
-function StrategyPill({ label }: { label: string }) {
+function StrategyPill({
+  label,
+  tone = "muted",
+}: {
+  label: string;
+  tone?: "muted" | "accent";
+}) {
   return (
-    <span className="inline-flex items-center rounded-sm px-1.5 py-0.5 bg-muted/60 text-foreground/80 text-[10.5px] font-medium tabular-nums">
+    <span
+      className={cn(
+        "inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums",
+        tone === "accent"
+          ? "bg-cyan-500/15 text-cyan-700 dark:text-cyan-300"
+          : "bg-muted/60 text-foreground/80",
+      )}
+    >
       {label}
     </span>
   );
@@ -516,23 +811,41 @@ function StrategyPill({ label }: { label: string }) {
 function Section({
   title,
   hint,
+  trailing,
   children,
 }: {
   title: string;
   hint?: string;
+  trailing?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="flex items-baseline gap-2">
-        <span className="text-[10.5px] uppercase tracking-wider text-muted-foreground/90 font-medium">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10.5px] uppercase tracking-wider text-foreground font-bold">
           {title}
         </span>
         {hint && (
-          <span className="text-[10.5px] text-muted-foreground/60 normal-case tracking-normal">
-            {hint}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="text-muted-foreground/50 hover:text-foreground transition-colors"
+                aria-label={`${title} help`}
+              >
+                <CircleHelp className="size-3" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              align="start"
+              className="max-w-[260px] text-[11px] leading-snug"
+            >
+              {hint}
+            </TooltipContent>
+          </Tooltip>
         )}
+        {trailing && <div className="ml-auto">{trailing}</div>}
       </div>
       <div className="space-y-1.5">{children}</div>
     </div>
@@ -662,7 +975,7 @@ function NumericField({
           if (!Number.isFinite(v)) return;
           onChange(integer ? Math.round(v) : v);
         }}
-        className="h-7 text-xs pr-10 tabular-nums"
+        className="h-7 text-xs md:text-xs py-0 pr-10 tabular-nums"
       />
       {unit && (
         <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] uppercase tracking-wide text-muted-foreground/70">
@@ -727,7 +1040,11 @@ function KellyFractionSelect({
       value={String(closest.value)}
       onValueChange={(v) => onChange(Number(v))}
     >
-      <SelectTrigger className="h-7 text-xs" title={closest.description}>
+      <SelectTrigger
+        data-size="sm"
+        className="!h-7 py-0 text-xs w-full"
+        title={closest.description}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent align="end">
@@ -777,17 +1094,34 @@ function SafetyRails({
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between text-[11px] uppercase tracking-wider text-muted-foreground/80 hover:text-foreground transition-colors"
+          className="group flex w-full items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-muted-foreground/90 font-medium hover:text-foreground transition-colors"
         >
-          <span>
-            Safety rails
-            {active.length > 0 && (
-              <span className="ml-1.5 normal-case tracking-normal text-[10.5px] text-foreground/80">
-                · {active.length} active
+          <span>Safety rails</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="text-muted-foreground/50 group-hover:text-foreground transition-colors"
+                aria-label="Safety rails help"
+              >
+                <CircleHelp className="size-3" />
               </span>
-            )}
-          </span>
-          <span className="text-[10px] opacity-60">
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              align="start"
+              className="max-w-[260px] text-[11px] leading-snug"
+            >
+              Optional auto-pause rules that override sizing. Any rail you
+              enable will block new placements once the threshold is hit; leave
+              them off to run unbounded.
+            </TooltipContent>
+          </Tooltip>
+          {active.length > 0 && (
+            <span className="normal-case tracking-normal rounded-sm bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 px-1.5 py-0.5 text-[10px] font-medium tabular-nums">
+              {active.length} active
+            </span>
+          )}
+          <span className="ml-auto text-[10px] opacity-60 normal-case tracking-normal">
             {open ? "hide" : "show"}
           </span>
         </button>

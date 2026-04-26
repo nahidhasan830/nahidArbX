@@ -7,10 +7,10 @@
  * the match-review route consults it before spending AI quota on a pair.
  *
  * A pair has at most ONE cached entry. The entry always reflects the CURRENT
- * verdict — who decided, what they decided, why. When a human overrides an
+ * verdict — who decided and what they decided. When a human overrides an
  * earlier AI verdict the entry is fully replaced (not shadowed): `decidedBy`
- * becomes `"human"` and the AI's reasoning is gone. Delete removes the
- * entry so the pair re-surfaces on the next sync for fresh review.
+ * becomes `"human"`. Delete removes the entry so the pair re-surfaces on the
+ * next sync for fresh review.
  */
 
 import * as fs from "fs";
@@ -47,8 +47,6 @@ export interface CachedDecision {
   verdict: "SAME" | "DIFFERENT" | "UNCERTAIN";
   /** 0-100. Always 100 for human verdicts (human is authoritative). */
   confidence: number;
-  /** Free-form explanation — AI reasoning or human note. */
-  reasoning: string;
   /** Who decided. */
   decidedBy: DecidedBy;
   /** ISO timestamp of the verdict. */
@@ -121,9 +119,7 @@ interface CacheFile {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __aiDecisionCache: Map<string, CachedDecision> | undefined;
-  // eslint-disable-next-line no-var
   var __aiDecisionCacheLoaded: boolean | undefined;
 }
 
@@ -222,7 +218,6 @@ export function saveAIDecision(params: {
   key: string;
   verdict: CachedDecision["verdict"];
   confidence: number;
-  reasoning: string;
   model?: string;
   sources?: { url: string; title: string }[];
   snapshot?: CachedDecision["snapshot"];
@@ -233,7 +228,6 @@ export function saveAIDecision(params: {
     key: params.key,
     verdict: params.verdict,
     confidence: Math.max(0, Math.min(100, params.confidence)),
-    reasoning: params.reasoning,
     decidedBy: "gemini",
     decidedAt: new Date().toISOString(),
     sources: params.sources || [],
@@ -248,16 +242,15 @@ export function saveAIDecision(params: {
 /**
  * Record a human verdict — FULLY REPLACES any existing entry.
  *
- * The AI's previous reasoning, confidence, and sources are discarded. The
- * entry now reflects the human decision as the single source of truth.
- * If the human changes their mind later, calling this again with the other
- * verdict replaces again.
+ * The AI's previous confidence and sources are discarded. The entry now
+ * reflects the human decision as the single source of truth. If the human
+ * changes their mind later, calling this again with the other verdict
+ * replaces again.
  */
 export function saveHumanVerdict(
   key: string,
   verdict: "approved" | "rejected",
   by?: string,
-  note?: string,
   snapshot?: CachedDecision["snapshot"],
 ): CachedDecision {
   const existing = getStore().get(key);
@@ -265,7 +258,6 @@ export function saveHumanVerdict(
     key,
     verdict: verdict === "approved" ? "SAME" : "DIFFERENT",
     confidence: 100,
-    reasoning: note || "",
     decidedBy: "human",
     decidedAt: new Date().toISOString(),
     sources: [],

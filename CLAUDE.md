@@ -133,20 +133,65 @@ NahidArbX is a real-time value-bet finder for betting providers using a family/a
 - **Send settlement Telegram notifications only for placed bets** - rows without an actual placement (`placedAt IS NULL`) should be settled silently.
 - **Do not treat the local `.env` `DATABASE_URL` / `127.0.0.1` Postgres as authoritative by default** - for runtime investigation, prefer the real cloud database path through the configured SDK/connector rather than assuming a local endpoint exists.
 
-## AI Cost Safety (learned the hard way — READ BEFORE TOUCHING AI CODE)
+## AI usage policy — manual only, no automatic Gemini
 
-**On 2026-04-18 a single url_context test run tipped our Gemini spend past its $10 monthly cap and into $35+ of overage.** Root cause: a scoreboard URL handed to `url_context` fetched a page whose token count blew past the model's 1M-token cap. Every such blown call still charges for the input tokens — one wrong URL can cost cents; a batch of wrong URLs can cost dollars.
+**Updated 2026-04-26:** all automatic Gemini AI usage was removed from the settlement pipeline. The persistent kill-switch (`lib/settle/kill-switch.ts`) is gone, the `/ai` Telegram command is gone, the kill-switch UI button on the Settlement Monitor is gone. Settlement runs deterministic Tier 0/1/2 only (cache → live feed → ESPN/SofaScore).
+
+**The only Gemini surface that remains is operator-triggered:**
+
+1. **Manual "AI settle" button on `/bets`** — operator selects pending bets, clicks "Re-run with Lite/Flash/Pro" in the dropdown. The dialog calls [`aiLabelBets(ids, { forceAi: true, aiModel })`](lib/bets-history/api-client.ts), which sends events straight to Tier 3 `url_context`. Cost-guarded by `AI_MAX_PER_REQUEST_USD` (default $2 ceiling).
+2. **Match-review "Verify" button** — operator clicks Verify on a near-match pair; calls `analyzeMatchWithGemini` for matching, not settlement.
 
 **Non-negotiable defaults:**
 
-1. **AI is disabled in the settlement pipeline unless explicitly opted into.** The kill switch lives in [`lib/settle/kill-switch.ts`](lib/settle/kill-switch.ts) and defaults to OFF. Set `AI_SETTLEMENT_ENABLED=true` in `.env` to boot with AI on. Runtime toggles are exposed via the settlement monitor UI on `/bets`.
-2. **Tier 3 (`url_context`) AND Tier 4 (grounded search / Batch) MUST always check `isAiEnabled()` before making any paid call.** Any new tier that talks to a paid API has to be gated the same way.
-3. **Never run any settle-related script that calls the Gemini SDK against the real DB without first lowering the spend cap at [ai.studio/spend](https://ai.studio/spend) to a number you're willing to lose.** Scripts in `scripts/test-*.ts` default to AI-off; leave them that way.
-4. **URLs passed to `url_context` must be short, known-good scoreboard pages (Sofascore, FlashScore).** Do NOT include encyclopedia-style pages (Wikipedia season articles, competition indexes) — their size is unbounded and they WILL blow the context window and burn money. See the warning comment in [`lib/settle/sources/url-context.ts`](lib/settle/sources/url-context.ts).
-5. **Every paid Gemini call path needs error classification.** Spend-cap and quota-exhausted errors MUST short-circuit the batch (`UrlContextBatchAbort` pattern). Never let a failing AI call retry in a loop.
-6. **Prefer deterministic settlement first.** The pure `settleBet(row, score)` handles 80%+ of markets with zero AI involvement given a score from any free tier (match_scores cache, live feed, football-data.org). AI is last-resort, not default.
-7. **Before enabling AI, always verify the free tiers are maxed out.** Check `FOOTBALL_DATA_API_KEY` is set, the live-score feed is persisting to `match_scores`, and the cache hit rate on Tier 0 is high. If you're burning AI calls because the free tiers aren't wired up, fix that first.
-8. **Audit settlement_runs regularly.** The `settlement_runs` table logs every tick's tier hits + estimated cost; if `tier3_hits` or `tier4_hits` suddenly spikes, investigate.
+- **The automatic settlement scheduler MUST never set `forceAi: true`.** No code path between [`lib/settle/scheduler.ts`](lib/settle/scheduler.ts) → [`lib/settle/auto-settler.ts`](lib/settle/auto-settler.ts) → [`lib/settle/settle-batch.ts`](lib/settle/settle-batch.ts) → [`lib/settle/waterfall.ts`](lib/settle/waterfall.ts) opts in to AI. The Tier 3 block in waterfall.ts gates strictly on `opts.forceAi === true`. If you add a new settlement entry point, it must inherit this default.
+- **URLs passed to `url_context` must be short, known-good scoreboard pages** (Sofascore, FlashScore). Wikipedia season articles or competition indexes have unbounded size and WILL blow the context window — see the warning comment in [`lib/settle/sources/url-context.ts`](lib/settle/sources/url-context.ts).
+- **Every paid Gemini call path needs error classification.** Spend-cap and quota-exhausted errors MUST short-circuit the batch (`UrlContextBatchAbort` pattern). Never let a failing AI call retry in a loop.
+- **Prefer deterministic settlement first.** The pure `settleBet(row, score)` handles 80%+ of markets with zero AI involvement given a score from any free tier. The manual AI button is a last-resort operator tool, not a default.
+- **Before clicking the manual AI button, check free-tier health.** If `tier1_hits` is unusually low in `settlement_runs`, fix the free-tier issue (proxy down, ESPN slug missing) instead of throwing AI at it.
+
+There is no kill-switch any more because there is no automatic-AI cost surface to switch off. If the operator misuses the manual button, the pre-flight cost-guard refuses batches above the per-request ceiling.
+
+## Entity Resolution — alias system (Postgres-backed)
+
+**Updated 2026-04-26:** the legacy `data/aliases/{team,competition}-aliases.json` store was replaced by a Postgres-backed entity-resolution system with a 4-tier ML-augmented promoter. The old store was producing silently-wrong canonical mappings (e.g. `obolon → obolon kyiv metalurh donetsk` after 26 false confirmations) that poisoned every future sync.
+
+**Tables:** `entities`, `entity_names`, `name_observations`, `entity_review_queue`. See [`lib/db/migrations/0031_entities.sql`](lib/db/migrations/0031_entities.sql) and [`lib/db/migrations/0032_entity_review_queue.sql`](lib/db/migrations/0032_entity_review_queue.sql). Includes pgvector for multilingual embedding fallback (transliteration cases).
+
+**Lookup hot path:** `(provider, surface_normalized, competition_id)` UNIQUE, so `Athletic` in La Liga and `Athletic` in Colombian Primera A coexist as distinct rows. See [`lib/matching/entities/resolver.ts`](lib/matching/entities/resolver.ts).
+
+**Single ingress:** every alias-learning writer (matcher harvester, settle pipeline, match-review UI confirm, learner) calls [`recordObservation`](lib/matching/entities/observations.ts) — appends to `name_observations` (audit log) and updates the candidate row. Decisions about `candidate → active` happen out-of-band in the promoter.
+
+**4-tier promoter** ([`lib/matching/entities/promoter.ts`](lib/matching/entities/promoter.ts), runs every 5 min):
+
+- **Tier 0 — deterministic gates:** gender mismatch, **team-variant mismatch (U17/U19/U20/U21/U23/Sub-20/Olympic/Reserves/II/B/Castilla/Academy/Futsal/Beach/eSports/Selects/Youth)**, group conflict (Serie C Group A vs B), competing-candidate, anti-ratchet (≥1 h temporal spread).
+- **Tier 1 — Bayesian-flavoured evidence:** `evidence = log(weight+1) - α·log(neg+1)`. Provider weights configurable (Pinnacle 3, NW 2, BetConstruct 1) × source weight (match-review/settle 4, learner 2, harvester 1).
+- **Tier 2 — LightGBM pairwise classifier** + **conformal-prediction calibration** ([`services/entity-classifier`](services/entity-classifier)). Runs only in the uncertain band [1.0, 3.0]. Promote when `score ≥ 0.92 AND p-value ≤ 0.05`.
+- **Tier 3 — operator review queue:** anything Tier 2 is uncertain about is surfaced to the EntityInspector UI (`/diagnostics` → Entities tab → Review queue panel).
+
+**Weekly graph cleanup Job** ([`services/entity-resolver`](services/entity-resolver)): runs Splink (probabilistic record linkage on DuckDB) + Leiden community detection (igraph) to find merge / split / conflict candidates. Auto-applies merges only if Splink probability > 0.99; everything else queues for operator approval. Triggers via `POST /api/entities/cluster-now`.
+
+**Cross-worker cache invalidation:** Postgres LISTEN/NOTIFY on the `entities_invalidate` channel — any promoter / decay update fires a notification; every Next.js worker clears its 30 s LRU.
+
+**EntityInspector UI** ([`components/diagnostics/EntityInspector.tsx`](components/diagnostics/EntityInspector.tsx)) — operator console with seven tabs, all using the shared `<DataTable>` for sort / virtualize / resize / persisted layout:
+
+- **Overview** — health KPIs, observations sparkline, writers donut, classifier-score histogram, active-Job card
+- **Entities** — DataTable of teams/competitions; click row → `EntityDrawer` side panel with surface forms + observations
+- **Surface forms** — DataTable of every `entity_names` row, status filter (candidate-first), inline promote/retire
+- **Observations** — append-only audit log, live-refreshing every 15 s
+- **Review queue** — Splink/Leiden findings with Approve/Reject inline
+- **Job runs** — entity-resolver Cloud Run Job history; **active runs show a live progress card with current pass + per-pass counters polling every 2 s**
+- **Playground** — read-only resolver/classifier probe + controlled "submit observation" form
+
+The header shows a pulsing pill while a cleanup Job is in flight, and the Job-runs tab gets a sky-coloured ring + dot so the operator notices regardless of which tab they're on.
+
+**Required env vars (optional but unlock features):**
+
+- `ENTITY_CLASSIFIER_URL` — Cloud Run Service URL for Tier-2 ML scoring + `/embed` endpoint
+- `ENTITY_RESOLVER_JOB_NAME` — Cloud Run Job name for the weekly graph cleanup
+- `EMBEDDING_LOOKUP_ENABLED=true` — switches on the resolver's embedding-cosine fallback (after the classifier Job has populated embeddings)
+
+**Migration:** the seed script [`scripts/seed-entities-from-aliases.ts`](scripts/seed-entities-from-aliases.ts) imported the legacy JSON aliases as entities + entity_names rows, dropping known-junk patterns (`obolon`, `sc poltava`, `ho chi minh city`, gender-mismatched, >5-word canonicals). Re-runnable any time.
 
 ## IPRoyal residential proxy — fallback only, never pre-emptive
 
@@ -304,23 +349,79 @@ Every piece of text in the app falls into one of two tiers. Pick the right one:
 
 Existing debts: pre-April-2026 code has a lot of `text-[11px]` on prose elements (tooltip bodies, description blocks, help captions). Fix them as you touch them. Toolbar buttons at `text-[11px]` are correct and should stay.
 
-## Explanatory copy — always contextualize to betting
+## Styling — Tailwind only, no custom CSS
 
-Whenever you write user-facing explanations (tooltips, empty states, section intros, form-field help text, error messages, glossary entries, docs), follow this pattern:
+**The styling system is Tailwind v4 utilities + shadcn primitives. Do not write hand-rolled CSS classes.** Every layout, color, animation, hover state, focus ring, and gradient should be expressible as Tailwind utilities (or arbitrary-value variants like `bg-[oklch(0.18_0.005_250/0.8)]` / `grid-cols-[repeat(24,minmax(0,1fr))]`). When in doubt, reach for utilities first; if a long combo repeats across files, lift it into a React component (`<KpiCard>`, `<MetricChip>`), not a custom CSS class.
 
-1. **Definition** — a one-line plain-English definition (non-contextual, so a new reader can grasp the concept).
-2. **Basic analogy/example** — optional, only when the concept is abstract (e.g. CPCV, DSR, Pareto). Keep it short and vivid — a dart-board, a cinema-seat, a car-shopping analogy. Skip this for self-evident terms.
-3. **Betting-context example** — a concrete illustration using _this app's domain_: real-looking numbers (e.g. "+3.2% EV", "800 settled bets", "Kelly 0.25"), real providers (Pinnacle, NineWickets Exchange, NineWickets Sportsbook), real markets (1X2, Asian Handicap, BTTS, O/U 2.5). This is the part that makes the concept land for the operator.
-4. **Objective / what you'll achieve** — especially for choices (algorithms, samplers, samplers, kelly fractions, strategies). One sentence on the tangible outcome: "pick this when you want X", "this unlocks Y", "use this if you care about Z over W." Never leave a choice without an answer to _"why would I pick this one?"_
+**Why:** on 2026-04-25 the dashboard layout silently collapsed because Turbopack's CSS-bundler dropped a ~400-line block of custom rules from `app/globals.css` mid-parse — the source was valid but the compiled chunk just stopped emitting `.db-*`, `.acc-*`, `.fintech-*`, `.dashboard-*`, `.appshell-*`, `.metric-pod`, `.glass-panel`, etc., so every consumer fell back to default `display: block`. Tailwind utilities don't have this failure mode (each utility is independently scanned from JSX). Custom CSS is also harder to refactor (no IDE autocomplete, no purging, no design-token integration with the theme).
+
+**What's allowed in `app/globals.css`:**
+
+- `@import "tailwindcss"` and the other library imports.
+- The `@theme inline { ... }` block that maps semantic tokens to CSS variables (this is how Tailwind v4 wires the design system).
+- The `:root` / `.dark` blocks defining `--background`, `--foreground`, `--danger`, `--positive`, `--warning`, `--sidebar-*`, etc. — these are theme tokens consumed via Tailwind utilities like `text-foreground`, `bg-danger`, `border-sidebar-border`.
+- The `@layer base { * { @apply border-border outline-ring/50 } }` reset (one rule, applies the global border color).
+- Sonner toast overrides (`[data-sonner-toast][data-type="..."]`) — these target a third-party library's data attributes, can't be expressed in Tailwind.
+- Global scrollbar styling (`::-webkit-scrollbar`) — pseudo-element, no Tailwind equivalent.
+
+**What's NOT allowed:**
+
+- Component-scoped class blocks (`.db-kpi-card { ... }`, `.acc-card { ... }`, `.appshell-topbar { ... }`, etc.). Inline the styling on the JSX, or extract a React component.
+- App-specific keyframes (`@keyframes value-update`, `@keyframes nav-slide-in`, `@keyframes fade-up`, etc.). Use Tailwind's built-in animations (`animate-pulse`, `animate-spin`, `animate-fade-in`, `animate-slide-in-from-left`, etc., from `tw-animate-css`) or arbitrary `animate-[name_duration_easing]` with the keyframe declared on the element via `@property` if truly bespoke.
+- Utility-style helper classes (`.data-text { font-family: var(--font-jetbrains); ... }`, `.glass-panel { ... }`). Replace with utilities (`font-mono tabular-nums tracking-tight`, etc.) or a wrapper component.
+
+**When migrating an existing component, the steps are:** (1) read the custom-class definition in `globals.css`, (2) translate each declaration into the equivalent Tailwind utility (use `bg-[oklch(...)]` / `shadow-[inset_0_0_30px_oklch(...)]` for arbitrary values), (3) replace the class on the JSX, (4) delete the rule from `globals.css`, (5) verify no other consumer still uses it (`grep -r "the-class-name" app/ components/ lib/`).
+
+This rule overrides "Code Style" or any earlier section that suggested writing custom CSS — when they conflict, this rule wins.
+
+## Tooltips are foundational — every meaningful control has one
+
+Tooltips are not optional polish — they are the platform's primary explanatory layer. The operator should never have to guess what a button does, what a tab contains, what a filter chip narrows by, or what a dropdown menu picks between. **If a control is non-obvious, it gets a Tooltip.**
+
+**The rule:**
+
+- Use the `<Tooltip>` / `<TooltipTrigger>` / `<TooltipContent>` primitives from [`components/ui/tooltip.tsx`](components/ui/tooltip.tsx) — never plain `title=""` HTML attributes for anything beyond a fallback. Native `title` is only acceptable for trivial decorative icons; for any actionable control, the rich Radix tooltip is the standard. Wrap the panel root (or a sensible subtree) in `<TooltipProvider delayDuration={200}>` once.
+- **Every workflow step gets a tooltip explaining what it does and what happens next.** Tabs, filter chips, action buttons (approve/reject/verify/delete), bulk dropdowns, refresh/sync buttons, status badges that mean something specific — all of these need explanatory tooltips.
+- **Tooltip body follows the "Explanatory copy" rule below** — plain English, concrete example where applicable, no acronym soup. Keep it to 1–2 sentences for action buttons; up to 3 for tab/section explanations.
+- **State-aware tooltips:** when the control's behavior changes by context (e.g. "Approve" on the To Review tab merges + learns aliases, "Approve" on the Decided tab overrides any prior verdict), the tooltip body must reflect the current state. Don't ship a tooltip that lies about what the click will do.
+- **Cost-coded tooltips for paid actions:** any control that triggers a billed AI call (Gemini Lite/Flash/Pro) must say "AI calls cost money" in the tooltip and recommend cheaper paths first. The dropdown label itself ("Verify with AI (paid)") is the visible cue; the tooltip is the explanation.
+
+**Why this rule exists:** the Matcher Lab's pre-2026-04-26 UI relied on `title=""` for explanations. They were inaccessible on touch devices, didn't render rich content, and were so terse the operator couldn't tell which AI tier was the cheapest or what "auto-suggested" meant. Reaching for proper Tooltip components is a baseline expectation, not a polish pass — code that ships UI without them is incomplete.
+
+## Explanatory copy — plain language with one concrete example
+
+Every tooltip, empty state, section intro, form-field help text, error message, or glossary entry has to be readable by a non-technical operator. Two paragraphs max:
+
+1. **Headline** — one plain-English sentence (the bold first line of any tooltip). NO acronyms, NO field-of-study terms in the headline. "Tests each strategy on bets it has never seen" beats "CPCV — Combinatorial Purged Cross-Validation".
+2. **Body** — one short paragraph that weaves a plain-English explanation together with a concrete betting illustration. Uses real-looking numbers ("+3.2% EV", "1,200 settled bets", "100k BDT bankroll"), this app's providers (Pinnacle, NineWickets-Exchange, NineWickets-SB, BetConstruct), and real markets (1X2, Asian Handicap, BTTS, O/U 2.5). Don't separate "definition" from "example" into different blocks — combine them in one flowing paragraph.
+3. **Choice tail (optional)** — for picker-type entries only (algorithms, CV mode, staking scheme, Kelly fraction): one short italic sentence answering "why pick this one?". Skip on metric/concept entries.
+
+**Vocabulary cheatsheet** — drop these from user-facing copy unless explicitly kept as a column label. Use the right column instead:
+
+| Don't say in body copy           | Say instead                                                        |
+| -------------------------------- | ------------------------------------------------------------------ |
+| OOS / out-of-sample              | "on bets it has never seen"                                        |
+| in-sample                        | "on bets it trained on"                                            |
+| Sharpe ratio                     | "smoothness of returns"                                            |
+| Bayesian sampler / TPE (in body) | "learns from the early trials and focuses on what looks promising" |
+| stationary block bootstrap       | "we shuffle your history thousands of times"                       |
+| confidence interval / CI         | "the believable range"                                             |
+| p-value                          | "how likely this is just chance"                                   |
+| Pareto frontier                  | "the trade-off line"                                               |
+| variance / stdev                 | "how bumpy the equity curve is"                                    |
+| 11-dimensional parameter space   | "the menu of knobs"                                                |
+| math formulas                    | (drop entirely; describe the intent)                               |
+
+Acronyms (DSR, PBO, WRC, CPCV) are still fine **as column headers and pickers** — that's where the user encounters the term. The tooltip body must explain it without using the acronym again.
 
 **Rules of thumb:**
 
-- Never ship a tooltip or help string that's only non-contextual. If a reader can't translate the term to their own bet history, the copy failed.
+- Headline + body. No "Why this matters" / "For your bets:" / "What you'll achieve:" labels.
 - Prefer concrete numbers over hand-wavy ranges ("ROI 5.2% across 800 bets" beats "decent ROI on a reasonable sample").
-- Prefer app-specific nouns over generic finance language ("placed bets", "settled bets", "soft book", "sharp book", "value bet", "EV cutoff") over "trades", "positions", "signals".
-- When in doubt, err on the side of longer, betting-flavored copy — tooltips and docs are read once per concept; clarity compounds.
+- Prefer app-specific nouns ("placed bets", "settled bets", "soft book", "sharp book", "value bet", "EV cutoff") over generic finance jargon ("trades", "positions", "signals").
+- A non-technical operator should be able to read any tooltip cold and understand both _what it is_ and _why they'd care_, without needing to look anything else up.
 
-This rule applies everywhere in the app: `/lab/optimisation` tooltips, `/bets` filter explanations, `/value-bets` column headers, API error payloads, onboarding copy, empty states, toast messages. The glossary at [`lib/lab/glossary.ts`](lib/lab/glossary.ts) is the reference implementation — new explanatory copy should follow its `short` / `long` / `example` / `objective` structure.
+This rule applies everywhere: `/lab/optimisation` tooltips, `/bets` filter explanations, `/value-bets` column headers, API error payloads, onboarding copy, empty states, toast messages. The glossary at [`lib/lab/glossary.ts`](lib/lab/glossary.ts) is the reference implementation — new explanatory copy should follow its `short` / `example` / `objective` structure (the legacy `long` field is deprecated and no longer rendered).
 
 ## Dashboard Design Philosophy
 
@@ -482,3 +583,11 @@ After ANY code change:
 ### UI consistency — reuse toolbar/filter components
 
 Toolbar and filter components should be reused across spreadsheet surfaces. When adding a new list/table page, reuse (or extract into a shared component under `components/spreadsheet/`) the filter pill, search, sort, and pagination patterns already in `BetsHistoryToolbar` and `SpreadsheetToolbar`. The standard is `h-7` / `px-3 py-1.5` / `bg-muted/40` wrapper / `text-[11px]` buttons — match this vocabulary. Do not duplicate styling; inconsistent sizing between pages was a fix point in April 2026. If you need a new variant, extract the common parts first.
+
+### Reusable table component — always use `<DataTable>`
+
+Every table in the app uses [`components/ui/data-table.tsx`](components/ui/data-table.tsx) (`<DataTable>`). It already provides virtualization, sorting, column resize, drag-to-reorder, persistence, infinite scroll, grouping, and selection — opt-in via flags. Do not write a new plain `<table>` for tabular data; if you need a feature `<DataTable>` is missing, extend it in place rather than forking. A 500-row plain table on `/lab/optimisation/[id]` was the root cause of laggy polling on 2026-04-25 — the component exists precisely so we don't repeat that.
+
+Use `getRowId` whenever rows are returned from a polled query, otherwise the virtualizer treats every poll as a full DOM rebuild.
+
+The only existing exception is [`components/spreadsheet/ValueBetSpreadsheet.tsx`](components/spreadsheet/ValueBetSpreadsheet.tsx), which is intentionally bespoke because its row layout is positional (event-header rows, family grouping) and doesn't map onto a flat column model. New tables should not become further exceptions — solve it inside `<DataTable>`.

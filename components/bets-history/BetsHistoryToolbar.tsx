@@ -54,6 +54,7 @@ import { OddsRangeDropdown } from "@/components/filters/OddsRangeDropdown";
 import { MarketsFilter } from "@/components/filters/MarketsFilter";
 import { ProvidersFilter } from "@/components/filters/ProvidersFilter";
 import { EvRangeFilter } from "@/components/filters/EvRangeFilter";
+import { StrategyPickerPill } from "@/components/optimizer/StrategyPickerPill";
 
 // ============================================
 // Option data
@@ -172,21 +173,24 @@ const DATE_PRESET_GROUPS: {
   keys: DatePresetKey[];
 }[] = [
   {
-    title: "Quick ranges",
-    keys: ["last1h", "last3h", "last6h", "last12h", "today", "yesterday"],
+    title: "Hours",
+    keys: ["last1h", "last3h", "last6h", "last12h", "last24h", "last48h"],
   },
   {
-    title: "Longer windows",
+    title: "Days",
     keys: [
+      "today",
+      "yesterday",
+      "thisWeek",
+      "lastWeek",
       "last3d",
       "last7d",
       "last15d",
-      "thisMonth",
-      "last30d",
-      "last60d",
-      "last90d",
-      "all",
     ],
+  },
+  {
+    title: "Months",
+    keys: ["thisMonth", "last30d", "last60d", "last90d", "all"],
   },
 ];
 
@@ -200,8 +204,12 @@ function getCompactPresetLabel(key: DatePresetKey) {
     last3h: "3h",
     last6h: "6h",
     last12h: "12h",
+    last24h: "24h",
+    last48h: "48h",
     today: "Today",
     yesterday: "Yday",
+    thisWeek: "Week",
+    lastWeek: "Prev wk",
     last3d: "3d",
     last7d: "7d",
     last15d: "15d",
@@ -396,39 +404,29 @@ function DatePresetPanel({
   );
 
   return (
-    <Tabs defaultValue={defaultTab} className="w-full gap-3">
-      <div className="px-1">
-        <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-          Date windows
-        </div>
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-          Run separate ranges for when bets were captured and when fixtures
-          kicked off.
-        </p>
-      </div>
-
-      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-muted/65 p-1">
+    <Tabs defaultValue={defaultTab} className="w-full gap-2">
+      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-lg bg-muted/65 p-1">
         <TabsTrigger
           value="captured"
-          className="h-auto items-start justify-between rounded-lg border border-transparent px-3 py-2 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          className="h-auto items-center justify-between rounded-md border border-transparent px-2.5 py-1.5 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-background data-[state=active]:shadow-sm"
         >
           <span className="flex items-center gap-1.5">
-            <Clock className="size-3.5" />
+            <Clock className="size-3" />
             <span className="text-[11px] font-medium">Captured</span>
           </span>
-          <span className="truncate text-[10px] text-muted-foreground">
+          <span className="truncate text-[10px] text-muted-foreground ml-1">
             {capturedSummary}
           </span>
         </TabsTrigger>
         <TabsTrigger
           value="kickoff"
-          className="h-auto items-start justify-between rounded-lg border border-transparent px-3 py-2 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          className="h-auto items-center justify-between rounded-md border border-transparent px-2.5 py-1.5 text-left data-[state=active]:border-primary/25 data-[state=active]:bg-background data-[state=active]:shadow-sm"
         >
           <span className="flex items-center gap-1.5">
-            <Calendar className="size-3.5" />
+            <Calendar className="size-3" />
             <span className="text-[11px] font-medium">Kickoff</span>
           </span>
-          <span className="truncate text-[10px] text-muted-foreground">
+          <span className="truncate text-[10px] text-muted-foreground ml-1">
             {kickoffSummary}
           </span>
         </TabsTrigger>
@@ -443,8 +441,8 @@ function DatePresetPanel({
         {capturedPreset === "custom" && (
           <CustomDatePickers
             label="Captured time"
-            fromValue={filters.from?.slice(0, 10) ?? ""}
-            toValue={filters.to?.slice(0, 10) ?? ""}
+            fromValue={filters.from?.slice(0, 16) ?? ""}
+            toValue={filters.to?.slice(0, 16) ?? ""}
             onFromChange={(v) => onUpdateFilters({ from: v })}
             onToChange={(v) => onUpdateFilters({ to: v })}
             onClear={() => onUpdateFilters({ from: undefined, to: undefined })}
@@ -461,8 +459,8 @@ function DatePresetPanel({
         {kickoffPreset === "custom" && (
           <CustomDatePickers
             label="Kickoff time"
-            fromValue={filters.eventFrom?.slice(0, 10) ?? ""}
-            toValue={filters.eventTo?.slice(0, 10) ?? ""}
+            fromValue={filters.eventFrom?.slice(0, 16) ?? ""}
+            toValue={filters.eventTo?.slice(0, 16) ?? ""}
             onFromChange={(v) => onUpdateFilters({ eventFrom: v })}
             onToChange={(v) => onUpdateFilters({ eventTo: v })}
             onClear={() =>
@@ -475,7 +473,30 @@ function DatePresetPanel({
   );
 }
 
-/** Grid of preset buttons shared by both tabs. */
+/** Compact chip-row preset selector shared by both tabs. */
+
+const PRESET_TOOLTIPS: Record<DatePresetKey, string> = {
+  last1h: "Rolling window — last 60 minutes from now",
+  last3h: "Rolling window — last 3 hours from now",
+  last6h: "Rolling window — last 6 hours from now",
+  last12h: "Rolling window — last 12 hours from now",
+  last24h: "Rolling window — last 24 hours from now",
+  last48h: "Rolling window — last 48 hours from now",
+  today: "Calendar day — midnight to end of today",
+  yesterday: "Calendar day — yesterday midnight to midnight",
+  thisWeek: "Calendar week — Monday 00:00 to now",
+  lastWeek: "Calendar week — previous Monday to Sunday",
+  last3d: "Calendar days — 3 days including today",
+  last7d: "Calendar days — 7 days including today",
+  last15d: "Calendar days — 15 days including today",
+  thisMonth: "Calendar month — 1st of the month to now",
+  last30d: "Calendar days — 30 days including today",
+  last60d: "Calendar days — 60 days including today",
+  last90d: "Calendar days — 90 days including today",
+  all: "No date filter — show everything",
+  custom: "Pick exact start and end date + time",
+};
+
 function PresetGrid({
   activePreset,
   onSelect,
@@ -484,43 +505,30 @@ function PresetGrid({
   onSelect: (key: DatePresetKey) => void;
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {DATE_PRESET_GROUPS.map((group) => (
-        <div key={group.title} className="space-y-1.5">
-          <div className="px-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+        <div key={group.title} className="space-y-1">
+          <div className="px-0.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
             {group.title}
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="flex flex-wrap gap-1">
             {group.keys.map((key) => {
-              const preset = DATE_PRESETS.find((item) => item.key === key);
-              if (!preset) return null;
-
-              const selected = activePreset === preset.key;
-
+              const selected = activePreset === key;
               return (
                 <button
-                  key={preset.key}
+                  key={key}
                   type="button"
-                  onClick={() => onSelect(preset.key)}
+                  onClick={() => onSelect(key)}
                   aria-pressed={selected}
+                  title={PRESET_TOOLTIPS[key]}
                   className={cn(
-                    "flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[11px] font-medium transition-all duration-150",
+                    "inline-flex items-center rounded-lg border px-2 py-1 text-[11px] font-medium transition-all duration-150",
                     selected
                       ? "border-primary/40 bg-primary/14 text-foreground shadow-sm ring-1 ring-primary/20"
                       : "border-border/70 bg-background/70 text-muted-foreground hover:border-foreground/10 hover:bg-muted/60 hover:text-foreground",
                   )}
                 >
-                  <span>{preset.label}</span>
-                  <span
-                    className={cn(
-                      "flex size-4 items-center justify-center rounded-full border transition-colors",
-                      selected
-                        ? "border-primary/40 bg-primary/18 text-primary"
-                        : "border-border/80 text-transparent",
-                    )}
-                  >
-                    <Check className="size-3" />
-                  </span>
+                  {getCompactPresetLabel(key)}
                 </button>
               );
             })}
@@ -532,23 +540,24 @@ function PresetGrid({
         type="button"
         onClick={() => onSelect("custom")}
         aria-pressed={activePreset === "custom"}
+        title={PRESET_TOOLTIPS.custom}
         className={cn(
-          "flex w-full items-center justify-between rounded-xl border border-dashed px-3 py-2 text-left text-[11px] font-medium transition-all duration-150",
+          "flex w-full items-center justify-between rounded-lg border border-dashed px-2 py-1 text-left text-[11px] font-medium transition-all duration-150",
           activePreset === "custom"
             ? "border-primary/35 bg-primary/12 text-foreground shadow-sm ring-1 ring-primary/20"
             : "border-border bg-muted/35 text-muted-foreground hover:border-foreground/10 hover:bg-muted/60 hover:text-foreground",
         )}
       >
-        <span>Custom range</span>
+        <span>Custom date & time</span>
         <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-          Edit dates
+          Pick range
         </span>
       </button>
     </div>
   );
 }
 
-/** From/to date inputs for the "Custom…" preset. */
+/** From/to datetime inputs for the "Custom…" preset. */
 function CustomDatePickers({
   label,
   fromValue,
@@ -569,28 +578,41 @@ function CustomDatePickers({
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
         {label}
       </div>
-      <div className="flex items-center gap-1.5">
-        <Input
-          type="date"
-          value={fromValue}
-          onChange={(e) =>
-            onFromChange(
-              e.target.value ? `${e.target.value}T00:00:00.000Z` : undefined,
-            )
-          }
-          className="h-7 w-[120px] text-[11px] px-2"
-        />
-        <span className="text-muted-foreground text-[11px]">→</span>
-        <Input
-          type="date"
-          value={toValue}
-          onChange={(e) =>
-            onToChange(
-              e.target.value ? `${e.target.value}T23:59:59.000Z` : undefined,
-            )
-          }
-          className="h-7 w-[120px] text-[11px] px-2"
-        />
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground w-8 shrink-0">
+            From
+          </span>
+          <Input
+            type="datetime-local"
+            value={fromValue}
+            onChange={(e) =>
+              onFromChange(
+                e.target.value
+                  ? new Date(e.target.value).toISOString()
+                  : undefined,
+              )
+            }
+            className="h-7 flex-1 text-[11px] px-2"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground w-8 shrink-0">
+            To
+          </span>
+          <Input
+            type="datetime-local"
+            value={toValue}
+            onChange={(e) =>
+              onToChange(
+                e.target.value
+                  ? new Date(e.target.value).toISOString()
+                  : undefined,
+              )
+            }
+            className="h-7 flex-1 text-[11px] px-2"
+          />
+        </div>
       </div>
       {(fromValue || toValue) && (
         <div className="flex justify-end mt-1.5">
@@ -657,6 +679,15 @@ type Props = {
   onClearSavedDefaults: () => void;
   isAtDefaults: boolean;
   hasSavedDefaults: boolean;
+
+  /**
+   * Strategies whose filter values populate the toolbar as a template.
+   * Empty = no template applied. The picker drops its "applied" badge once
+   * `strategyTemplateModified` is true (toolbar diverged from template).
+   */
+  appliedStrategyIds: string[];
+  onAppliedStrategiesChange: (ids: string[]) => void;
+  strategyTemplateModified: boolean;
 };
 
 // ============================================
@@ -680,6 +711,9 @@ export function BetsHistoryToolbar({
   onRefresh,
   onClearSelection,
   onSelectAllLoaded,
+  appliedStrategyIds,
+  onAppliedStrategiesChange,
+  strategyTemplateModified,
   onBulkSettle,
   settleRunning,
   resettleEligibleCount,
@@ -754,8 +788,6 @@ export function BetsHistoryToolbar({
     };
   }, []);
 
-  const marketSel = filters.marketTypes ?? [];
-  const providerSel = filters.softProviders ?? [];
   const settledBySel = filters.settledBySources ?? [];
 
   // Populate from the rows we've loaded. Server-side enum would be cleaner
@@ -786,11 +818,6 @@ export function BetsHistoryToolbar({
       ? "needsReview"
       : ((filters.outcome as OutcomeFilter | undefined) ?? "all");
 
-  const evLabel =
-    filters.minEv == null && filters.maxEv == null
-      ? "All"
-      : `${filters.minEv ?? "–∞"} to ${filters.maxEv ?? "+∞"}`;
-
   /** Apply a preset to either the captured or kickoff dimension.
    *  Non-custom presets store the preset key only — the actual from/to
    *  window is re-resolved from the key on each refetch tick in the
@@ -818,6 +845,11 @@ export function BetsHistoryToolbar({
   // scroll pages already loaded, which under-reported by an order of magnitude
   // on broad filters.
   const placedOnly = filters.placedOnly === true;
+  // First load only — `useBetsStats` uses `keepPreviousData`, so once stats
+  // arrive they persist through every refetch. A null `stats` therefore
+  // means "no data yet at all" and we should suppress the KPI numbers
+  // rather than render misleading zeros.
+  const statsNotReady = !stats;
   const settledCount = stats?.settled ?? 0;
   const placedSettledCount = stats?.placedSettled ?? 0;
   const winsCount = stats?.wins ?? 0;
@@ -995,27 +1027,34 @@ export function BetsHistoryToolbar({
             filtered set, not just the paginated slice the user has scrolled
             through. Every technical term gets a plain-English tooltip. */}
         <div className="flex items-center gap-3 pr-2 text-[11px] text-muted-foreground whitespace-nowrap">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <span className="font-medium text-foreground tabular-nums">
-                  {filteredCount}
+          {statsNotReady ? (
+            <span className="inline-flex items-center gap-1.5 opacity-70">
+              <Loader2 className="size-3 animate-spin" />
+              <span>Loading stats…</span>
+            </span>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <span className="font-medium text-foreground tabular-nums">
+                    {filteredCount}
+                  </span>
+                  <span className="mx-0.5 opacity-60">/</span>
+                  <span className="tabular-nums">{matchedCount}</span>{" "}
+                  <span>matched</span>
+                  {statsLoading && (
+                    <Loader2 className="inline size-3 ml-1 animate-spin opacity-50" />
+                  )}
                 </span>
-                <span className="mx-0.5 opacity-60">/</span>
-                <span className="tabular-nums">{matchedCount}</span>{" "}
-                <span>matched</span>
-                {statsLoading && (
-                  <Loader2 className="inline size-3 ml-1 animate-spin opacity-50" />
-                )}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-[260px]">
-              Rows loaded so far (left) vs. total bets matching your current
-              filters (right). Scroll to load more.
-            </TooltipContent>
-          </Tooltip>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[260px]">
+                Rows loaded so far (left) vs. total bets matching your current
+                filters (right). Scroll to load more.
+              </TooltipContent>
+            </Tooltip>
+          )}
 
-          {roiApplicable && (
+          {!statsNotReady && roiApplicable && (
             <>
               <span className="opacity-40">·</span>
               <Tooltip>
@@ -1123,7 +1162,7 @@ export function BetsHistoryToolbar({
               ) : null}
             </>
           )}
-          {!roiApplicable && settledCount === 0 && (
+          {!statsNotReady && !roiApplicable && settledCount === 0 && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="text-muted-foreground/70 italic">
@@ -1151,6 +1190,14 @@ export function BetsHistoryToolbar({
           ================================ */}
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/50">
         <div className="flex-1 flex items-center gap-1.5 overflow-x-auto min-w-0">
+          {/* Strategy template — populates toolbar from a saved /lab/optimisation strategy */}
+          <StrategyPickerPill
+            appliedStrategyIds={appliedStrategyIds}
+            onApply={onAppliedStrategiesChange}
+            isModified={strategyTemplateModified}
+          />
+          <Separator />
+
           {/* Markets */}
           <MarketsFilter
             selected={filters.marketTypes ?? []}
@@ -1266,7 +1313,10 @@ export function BetsHistoryToolbar({
                 <ChevronDown className="size-3 opacity-60" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-[360px] rounded-xl p-3">
+            <PopoverContent
+              align="start"
+              className="w-[320px] rounded-xl p-2.5"
+            >
               <DatePresetPanel
                 capturedPreset={capturedPreset}
                 kickoffPreset={kickoffPreset}

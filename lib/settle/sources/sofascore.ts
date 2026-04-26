@@ -20,7 +20,7 @@
  */
 
 import axios, { type AxiosRequestConfig } from "axios";
-import { compareTwoStrings } from "string-similarity";
+import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
 import type { SettleEvent } from "../waterfall";
 import type { MatchScore } from "../types";
 import { logger } from "../../shared/logger";

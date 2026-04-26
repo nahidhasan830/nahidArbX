@@ -83,6 +83,26 @@ interface Overview9W {
   errors: Record<string, string>;
 }
 
+interface OverviewVelki {
+  ok: boolean;
+  at: string;
+  providerInfo: {
+    betCredit: number;
+    exposure: number;
+    suspended: boolean;
+    minBet: number;
+  } | null;
+  mainSite: null;
+  turnover: null;
+  autoLogin: {
+    enabled: boolean;
+    reason: string | null;
+    updatedAt: string;
+  };
+  recaptured: boolean;
+  errors: Record<string, string>;
+}
+
 interface BettingAccount {
   provider: string;
   providerDisplayName: string;
@@ -112,6 +132,8 @@ interface BreakdownRow {
   profit: number;
   roiPct: number;
   avgClvPct: number | null;
+  openBets: number;
+  settledBets: number;
 }
 
 interface PnlPoint {
@@ -194,7 +216,12 @@ export default function DashboardPage() {
     () => new Set(),
   );
   const [overview9W, setOverview9W] = useState<Overview9W | null>(null);
-  const [autoLoginBusy, setAutoLoginBusy] = useState(false);
+  const [overviewVelki, setOverviewVelki] = useState<OverviewVelki | null>(
+    null,
+  );
+  const [autoLoginBusy, setAutoLoginBusy] = useState<Set<string>>(
+    () => new Set(),
+  );
   const loadInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -260,7 +287,22 @@ export default function DashboardPage() {
       }
     })();
 
-    await Promise.all([loadAccounts, loadStats, loadOverview]);
+    const loadOverviewVelki = (async () => {
+      try {
+        const res = await timeoutFetch("/api/providers/velki/overview", 15_000);
+        if (!res || !res.ok) return;
+        setOverviewVelki((await res.json()) as OverviewVelki);
+      } catch {
+        // non-fatal
+      }
+    })();
+
+    await Promise.all([
+      loadAccounts,
+      loadStats,
+      loadOverview,
+      loadOverviewVelki,
+    ]);
 
     if (errors.length > 0) {
       setFetchError(errors.join(" · "));
@@ -270,10 +312,17 @@ export default function DashboardPage() {
   }, []);
 
   const handleAutoLoginToggle = useCallback(
-    async (enabled: boolean) => {
-      setAutoLoginBusy(true);
+    async (provider: string, enabled: boolean) => {
+      const route =
+        provider === "ninewickets-sportsbook"
+          ? "/api/providers/9w/auto-login"
+          : provider === "velki-sportsbook"
+            ? "/api/providers/velki/auto-login"
+            : null;
+      if (!route) return;
+      setAutoLoginBusy((prev) => new Set(prev).add(provider));
       try {
-        const res = await fetch("/api/providers/9w/auto-login", {
+        const res = await fetch(route, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -288,7 +337,11 @@ export default function DashboardPage() {
           `Auto-login toggle failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       } finally {
-        setAutoLoginBusy(false);
+        setAutoLoginBusy((prev) => {
+          const next = new Set(prev);
+          next.delete(provider);
+          return next;
+        });
       }
     },
     [load],
@@ -334,12 +387,24 @@ export default function DashboardPage() {
   const autoReloginAttemptsRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     if (!accounts) return;
-    if (!overview9W?.autoLogin?.enabled) return;
     const now = Date.now();
     for (const acc of accounts) {
       if (!acc.error) continue;
       if (reloginInProgress.has(acc.provider)) continue;
       if (!looksLikeAuthError(acc.error)) continue;
+      // Per-provider auto-login gate. If the operator paused auto-login
+      // for THIS provider, leave the error alone — they're working on
+      // it manually and a background relogin would kick them.
+      if (
+        acc.provider === "ninewickets-sportsbook" &&
+        !overview9W?.autoLogin?.enabled
+      )
+        continue;
+      if (
+        acc.provider === "velki-sportsbook" &&
+        !overviewVelki?.autoLogin?.enabled
+      )
+        continue;
       const last = autoReloginAttemptsRef.current.get(acc.provider) ?? 0;
       if (now - last < 60_000) continue;
       autoReloginAttemptsRef.current.set(acc.provider, now);
@@ -348,6 +413,7 @@ export default function DashboardPage() {
   }, [
     accounts,
     overview9W?.autoLogin?.enabled,
+    overviewVelki?.autoLogin?.enabled,
     reloginInProgress,
     handleRelogin,
   ]);
@@ -394,7 +460,10 @@ export default function DashboardPage() {
       title="Dashboard"
       titleBadge={
         totals ? (
-          <Badge variant="secondary" className="ml-2 text-[10px] data-text">
+          <Badge
+            variant="secondary"
+            className="ml-2 text-[10px] font-mono tabular-nums tracking-tight"
+          >
             {totals.betCount} bets
           </Badge>
         ) : null
@@ -412,17 +481,17 @@ export default function DashboardPage() {
       }
       edgeToEdge
     >
-      <div className="db-root">
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto xl:overflow-hidden p-3 gap-3 bg-background">
         {/* Error banner */}
         {fetchError && (
-          <div className="db-error-banner">
+          <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 shrink-0">
             <AlertCircle className="size-3.5 shrink-0" />
             <span>{fetchError}</span>
           </div>
         )}
 
         {/* ── KPI STRIP ── */}
-        <div className="db-kpi-strip">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 shrink-0">
           <KpiCard
             icon={<TrendingUp className="size-3.5" />}
             label="Total P&L"
@@ -492,70 +561,141 @@ export default function DashboardPage() {
         </div>
 
         {/* ── MAIN BODY ── */}
-        <div className="db-body">
-          {/* Left column: charts */}
-          <div className="db-charts-col">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(380px,540px)] gap-3 xl:flex-1 xl:min-h-0 xl:overflow-hidden">
+          {/* Left column: charts stack */}
+          <div className="flex flex-col gap-3 xl:min-w-0 xl:min-h-0 xl:overflow-hidden">
             {/* P&L Chart card */}
-            <div className="db-card db-pnl-card">
-              <div className="db-card-header">
-                <div className="db-card-title">
-                  <span className="db-card-dot db-card-dot--brand" />
-                  P&L Curve
-                </div>
-                <ChartLegend />
-              </div>
-              <div className="db-chart-body">
-                {stats ? (
-                  <PnlChart
-                    data={stats.pnlSeries}
-                    currency={currency}
-                    height="100%"
-                  />
-                ) : (
-                  <Skeleton className="h-full w-full rounded-xl" />
-                )}
-              </div>
-            </div>
+            <Panel
+              title="P&L Curve"
+              dot="bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.6)]"
+              trailing={<ChartLegend />}
+              bodyClassName="px-2 pb-2.5"
+              className="h-[360px] xl:h-auto xl:flex-1 xl:min-h-0 xl:overflow-hidden"
+            >
+              {stats ? (
+                <PnlChart
+                  data={stats.pnlSeries}
+                  currency={currency}
+                  height="100%"
+                />
+              ) : (
+                <Skeleton className="h-full w-full rounded-xl" />
+              )}
+            </Panel>
 
             {/* Heatmap card */}
-            <div className="db-card db-heatmap-card">
-              <div className="db-card-header">
-                <div className="db-card-title">
-                  <Clock className="size-3" />
-                  Activity Heatmap
-                </div>
-              </div>
-              <div className="db-heatmap-body">
-                {stats ? (
-                  <Heatmap cells={stats.heatmap} currency={currency} />
-                ) : (
-                  <Skeleton className="h-[130px] w-full rounded-xl" />
-                )}
-              </div>
-            </div>
+            <Panel
+              title="Activity Heatmap"
+              icon={<Clock className="size-3" />}
+              bodyClassName="px-4 pt-0.5 pb-3.5"
+              className="shrink-0 min-h-[220px]"
+            >
+              {stats ? (
+                <Heatmap cells={stats.heatmap} currency={currency} />
+              ) : (
+                <Skeleton className="h-[130px] w-full rounded-xl" />
+              )}
+            </Panel>
           </div>
 
           {/* Right column: accounts */}
-          <div className="db-accounts-col">
+          <Panel
+            title="Accounts"
+            dot="bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]"
+            trailing={
+              accounts ? (
+                <span className="text-[10px] font-mono tabular-nums tracking-tight text-muted-foreground/50">
+                  {accounts.length}
+                </span>
+              ) : null
+            }
+            bodyClassName="p-0 xl:flex-1 xl:min-h-0 xl:overflow-y-auto"
+            className="xl:overflow-hidden xl:min-h-0"
+          >
             <BettingAccountsPanel
               accounts={accounts}
+              stats={stats}
               overview9W={overview9W}
+              overviewVelki={overviewVelki}
               onToggleAutoPlace={handleToggleAutoPlace}
               onRelogin={handleRelogin}
               reloginInProgress={reloginInProgress}
               onToggleAutoLogin={handleAutoLoginToggle}
               autoLoginBusy={autoLoginBusy}
             />
-          </div>
+          </Panel>
         </div>
       </div>
     </AppShell>
   );
 }
 
+// --------------------------- Panel (card shell) ---------------------------
+
+function Panel({
+  title,
+  icon,
+  dot,
+  trailing,
+  className,
+  bodyClassName,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  /** Tailwind classes for the leading colored dot (overrides `icon`). */
+  dot?: string;
+  trailing?: React.ReactNode;
+  className?: string;
+  bodyClassName?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "flex flex-col rounded-xl border border-border/60 bg-card/40 backdrop-blur-md shadow-[0_1px_3px_rgba(0,0,0,0.18),0_8px_24px_-8px_rgba(0,0,0,0.25)] overflow-hidden",
+        className,
+      )}
+    >
+      <header className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 border-b border-border/40 shrink-0">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold tracking-[0.09em] uppercase text-foreground/85">
+          {dot ? (
+            <span className={cn("size-1.5 rounded-full shrink-0", dot)} />
+          ) : (
+            icon
+          )}
+          {title}
+        </div>
+        {trailing}
+      </header>
+      <div className={cn("flex-1 min-h-0", bodyClassName)}>{children}</div>
+    </section>
+  );
+}
+
 // --------------------------- KPI Card ---------------------------
 
 type PodTone = "positive" | "negative" | "warning" | "brand" | "neutral";
+
+const TONE_VALUE: Record<PodTone, string> = {
+  positive: "text-emerald-400",
+  negative: "text-danger",
+  warning: "text-amber-400",
+  brand: "text-cyan-400",
+  neutral: "text-foreground/90",
+};
+
+const TONE_RING: Record<PodTone, string> = {
+  positive:
+    "before:bg-emerald-500/70 bg-[radial-gradient(ellipse_at_100%_0%,oklch(0.72_0.19_168/0.06),transparent_60%)]",
+  negative:
+    "before:bg-danger/70 bg-[radial-gradient(ellipse_at_100%_0%,oklch(0.66_0.13_22/0.06),transparent_60%)]",
+  warning:
+    "before:bg-amber-400/70 bg-[radial-gradient(ellipse_at_100%_0%,oklch(0.78_0.15_80/0.06),transparent_60%)]",
+  brand:
+    "before:bg-cyan-400/70 bg-[radial-gradient(ellipse_at_100%_0%,oklch(0.72_0.16_190/0.08),transparent_60%)]",
+  neutral: "before:bg-muted-foreground/40",
+};
 
 function KpiCard({
   icon,
@@ -572,48 +712,42 @@ function KpiCard({
   tone?: PodTone;
   loading?: boolean;
 }) {
-  const valueColor =
-    tone === "positive"
-      ? "text-emerald-400"
-      : tone === "negative"
-        ? "text-danger"
-        : tone === "warning"
-          ? "text-amber-400"
-          : tone === "brand"
-            ? "text-cyan-400"
-            : "text-foreground/90";
-
-  const accentClass =
-    tone === "positive"
-      ? "db-kpi--positive"
-      : tone === "negative"
-        ? "db-kpi--negative"
-        : tone === "warning"
-          ? "db-kpi--warning"
-          : tone === "brand"
-            ? "db-kpi--brand"
-            : "";
-
   return (
-    <div className={cn("db-kpi-card", accentClass)}>
-      <div className="db-kpi-label">
+    <div
+      className={cn(
+        // Card surface
+        "relative rounded-xl border border-border/60 bg-card/40 backdrop-blur-md shadow-[0_1px_3px_rgba(0,0,0,0.18)] px-4 pt-3.5 pb-3 cursor-default overflow-hidden transition-all",
+        // Left accent strip via ::before
+        "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-r-[3px]",
+        // Hover lift
+        "hover:border-border hover:bg-card/60 hover:-translate-y-px hover:shadow-[0_2px_6px_rgba(0,0,0,0.25)]",
+        TONE_RING[tone],
+      )}
+    >
+      <div className="flex items-center gap-1.5 text-[9.5px] font-semibold tracking-[0.07em] uppercase text-muted-foreground/70 mb-1.5">
         {icon && <span className="opacity-60">{icon}</span>}
         <span>{label}</span>
       </div>
       {loading ? (
         <div className="space-y-1.5 mt-1">
-          <div className="h-5 w-24 rounded animate-shimmer" />
-          <div
-            className="h-3 w-28 rounded animate-shimmer"
-            style={{ animationDelay: "0.12s" }}
-          />
+          <Skeleton className="h-5 w-24 rounded" />
+          <Skeleton className="h-3 w-28 rounded" />
         </div>
       ) : (
         <>
-          <div className={cn("db-kpi-value data-text", valueColor)}>
+          <div
+            className={cn(
+              "text-[15px] font-bold leading-none tracking-[-0.02em] font-mono tabular-nums",
+              TONE_VALUE[tone],
+            )}
+          >
             {value}
           </div>
-          {sub && <div className="db-kpi-sub data-text">{sub}</div>}
+          {sub && (
+            <div className="mt-1 text-[10px] text-muted-foreground/70 tracking-tight font-mono tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
+              {sub}
+            </div>
+          )}
         </>
       )}
     </div>

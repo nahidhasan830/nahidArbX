@@ -27,6 +27,7 @@ import { getProviderColorClasses as getProviderBadgeClasses } from "@/lib/provid
 import { OddsCell } from "./OddsCell";
 import {
   getProviderShortName,
+  getSharpProviders,
   getSoftProviders,
   type ProviderKey,
 } from "@/lib/providers/registry";
@@ -423,19 +424,25 @@ export function SpreadsheetRow({
                     timestamp: od!.timestamp,
                     familyOdds: baseline.familyOdds,
                   }
-                : {
-                    sharpProvider: providerId,
-                    sharpOdds: price,
-                    trueProb: 1 / price,
-                    softProvider: providerId,
-                    softOdds: price,
-                    impliedProb: 1 / price,
-                    edge: 0,
-                    evPct: 0,
-                    kellyFraction: 0,
-                    kellyStake: 0,
-                    timestamp: od!.timestamp,
-                  };
+                : (() => {
+                    const sharp = getSharpProviders()[0] ?? providerId;
+                    const sharpOd = row.odds[sharp];
+                    const sOdds = sharpOd?.value ?? price;
+                    const sProb = sOdds > 1 ? 1 / sOdds : 1 / price;
+                    return {
+                      sharpProvider: sharp,
+                      sharpOdds: sOdds,
+                      trueProb: sProb,
+                      softProvider: providerId,
+                      softOdds: price,
+                      impliedProb: 1 / price,
+                      edge: 0,
+                      evPct: 0,
+                      kellyFraction: 0,
+                      kellyStake: 0,
+                      timestamp: od!.timestamp,
+                    };
+                  })();
               onSelectValueBet({
                 eventLabel: row.eventLabel,
                 competition: row.competition,

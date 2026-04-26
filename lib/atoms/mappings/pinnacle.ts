@@ -161,6 +161,14 @@ const TEAM_TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
   "ft|away|1.5": { over: "ft_away_over_1_5", under: "ft_away_under_1_5" },
   "ft|away|2.5": { over: "ft_away_over_2_5", under: "ft_away_under_2_5" },
   "ft|away|3.5": { over: "ft_away_over_3_5", under: "ft_away_under_3_5" },
+  // Home Team - First Half
+  "1h|home|0.5": { over: "1h_home_over_0_5", under: "1h_home_under_0_5" },
+  "1h|home|1.5": { over: "1h_home_over_1_5", under: "1h_home_under_1_5" },
+  "1h|home|2.5": { over: "1h_home_over_2_5", under: "1h_home_under_2_5" },
+  // Away Team - First Half
+  "1h|away|0.5": { over: "1h_away_over_0_5", under: "1h_away_under_0_5" },
+  "1h|away|1.5": { over: "1h_away_over_1_5", under: "1h_away_under_1_5" },
+  "1h|away|2.5": { over: "1h_away_over_2_5", under: "1h_away_under_2_5" },
 };
 
 // ============================================
@@ -580,8 +588,10 @@ export function extractPinnacleOdds(
   }
 
   // Skip alternative line markets (halfIndicator=1 means alternative market, not first-half)
-  // Main markets have halfIndicator=0 and higher max stakes
-  if (halfIndicator !== 0) {
+  // Main markets have halfIndicator=0 and higher max stakes.
+  // Exception: TEAM_TOTAL_POINTS — Pinnacle flags all team-total lines as
+  // "alternative" (halfIndicator≠0), so the filter would discard every one.
+  if (halfIndicator !== 0 && marketType !== "TEAM_TOTAL_POINTS") {
     return entries;
   }
 

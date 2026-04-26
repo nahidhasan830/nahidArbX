@@ -41,14 +41,13 @@ import {
 import { computeDetailedScore } from "@/lib/matching/diagnostics/analyzer";
 import { TIME_BUCKET_MS } from "@/lib/shared/constants";
 import {
-  addTeamAlias,
-  addCompetitionAlias,
-  clearAliasCache,
-} from "@/lib/matching/aliases/store";
+  ensureCompetitionEntity,
+  ensureTeamEntity,
+  recordObservation,
+} from "@/lib/matching/entities";
 import { resetMatchCache } from "@/lib/matching/match-cache";
 import { updateNearMatchStatus } from "@/lib/matching/diagnostics/store";
 import { locateEventBySide } from "@/lib/matching/locate";
-import { eventLabel, pairLabel } from "@/lib/formatting/event-label";
 import type { NormalizedEvent } from "@/lib/types";
 import { logger } from "@/lib/shared/logger";
 import {
@@ -503,8 +502,8 @@ function buildSideIndex(): Map<
 
 /**
  * If the cached decision lacks a snapshot, save one now so future renders
- * don't need to re-enrich. We keep the original verdict, confidence, and
- * reasoning — only the snapshot field changes.
+ * don't need to re-enrich. We keep the original verdict and confidence —
+ * only the snapshot field changes.
  */
 function backfillSnapshotIfMissing(
   d: CachedDecision,
@@ -525,7 +524,6 @@ function backfillSnapshotIfMissing(
       d.key,
       d.verdict === "SAME" ? "approved" : "rejected",
       d.by,
-      d.reasoning,
       snapshot,
     );
   } else {
@@ -533,7 +531,6 @@ function backfillSnapshotIfMissing(
       key: d.key,
       verdict: d.verdict,
       confidence: d.confidence,
-      reasoning: d.reasoning,
       model: d.model,
       sources: d.sources,
       snapshot,
@@ -704,7 +701,6 @@ export async function GET(request: NextRequest) {
               key: it.key,
               verdict: "SAME",
               confidence: Math.round(it.score * 100),
-              reasoning: "",
               decidedBy: "matcher",
               decidedAt: new Date().toISOString(),
               sources: [],
@@ -799,7 +795,6 @@ async function analyzeOne(
       key: payload.key,
       verdict: result.decision,
       confidence: result.confidence,
-      reasoning: result.reasoning,
       model: result.model,
       snapshot,
     });
@@ -911,31 +906,78 @@ function mergeAndLearn(
     matchConfidence: confidencePct,
   };
 
-  // Learn aliases from the confirmed pair (only if the text actually differs).
-  try {
-    if (eventA.homeTeam.toLowerCase() !== eventB.homeTeam.toLowerCase()) {
-      addTeamAlias(eventB.homeTeam, eventA.homeTeam, {
-        autoLearned: true,
-        addedBy: "match-review",
+  // Record observations into the entity-resolution store. Treats
+  // eventA as the canonical side (Pinnacle takes precedence elsewhere
+  // in the merge flow). Async; fire-and-forget so the caller's response
+  // isn't blocked on Postgres.
+  void (async () => {
+    try {
+      const providerB =
+        (Object.keys(eventB.providers)[0] as string | undefined) ?? "unknown";
+      const compEntity = await ensureCompetitionEntity(eventA.competition);
+      const competitionId = compEntity?.id ?? null;
+      const homeEntity = await ensureTeamEntity({
+        canonicalName: eventA.homeTeam,
+        competitionId,
       });
-    }
-    if (eventA.awayTeam.toLowerCase() !== eventB.awayTeam.toLowerCase()) {
-      addTeamAlias(eventB.awayTeam, eventA.awayTeam, {
-        autoLearned: true,
-        addedBy: "match-review",
+      const awayEntity = await ensureTeamEntity({
+        canonicalName: eventA.awayTeam,
+        competitionId,
       });
+
+      if (
+        homeEntity &&
+        eventA.homeTeam.toLowerCase() !== eventB.homeTeam.toLowerCase()
+      ) {
+        await recordObservation({
+          kind: "team",
+          surface: eventB.homeTeam,
+          provider: providerB,
+          competitionId,
+          pairedWithEntityId: homeEntity.id,
+          matchScore: confidencePct / 100,
+          outcome: "manual-confirm",
+          source: "match-review",
+        });
+      }
+      if (
+        awayEntity &&
+        eventA.awayTeam.toLowerCase() !== eventB.awayTeam.toLowerCase()
+      ) {
+        await recordObservation({
+          kind: "team",
+          surface: eventB.awayTeam,
+          provider: providerB,
+          competitionId,
+          pairedWithEntityId: awayEntity.id,
+          matchScore: confidencePct / 100,
+          outcome: "manual-confirm",
+          source: "match-review",
+        });
+      }
+      if (
+        compEntity &&
+        eventA.competition.toLowerCase() !== eventB.competition.toLowerCase()
+      ) {
+        await recordObservation({
+          kind: "competition",
+          surface: eventB.competition,
+          provider: providerB,
+          competitionId: null,
+          pairedWithEntityId: compEntity.id,
+          matchScore: confidencePct / 100,
+          outcome: "manual-confirm",
+          source: "match-review",
+        });
+      }
+      resetMatchCache();
+    } catch (err) {
+      logger.warn(
+        "MatchReview",
+        `Alias observation failed: ${(err as Error).message}`,
+      );
     }
-    if (eventA.competition.toLowerCase() !== eventB.competition.toLowerCase()) {
-      addCompetitionAlias(eventB.competition, eventA.competition, {
-        autoLearned: true,
-        addedBy: "match-review",
-      });
-    }
-    clearAliasCache();
-    resetMatchCache();
-  } catch (err) {
-    logger.warn("MatchReview", `Alias learn failed: ${(err as Error).message}`);
-  }
+  })();
 
   return { merged, eventA: eventA.id, eventB: eventB.id };
 }
@@ -1128,7 +1170,7 @@ export async function POST(request: NextRequest) {
         // the verdict is still worth saving — it locks the pair's outcome.
         if (matchedEventId) {
           const existing = all.find((e) => e.id === matchedEventId);
-          saveHumanVerdict(key, "approved", userId, undefined, uiSnapshot);
+          saveHumanVerdict(key, "approved", userId, uiSnapshot);
           if (nearMatchId)
             updateNearMatchStatus(nearMatchId, "confirmed", userId);
           return NextResponse.json({
@@ -1207,7 +1249,7 @@ export async function POST(request: NextRequest) {
                 locateEventBySide(uiB, [e]),
             );
           if (matchingA && matchingB && matchingA.id === matchingB.id) {
-            saveHumanVerdict(key, "approved", userId, undefined, uiSnapshot);
+            saveHumanVerdict(key, "approved", userId, uiSnapshot);
             if (nearMatchId)
               updateNearMatchStatus(nearMatchId, "confirmed", userId);
             return NextResponse.json({
@@ -1225,7 +1267,7 @@ export async function POST(request: NextRequest) {
         // If both sides resolve to the SAME stored event, they're already
         // merged. Treat as "already merged" confirm.
         if (eventA && eventB && eventA.id === eventB.id) {
-          saveHumanVerdict(key, "approved", userId, undefined, uiSnapshot);
+          saveHumanVerdict(key, "approved", userId, uiSnapshot);
           if (nearMatchId)
             updateNearMatchStatus(nearMatchId, "confirmed", userId);
           return NextResponse.json({
@@ -1245,7 +1287,7 @@ export async function POST(request: NextRequest) {
             "MatchReview",
             `approve: events not found in store, recording verdict only — key=${key} near=${nearMatchId} eventAId=${eventAId} eventBId=${eventBId} uiA=${uiA?.homeTeam}/${uiA?.awayTeam}@${uiA?.provider} uiB=${uiB?.homeTeam}/${uiB?.awayTeam}@${uiB?.provider}`,
           );
-          saveHumanVerdict(key, "approved", userId, undefined, uiSnapshot);
+          saveHumanVerdict(key, "approved", userId, uiSnapshot);
           if (nearMatchId)
             updateNearMatchStatus(nearMatchId, "confirmed", userId);
           return NextResponse.json({
@@ -1269,7 +1311,7 @@ export async function POST(request: NextRequest) {
         setEvents(filtered);
 
         // FULLY REPLACE any prior AI entry with the human verdict.
-        saveHumanVerdict(key, "approved", userId, undefined, uiSnapshot);
+        saveHumanVerdict(key, "approved", userId, uiSnapshot);
         if (nearMatchId)
           updateNearMatchStatus(nearMatchId, "confirmed", userId);
 
@@ -1288,7 +1330,7 @@ export async function POST(request: NextRequest) {
         }
 
         const uiSnapshot = buildSnapshotFromBody(body.eventA, body.eventB);
-        saveHumanVerdict(key, "rejected", userId, undefined, uiSnapshot);
+        saveHumanVerdict(key, "rejected", userId, uiSnapshot);
         if (nearMatchId) updateNearMatchStatus(nearMatchId, "rejected", userId);
 
         // Reject on a matched-event row means "this auto-match is wrong" —

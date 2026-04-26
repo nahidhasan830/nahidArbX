@@ -42,7 +42,14 @@ import {
   type SpreadsheetRow as SpreadsheetRowData,
 } from "@/lib/formatting/spreadsheet";
 import { useBulkAnalysisPreferences } from "@/components/hooks/useBulkAnalysisPreferences";
+import { useLocalStorage } from "@/components/hooks/useLocalStorage";
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
+import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
+import {
+  strategyToValueBetPrefs,
+  valueBetPrefsMatchTemplate,
+} from "@/lib/optimizer/apply-strategy-to-prefs";
+import type { StrategyFilters } from "@/lib/optimizer/strategy-filters";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpreadsheetToolbar } from "./SpreadsheetToolbar";
@@ -338,6 +345,64 @@ export function ValueBetSpreadsheet({
     [runtimeEnabledProviders, prefs.selectedProviders],
   );
 
+  // Strategy = filter template. Picking a strategy populates the toolbar's
+  // strategy-mapped prefs (EV cutoff, soft-odds range, providers, markets)
+  // so the user can see exactly what's being filtered and adjust further.
+  // Multi-select uses the loosest merge across selected strategies.
+  const [appliedStrategyIds, setAppliedStrategyIds] = useLocalStorage<string[]>(
+    "value-bets:applied-strategies",
+    [],
+  );
+  const { data: strategies } = useApplicableStrategies();
+  const appliedStrategyFilters = useMemo<StrategyFilters[]>(() => {
+    if (appliedStrategyIds.length === 0 || !strategies) return [];
+    return appliedStrategyIds
+      .map((id) => strategies.find((s) => s.id === id))
+      .filter((s): s is NonNullable<typeof s> => s != null)
+      .map((s) => s.filters as StrategyFilters);
+  }, [appliedStrategyIds, strategies]);
+
+  const isStrategyModified = useMemo(() => {
+    if (appliedStrategyFilters.length === 0) return false;
+    return !valueBetPrefsMatchTemplate(
+      {
+        evRangeMin: prefs.evRangeMin,
+        softOddsRangeMin: prefs.softOddsRangeMin,
+        softOddsRangeMax: prefs.softOddsRangeMax,
+        selectedSoftProviders: new Set(prefs.selectedSoftProviders),
+        selectedMarketTypes: prefs.selectedMarketTypes,
+      },
+      appliedStrategyFilters,
+    );
+  }, [
+    prefs.evRangeMin,
+    prefs.softOddsRangeMin,
+    prefs.softOddsRangeMax,
+    prefs.selectedSoftProviders,
+    prefs.selectedMarketTypes,
+    appliedStrategyFilters,
+  ]);
+
+  const handleAppliedStrategiesChange = useCallback(
+    (ids: string[]) => {
+      setAppliedStrategyIds(ids);
+      const list = strategies ?? [];
+      const picked = ids
+        .map((id) => list.find((s) => s.id === id))
+        .filter((s): s is NonNullable<typeof s> => s != null)
+        .map((s) => s.filters as StrategyFilters);
+      const patch = strategyToValueBetPrefs(picked);
+      prefs.setEvRangeMin(patch.evRangeMin);
+      prefs.setSoftOddsRangeMin(patch.softOddsRangeMin);
+      prefs.setSoftOddsRangeMax(patch.softOddsRangeMax);
+      prefs.setSelectedSoftProviders(
+        patch.selectedSoftProviders as Set<ProviderKey>,
+      );
+      prefs.setSelectedMarketTypes(patch.selectedMarketTypes);
+    },
+    [setAppliedStrategyIds, strategies, prefs],
+  );
+
   const allRows = useMemo(
     () => transformToSpreadsheetRows(events, transformFilters),
     [events, transformFilters],
@@ -500,6 +565,9 @@ export function ValueBetSpreadsheet({
         );
       }
     }
+    // Subfield deps only — depending on the full `selectedValueBet` would
+    // re-fire this effect on its own setState and oscillate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     allRows,
     eventProvidersMap,
@@ -617,6 +685,7 @@ export function ValueBetSpreadsheet({
       onReset={() => {
         prefs.resetFilters();
         onSearchChange("");
+        setAppliedStrategyIds([]);
       }}
       hasActiveFilters={prefs.hasActiveFilters || searchTerm.length > 0}
       onSaveAsDefault={() => {
@@ -634,6 +703,9 @@ export function ValueBetSpreadsheet({
         });
       }}
       hasSavedDefaults={prefs.hasSavedDefaults}
+      appliedStrategyIds={appliedStrategyIds}
+      onAppliedStrategiesChange={handleAppliedStrategiesChange}
+      strategyTemplateModified={isStrategyModified}
     />
   );
 
@@ -643,7 +715,7 @@ export function ValueBetSpreadsheet({
       className="flex-1 overflow-auto table-container"
       style={columnSizeVars as React.CSSProperties}
     >
-      <table className="w-full text-xs border-collapse table-fixed spreadsheet-table">
+      <table className="w-full text-xs border-collapse table-fixed [contain:layout_style]">
         <thead className="sticky top-0 z-10">
           <tr className="bg-muted border-b-2 border-border">
             {isColVisible("event") && (

@@ -11,11 +11,7 @@ import fs from "fs";
 import path from "path";
 import { logger } from "../../shared/logger";
 import type { NearMatch, DiagnosticStats, FailurePattern } from "./types";
-import {
-  MAX_NEAR_MATCHES,
-  NEAR_MATCH_MAX_AGE_MS,
-  NearMatchSchema,
-} from "./types";
+import { MAX_NEAR_MATCHES, NEAR_MATCH_MAX_AGE_MS } from "./types";
 import { computePairKey } from "../ai-decision-cache";
 import { applyTeamAlias, applyCompetitionAlias } from "../normalize";
 
@@ -47,7 +43,6 @@ interface DiagnosticsCache {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __diagnosticsCache: DiagnosticsCache | undefined;
 }
 

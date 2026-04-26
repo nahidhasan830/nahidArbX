@@ -1,6 +1,10 @@
 "use client";
 
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import type { ValueBetEvent } from "@/lib/formatting/spreadsheet";
 
 // ============================================
@@ -42,20 +46,11 @@ interface ConnectionHealth {
     tokenTTL: number | null;
     expiresIn: string | null;
   };
-  "ninewickets-exchange"?: {
-    status: string;
-    lastFetch: string | null;
-    error: string | null;
-  };
-  "ninewickets-sportsbook"?: {
-    status: string;
-    lastFetch: string | null;
-    error: string | null;
-  };
   scores?: {
     pinnacleWs: { connected: boolean };
     bcPoller: { active: boolean; eventCount: number };
   };
+  [providerId: string]: unknown;
 }
 
 export interface DashboardApiResponse {
@@ -241,6 +236,7 @@ export function useInfiniteEvents(options: UseInfiniteEventsOptions = {}) {
         : undefined,
     initialPageParam: 0,
     enabled,
+    placeholderData: keepPreviousData,
     // Keep data fresh for 30 seconds
     staleTime: 30 * 1000,
     // Garbage collect after 5 minutes

@@ -29,37 +29,38 @@ import { getEvents, setEvents } from "@/lib/store";
 import { resetMatchCache } from "@/lib/matching/match-cache";
 import type { NormalizedEvent } from "@/lib/types";
 import { logger } from "@/lib/shared/logger";
-import {
-  disconnect as disconnectBetConstruct,
-  reconnect as reconnectBetConstruct,
-} from "@/lib/adapters/betconstruct/client";
-import { stopBCScorePolling } from "@/lib/scores/bc-poller";
+import { getAtomsAdapter } from "@/lib/adapters/unified-registry";
+
+/**
+ * Apply provider-specific side effects when flipping runtime state.
+ * Adapters that hold persistent connections (WebSockets, pollers) implement
+ * onEnable/onDisable hooks themselves; this just dispatches.
+ */
+function applyRuntimeSideEffects(
+  provider: ProviderKey,
+  enabled: boolean,
+): void {
+  const adapter = getAtomsAdapter(provider);
+  if (!adapter) return;
+  if (enabled) {
+    if (!adapter.onEnable) return;
+    // Fire and forget — onEnable may be async but we don't want to block the API
+    Promise.resolve(adapter.onEnable()).catch((err: Error) =>
+      logger.warn(
+        "ProvidersAPI",
+        `${provider} onEnable failed: ${err.message}`,
+      ),
+    );
+  } else {
+    adapter.onDisable?.();
+  }
+}
 
 /**
  * Remove a provider's data from every event in the store. Any event that ends
  * up without providers is dropped entirely. Re-enabling will repopulate on
  * the next sync.
  */
-/**
- * Apply provider-specific side effects when flipping runtime state.
- * BC keeps a WebSocket + score poller alive independently of the sync
- * pipeline, so disabling requires an explicit disconnect.
- */
-function applyRuntimeSideEffects(
-  provider: ProviderKey,
-  enabled: boolean,
-): void {
-  if (provider !== "betconstruct") return;
-  if (enabled) {
-    // Fire and forget — reconnect is async but we don't want to block the API
-    void reconnectBetConstruct().catch((err: Error) =>
-      logger.warn("ProvidersAPI", `BC reconnect failed: ${err.message}`),
-    );
-  } else {
-    disconnectBetConstruct();
-    stopBCScorePolling();
-  }
-}
 
 function purgeProviderFromStore(provider: ProviderKey): number {
   const events = getEvents();
@@ -68,7 +69,8 @@ function purgeProviderFromStore(provider: ProviderKey): number {
   for (const ev of events) {
     if (ev.providers[provider]) {
       affected++;
-      const { [provider]: _dropped, ...rest } = ev.providers;
+      const rest = { ...ev.providers };
+      delete rest[provider];
       if (Object.keys(rest).length === 0) {
         continue; // event had only this provider — drop it entirely
       }

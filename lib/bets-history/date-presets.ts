@@ -10,6 +10,7 @@ import {
   endOfDay,
   subDays,
   startOfMonth,
+  startOfWeek,
   subHours,
 } from "date-fns";
 
@@ -18,8 +19,12 @@ export type DatePresetKey =
   | "last3h"
   | "last6h"
   | "last12h"
+  | "last24h"
+  | "last48h"
   | "today"
   | "yesterday"
+  | "thisWeek"
+  | "lastWeek"
   | "last3d"
   | "last7d"
   | "last15d"
@@ -96,6 +101,22 @@ export const DATE_PRESETS: DatePreset[] = [
     }),
   },
   {
+    key: "last24h",
+    label: "Last 24 Hours",
+    resolve: () => ({
+      from: subHours(new Date(), 24).toISOString(),
+      to: new Date().toISOString(),
+    }),
+  },
+  {
+    key: "last48h",
+    label: "Last 48 Hours",
+    resolve: () => ({
+      from: subHours(new Date(), 48).toISOString(),
+      to: new Date().toISOString(),
+    }),
+  },
+  {
     key: "today",
     label: "Today",
     resolve: () => ({
@@ -111,6 +132,30 @@ export const DATE_PRESETS: DatePreset[] = [
       return {
         from: startOfDay(y).toISOString(),
         to: endOfDay(y).toISOString(),
+      };
+    },
+  },
+  {
+    key: "thisWeek",
+    label: "This Week",
+    resolve: () => ({
+      from: startOfWeek(new Date(), { weekStartsOn: 1 }).toISOString(),
+      to: endOfDay(new Date()).toISOString(),
+    }),
+  },
+  {
+    key: "lastWeek",
+    label: "Last Week",
+    resolve: () => {
+      const prevWeekStart = startOfWeek(subDays(new Date(), 7), {
+        weekStartsOn: 1,
+      });
+      const prevWeekEnd = endOfDay(
+        subDays(startOfWeek(new Date(), { weekStartsOn: 1 }), 1),
+      );
+      return {
+        from: prevWeekStart.toISOString(),
+        to: prevWeekEnd.toISOString(),
       };
     },
   },

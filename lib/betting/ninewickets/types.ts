@@ -22,14 +22,10 @@ export interface NineWicketsSession {
  *   playerService/queryPlayerInfo;jsessionid=<JSESSIONID>
  *
  * This is the PROVIDER-LEVEL player info (9W Sportsbook / Genius
- * Sports) — NOT the main-site /api/bt/v1/user/getPlayerInfo (which
- * returns the withdrawable wallet). See
- * [main-site-types.ts](./main-site-types.ts) for the distinction:
+ * Sports).
  *
  *   - `betCredit` here = BETTABLE balance. This is what we spend
- *     placing bets. Syncs back to the main wallet eventually, with a
- *     known delay.
- *   - `totalMainProviderBalance` on the main site = WITHDRAWABLE.
+ *     placing bets.
  *
  * Auth: Authorization header is the raw jsessionid (no "Bearer"),
  * and the URL itself ends with `;jsessionid=<JSESSIONID>`. The

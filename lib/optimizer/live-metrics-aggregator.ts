@@ -2,63 +2,64 @@
  * Per-strategy live-metrics aggregator.
  *
  * For every active (live OR paused) strategy, compute since-promotion
- * metrics from `bets WHERE strategy_id = X AND outcome IS NOT NULL`.
- * Writes results to `optimization_strategies.live_metrics` so the UI can
- * show live-vs-OOS divergence at a glance.
+ * metrics by re-applying the strategy's filters to the `bets` table. No
+ * per-bet attribution column is involved — the strategy IS its filter, and
+ * its live ROI is whatever those filters currently select. Writes results
+ * to `optimization_strategies.live_metrics` so the UI can show
+ * live-vs-OOS divergence at a glance.
  *
  * Runs from the existing optimizer scheduler tick (no separate timer).
- * Cheap query — typically <50 strategies × ~1k matching bets each.
+ * One aggregate query per strategy, all predicates pushed to Postgres.
  */
 
-import { sql } from "drizzle-orm";
+import { and, sql } from "drizzle-orm";
 import { db } from "../db/client";
+import { bets } from "../db/schema";
 import { logger } from "../shared/logger";
-import { listStrategies, updateLiveMetrics } from "./strategies";
+import {
+  listStrategies,
+  updateLiveMetrics,
+  type StrategyFilters,
+} from "./strategies";
+import { buildStrategyFilterClauses } from "./strategy-filter-sql";
 
 const tag = "LiveMetricsAggregator";
-
-interface AggregateRow {
-  n_total: number;
-  n_settled: number;
-  n_won: number;
-  n_lost: number;
-  total_stake: number | null;
-  total_pnl: number | null;
-  mean_clv_pct: number | null;
-}
 
 export async function recomputeLiveMetrics(): Promise<{
   strategiesScanned: number;
   updated: number;
 }> {
   const all = await listStrategies();
-  const targets = all.filter(
-    (s) => s.status === "live" || s.status === "paused",
-  );
+  const targets = all.filter((s) => s.retiredAt == null);
   let updated = 0;
 
   for (const s of targets) {
     try {
-      const result = await db.execute(
-        sql`SELECT
-              COUNT(*)::int                                                      AS n_total,
-              COUNT(*) FILTER (WHERE outcome IN ('won','half_won','lost','half_lost','void'))::int
-                                                                                  AS n_settled,
-              COUNT(*) FILTER (WHERE outcome IN ('won','half_won'))::int          AS n_won,
-              COUNT(*) FILTER (WHERE outcome IN ('lost','half_lost'))::int        AS n_lost,
-              COALESCE(SUM(stake) FILTER (WHERE placed_at IS NOT NULL), 0)::float AS total_stake,
-              COALESCE(SUM(pnl)   FILTER (WHERE placed_at IS NOT NULL), 0)::float AS total_pnl,
-              AVG(clv_pct)        FILTER (WHERE clv_pct IS NOT NULL)::float       AS mean_clv_pct
-            FROM bets WHERE strategy_id = ${s.id}`,
-      );
-      const r = (result.rows[0] as unknown as AggregateRow | undefined) ?? null;
+      const clauses = buildStrategyFilterClauses(s.filters as StrategyFilters);
+      const where = clauses.length ? and(...clauses) : undefined;
+
+      const [r] = await db
+        .select({
+          nTotal: sql<number>`COUNT(*)::int`,
+          nSettled: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} IN ('won','half_won','lost','half_lost','void'))::int`,
+          nWon: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} IN ('won','half_won'))::int`,
+          nLost: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} IN ('lost','half_lost'))::int`,
+          totalStake: sql<number>`COALESCE(SUM(${bets.stake}) FILTER (WHERE ${bets.placedAt} IS NOT NULL), 0)::float`,
+          totalPnl: sql<number>`COALESCE(SUM(${bets.pnl}) FILTER (WHERE ${bets.placedAt} IS NOT NULL), 0)::float`,
+          meanClvPct: sql<
+            number | null
+          >`AVG(${bets.clvPct}) FILTER (WHERE ${bets.clvPct} IS NOT NULL)::float`,
+        })
+        .from(bets)
+        .where(where);
+
       if (!r) continue;
 
       const winRatePct =
-        r.n_won + r.n_lost > 0 ? (r.n_won / (r.n_won + r.n_lost)) * 100 : null;
+        r.nWon + r.nLost > 0 ? (r.nWon / (r.nWon + r.nLost)) * 100 : null;
       const liveRoiPct =
-        r.total_stake !== null && r.total_stake > 0
-          ? ((r.total_pnl ?? 0) / r.total_stake) * 100
+        r.totalStake !== null && r.totalStake > 0
+          ? ((r.totalPnl ?? 0) / r.totalStake) * 100
           : null;
 
       const snapshot = (s.metricsSnapshot as Record<string, unknown>) ?? {};
@@ -78,15 +79,15 @@ export async function recomputeLiveMetrics(): Promise<{
       }
 
       await updateLiveMetrics(s.id, {
-        nTotal: r.n_total,
-        nSettled: r.n_settled,
-        nWon: r.n_won,
-        nLost: r.n_lost,
-        totalStake: r.total_stake,
-        totalPnl: r.total_pnl,
+        nTotal: r.nTotal,
+        nSettled: r.nSettled,
+        nWon: r.nWon,
+        nLost: r.nLost,
+        totalStake: r.totalStake,
+        totalPnl: r.totalPnl,
         liveRoiPct,
         winRatePct,
-        meanClvPct: r.mean_clv_pct,
+        meanClvPct: r.meanClvPct,
         oosRoiMean: typeof oosRoi === "number" ? oosRoi : null,
         outsideOosCi,
         recomputedAt: new Date().toISOString(),

@@ -69,21 +69,6 @@ export function hasDirtyFamilies(): boolean {
   return dirtyFamilies.size > 0;
 }
 
-/**
- * Mark all families for given events as dirty (used after stale cleanup
- * removes entries, which is itself a value change).
- */
-function markEventsDirty(eventIds: string[]): void {
-  for (const eventId of eventIds) {
-    const familyMap = oddsStore.get(eventId);
-    if (familyMap) {
-      for (const familyId of familyMap.keys()) {
-        dirtyFamilies.add(`${eventId}|${familyId}`);
-      }
-    }
-  }
-}
-
 // ============================================
 // Write Operations
 // ============================================
@@ -101,7 +86,6 @@ export function setOdds(entry: NormalizedOddsEntry): void {
 
   // Get or create family map
   let atomMap = familyMap.get(entry.family_id);
-  const isNewFamily = !atomMap;
   if (!atomMap) {
     atomMap = new Map();
     familyMap.set(entry.family_id, atomMap);
@@ -110,7 +94,6 @@ export function setOdds(entry: NormalizedOddsEntry): void {
 
   // Get or create atom map
   let providerMap = atomMap.get(entry.atom_id);
-  const isNewAtom = !providerMap;
   if (!providerMap) {
     providerMap = new Map();
     atomMap.set(entry.atom_id, providerMap);

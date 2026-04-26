@@ -36,6 +36,7 @@ const DEFAULTS: BettingSettingsRow = {
   maxConcurrentExposureBdt: null,
   maxBetsPerDay: null,
   cooldownAfterLossSec: null,
+  activeStrategyIds: [],
   updatedAt: new Date().toISOString(),
 };
 

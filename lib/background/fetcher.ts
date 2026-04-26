@@ -12,19 +12,13 @@ import {
 import { matchEvents } from "../matching";
 import { fetchAllOddsForMatchedEvents } from "../atoms/fetcher";
 import {
-  detectAllValueBets,
   detectAllValueBetsIncremental,
   resetValueCache,
 } from "../atoms/value-detector";
 import { persistValueBets } from "../db/repositories/bets";
-import { attachStrategyMatches } from "../optimizer/attach-strategies";
 import { getBettingSettings } from "../db/repositories/betting-settings";
 import { maybeAutoPlace } from "../betting/auto-placer";
-import {
-  getStoreStats,
-  consumeDirtyFamilies,
-  hasDirtyFamilies,
-} from "../atoms/store";
+import { getStoreStats, consumeDirtyFamilies } from "../atoms/store";
 import type { NormalizedEvent } from "../types";
 import {
   getEnabledProviderIds,
@@ -206,7 +200,7 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     setSyncStatus({ currentPhase: "matching", phaseProgress: null });
 
     // Match events across providers
-    const matchedEvents = matchEvents(allEvents);
+    const matchedEvents = await matchEvents(allEvents);
 
     // Count events with multiple providers
     const multiProviderCount = matchedEvents.filter(
@@ -399,10 +393,6 @@ export async function syncOddsOnly(
 
     if (valueBets.length > 0) {
       try {
-        // Attach matching live-strategy IDs (from /lab/optimisation). This
-        // tags each detected bet with the strategy that "claimed" it so
-        // we can compute since-promotion metrics + detect drift later.
-        await attachStrategyMatches(valueBets);
         const persistResult = await persistValueBets(valueBets);
         logger.info(
           "Sync",

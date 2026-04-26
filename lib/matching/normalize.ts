@@ -1,20 +1,28 @@
 /**
- * Shared Normalization Functions
+ * Shared name normalization for the matching pipeline.
  *
- * Single source of truth for team name and competition normalization.
- * Used by both matcher.ts and diagnostics/analyzer.ts.
+ * Delegates to the entity-resolution module for the actual normalize
+ * rules + the resolver lookup. This file remains the single import for
+ * `lib/matching/matcher.ts` and the diagnostics analyzer; it's a thin
+ * adapter over the new entity-resolution layer.
  *
- * Pre-normalization: call `preNormalizeEvent()` once per event at the start
- * of matching, then pass the pre-normalized names to score computation.
- * This avoids re-normalizing the same strings on every O(n²) comparison.
+ * Note: alias resolution is now async (Postgres-backed). Pre-normalization
+ * stays sync in the hot path by deferring the resolver lookup to a batch
+ * pre-pass that fills the cache; subsequent per-event lookups hit the
+ * 30s LRU and return synchronously through `applyTeamAliasSync` /
+ * `applyCompetitionAliasSync` (which fall back to plain normalize when
+ * the cache is cold).
  */
 
 import type { NormalizedEvent } from "../types";
-import { getTeamAliases, getCompetitionAliases } from "./aliases/store";
-
-// ============================================
-// Country Adjective → Noun Map
-// ============================================
+import {
+  normalize as entityNormalize,
+  normalizeCompetition as entityNormalizeCompetition,
+} from "./entities/normalize";
+import {
+  resolveCompetitionSurface,
+  resolveTeamSurface,
+} from "./entities/resolver";
 
 export const COUNTRY_ADJECTIVE_MAP: Record<string, string> = {
   english: "england",
@@ -47,139 +55,50 @@ export const COUNTRY_ADJECTIVE_MAP: Record<string, string> = {
   australian: "australia",
 };
 
-// Pre-compiled regex for each country adjective (avoid re-creating per call)
-const ADJECTIVE_REGEXES = Object.entries(COUNTRY_ADJECTIVE_MAP).map(
-  ([adj, noun]) => ({ regex: new RegExp(`\\b${adj}\\b`, "g"), noun }),
-);
+// Re-export the basic normalizers so callers don't have to learn the
+// new namespace. Identical behavior to the legacy implementation.
+export const normalize = entityNormalize;
+export const normalizeCompetition = entityNormalizeCompetition;
 
-const ALL_COUNTRIES = [
-  ...Object.values(COUNTRY_ADJECTIVE_MAP),
-  ...Object.keys(COUNTRY_ADJECTIVE_MAP),
-];
-const COUNTRY_PREFIX_REGEXES = ALL_COUNTRIES.map(
-  (country) => new RegExp(`^${country}\\s+`, "i"),
-);
+// ──────────────────────────────────────────────────────────────────────
+// Per-process resolved-name cache, populated by `preResolveAll()` before
+// matchEvents starts its O(n²) scoring. Keeps the hot path purely sync.
+// ──────────────────────────────────────────────────────────────────────
 
-// ============================================
-// Basic Normalization
-// ============================================
+// Per-event resolved-name cache populated by `preResolveAll()` before the
+// matcher's O(n²) scoring loop. The cache holds the canonical normalized
+// surface for home + away + competition so per-comparison lookups stay
+// purely sync and the same canonical is used by both sides of the
+// similarity score.
+interface ResolvedNames {
+  home: string;
+  away: string;
+  competition: string;
+}
 
-/**
- * Common football-club prefixes/suffixes that carry no identity information.
- * Stripped as whole-word tokens at start or end only (never inside a word),
- * so "FC Barcelona" and "Chelsea FC" collapse to "barcelona" / "chelsea",
- * but "FCB" (where the letters are fused) is left intact for acronym-aware
- * handling elsewhere.
- */
-const CLUB_TOKEN_STRIP_RE =
-  /(^|\s)(fc|sc|cf|ac|as|ss|sv|us|aek|vfb|vfl|tsv|bk|if|kv|sk|sc|rc|rcd|psc|dsc)(?=$|\s)/g;
+const resolvedCache = new Map<string, ResolvedNames>();
 
-/**
- * Short-form expansions for common football-club words. Applied after basic
- * normalization so "Man Utd" / "Man Cty" / "Seattle Intl." all collapse to
- * their long forms, which is what the alias table and similarity scorer see.
- */
-const SHORT_FORM_MAP: Array<[RegExp, string]> = [
-  [/\butd\b/g, "united"],
-  [/\bunt\b/g, "united"],
-  [/\bcty\b/g, "city"],
-  [/\bintl\b/g, "international"],
-  [/\bathl\b/g, "athletic"],
-  [/\batl\b/g, "atletico"],
-  [/\bwnd\b/g, "wanderers"],
-  [/\bwdrs\b/g, "wanderers"],
-  [/\brvrs\b/g, "rovers"],
-  [/\brgrs\b/g, "rangers"],
-];
-
-/**
- * Basic string normalization: lowercase, strip diacritics, remove
- * punctuation, expand common short forms, and strip common club-name
- * prefixes/suffixes (FC, SC, CF, AC, etc.) as whole-word tokens.
- *
- * The expand + strip passes run AFTER the lower/diacritic/punctuation pass
- * so "FC Barça", "Barça FC", "FC Barcelona", and "Barcelona FC" all settle
- * on "barcelona" (or "barca" for the short form). That turns a 0.6
- * similarity into ~1.0, which puts the pair above the auto-match threshold
- * without any AI or alias learning.
- */
-export function normalize(s: string): string {
-  let out = s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  for (const [re, replacement] of SHORT_FORM_MAP) {
-    out = out.replace(re, replacement);
-  }
-
-  // Strip club-prefix/suffix tokens, then tidy whitespace. We do this twice
-  // to handle names like "FC Barcelona FC" that have tokens at both ends.
-  for (let i = 0; i < 2; i++) {
-    out = out.replace(CLUB_TOKEN_STRIP_RE, "$1").replace(/\s+/g, " ").trim();
-  }
-
-  // Guard: never return an empty string — if stripping consumed everything
-  // (e.g. "FC"), fall back to the basic-normalized original.
-  if (!out) {
-    return s
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9\s]/g, "")
-      .trim();
-  }
-
-  return out;
+function eventKey(event: NormalizedEvent): string {
+  return event.id;
 }
 
 /**
- * Competition normalization with country adjective handling.
- * 1. Replace adjectives with nouns (English → England)
- * 2. Strip country prefixes (England FA Cup → FA Cup)
- */
-export function normalizeCompetition(s: string): string {
-  let result = normalize(s);
-
-  for (const { regex, noun } of ADJECTIVE_REGEXES) {
-    result = result.replace(regex, noun);
-  }
-
-  for (const prefixRegex of COUNTRY_PREFIX_REGEXES) {
-    result = result.replace(prefixRegex, "");
-  }
-
-  return result.trim();
-}
-
-// ============================================
-// Alias Application
-// ============================================
-
-/**
- * Apply team alias if one exists.
+ * Apply team alias synchronously. Falls back to the basic normalize —
+ * the entity resolver is consulted only via `preResolveAll()` because
+ * the resolver is async (Postgres-backed) and the matcher's per-pair
+ * scoring loop must stay sync.
  */
 export function applyTeamAlias(name: string): string {
-  const normalized = normalize(name);
-  const aliases = getTeamAliases();
-  return aliases[normalized] || normalized;
+  return normalize(name);
 }
 
-/**
- * Apply competition alias if one exists.
- */
 export function applyCompetitionAlias(name: string): string {
-  const normalized = normalizeCompetition(name);
-  const aliases = getCompetitionAliases();
-  return aliases[normalized] || normalized;
+  return normalizeCompetition(name);
 }
 
-// ============================================
+// ──────────────────────────────────────────────────────────────────────
 // Pre-Normalization (computed once per event)
-// ============================================
+// ──────────────────────────────────────────────────────────────────────
 
 export interface PreNormalizedNames {
   home: string;
@@ -188,20 +107,23 @@ export interface PreNormalizedNames {
 }
 
 /**
- * Pre-normalize an event's names. Call once per event before matching.
- * Returns the normalized+aliased home, away, and competition names.
+ * Build the pre-normalized name set for a single event. Sync — uses the
+ * already-resolved cache populated by `preResolveAll()` if available,
+ * else falls back to plain `normalize`.
  */
 export function preNormalizeEvent(event: NormalizedEvent): PreNormalizedNames {
+  const cached = resolvedCache.get(eventKey(event));
+  if (cached) return cached;
   return {
-    home: applyTeamAlias(event.homeTeam),
-    away: applyTeamAlias(event.awayTeam),
-    competition: applyCompetitionAlias(event.competition),
+    home: normalize(event.homeTeam),
+    away: normalize(event.awayTeam),
+    competition: normalizeCompetition(event.competition),
   };
 }
 
 /**
- * Pre-normalize all events and return a lookup map.
- * Use this at the start of matchEvents to avoid per-comparison normalization.
+ * Pre-normalize all events, returning the per-event lookup map. Cheap
+ * synchronous helper that operates on the local cache.
  */
 export function preNormalizeAll(
   events: NormalizedEvent[],
@@ -211,4 +133,93 @@ export function preNormalizeAll(
     map.set(event.id, preNormalizeEvent(event));
   }
   return map;
+}
+
+/**
+ * Async pre-resolve pass. Looks up every (provider, surface, competition)
+ * tuple via the entity resolver, fills the per-event cache, then
+ * `preNormalizeAll()` returns the resolved canonical names sync. The
+ * matcher calls this before kicking off its scoring loop.
+ *
+ * Best-effort — failures are swallowed so a cold/unavailable resolver
+ * just degrades to plain normalize.
+ */
+export async function preResolveAll(events: NormalizedEvent[]): Promise<void> {
+  // Step 1 — resolve every distinct competition surface so we can pass
+  // the competition_id when resolving teams.
+  const compResolutions = new Map<string, string | null>();
+  for (const event of events) {
+    if (compResolutions.has(event.competition)) continue;
+    const provider =
+      (Object.keys(event.providers)[0] as string | undefined) ?? "unknown";
+    try {
+      const r = await resolveCompetitionSurface({
+        provider,
+        surface: event.competition,
+      });
+      compResolutions.set(event.competition, r?.entity.id ?? null);
+    } catch {
+      compResolutions.set(event.competition, null);
+    }
+  }
+
+  // Step 2 — resolve teams using the now-known competition_id.
+  for (const event of events) {
+    const provider =
+      (Object.keys(event.providers)[0] as string | undefined) ?? "unknown";
+    const competitionId = compResolutions.get(event.competition) ?? null;
+    let resolvedHome = normalize(event.homeTeam);
+    let resolvedAway = normalize(event.awayTeam);
+    let resolvedComp = normalizeCompetition(event.competition);
+    try {
+      const home = await resolveTeamSurface({
+        provider,
+        surface: event.homeTeam,
+        competitionId,
+      });
+      if (home) resolvedHome = normalize(home.entity.canonicalName);
+    } catch {
+      // ignore
+    }
+    try {
+      const away = await resolveTeamSurface({
+        provider,
+        surface: event.awayTeam,
+        competitionId,
+      });
+      if (away) resolvedAway = normalize(away.entity.canonicalName);
+    } catch {
+      // ignore
+    }
+    if (competitionId) {
+      try {
+        // Comp surface already resolved; use the canonical entity name as
+        // the resolved comp string so siblings collapse.
+        const compRow = await resolveCompetitionSurface({
+          provider,
+          surface: event.competition,
+        });
+        if (compRow)
+          resolvedComp = normalizeCompetition(compRow.entity.canonicalName);
+      } catch {
+        // ignore
+      }
+    }
+    resolvedCache.set(eventKey(event), {
+      home: resolvedHome,
+      away: resolvedAway,
+      competition: resolvedComp,
+    });
+  }
+}
+
+/**
+ * Drop any cache entries for events not in the given set. Lets the
+ * matcher prune the cache on each sync cycle so the resolver cache
+ * doesn't grow unbounded.
+ */
+export function pruneResolvedCache(currentIds: Set<string>): void {
+  for (const id of resolvedCache.keys()) {
+    if (!currentIds.has(id)) resolvedCache.delete(id);
+  }
 }

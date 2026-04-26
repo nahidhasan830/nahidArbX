@@ -14,6 +14,7 @@ import type { ProviderAdapter, NormalizedEvent, Provider } from "../../types";
 import { formatError } from "../../shared/errors";
 import { deduplicateById } from "../../shared/deduplication";
 import { fetchAllEvents, type BCGame } from "./client";
+import { logger } from "../../shared/logger";
 
 // ============================================
 // Constants
@@ -100,7 +101,7 @@ async function fetchAllBCEvents(): Promise<BetConstructNormalizedEvent[]> {
   try {
     // Single optimized query fetches all event types (live, prematch, scheduled)
     const games = await fetchAllEvents().catch((err) => {
-      console.warn("[BetConstruct] fetchAllEvents error:", formatError(err));
+      logger.warn("BetConstruct", "fetchAllEvents error", formatError(err));
       return [] as BCGame[];
     });
 
@@ -122,7 +123,7 @@ async function fetchAllBCEvents(): Promise<BetConstructNormalizedEvent[]> {
       }
     }
   } catch (error) {
-    console.error("[BetConstruct] fetchAllBCEvents error:", formatError(error));
+    logger.error("BetConstruct", "fetchAllBCEvents error", formatError(error));
   }
 
   return events;

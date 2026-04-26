@@ -17,7 +17,6 @@ import {
   ArrowRight,
   TrendingUp,
   RefreshCw,
-  AlertTriangle,
   Settings2,
 } from "lucide-react";
 import {
@@ -35,7 +34,6 @@ import {
 import { CONFIGURED_BETTING_PROVIDER_IDS } from "@/lib/betting/configured-ids";
 import { KELLY_FRACTION, VALUE_TOTAL_STAKE } from "@/lib/shared/constants";
 import { adjustOddsForCommission } from "@/lib/shared/commission";
-import { cn } from "@/lib/utils";
 import { PlaceBetPanel } from "@/components/betting/PlaceBetPanel";
 import { computeStake } from "@/lib/betting/sizing";
 import {
@@ -777,7 +775,9 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
             {/* Right: Key Numbers + Refresh */}
             <div className="flex items-center gap-3 text-sm shrink-0">
               <div className="text-right">
-                <div className="text-[10px] text-muted-foreground">Sharp</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {getProviderShortName(details.sharpProvider)}
+                </div>
                 <div className="font-mono font-medium">
                   {details.sharpOdds.toFixed(3)}
                 </div>
@@ -906,8 +906,8 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
                     Commission Override
                   </div>
                   <div className="text-[10px] text-muted-foreground leading-snug">
-                    Overrides the provider's default commission used to adjust
-                    odds before EV.
+                    Overrides the provider&apos;s default commission used to
+                    adjust odds before EV.
                   </div>
                   <div className="flex items-center gap-2">
                     <input

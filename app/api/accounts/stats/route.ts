@@ -21,6 +21,8 @@ export interface BreakdownRow {
   profit: number;
   roiPct: number;
   avgClvPct: number | null;
+  openBets: number;
+  settledBets: number;
 }
 
 export interface PnlPoint {
@@ -170,6 +172,8 @@ function groupBy(
         profit: round2(profit),
         roiPct: stake > 0 ? round2((profit / stake) * 100) : 0,
         avgClvPct: avgClv !== null ? round2(avgClv) : null,
+        openBets: rows.filter((r) => r.outcome === "pending").length,
+        settledBets: settled.length,
       };
     })
     .sort((a, b) => b.stake - a.stake);

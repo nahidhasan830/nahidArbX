@@ -5,9 +5,12 @@
  *
  *   Tier 0  match_scores table (permanent cache)          — free
  *   Tier 1  multi-source-store (Pinnacle WS + BC poller)  — free
- *   Tier 2  free sports APIs (football-data / pinnacle)   — free  [Phase 2]
- *   Tier 3  Gemini + url_context                          — ~$0.0003/match [Phase 3]
- *   Tier 4  Gemini Batch API (overnight)                  — ~$0.014/match [Phase 4]
+ *   Tier 2  free sports APIs (ESPN / SofaScore)           — free
+ *   Tier 3  Gemini + url_context                          — ~$0.0003/match
+ *           ONLY fires when caller passes `forceAi: true` from the
+ *           operator-triggered manual "AI settle" button. Automatic
+ *           settlement never runs Gemini — no kill-switch needed because
+ *           there's no automatic-AI surface to switch off.
  *
  * Tier 0 is read-only; tiers 1+ upsert their discoveries back into
  * match_scores so subsequent settlement requests are instantly free.
@@ -69,13 +72,6 @@ export interface ResolveOptions {
   /** Ask statistics-capable tiers (SofaScore) to fetch corner counts. */
   needsCorners?: boolean;
   /**
-   * Allow the paid Tier 3 (Gemini url_context) to run for events the
-   * free tiers couldn't resolve. Default is **false** — the automatic
-   * background scheduler never calls AI. Only the manual "AI settle"
-   * button in the UI opts in.
-   */
-  allowAi?: boolean;
-  /**
    * Skip Tier 0 (match_scores DB cache) for the given events. Useful
    * when the user re-runs a settlement and wants a fresh score rather
    * than the cached one — otherwise the waterfall short-circuits on
@@ -83,9 +79,11 @@ export interface ResolveOptions {
    */
   bypassCache?: boolean;
   /**
-   * Skip Tier 0/1/2 entirely and send every event directly to Tier 3
-   * (Gemini url_context). Implies `allowAi: true`. Used by the re-run
-   * menu's "AI — {tier}" options.
+   * Operator-triggered: skip every free tier and send the events
+   * directly to Tier 3 (Gemini url_context). The ONLY way to invoke
+   * Gemini in the settle pipeline. Set true by the manual "AI settle"
+   * dialog on the /bets workbench; never set by the automatic
+   * scheduler.
    */
   forceAi?: boolean;
   /**
@@ -272,17 +270,18 @@ export async function resolveScores(
     }
   }
 
-  // ── Tier 3: Gemini url_context (paid long-tail resolver) ────────────────
+  // ── Tier 3: Gemini url_context (operator-only manual path) ────────────
   //
-  // OFF by default. Only fires when the caller explicitly opts in via
-  // `allowAi: true` — the automatic background scheduler never does.
-  // The UI's "AI settle" button is the only production trigger.
-  // Safety net: the adapter throws `UrlContextBatchAbort` if Gemini
-  // returns a spend-cap or quota-exhausted error, short-circuiting the
-  // batch so a bad response can't hammer the API in a loop.
+  // Fires ONLY when the caller passes `forceAi: true` — the automatic
+  // background scheduler never sets this. The /bets "AI settle" dialog
+  // is the sole production trigger; the kill-switch was retired in 2026
+  // because there's no automatic-AI surface to switch off.
   const t3Candidates = stillMissingEvents();
-  const aiUnlocked = opts.allowAi === true || opts.forceAi === true;
-  if (t3Candidates.length > 0 && process.env.GEMINI_API_KEY && aiUnlocked) {
+  if (
+    t3Candidates.length > 0 &&
+    process.env.GEMINI_API_KEY &&
+    opts.forceAi === true
+  ) {
     try {
       const t3 = await fetchUrlContextScores(t3Candidates, 3, {
         model: opts.aiModel,

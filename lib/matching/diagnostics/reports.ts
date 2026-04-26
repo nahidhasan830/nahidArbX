@@ -5,9 +5,8 @@
  * and providing actionable recommendations.
  */
 
-import type { NearMatch, FailurePattern, FailurePatternType } from "./types";
+import type { NearMatch, FailurePattern } from "./types";
 import { getNearMatches, getDiagnosticStats, setPatterns } from "./store";
-import type { ProviderKey } from "../../providers/registry";
 
 // ============================================
 // Types

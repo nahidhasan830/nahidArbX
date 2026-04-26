@@ -30,7 +30,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import ulid
@@ -308,6 +308,44 @@ async def _cancel_watcher(run_id: str, cancel_event: asyncio.Event) -> None:
             continue
 
 
+# ── Progress ticker ──────────────────────────────────────────────────────
+
+
+async def _progress_ticker(
+    run_id: str,
+    get_n_done: Callable[[], int],
+    stop_event: asyncio.Event,
+    interval: float = 1.5,
+) -> None:
+    """Write `n_trials_done` every ~`interval` seconds from an in-memory
+    counter, decoupled from the batched trial-row INSERTs.
+
+    Without this the UI's `n_trials_done` only moves when `flush_buffer`
+    drains the buffer (every `persist_batch_size` trials), so on fast
+    parallel runs the progress bar looks frozen and then jumps by
+    hundreds. The ticker's UPDATE is a one-row write and is cheap enough
+    to fire frequently. Final/exact value is still written by the batch
+    flush — the ticker just keeps the UI live in between.
+    """
+    last_written = -1
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            return  # stop_event set → exit promptly
+        except TimeoutError:
+            pass
+        current = get_n_done()
+        if current == last_written or current <= 0:
+            continue
+        try:
+            await asyncio.to_thread(
+                _set_status, run_id, "running", n_trials_done=current
+            )
+            last_written = current
+        except Exception:
+            log.exception("Run %s: progress ticker write failed", run_id)
+
+
 # ── Main loop ─────────────────────────────────────────────────────────────
 
 
@@ -441,6 +479,15 @@ async def run_trial_loop(run_id: str) -> None:
             _cancel_watcher(run_id, cancel_event), name=f"watcher-{run_id}"
         )
 
+        # Live progress writer — keeps `n_trials_done` fresh in the DB
+        # every ~1.5s so the UI's progress bar updates smoothly instead
+        # of jumping by `persist_batch_size` chunks. See `_progress_ticker`.
+        progress_stop = asyncio.Event()
+        progress_task = asyncio.create_task(
+            _progress_ticker(run_id, lambda: n_done, progress_stop),
+            name=f"progress-{run_id}",
+        )
+
         async def flush_buffer(force: bool = False) -> None:
             """If the buffer has grown past `persist_batch_size` (or `force`),
             drain it and write a single multi-row INSERT + one status tick.
@@ -571,9 +618,15 @@ async def run_trial_loop(run_id: str) -> None:
             await flush_buffer(force=True)
         finally:
             cancel_event.set()  # tells watcher to exit
+            progress_stop.set()  # tells progress ticker to exit
             watcher_task.cancel()
+            progress_task.cancel()
             try:
                 await watcher_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            try:
+                await progress_task
             except (asyncio.CancelledError, Exception):
                 pass
 

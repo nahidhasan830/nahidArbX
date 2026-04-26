@@ -2,8 +2,8 @@
  * Wipes every row from `optimization_runs`. Trials cascade via FK
  * (`optimization_trials.run_id ON DELETE CASCADE`, see schema.ts:438).
  *
- * Schedules, strategies, and strategy_validations are untouched — they
- * outlive their source runs by design.
+ * Schedules and strategies are untouched — they outlive their source
+ * runs by design.
  *
  * Safety:
  *   - First flips any in-flight rows to status='cancelled' so a running

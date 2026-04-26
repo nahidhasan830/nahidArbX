@@ -13,21 +13,18 @@
  * Failure policy: any error inside a tick is logged and swallowed. We
  * don't want one bad event to stall settlement for the other 499.
  *
- * UI controls this scheduler via three layers:
+ * UI controls this scheduler via two layers:
  *   - Pause (in-memory)   — timer keeps firing; ticks skipped until resumed.
  *   - Stop / Start        — tears down / rebuilds the timer entirely.
- *   - Kill switch (disk)  — persistent; blocks auto-start on boot.
+ *
+ * The persistent kill-switch was removed in 2026 along with all
+ * automatic Gemini AI usage — settlement is now deterministic Tier 0/1/2
+ * only, so there's no runaway-cost surface to switch off.
  */
 
 import { runAutoSettle, type AutoSettleResult } from "./auto-settler";
 import { logger } from "../shared/logger";
 import { appendActivity } from "./activity-log";
-import {
-  getKillSwitchState,
-  isAutoSettleDisabled,
-  setAutoSettleDisabled,
-  type KillSwitchState,
-} from "./kill-switch";
 import { syncBus } from "../events/event-bus";
 import { singleton } from "../util/singleton";
 
@@ -67,9 +64,6 @@ const state = singleton<SchedulerState>("settle:scheduler", () => ({
 export interface AutoSettleStatusSnapshot {
   active: boolean;
   paused: boolean;
-  disabled: boolean;
-  disabledReason: string | null;
-  disabledAt: string | null;
   intervalMs: number;
   tickInFlight: boolean;
   lastStartedAt: number | null;
@@ -114,9 +108,6 @@ const runTick = async (options?: { manual?: boolean }): Promise<void> => {
     );
     return;
   }
-  if (!options?.manual && isAutoSettleDisabled()) {
-    return; // hard off — no activity logged for scheduled ticks once killed
-  }
   if (!options?.manual && state.paused) {
     state.skippedTicks += 1;
     return;
@@ -147,8 +138,6 @@ const runTick = async (options?: { manual?: boolean }): Promise<void> => {
         tier0: result.telemetry.tier0_hits,
         tier1: result.telemetry.tier1_hits,
         tier2: result.telemetry.tier2_hits,
-        tier3: result.telemetry.tier3_hits,
-        tier4: result.telemetry.tier4_hits,
         errors: result.errors,
       },
     );
@@ -165,27 +154,7 @@ const runTick = async (options?: { manual?: boolean }): Promise<void> => {
   }
 };
 
-/**
- * Start the loop. Runs one tick immediately so we don't wait a full
- * interval after process start to settle freshly-finished matches.
- *
- * Respects the persistent kill switch — if an operator disabled the
- * job from the UI, a redeploy must not silently bring it back. Call
- * `enableAutoSettleScheduler()` (or the API `action: "enable"`) first.
- */
 export function startAutoSettleScheduler(intervalMs?: number): void {
-  if (isAutoSettleDisabled()) {
-    logger.info(
-      "AutoSettle",
-      "Scheduler kill-switch engaged — refusing to start.",
-    );
-    appendActivity(
-      "state:start",
-      "warn",
-      "Start refused — kill switch is engaged.",
-    );
-    return;
-  }
   if (state.active) {
     logger.info("AutoSettle", "Scheduler already running — ignoring start.");
     return;
@@ -199,7 +168,6 @@ export function startAutoSettleScheduler(intervalMs?: number): void {
     "info",
     `Scheduler started at ${Math.round(interval / 1000)}s interval.`,
   );
-  // Fire-and-forget immediate tick.
   void runTick();
   state.timer = setInterval(() => void runTick(), interval);
   logger.info(
@@ -241,42 +209,6 @@ export function resumeAutoSettleScheduler(): void {
   emitState();
 }
 
-/**
- * Engage the persistent kill switch and stop the scheduler. Survives
- * process restarts — a fresh boot will see the switch and refuse to
- * auto-start until `enableAutoSettleScheduler` is called.
- */
-export function disableAutoSettleScheduler(reason?: string): KillSwitchState {
-  const next = setAutoSettleDisabled(true, reason ?? null);
-  stopAutoSettleScheduler();
-  logger.warn(
-    "AutoSettle",
-    `Scheduler disabled via kill switch${reason ? ` — ${reason}` : ""}.`,
-  );
-  appendActivity(
-    "state:disable",
-    "warn",
-    `Kill switch engaged${reason ? ` — ${reason}` : ""}.`,
-    reason ? { reason } : undefined,
-  );
-  emitState();
-  return next;
-}
-
-/**
- * Release the persistent kill switch. Does *not* auto-start the
- * scheduler — the caller (usually the API route) decides whether
- * to also start it, so a user can lift the switch without immediately
- * resuming settlement.
- */
-export function enableAutoSettleScheduler(): KillSwitchState {
-  const next = setAutoSettleDisabled(false, null);
-  logger.info("AutoSettle", "Kill switch lifted.");
-  appendActivity("state:enable", "info", "Kill switch lifted.");
-  emitState();
-  return next;
-}
-
 export function isAutoSettleActive(): boolean {
   return state.active;
 }
@@ -288,15 +220,9 @@ export function isAutoSettlePaused(): boolean {
 /**
  * Manually kick off one tick outside the scheduled cadence. Returns the
  * result or the error that killed the tick. Used by the manual-trigger
- * API route and by shell scripts. Respects the kill switch but bypasses
- * pause (operators explicitly asked for a run).
+ * API route. Bypasses pause (operators explicitly asked for a run).
  */
 export async function triggerAutoSettleNow(): Promise<AutoSettleResult> {
-  if (isAutoSettleDisabled()) {
-    throw new Error(
-      "Auto-settle is disabled via kill switch — enable it first.",
-    );
-  }
   if (state.tickInFlight) {
     throw new Error("A settlement tick is already in flight — try again soon.");
   }
@@ -313,13 +239,9 @@ export function getAutoSettleStatus(): AutoSettleStatusSnapshot {
     state.lastStartedAt && state.lastFinishedAt
       ? state.lastFinishedAt - state.lastStartedAt
       : null;
-  const ks = getKillSwitchState();
   return {
     active: state.active,
     paused: state.paused,
-    disabled: ks.disabled,
-    disabledReason: ks.reason,
-    disabledAt: ks.updatedAt,
     intervalMs: state.intervalMs,
     tickInFlight: state.tickInFlight,
     lastStartedAt: state.lastStartedAt,

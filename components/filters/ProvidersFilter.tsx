@@ -19,17 +19,19 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { PROVIDER_REGISTRY, getSoftProviders } from "@/lib/providers/registry";
 
-// ── Soft provider options (keep in sync with strategy config) ─────────────────
+// Derived from the provider registry — adding a new soft provider in
+// lib/providers/registry.ts automatically surfaces it here.
 export const SOFT_PROVIDER_OPTIONS: {
   value: string;
   label: string;
   short: string;
-}[] = [
-  { value: "ninewickets-exchange", label: "9W Exchange", short: "NWEx" },
-  { value: "ninewickets-sportsbook", label: "9W Sportsbook", short: "NWSB" },
-  { value: "betconstruct", label: "BetConstruct", short: "BC" },
-];
+}[] = getSoftProviders().map((id) => ({
+  value: id,
+  label: PROVIDER_REGISTRY[id].displayName,
+  short: PROVIDER_REGISTRY[id].shortName,
+}));
 
 const BTN_BASE = cn("h-7 px-2 text-[11px] gap-1.5 font-normal");
 

@@ -3,22 +3,20 @@
 /**
  * Optimisation unified workbench.
  *
- * Single-page scope-switched layout replacing the old Tabs shell:
+ * Three scopes:
  *   - Runs       — list of optimization runs with live progress
  *   - Schedules  — recurring runs
- *   - Strategies — configurations promoted from trials → live in the detector
+ *   - Strategies — saved filter+sizing recommendations (promoted from trials)
  *
  * Scope is URL-driven (`?scope=schedules`) so deep-links / back button work.
- * The top command bar reuses the `h-7 / px-3 py-1.5 / bg-muted/40 / text-[11px]`
- * vocabulary from components/spreadsheet/SpreadsheetToolbar.tsx.
+ * The header uses an underline-tab pattern (text-sm) — modern, calm, and
+ * the icon+label combo reads cleanly without a heavy container chrome.
  */
 
-import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HelpCircle, List, Repeat, Target } from "lucide-react";
 import { AppShell } from "@/components/nav/AppShell";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Popover,
   PopoverContent,
@@ -30,9 +28,19 @@ import { QuickRunButton } from "@/components/lab/optimisation/QuickRunButton";
 import { SchedulesTable } from "@/components/lab/optimisation/SchedulesTable";
 import { CreateScheduleSheet } from "@/components/lab/optimisation/CreateScheduleSheet";
 import { StrategiesTable } from "@/components/lab/optimisation/StrategiesTable";
+import { cn } from "@/lib/utils";
 
 type Scope = "runs" | "schedules" | "strategies";
-const SCOPES: Scope[] = ["runs", "schedules", "strategies"];
+
+const TABS: ReadonlyArray<{
+  id: Scope;
+  label: string;
+  Icon: typeof List;
+}> = [
+  { id: "runs", label: "Runs", Icon: List },
+  { id: "schedules", label: "Schedules", Icon: Repeat },
+  { id: "strategies", label: "Strategies", Icon: Target },
+];
 
 function isScope(v: string | null): v is Scope {
   return v === "runs" || v === "schedules" || v === "strategies";
@@ -55,33 +63,13 @@ export default function OptimisationPage() {
     });
   };
 
-  // Keyboard scope switcher: ⌘1 / ⌘2 / ⌘3
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === "1") {
-        e.preventDefault();
-        setScope("runs");
-      } else if (e.key === "2") {
-        e.preventDefault();
-        setScope("schedules");
-      } else if (e.key === "3") {
-        e.preventDefault();
-        setScope("strategies");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
-
   return (
     <AppShell
       title="Optimisation"
       edgeToEdge
       actions={<TopActions scope={scope} />}
     >
-      <div className="flex flex-col gap-4 p-4 lg:p-6">
+      <div className="flex flex-col gap-4 lg:gap-6 p-4 lg:p-6">
         <CommandBar scope={scope} onScopeChange={setScope} />
 
         <div className="min-h-0">
@@ -109,7 +97,7 @@ function TopActions({ scope }: { scope: Scope }) {
   return null;
 }
 
-// ── Command bar (scope switcher + help popover) ──────────────────────────
+// ── Command bar — underline-tab segmented control + help popover ─────────
 
 function CommandBar({
   scope,
@@ -119,40 +107,29 @@ function CommandBar({
   onScopeChange: (s: Scope) => void;
 }) {
   return (
-    <div className="border border-border rounded-md bg-muted/40 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
-      <ToggleGroup
-        type="single"
-        value={scope}
-        onValueChange={(v) => {
-          if (v && SCOPES.includes(v as Scope)) onScopeChange(v as Scope);
-        }}
-        className="flex items-center gap-1"
-      >
-        <ToggleGroupItem
-          value="runs"
-          className="h-7 px-3 text-[11px] gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-sm"
-        >
-          <List className="size-3" /> Runs
-          <kbd className="ml-1 text-[10px] text-muted-foreground">⌘1</kbd>
-        </ToggleGroupItem>
-        <ToggleGroupItem
-          value="schedules"
-          className="h-7 px-3 text-[11px] gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-sm"
-        >
-          <Repeat className="size-3" /> Schedules
-          <kbd className="ml-1 text-[10px] text-muted-foreground">⌘2</kbd>
-        </ToggleGroupItem>
-        <ToggleGroupItem
-          value="strategies"
-          className="h-7 px-3 text-[11px] gap-1.5 data-[state=on]:bg-background data-[state=on]:shadow-sm"
-        >
-          <Target className="size-3" /> Strategies
-          <kbd className="ml-1 text-[10px] text-muted-foreground">⌘3</kbd>
-        </ToggleGroupItem>
-      </ToggleGroup>
-
-      <div className="flex-1" />
-
+    <div className="border-b border-border flex items-end gap-1 -mx-1 overflow-x-auto">
+      <div className="flex items-end gap-1 flex-1 min-w-0">
+        {TABS.map(({ id, label, Icon }) => {
+          const active = scope === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onScopeChange(id)}
+              className={cn(
+                "relative inline-flex items-center gap-2 h-10 px-4 text-sm font-medium transition-colors -mb-px border-b-2 whitespace-nowrap",
+                active
+                  ? "text-foreground border-foreground"
+                  : "text-muted-foreground hover:text-foreground border-transparent",
+              )}
+              aria-current={active ? "page" : undefined}
+            >
+              <Icon className="size-4" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
       <HelpPopover scope={scope} />
     </div>
   );
@@ -165,14 +142,14 @@ function HelpPopover({ scope }: { scope: Scope }) {
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 px-2 text-[11px] text-muted-foreground gap-1.5"
+          className="h-9 px-3 text-sm text-muted-foreground gap-1.5 -mb-px"
         >
-          <HelpCircle className="size-3" /> Help
+          <HelpCircle className="size-4" /> Help
         </Button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[360px] text-[11px] leading-relaxed space-y-2"
+        className="w-[380px] text-sm leading-relaxed space-y-2"
       >
         {scope === "runs" && (
           <>
@@ -184,9 +161,9 @@ function HelpPopover({ scope }: { scope: Scope }) {
             <p>
               Click <em>Run now</em> for sensible defaults (ensemble search,
               2000 trials, CPCV testing, all bets, Telegram pings on) or
-              <em>New run…</em> to tweak.
+              <em> New run…</em> to tweak.
             </p>
-            <p className="text-amber-600 dark:text-amber-400 text-[10px]">
+            <p className="text-amber-600 dark:text-amber-400 text-xs">
               With ~1k bets, even the best strategies have a believable range of
               about ±2–4% — trust the range, not the headline number.
             </p>
@@ -208,14 +185,15 @@ function HelpPopover({ scope }: { scope: Scope }) {
         {scope === "strategies" && (
           <>
             <p>
-              <strong>Strategies</strong> are trial configurations promoted from
-              runs. They start as <em>candidate</em>; activate to make live —
-              the value detector consults them on every tick.
+              <strong>Strategies</strong> are saved filter + sizing
+              recommendations, promoted from trials. Use them as a quick filter
+              on <em>/value-bets</em> and <em>/bets</em>, or designate them as
+              auto-place gates from <em>Settings → Active strategies</em>.
             </p>
             <p>
-              <strong>Drift</strong> flags strategies whose live ROI has fallen
-              outside the expected range from when they were promoted —
-              investigate or pause.
+              <strong>Drift</strong> flags strategies whose recent live ROI has
+              fallen outside the expected range from when they were promoted —
+              worth investigating before relying on the strategy further.
             </p>
           </>
         )}

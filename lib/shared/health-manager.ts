@@ -145,7 +145,6 @@ export function getComponentHealth(componentId: string): ComponentHealth {
  */
 export function getSystemHealth(): SystemHealth {
   const components: Record<string, ComponentHealth> = {};
-  let healthyCount = 0;
   let unhealthyCount = 0;
 
   // Critical components that must be healthy
@@ -162,9 +161,7 @@ export function getSystemHealth(): SystemHealth {
     const health = getComponentHealth(id);
     components[id] = health;
 
-    if (health.status === "healthy") {
-      healthyCount++;
-    } else if (health.status === "unhealthy") {
+    if (health.status === "unhealthy") {
       unhealthyCount++;
     }
   }

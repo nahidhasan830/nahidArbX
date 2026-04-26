@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useLocalStorage } from "./useLocalStorage";
 import { PROVIDER_IDS, type ProviderKey } from "@/lib/providers/registry";
 
@@ -41,7 +41,7 @@ const SYSTEM_DEFAULTS: SavedDefaults = {
   selectedProviders: [...PROVIDER_IDS],
   showOnlyValue: true,
   showOnlySuspicious: false,
-  minProviderCount: 2,
+  minProviderCount: 1,
   minEvPct: 2.0,
   timeFilter: "all",
   suspiciousThresholdPct: 30,
@@ -134,6 +134,15 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const [selectedProvidersArray, setSelectedProvidersArray] = useLocalStorage<
     string[]
   >("bulk-analysis-selected-providers", [...PROVIDER_IDS]);
+
+  useEffect(() => {
+    const missing = PROVIDER_IDS.filter(
+      (id) => !selectedProvidersArray.includes(id),
+    );
+    if (missing.length > 0) {
+      setSelectedProvidersArray((prev) => [...prev, ...missing]);
+    }
+  }, [selectedProvidersArray, setSelectedProvidersArray]);
 
   // Filters (persisted)
   const [showOnlyValue, setShowOnlyValue] = useLocalStorage<boolean>(

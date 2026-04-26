@@ -4,9 +4,7 @@ import { Connector, IpAddressTypes } from "@google-cloud/cloud-sql-connector";
 import { schema } from "./schema";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __pgPool: Pool | undefined;
-  // eslint-disable-next-line no-var
   var __sqlConnector: Connector | undefined;
 }
 

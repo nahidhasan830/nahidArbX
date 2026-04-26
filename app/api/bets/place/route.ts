@@ -126,7 +126,7 @@ export async function POST(request: Request) {
   }
 
   const outcome = await placeBetForValueBet({
-    valueBet: valueBet as unknown as ValueBetRow, // eslint-disable-line @typescript-eslint/no-explicit-any
+    valueBet: valueBet as unknown as ValueBetRow,
     kellyStake,
     providerRefs,
     mode: "manual",

@@ -1,11 +1,14 @@
 /**
- * GET /api/optimizer/strategies/[id] — strategy detail (metrics + recent bets).
+ * GET /api/optimizer/strategies/[id] — strategy detail (metrics + recent
+ * bets that the strategy's filters currently select).
  */
 
 import { NextResponse } from "next/server";
-import { sql } from "drizzle-orm";
+import { and, desc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { getStrategy } from "@/lib/optimizer/strategies";
+import { bets } from "@/lib/db/schema";
+import { getStrategy, type StrategyFilters } from "@/lib/optimizer/strategies";
+import { buildStrategyFilterClauses } from "@/lib/optimizer/strategy-filter-sql";
 
 export async function GET(
   _req: Request,
@@ -16,16 +19,28 @@ export async function GET(
   if (!strategy)
     return NextResponse.json({ error: "not_found" }, { status: 404 });
 
-  // Recent bets attributed to this strategy — feeds the strategy detail UI.
-  const recentBets = await db.execute(
-    sql`SELECT id, event_id AS "eventId", home_team AS "homeTeam",
-               away_team AS "awayTeam", market_type AS "marketType",
-               soft_odds AS "softOdds", outcome, pnl, clv_pct AS "clvPct",
-               first_seen_at AS "firstSeenAt"
-        FROM bets
-        WHERE strategy_id = ${id}
-        ORDER BY first_seen_at DESC
-        LIMIT 100`,
+  const clauses = buildStrategyFilterClauses(
+    strategy.filters as StrategyFilters,
   );
-  return NextResponse.json({ strategy, recentBets: recentBets.rows });
+  const where = clauses.length ? and(...clauses) : undefined;
+
+  const recentBets = await db
+    .select({
+      id: bets.id,
+      eventId: bets.eventId,
+      homeTeam: bets.homeTeam,
+      awayTeam: bets.awayTeam,
+      marketType: bets.marketType,
+      softOdds: bets.softOdds,
+      outcome: bets.outcome,
+      pnl: bets.pnl,
+      clvPct: bets.clvPct,
+      firstSeenAt: bets.firstSeenAt,
+    })
+    .from(bets)
+    .where(where)
+    .orderBy(desc(bets.firstSeenAt))
+    .limit(100);
+
+  return NextResponse.json({ strategy, recentBets });
 }

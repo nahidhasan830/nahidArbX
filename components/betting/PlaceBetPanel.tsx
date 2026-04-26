@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Wallet,
   Zap,
   AlertTriangle,
   CheckCircle2,
@@ -171,7 +170,6 @@ export function PlaceBetPanel({
   const stakeInputRef = useRef<HTMLInputElement>(null);
 
   const evTone = classifyEv(selectedMetrics.metrics.evPct);
-  const hasPositiveEv = evTone === "positive";
   const isNegativeEv = evTone === "negative";
 
   useEffect(() => {
@@ -345,10 +343,6 @@ export function PlaceBetPanel({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const isTyping =
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.getAttribute("contenteditable") === "true";
 
       if (e.key === "Enter" && !e.shiftKey) {
         // Allow Enter both inside and outside the stake input to submit.
@@ -415,11 +409,10 @@ export function PlaceBetPanel({
 
   return (
     <div className="mt-2 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      {/* Header — includes persistent outcome pill */}
+      {/* Header */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/40">
         <Zap className="size-3.5 text-amber-500 shrink-0" />
         <div className="text-xs font-semibold shrink-0">Place Bet</div>
-
         {outcomeLabel && (
           <div
             className="flex items-center gap-1 shrink-0 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-700 dark:text-cyan-300 max-w-[160px]"
@@ -432,33 +425,8 @@ export function PlaceBetPanel({
           </div>
         )}
 
-        <div className="flex items-center gap-3 ml-auto text-[11px]">
-          <HeaderStat label="Book" value={providerShort} valueWidth="w-12" />
-          <HeaderStat
-            label="Odds"
-            value={chosenOdds != null ? chosenOdds.toFixed(2) : "—"}
-            valueWidth="w-10"
-          />
-          <HeaderStat
-            label="Edge"
-            value={evLabel}
-            tone={evHeaderTone}
-            valueWidth="w-14"
-          />
-          <HeaderStat
-            label="Bal"
-            icon={Wallet}
-            value={limits ? limits.balance.toLocaleString() : "—"}
-            sub={limits ? DISPLAY_CURRENCY : undefined}
-            tone={balanceTone}
-            valueWidth="w-16"
-            loading={limitsLoading && !limits}
-          />
-        </div>
-
-        {/* Fixed-width status slot — reserves space so metrics don't shift
-            when status pills toggle on/off. */}
-        <div className="flex items-center justify-end gap-1.5 shrink-0 ml-2 w-[88px]">
+        {/* Status badges */}
+        <div className="flex items-center justify-end gap-1.5 shrink-0 ml-auto">
           {limitsLoading && (
             <Loader2 className="size-3 animate-spin text-muted-foreground" />
           )}
@@ -476,6 +444,28 @@ export function PlaceBetPanel({
             <span className="invisible text-[9px] px-1.5 py-0.5">&nbsp;</span>
           )}
         </div>
+      </div>
+
+      {/* Metrics strip */}
+      <div className="grid grid-cols-4 gap-px bg-border/50">
+        <MetricCell label="Book" value={providerShort} />
+        <MetricCell
+          label="Odds"
+          value={chosenOdds != null ? chosenOdds.toFixed(2) : "—"}
+          mono
+        />
+        <MetricCell label="Edge" value={evLabel} tone={evHeaderTone} mono />
+        <MetricCell
+          label="Balance"
+          value={
+            limits
+              ? `${limits.balance.toLocaleString()} ${DISPLAY_CURRENCY}`
+              : "—"
+          }
+          tone={balanceTone}
+          loading={limitsLoading && !limits}
+          mono
+        />
       </div>
 
       <div className="p-2.5 space-y-2">
@@ -707,10 +697,10 @@ export function PlaceBetPanel({
           disabled={!canPlace}
           loading={placing}
           className={cn(
-            "w-full h-9 text-xs font-bold tracking-wide uppercase gap-2",
+            "w-full h-10 text-sm font-bold tracking-wide uppercase gap-2",
             canPlace &&
               !placing &&
-              "bg-emerald-600 hover:bg-emerald-700 text-white",
+              "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-900/20",
           )}
         >
           <span>
@@ -821,26 +811,18 @@ function IncrementBtn({
   );
 }
 
-function HeaderStat({
+function MetricCell({
   label,
   value,
-  sub,
   tone = "neutral",
-  icon: Icon,
-  valueWidth,
   loading = false,
+  mono = false,
 }: {
   label: string;
   value: string;
-  sub?: string;
   tone?: "neutral" | "positive" | "negative";
-  icon?: React.ComponentType<{ className?: string }>;
-  /** Fixed-width Tailwind class (e.g. "w-14") so value changes don't
-   *  shift neighbouring stats. Uses right-alignment inside the slot. */
-  valueWidth?: string;
-  /** When true, renders a skeleton in place of the value so the slot
-   *  width is stable while the underlying data loads. */
   loading?: boolean;
+  mono?: boolean;
 }) {
   const toneClass =
     tone === "positive"
@@ -850,27 +832,21 @@ function HeaderStat({
         : "text-foreground";
 
   return (
-    <div className="flex items-center gap-1 shrink-0">
-      {Icon && <Icon className="size-3 text-muted-foreground shrink-0" />}
+    <div className="flex flex-col items-center gap-0.5 bg-card px-2 py-1.5">
       <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
       {loading ? (
-        <Skeleton className={cn("h-3", valueWidth ?? "w-12")} />
+        <Skeleton className="h-4 w-14" />
       ) : (
         <span
           className={cn(
-            "text-[11px] font-bold font-mono tabular-nums text-right truncate",
-            valueWidth,
+            "text-[13px] font-bold tabular-nums truncate",
+            mono && "font-mono",
             toneClass,
           )}
         >
           {value}
-        </span>
-      )}
-      {sub && (
-        <span className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">
-          {sub}
         </span>
       )}
     </div>
@@ -940,7 +916,7 @@ function ReturnMeter({
     <div className="space-y-1">
       <div
         className={cn(
-          "flex h-5 overflow-hidden rounded-md border bg-muted/30 transition-opacity",
+          "flex h-6 overflow-hidden rounded-md border transition-opacity",
           active
             ? "border-border/60 opacity-100"
             : "border-border/30 opacity-40",
@@ -950,8 +926,8 @@ function ReturnMeter({
           className={cn(
             "flex items-center justify-center text-[9px] font-bold uppercase tracking-wider",
             active
-              ? "bg-muted-foreground/30 text-foreground/80"
-              : "bg-muted-foreground/20 text-muted-foreground",
+              ? "bg-muted-foreground/20 text-foreground/70"
+              : "bg-muted-foreground/10 text-muted-foreground",
           )}
           style={{ width: `${stakePct}%` }}
           title={
@@ -966,8 +942,8 @@ function ReturnMeter({
           className={cn(
             "flex items-center justify-center text-[9px] font-bold uppercase tracking-wider",
             active
-              ? "bg-emerald-600/80 text-white"
-              : "bg-emerald-600/30 text-white/70",
+              ? "bg-gradient-to-r from-emerald-600/90 to-emerald-500/80 text-white"
+              : "bg-emerald-600/20 text-white/50",
           )}
           style={{ width: `${profitPct}%` }}
           title={
@@ -1004,6 +980,7 @@ function ReturnMeter({
         </span>
         <span
           className={cn(
+            "font-semibold",
             active
               ? "text-emerald-600 dark:text-emerald-400"
               : "text-muted-foreground/60",

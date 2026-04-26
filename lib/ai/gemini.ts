@@ -2,9 +2,9 @@
  * Gemini client — single source of truth for AI-assisted event matching.
  *
  * Wraps the official `@google/genai` SDK. Callers pass two events and get
- * back a verdict (SAME / DIFFERENT / UNCERTAIN) with confidence and reasoning.
- * The client uses the SDK's structured-JSON mode so the response is
- * guaranteed-parseable — no regex fallbacks.
+ * back a verdict (SAME / DIFFERENT / UNCERTAIN) with confidence. The client
+ * uses the SDK's structured-JSON mode so the response is guaranteed-parseable
+ * — no regex fallbacks.
  */
 
 import { GoogleGenAI, Type } from "@google/genai";
@@ -18,7 +18,6 @@ export type Verdict = "SAME" | "DIFFERENT" | "UNCERTAIN";
 export interface GeminiResult {
   decision: Verdict;
   confidence: number;
-  reasoning: string;
   model: string;
 }
 
@@ -66,13 +65,9 @@ const RESPONSE_SCHEMA = {
       type: Type.INTEGER,
       description: "Confidence 0-100. Use 40-60 when UNCERTAIN.",
     },
-    reasoning: {
-      type: Type.STRING,
-      description: "One or two sentences explaining the verdict.",
-    },
   },
-  propertyOrdering: ["reasoning", "decision", "confidence"],
-  required: ["decision", "confidence", "reasoning"],
+  propertyOrdering: ["decision", "confidence"],
+  required: ["decision", "confidence"],
 };
 
 const SYSTEM_INSTRUCTION = `You decide whether two sports fixtures from different betting providers refer to the SAME real-world event.
@@ -124,7 +119,7 @@ export async function analyzeMatchWithGemini(
     throw new Error("Gemini returned an empty response");
   }
 
-  let parsed: { decision: string; confidence: number; reasoning: string };
+  let parsed: { decision: string; confidence: number };
   try {
     parsed = JSON.parse(text);
   } catch (err) {
@@ -139,7 +134,6 @@ export async function analyzeMatchWithGemini(
   return {
     decision,
     confidence: Math.max(0, Math.min(100, Math.round(parsed.confidence))),
-    reasoning: parsed.reasoning?.trim() || "",
     model: modelName,
   };
 }

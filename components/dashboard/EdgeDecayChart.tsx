@@ -2,6 +2,10 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import {
+  getProviderChartStroke,
+  getProviderChartDot,
+} from "@/lib/providers/registry";
 
 export interface EdgeDecayBook {
   provider: string;
@@ -12,21 +16,6 @@ export interface EdgeDecayPoint {
   weekStart: string;
   values: Record<string, number | null>;
 }
-
-// Deliberately matches the provider colors used in BetsHistoryTable.
-const PROVIDER_COLOR: Record<string, string> = {
-  "ninewickets-sportsbook": "stroke-amber-400",
-  "ninewickets-exchange": "stroke-purple-400",
-  betconstruct: "stroke-sky-400",
-  pinnacle: "stroke-cyan-400",
-};
-
-const PROVIDER_DOT: Record<string, string> = {
-  "ninewickets-sportsbook": "bg-amber-400",
-  "ninewickets-exchange": "bg-purple-400",
-  betconstruct: "bg-sky-400",
-  pinnacle: "bg-cyan-400",
-};
 
 /**
  * Multi-line chart: CLV% per book per ISO week. Flat-line near zero means
@@ -114,7 +103,7 @@ export function EdgeDecayChart({
             strokeLinecap="round"
             className={cn(
               "text-muted-foreground",
-              PROVIDER_COLOR[p.provider] ?? "stroke-primary",
+              getProviderChartStroke(p.provider),
             )}
             stroke="currentColor"
           />
@@ -143,7 +132,7 @@ export function EdgeDecayChart({
               <span
                 className={cn(
                   "inline-block w-2 h-2 rounded-full",
-                  PROVIDER_DOT[book.provider] ?? "bg-primary",
+                  getProviderChartDot(book.provider),
                 )}
               />
               <span className="text-foreground font-medium">

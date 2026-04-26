@@ -57,8 +57,6 @@ export const persistValueBets = async (
     commissionPct: number;
     softOdds: number;
     detectedAt: Date | string | number;
-    /** Optimisation (Phase 3): live-strategy id that claimed this detection. */
-    strategyId?: string | null;
   }>,
 ): Promise<PersistResult> => {
   const result: PersistResult = {
@@ -125,8 +123,6 @@ export const persistValueBets = async (
       firstSeenAt: detectedIso,
       lastSeenAt: detectedIso,
       tickCount: 1,
-      // Optimisation attribution — null when no live strategy matched.
-      strategyId: vb.strategyId ?? null,
       // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
     };
@@ -150,10 +146,6 @@ export const persistValueBets = async (
             sharpTrueProb: vb.trueProb,
             sharpOddsAgeMs: vb.sharpOddsAgeMs,
             tickCount: sql`${bets.tickCount} + 1`,
-            // Late-attribute: if the row was previously detected with no
-            // live strategy and one is live now, claim it. If the row was
-            // already attributed to a strategy, keep that — first claim wins.
-            strategyId: sql`COALESCE(${bets.strategyId}, ${vb.strategyId ?? null})`,
             updatedAt: sql`now()`,
           },
         })
@@ -222,6 +214,12 @@ export type ListFilters = {
   oddsMin?: number;
   /** Filter bets whose soft (bookmaker) odds are ≤ this value. */
   oddsMax?: number;
+  /** Strategy `min_sharp_prob` — sharp true probability ≥ this value. */
+  minSharpProb?: number;
+  /** Strategy `max_odds_age_sec` (in ms here) — sharp odds age ≤ this. NULL ages pass. */
+  maxOddsAgeMs?: number;
+  /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
+  minTickCount?: number;
   limit?: number;
   offset?: number;
 };
@@ -291,6 +289,17 @@ const buildFilterClauses = (filters: ListFilters) => {
   }
   if (filters.oddsMax !== undefined) {
     clauses.push(sql`${bets.softOdds} <= ${filters.oddsMax}`);
+  }
+  if (filters.minSharpProb !== undefined) {
+    clauses.push(sql`${bets.sharpTrueProb} >= ${filters.minSharpProb}`);
+  }
+  if (filters.maxOddsAgeMs !== undefined) {
+    clauses.push(
+      sql`(${bets.sharpOddsAgeMs} IS NULL OR ${bets.sharpOddsAgeMs} <= ${filters.maxOddsAgeMs})`,
+    );
+  }
+  if (filters.minTickCount !== undefined) {
+    clauses.push(sql`${bets.tickCount} >= ${filters.minTickCount}`);
   }
   return clauses;
 };

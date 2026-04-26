@@ -8,20 +8,21 @@ import {
   Trash2,
   ExternalLink,
   Sparkles,
-  Cpu,
+  Crown,
   RefreshCw,
   Loader2,
   Search,
   AlertCircle,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
   Activity,
   Info,
   Pause,
   Play,
   Square,
   SlidersHorizontal,
+  Zap,
+  Gavel,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import {
   Tooltip,
@@ -29,6 +30,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +44,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getProviderDisplayName } from "@/lib/providers/registry";
-import { MODEL_LABELS, MODEL_TIERS, type ModelTier } from "@/lib/ai/models";
+import { MODEL_LABELS, type ModelTier } from "@/lib/ai/models";
 import {
   eventLabel,
   pairLabel,
@@ -62,14 +70,11 @@ interface CachedDecision {
   key: string;
   verdict: VerdictType;
   confidence: number;
-  reasoning: string;
   sources: { url: string; title: string }[];
   decidedBy: DecidedBy;
   decidedAt: string;
   model?: string;
   by?: string;
-  /** Frozen pair snapshot — used by the bulk-stream subscription to build
-   * log entries even when the ReviewItem is no longer in current data. */
   snapshot?: {
     eventA: { homeTeam: string; awayTeam: string };
     eventB: { homeTeam: string; awayTeam: string };
@@ -95,7 +100,6 @@ interface ReviewItem {
 interface ListResponse {
   toReview: ReviewItem[];
   decided: ReviewItem[];
-  /** Count of matcher auto-merges, rendered on the Auto-Merged tab label. */
   autoMergedCount: number;
   stats: {
     total: number;
@@ -119,17 +123,11 @@ type LogIcon =
   | "info"
   | "done";
 
-/** Structured verdict data — used to render nice badges in the Ticker
- * instead of the old "Merged · Gemini flash 100%" string soup. Optional
- * because non-verdict entries (start/done/errors) don't have these. */
 interface VerdictMeta {
   verdict: "SAME" | "DIFFERENT" | "UNCERTAIN";
   confidence: number;
   modelTier?: ModelTier;
   cached?: boolean;
-  /** Two sides of the pair. Shown as the body of the row — either "A vs B"
-   * alone (when both sides have the same teams after canonicalization) or
-   * "A vs B ↔ C vs D" when names differ. */
   sideA?: string;
   sideB?: string;
 }
@@ -138,26 +136,14 @@ interface LogEntry {
   id: number;
   tone: "info" | "success" | "warning" | "error";
   icon: LogIcon;
-  /** Short label — rendered as the row's primary text. Kept free-form for
-   * non-verdict entries (e.g. "Bulk run complete", "Warming up…"). */
   title: string;
-  /** Dim detail line beneath the title. Used for error messages and any
-   * entry that doesn't carry `verdict` meta. */
   subtitle?: string;
-  /** When present, the row renders structured verdict badges instead of a
-   * plain title. */
   verdict?: VerdictMeta;
-  /** Gemini's full reasoning — surfaced in a tooltip on hover. */
-  reasoning?: string;
   time: string;
 }
 
 type LogDraft = Omit<LogEntry, "id" | "time">;
 
-/**
- * Mirrors `BulkStatus` returned by `/api/match-review/bulk-stream`'s initial
- * snapshot frame. Kept in sync with `lib/matching/bulk-control.ts`.
- */
 interface BulkStatusPayload {
   active: boolean;
   aborted: boolean;
@@ -188,10 +174,6 @@ function formatTime(iso: string): string {
 // ============================================
 // Activity-log row
 // ============================================
-// Each entry renders as icon + bold title with the timestamp on the right,
-// and an optional dim subtitle line beneath. This is visually denser than a
-// plain console log but reads like a status feed — matches the toast shape
-// (title + description) so the two feel like one language.
 
 const LOG_ICON_COMPONENTS = {
   merged: CheckCircle2,
@@ -220,61 +202,6 @@ const LOG_TITLE_COLORS: Record<LogEntry["tone"], string> = {
   info: "text-zinc-300",
 };
 
-function LogEntryRow({ entry }: { entry: LogEntry }) {
-  const Icon = LOG_ICON_COMPONENTS[entry.icon];
-  return (
-    <div className="flex items-start gap-2 px-1.5 py-1.5">
-      <Icon
-        className={cn(
-          "w-3.5 h-3.5 mt-0.5 shrink-0",
-          LOG_ICON_COLORS[entry.icon],
-        )}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span
-            className={cn(
-              "text-[11px] font-medium leading-snug min-w-0 truncate",
-              LOG_TITLE_COLORS[entry.tone],
-            )}
-          >
-            {entry.title}
-          </span>
-          <span className="text-[10px] text-zinc-600 tabular-nums ml-auto shrink-0">
-            {entry.time}
-          </span>
-        </div>
-        {entry.subtitle && (
-          <div className="text-[10px] text-zinc-500 mt-0.5 break-words leading-snug">
-            {entry.subtitle}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================
-// The Ticker — activity log redesigned
-// ============================================
-// Replaces the old "chronological wall of rows" drawer with a focused feed
-// that surfaces the interesting events and compresses the boring ones:
-//
-//   ┌─────────────────────────────────────────── floating elevated panel ─┐
-//   │  Status strip: progress · ETA · tally chips (click to filter)       │
-//   │                                                                     │
-//   │  Feed:                                                              │
-//   │  ▎SAME · 92%   Arsenal vs Chelsea ↔ Arsenal FC vs Chelsea FC  0:12  │
-//   │  ▸ 14 kept separate (83–89%)  ← collapsed run                       │
-//   │  ▎UNCERTAIN · 55%  Real Madrid vs Atlético …         [Try Pro →]    │
-//   │  ▎ERROR  Rate limit on pair #47                                     │
-//   │                                                                     │
-//   │  Search │ pause ⏸ │ clear │ close                                   │
-//   └─────────────────────────────────────────────────────────────────────┘
-//
-// The panel floats above the list (elevated shadow, rounded, distinct bg)
-// so it no longer looks like a continuation of the table.
-
 type TickerFilter = "all" | "merged" | "different" | "uncertain" | "error";
 
 const FILTER_LABEL: Record<TickerFilter, string> = {
@@ -285,7 +212,6 @@ const FILTER_LABEL: Record<TickerFilter, string> = {
   error: "Errors",
 };
 
-/** Icon → tone category. Used for severity rails and the filter chips. */
 function entryCategory(entry: LogEntry): Exclude<TickerFilter, "all"> | null {
   if (entry.icon === "merged") return "merged";
   if (entry.icon === "rejected") return "different";
@@ -300,10 +226,6 @@ const RAIL_COLOR: Record<Exclude<TickerFilter, "all">, string> = {
   uncertain: "bg-amber-500",
   error: "bg-red-600",
 };
-
-// ============================================
-// Badges used inside structured verdict rows
-// ============================================
 
 const VERDICT_STYLE: Record<
   VerdictMeta["verdict"],
@@ -344,9 +266,6 @@ function VerdictPill({ verdict }: { verdict: VerdictMeta["verdict"] }) {
 }
 
 function ConfidencePill({ confidence }: { confidence: number }) {
-  // Gradient tint so the eye picks up low-confidence verdicts even when they
-  // share a verdict badge with high-confidence ones. ≥90% is authoritative-
-  // looking, 70-89% is normal, <70% dims to signal "handle with care".
   const tone =
     confidence >= 90
       ? "text-zinc-100"
@@ -367,7 +286,6 @@ function ModelPill({ tier }: { tier: ModelTier }) {
         "px-1.5 py-0.5 rounded text-[10px] font-medium border leading-none",
         MODEL_BADGE_STYLE[tier],
       )}
-      title={MODEL_LABELS[tier].tagline}
     >
       {MODEL_LABELS[tier].label}
     </span>
@@ -376,10 +294,7 @@ function ModelPill({ tier }: { tier: ModelTier }) {
 
 function CachedPill() {
   return (
-    <span
-      className="px-1 py-0.5 rounded text-[9px] font-medium bg-zinc-800 text-zinc-500 uppercase tracking-wider leading-none"
-      title="Returned from cache — this pair had already been decided, no fresh API call was made."
-    >
+    <span className="px-1 py-0.5 rounded text-[9px] font-medium bg-zinc-800 text-zinc-500 uppercase tracking-wider leading-none">
       cached
     </span>
   );
@@ -395,11 +310,9 @@ function TickerRow({
   const Icon = LOG_ICON_COMPONENTS[entry.icon];
   const v = entry.verdict;
 
-  // Shared row wrapper with severity rail.
   const rowBody =
     v != null ? (
-      // Structured verdict row — distinct badges instead of "Merged · Gemini flash 100%"
-      <div className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-1.5">
+      <div className="flex-1 min-w-0 flex items-center gap-2 px-2.5 py-1">
         <Icon
           className={cn("w-3.5 h-3.5 shrink-0", LOG_ICON_COLORS[entry.icon])}
         />
@@ -415,8 +328,7 @@ function TickerRow({
         </span>
       </div>
     ) : (
-      // Plain row — errors, start/done/info messages. Keeps subtitle layout.
-      <div className="flex-1 min-w-0 flex items-start gap-2 px-2.5 py-1.5">
+      <div className="flex-1 min-w-0 flex items-start gap-2 px-2.5 py-1">
         <Icon
           className={cn(
             "w-3.5 h-3.5 mt-0.5 shrink-0",
@@ -446,11 +358,10 @@ function TickerRow({
       </div>
     );
 
-  const row = (
+  return (
     <div
       className={cn(
-        "group flex items-stretch text-[11px] hover:bg-zinc-800/40 transition-colors cursor-default",
-        entry.reasoning && "hover:bg-zinc-800/60",
+        "group flex items-stretch text-[11px] hover:bg-zinc-800/40 transition-colors",
       )}
     >
       <div
@@ -462,28 +373,6 @@ function TickerRow({
       />
       {rowBody}
     </div>
-  );
-
-  // Tooltip wrapper only when reasoning is present. Non-verdict entries
-  // (info/done) and error entries (subtitle already has the message) skip it.
-  if (!entry.reasoning) return row;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{row}</TooltipTrigger>
-      <TooltipContent
-        side="top"
-        align="start"
-        className="max-w-md bg-zinc-900 text-zinc-100 border border-zinc-700 shadow-xl px-3 py-2"
-      >
-        <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1">
-          {v ? "Gemini reasoning" : "Details"}
-        </div>
-        <div className="text-[12px] leading-relaxed whitespace-pre-wrap">
-          {entry.reasoning}
-        </div>
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -516,7 +405,6 @@ function ActivityDrawer({
   const [search, setSearch] = useState("");
   const [scrollPinned, setScrollPinned] = useState(true);
 
-  // Tallies — run once per log change, feed the filter chips.
   const tally = useMemo(() => {
     const t = { merged: 0, different: 0, uncertain: 0, error: 0 } as Record<
       Exclude<TickerFilter, "all">,
@@ -541,8 +429,6 @@ function ActivityDrawer({
     });
   }, [log, filter, needle]);
 
-  // Pause auto-scroll when the user scrolls up mid-run; resume when they
-  // scroll back to the bottom. Also freezes on explicit pause button.
   const feedRef = useRef<HTMLDivElement | null>(null);
   const onFeedScroll = useCallback(() => {
     const el = feedRef.current;
@@ -555,7 +441,6 @@ function ActivityDrawer({
     const el = feedRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-    // Also write through to the parent ref so older code paths keep working.
     if (logScrollRef && "current" in logScrollRef) {
       logScrollRef.current = el;
     }
@@ -597,7 +482,6 @@ function ActivityDrawer({
           tone[id],
           !active && "hover:text-zinc-100",
         )}
-        title={`Show only ${FILTER_LABEL[id]} (${count})`}
       >
         {FILTER_LABEL[id]}{" "}
         <span className="opacity-70">{id === "all" ? log.length : count}</span>
@@ -605,8 +489,6 @@ function ActivityDrawer({
     );
   };
 
-  // Collapsed strip — shown when the user closes the panel but a run is
-  // active or the log has content. Single row, clicks expand.
   if (!logOpen) {
     return (
       <div className="px-3 pb-2 shrink-0">
@@ -652,21 +534,9 @@ function ActivityDrawer({
 
   return (
     <div className="px-3 pb-3 shrink-0">
-      {/* Elevated floating panel — distinct from the table above via:
-            • Margin on all sides (doesn't touch the table border)
-            • Darker bg + rounded corners + real shadow
-            • A thin accent gradient at the very top edge
-          Fixed height (38vh, roughly half the table area above) so the panel
-          doesn't shift around when you switch tabs or when rows arrive — the
-          feed scrolls internally to fill what's left after the strip + band
-          + command bar. */}
-      <div className="flex flex-col h-[38vh] rounded-lg border border-zinc-700/80 bg-zinc-950 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.04)] overflow-hidden">
-        {/* Top accent — thin gradient to visually "lift" the panel off the
-            table even when the surrounding area is dark. */}
+      <div className="flex flex-col h-[34vh] rounded-lg border border-zinc-700/80 bg-zinc-950 shadow-[0_-8px_24px_-8px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.04)] overflow-hidden">
         <div className="h-[2px] bg-gradient-to-r from-transparent via-blue-500/60 to-transparent shrink-0" />
 
-        {/* Status strip — progress, tally chips, primary controls. Its own
-            background row so the feed below it feels distinct. */}
         <div className="relative bg-zinc-900/90 border-b border-zinc-800 shrink-0">
           {bulkProgress && (
             <div
@@ -675,7 +545,7 @@ function ActivityDrawer({
               aria-hidden
             />
           )}
-          <div className="relative flex items-center gap-2 px-3 h-10">
+          <div className="relative flex items-center gap-2 px-3 h-9">
             {isBulkBusy && !isBulkPaused ? (
               <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
             ) : (
@@ -707,109 +577,112 @@ function ActivityDrawer({
             <div className="ml-auto flex items-center gap-1 shrink-0">
               {isBulkBusy && (
                 <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={controlBusy !== null}
-                    onClick={() => onControl(isBulkPaused ? "resume" : "pause")}
-                    title={
-                      isBulkPaused
-                        ? "Resume the paused bulk run."
-                        : "Pause the bulk run. In-flight items finish; new items wait."
-                    }
-                    className={cn(
-                      "h-7 w-7 p-0",
-                      isBulkPaused ? "text-amber-300" : "text-zinc-300",
-                    )}
-                  >
-                    {controlBusy === "pause" || controlBusy === "resume" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : isBulkPaused ? (
-                      <Play className="w-3.5 h-3.5" />
-                    ) : (
-                      <Pause className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={controlBusy !== null}
-                    onClick={() => onControl("abort")}
-                    title="Abort the bulk run."
-                    className="h-7 w-7 p-0 text-red-300 hover:text-red-200"
-                  >
-                    {controlBusy === "abort" ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Square className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={controlBusy !== null}
+                        onClick={() =>
+                          onControl(isBulkPaused ? "resume" : "pause")
+                        }
+                        className={cn(
+                          "h-7 w-7 p-0",
+                          isBulkPaused ? "text-amber-300" : "text-zinc-300",
+                        )}
+                      >
+                        {controlBusy === "pause" || controlBusy === "resume" ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : isBulkPaused ? (
+                          <Play className="w-3.5 h-3.5" />
+                        ) : (
+                          <Pause className="w-3.5 h-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isBulkPaused
+                        ? "Resume the paused bulk run"
+                        : "Pause — in-flight items finish, new items wait"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={controlBusy !== null}
+                        onClick={() => onControl("abort")}
+                        className="h-7 w-7 p-0 text-red-300 hover:text-red-200"
+                      >
+                        {controlBusy === "abort" ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Abort the bulk run</TooltipContent>
+                  </Tooltip>
                 </>
               )}
               {!isBulkBusy && log.length > 0 && (
                 <button
                   onClick={() => setLog([])}
-                  title="Clear the activity log."
                   className="h-7 px-2 text-[11px] text-zinc-500 hover:text-zinc-300 rounded transition-colors"
                 >
                   Clear
                 </button>
               )}
-              <button
-                onClick={() => setLogOpen((v) => !v)}
-                title="Collapse activity panel"
-                className="h-7 w-7 p-0 inline-flex items-center justify-center text-zinc-500 hover:text-zinc-300 rounded"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setLogOpen((v) => !v)}
+                    className="h-7 w-7 p-0 inline-flex items-center justify-center text-zinc-500 hover:text-zinc-300 rounded"
+                    aria-label="Collapse"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Collapse activity panel</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </div>
 
-        {/* Feed — fills the remaining vertical space inside the fixed-height
-            panel. `min-h-0` is mandatory so the flex child can shrink below
-            its content size and its own overflow can take over. Extra bottom
-            padding keeps the final row's subtitle fully visible above the
-            command bar instead of being flush against its border.
-            Wrapped in TooltipProvider so every verdict row can expose Gemini's
-            reasoning on hover via the shared Radix tooltip context. */}
-        <TooltipProvider delayDuration={200}>
-          <div
-            ref={feedRef}
-            onScroll={onFeedScroll}
-            className="flex-1 min-h-0 overflow-auto divide-y divide-zinc-800/40 bg-zinc-950 pb-1.5"
-          >
-            {log.length === 0 ? (
-              <div className="text-zinc-600 italic text-[11px] px-3 py-3">
-                Waiting for events. Start a bulk analyze to watch verdicts
-                stream in.
-              </div>
-            ) : visible.length === 0 ? (
-              <div className="text-zinc-600 italic text-[11px] px-3 py-3">
-                {needle
-                  ? `No matches for "${needle}".`
-                  : `No ${FILTER_LABEL[filter].toLowerCase()} yet.`}
-              </div>
-            ) : (
-              visible.map((entry) => (
-                <TickerRow
-                  key={entry.id}
-                  entry={entry}
-                  category={entryCategory(entry)}
-                />
-              ))
-            )}
-          </div>
-        </TooltipProvider>
+        <div
+          ref={feedRef}
+          onScroll={onFeedScroll}
+          className="flex-1 min-h-0 overflow-auto divide-y divide-zinc-800/40 bg-zinc-950 pb-1.5"
+        >
+          {log.length === 0 ? (
+            <div className="text-zinc-600 italic text-[11px] px-3 py-3">
+              Waiting for events. Start a bulk run to watch verdicts stream in.
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="text-zinc-600 italic text-[11px] px-3 py-3">
+              {needle
+                ? `No matches for "${needle}".`
+                : `No ${FILTER_LABEL[filter].toLowerCase()} yet.`}
+            </div>
+          ) : (
+            visible.map((entry) => (
+              <TickerRow
+                key={entry.id}
+                entry={entry}
+                category={entryCategory(entry)}
+              />
+            ))
+          )}
+        </div>
 
-        {/* Command bar — search + auto-scroll hint */}
         <div className="flex items-center gap-2 px-2 py-1.5 border-t border-zinc-800 bg-zinc-900/60 shrink-0">
           <div className="relative flex-1 min-w-0">
             <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600" />
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter by team, reasoning, model…"
+              placeholder="Filter activity…"
               className="h-6 pl-6 text-[11px] border-zinc-800 bg-zinc-950"
             />
           </div>
@@ -824,7 +697,6 @@ function ActivityDrawer({
                 setScrollPinned(true);
               }}
               className="h-6 px-2 text-[10px] rounded bg-blue-500/10 border border-blue-500/30 text-blue-300 hover:bg-blue-500/20 transition-colors shrink-0"
-              title="Jump to latest and resume auto-scroll."
             >
               ↓ latest
             </button>
@@ -841,15 +713,12 @@ function DecisionBadge({ decision }: { decision: CachedDecision }) {
   const deciderLabel = isHuman
     ? "Human"
     : decision.decidedBy === "gemini"
-      ? "Gemini"
+      ? "AI"
       : "Matcher";
 
   if (isMatcher) {
     return (
-      <span
-        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-sky-500/15 text-sky-300 border-sky-500/30"
-        title={`Auto-merged by the string-similarity matcher at ${decision.confidence}% confidence. Approve to lock it in as human-verified; reject to unmerge.`}
-      >
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-sky-500/15 text-sky-300 border-sky-500/30">
         Matcher · SAME · {decision.confidence}%
       </span>
     );
@@ -865,14 +734,13 @@ function DecisionBadge({ decision }: { decision: CachedDecision }) {
             ? "bg-emerald-600/20 text-emerald-300 border-emerald-600/40"
             : "bg-red-600/20 text-red-300 border-red-600/40",
         )}
-        title={`Decided by human${decision.by ? ` (${decision.by})` : ""} · ${new Date(decision.decidedAt).toLocaleString()}`}
       >
         {approved ? (
           <CheckCircle2 className="w-3 h-3" />
         ) : (
           <XCircle className="w-3 h-3" />
         )}
-        {deciderLabel} · {approved ? "Approved" : "Rejected"}
+        {approved ? "Approved" : "Rejected"}
       </span>
     );
   }
@@ -888,7 +756,6 @@ function DecisionBadge({ decision }: { decision: CachedDecision }) {
         "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border",
         colorMap[decision.verdict],
       )}
-      title={`${deciderLabel}${decision.model ? ` (${decision.model})` : ""} · ${new Date(decision.decidedAt).toLocaleString()}`}
     >
       {deciderLabel} · {decision.verdict} · {decision.confidence}%
     </span>
@@ -896,15 +763,11 @@ function DecisionBadge({ decision }: { decision: CachedDecision }) {
 }
 
 function ProviderLabel({ provider }: { provider: string }) {
-  // Fixed leading so the italic "archived" tag and the uppercase provider
-  // tag take exactly the same vertical space — keeps team lines across the
-  // two columns on the same baseline.
   const base = "text-[10px] h-4 leading-4";
   if (provider === "unknown") {
     return (
       <div
         className={cn(base, "italic tracking-wide text-zinc-600 font-normal")}
-        title="The original events are no longer in the live sync (past fixture or pruned). The verdict is still honored — it prevents the pair from re-surfacing if those teams meet again."
       >
         archived
       </div>
@@ -919,17 +782,143 @@ function ProviderLabel({ provider }: { provider: string }) {
   );
 }
 
+// ============================================
+// AI Verify dropdown — demoted to a single subtle button.
+// Mirrors the "Settle with…" dropdown in AiSettleDialog so the UX feels
+// consistent and AI is opt-in rather than the default action.
+// ============================================
+
+type VerifyChoice = { kind: "ai"; model: ModelTier };
+
+const VERIFY_OPTIONS: {
+  choice: VerifyChoice;
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  accent: string;
+}[] = [
+  {
+    choice: { kind: "ai", model: "lite" },
+    label: "Lite",
+    hint: "Cheapest — default model. Try this first.",
+    icon: Zap,
+    accent: "text-blue-400",
+  },
+  {
+    choice: { kind: "ai", model: "flash" },
+    label: "Flash",
+    hint: "Balanced — if Lite looks shaky.",
+    icon: Sparkles,
+    accent: "text-violet-400",
+  },
+  {
+    choice: { kind: "ai", model: "pro" },
+    label: "Pro",
+    hint: "Deep reasoning — most expensive. Stuck rows only.",
+    icon: Crown,
+    accent: "text-amber-400",
+  },
+];
+
+interface AiVerifyButtonProps {
+  running?: boolean;
+  disabled?: boolean;
+  /** Tooltip body — explains what "verify" does in the current row context. */
+  tooltip?: string;
+  /** Triggered when the user picks a model. Parent owns the actual fetch. */
+  onChoose: (choice: VerifyChoice) => void;
+  /** When true, renders as a wider "bulk" button with a label. */
+  bulkLabel?: string;
+}
+
+function AiVerifyButton({
+  running,
+  disabled,
+  tooltip,
+  onChoose,
+  bulkLabel,
+}: AiVerifyButtonProps) {
+  const trigger = bulkLabel ? (
+    <Button
+      size="sm"
+      variant="outline"
+      className="h-7 px-2.5 text-[11px] gap-1.5 text-zinc-300 border-zinc-700 hover:border-zinc-600"
+      disabled={running || disabled}
+    >
+      {running ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : (
+        <Gavel className="w-3.5 h-3.5" />
+      )}
+      {bulkLabel}
+      <ChevronDown className="w-3 h-3 opacity-60" />
+    </Button>
+  ) : (
+    <Button
+      size="icon"
+      variant="ghost"
+      className="size-7 text-muted-foreground hover:text-foreground"
+      disabled={running || disabled}
+    >
+      {running ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Gavel className="size-3.5" />
+      )}
+    </Button>
+  );
+
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        </TooltipTrigger>
+        {tooltip && (
+          <TooltipContent
+            side="top"
+            className="max-w-xs text-sm leading-snug whitespace-normal"
+          >
+            {tooltip}
+          </TooltipContent>
+        )}
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-[200px] p-1">
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+          Verify with AI (paid)
+        </DropdownMenuLabel>
+        {VERIFY_OPTIONS.map((opt) => (
+          <DropdownMenuItem
+            key={opt.choice.model}
+            onSelect={() => onChoose(opt.choice)}
+            className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
+          >
+            <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <span className="text-[12px] font-medium leading-tight">
+                {opt.label}
+              </span>
+              <span className="text-[10px] text-muted-foreground leading-tight">
+                {opt.hint}
+              </span>
+            </div>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// ============================================
+// Item row — compact, with proper Tooltips on every action
+// ============================================
+
 interface ItemRowProps {
   item: ReviewItem;
   bucket: BucketId;
   selected: boolean;
-  modelTier: ModelTier;
   onToggleSelect: (key: string) => void;
-  onAnalyze: (
-    item: ReviewItem,
-    model: ModelTier,
-    forceRefresh?: boolean,
-  ) => void;
+  onVerifyAI: (item: ReviewItem, choice: VerifyChoice) => void;
   onApprove: (item: ReviewItem) => void;
   onReject: (item: ReviewItem) => void;
   onDelete: (item: ReviewItem) => void;
@@ -941,22 +930,17 @@ function ItemRow({
   item,
   bucket,
   selected,
-  modelTier,
   onToggleSelect,
-  onAnalyze,
+  onVerifyAI,
   onApprove,
   onReject,
   onDelete,
   onOpenSearch,
   busyAction,
 }: ItemRowProps) {
-  const [expanded, setExpanded] = useState(false);
   const d = item.cachedDecision;
   const busy = busyAction !== null;
 
-  // Tint the row by current verdict — green for approved (or AI SAME that
-  // would auto-merge), red for rejected, amber-tinted for Gemini UNCERTAIN.
-  // Threshold matches the server's default `AI_AUTONOMOUS_THRESHOLD`.
   const humanApproved = d?.decidedBy === "human" && d.verdict === "SAME";
   const humanRejected = d?.decidedBy === "human" && d.verdict === "DIFFERENT";
   const aiConfidentSame =
@@ -970,21 +954,19 @@ function ItemRow({
   const aiUncertain = d?.decidedBy === "gemini" && d.verdict === "UNCERTAIN";
 
   const isDecidedTab = bucket === "decided";
-  // On the Decided tab the same AI buttons act as "re-run" — they send
-  // forceRefresh so the AI re-analyzes and the new verdict replaces the old
-  // one. Human verdicts are authoritative: the cache refuses to overwrite
-  // them, so we don't offer a re-run there (user must Delete first).
   const isAIDecided = d?.decidedBy === "gemini";
-  const showAnalyzeButtons = isDecidedTab
+  const showAIButton = isDecidedTab
     ? isAIDecided
     : !humanApproved && !humanRejected;
-  const isRerun = isDecidedTab && isAIDecided;
-  const showApproveReject = true;
+
+  const verifyTooltip = isDecidedTab
+    ? "Re-verify with AI — replaces the current AI verdict. Use sparingly: every call costs money."
+    : "Verify this pair with AI. Lite is the default; reach for Pro only when stuck. AI usage costs money — prefer Approve/Reject if you can decide visually.";
 
   return (
     <div
       className={cn(
-        "border-b border-zinc-800/50 px-3 py-2 hover:bg-zinc-800/20 transition-colors",
+        "border-b border-zinc-800/50 px-2.5 py-1.5 hover:bg-zinc-800/20 transition-colors",
         selected && "bg-blue-500/5",
         humanApproved && "bg-emerald-900/10",
         humanRejected && "bg-red-900/10 opacity-80",
@@ -993,33 +975,22 @@ function ItemRow({
         aiUncertain && "bg-amber-900/[0.05]",
       )}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2">
         <Checkbox
           checked={selected}
           onCheckedChange={() => onToggleSelect(item.key)}
-          className="mt-1.5 border-zinc-600"
+          className="border-zinc-600 shrink-0"
         />
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-1 text-zinc-500 hover:text-zinc-300 shrink-0"
-          title={expanded ? "Collapse" : "Expand reasoning"}
-        >
-          {expanded ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <ChevronRight className="w-4 h-4" />
-          )}
-        </button>
 
         <div className="flex-1 min-w-0">
           <div className="grid grid-cols-2 gap-3">
             <div className="min-w-0">
               <ProviderLabel provider={item.eventA.provider} />
-              <div className="text-sm text-zinc-100 truncate">
+              <div className="text-[12px] text-zinc-100 truncate leading-tight">
                 {item.eventA.homeTeam} <span className="text-zinc-500">vs</span>{" "}
                 {item.eventA.awayTeam}
               </div>
-              <div className="text-xs text-zinc-500 truncate">
+              <div className="text-[10px] text-zinc-500 truncate leading-tight">
                 {item.eventA.competition}
                 {item.eventA.provider !== "unknown" &&
                   ` · ${formatTime(item.eventA.startTime)}`}
@@ -1027,11 +998,11 @@ function ItemRow({
             </div>
             <div className="min-w-0">
               <ProviderLabel provider={item.eventB.provider} />
-              <div className="text-sm text-zinc-100 truncate">
+              <div className="text-[12px] text-zinc-100 truncate leading-tight">
                 {item.eventB.homeTeam} <span className="text-zinc-500">vs</span>{" "}
                 {item.eventB.awayTeam}
               </div>
-              <div className="text-xs text-zinc-500 truncate">
+              <div className="text-[10px] text-zinc-500 truncate leading-tight">
                 {item.eventB.competition}
                 {item.eventB.provider !== "unknown" &&
                   ` · ${formatTime(item.eventB.startTime)}`}
@@ -1039,20 +1010,9 @@ function ItemRow({
             </div>
           </div>
 
-          <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+          <div className="flex items-center flex-wrap gap-1 mt-1">
             {item.source !== "decided" && (
-              <Badge
-                variant="outline"
-                className="text-[10px] px-1.5 py-0 h-4"
-                title={
-                  item.source === "matched-event"
-                    ? "Match confidence — how sure the system was when it merged these. 100% means a clean 85%+ string/alias match; lower means AI-confirmed or human-approved."
-                    : "Similarity score: 0.7 × team-name similarity + 0.3 × league similarity, after aliases.\n\n" +
-                      "• ≥85% = auto-match (merged by the system → Auto-Matched tab).\n" +
-                      "• 70–85% = near-match (appears here for you to review).\n" +
-                      "• <70% = ignored, unless a time-bucket neighbor suggests them."
-                }
-              >
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
                 score {(item.score * 100).toFixed(0)}%
               </Badge>
             )}
@@ -1068,15 +1028,6 @@ function ItemRow({
                       ? "border-zinc-700/40 text-zinc-400"
                       : "border-amber-700/40 text-amber-400",
               )}
-              title={
-                item.source === "matched-event"
-                  ? "The system already merged these (matcher ≥85% or AI ≥80% SAME). Approve locks it in; Reject un-merges."
-                  : item.source === "unmatched-candidate"
-                    ? "Single-provider events sharing a time bucket with another provider's events. Text similarity was too low to auto-match, but the time overlap is suggestive."
-                    : item.source === "decided"
-                      ? "Finalized — keeps its verdict unless you delete it."
-                      : "Scored 70–85% — close to matching but below threshold. Approving here teaches aliases so tomorrow's sync auto-matches them."
-              }
             >
               {item.source === "matched-event"
                 ? "auto-merged"
@@ -1090,169 +1041,97 @@ function ItemRow({
               <Badge
                 variant="outline"
                 className="text-[10px] px-1.5 py-0 h-4 border-violet-700/40 text-violet-300 bg-violet-500/10"
-                title="Bucket symmetry pick — each provider in this time slot has the same number of events, so this pairing is the only plausible 1-to-1 mapping even if the string score is low."
               >
                 auto-suggested
               </Badge>
             )}
             {d && <DecisionBadge decision={d} />}
           </div>
-
-          {expanded && d && (
-            <div className="mt-2 rounded bg-zinc-900/60 border border-zinc-800 px-3 py-2">
-              <div className="text-[10px] text-zinc-500 mb-1">
-                {d.decidedBy === "human"
-                  ? `Decided by human${d.by ? ` (${d.by})` : ""}`
-                  : `Gemini${d.model ? ` (${d.model})` : ""}`}{" "}
-                · {new Date(d.decidedAt).toLocaleString()}
-              </div>
-              <div className="text-xs text-zinc-300 whitespace-pre-wrap">
-                {d.reasoning || "(no notes)"}
-              </div>
-              {d.sources.length > 0 && (
-                <div className="mt-2">
-                  <div className="text-[10px] text-zinc-500 mb-1">Sources</div>
-                  <ul className="text-xs space-y-0.5">
-                    {d.sources.slice(0, 5).map((s, i) => (
-                      <li key={i}>
-                        <a
-                          className="text-blue-400 hover:underline truncate block"
-                          href={s.url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {s.title || s.url}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-          {expanded && !d && (
-            <div className="mt-2 rounded bg-zinc-900/60 border border-zinc-800 px-3 py-2 text-xs text-zinc-500 italic">
-              No AI analysis yet. Click one of the AI buttons to get a
-              reasoning.
-            </div>
-          )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {/* AI action — a single button that uses the globally-selected model
-              tier (Lite / Flash / Pro). The slot is kept (invisible) when the
-              row isn't actionable so the approve/reject cluster stays in a
-              consistent column across rows. */}
-          <div
-            className={cn(
-              "flex items-center gap-1",
-              !showAnalyzeButtons && "invisible pointer-events-none",
-            )}
-            aria-hidden={!showAnalyzeButtons}
-          >
-            {(() => {
-              const label = MODEL_LABELS[modelTier].label;
-              const Icon =
-                modelTier === "pro"
-                  ? Sparkles
-                  : modelTier === "lite"
-                    ? Activity
-                    : Cpu;
-              const iconColor =
-                modelTier === "pro"
-                  ? "text-blue-400"
-                  : modelTier === "lite"
-                    ? "text-zinc-400"
-                    : "text-purple-400";
-              const title = isRerun
-                ? `Re-run with Gemini ${label} — replaces the existing verdict.`
-                : `Analyze with Gemini ${label} (${MODEL_LABELS[modelTier].tagline.toLowerCase()}). Switch tiers via the header toggle.`;
-              return (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2"
-                  title={title}
-                  disabled={busy || !showAnalyzeButtons}
-                  onClick={() => onAnalyze(item, modelTier, isRerun)}
-                >
-                  {busyAction ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Icon className={cn("w-3.5 h-3.5", iconColor)} />
-                  )}
-                </Button>
-              );
-            })()}
-            {/* "Try Pro →" upgrade shortcut — only shown when Gemini returned
-                an ambiguous verdict (UNCERTAIN, or <80% confidence) AND the
-                user isn't already on Pro. One-click deep-reanalyze bypassing
-                the global tier. */}
-            {d?.decidedBy === "gemini" &&
-              modelTier !== "pro" &&
-              (d.verdict === "UNCERTAIN" || (d.confidence ?? 0) < 80) && (
-                <button
-                  onClick={() => onAnalyze(item, "pro", true)}
-                  disabled={busy}
-                  title="Re-analyze this pair with Gemini Pro (deep reasoning). Bypasses the global tier."
-                  className="h-7 px-1.5 text-[10px] font-medium text-blue-300 border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 hover:border-blue-500/50 rounded transition-colors disabled:opacity-40"
-                >
-                  Try Pro →
-                </button>
-              )}
-          </div>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2"
-            title="Open a Google search to verify manually. Useful as a sanity check before approving an AI verdict on an obscure fixture."
-            onClick={() => onOpenSearch(item.googleSearchUrl)}
-            disabled={!item.googleSearchUrl}
-          >
-            <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
-          </Button>
-          {showApproveReject && (
-            <>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 px-2"
-                title={
-                  bucket === "decided"
-                    ? "Lock in as human-approved. If there's an existing matcher/AI verdict, your call replaces it."
-                    : "Approve — merge these two events and learn the aliases so future syncs auto-match them."
-                }
+                className="h-7 w-7 p-0"
+                onClick={() => onOpenSearch(item.googleSearchUrl)}
+                disabled={!item.googleSearchUrl}
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-sm leading-snug">
+              Open a Google search to verify manually. Sanity-check obscure
+              fixtures before approving.
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
                 disabled={busy}
                 onClick={() => onApprove(item)}
               >
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
               </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-sm leading-snug">
+              {bucket === "decided"
+                ? "Lock in as human-approved. Replaces any matcher/AI verdict."
+                : "Approve — merge these two events and learn the aliases so future syncs auto-match."}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 px-2"
-                title={
-                  bucket === "decided"
-                    ? "Reject — un-merge (if merged) and record as human-rejected. Your call replaces any matcher/AI verdict."
-                    : "Reject — these are not the same event. Prevents the matcher from re-pairing them."
-                }
+                className="h-7 w-7 p-0"
                 disabled={busy}
                 onClick={() => onReject(item)}
               >
                 <XCircle className="w-3.5 h-3.5 text-red-500" />
               </Button>
-            </>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-sm leading-snug">
+              {bucket === "decided"
+                ? "Reject — un-merge (if merged) and record as human-rejected."
+                : "Reject — these are not the same event. Prevents the matcher from re-pairing them."}
+            </TooltipContent>
+          </Tooltip>
+
+          {showAIButton && (
+            <AiVerifyButton
+              running={busy}
+              disabled={busy}
+              tooltip={verifyTooltip}
+              onChoose={(choice) => onVerifyAI(item, choice)}
+            />
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2"
-            title="Delete the cached decision. Brings the pair back to 'To Review' on the next list refresh."
-            disabled={busy || !d || d.decidedBy === "matcher"}
-            onClick={() => onDelete(item)}
-          >
-            <Trash2 className="w-3.5 h-3.5 text-zinc-500" />
-          </Button>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 p-0"
+                disabled={busy || !d || d.decidedBy === "matcher"}
+                onClick={() => onDelete(item)}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-zinc-500" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs text-sm leading-snug">
+              Delete the cached decision. Brings the pair back to To Review on
+              the next refresh.
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </div>
@@ -1261,101 +1140,16 @@ function ItemRow({
 
 const TAB_TOOLTIPS: Record<BucketId, string> = {
   "to-review":
-    "Pairs nobody has decided yet — your action queue.\n\n" +
-    "What's here:\n" +
-    "• Near-matches (70–85% team/league similarity)\n" +
-    "• Unmatched single-provider events sharing a time slot with another provider\n" +
-    "• AI verdicts that came back UNCERTAIN or <80% confident (AI tried but couldn't commit)\n\n" +
-    "Actions per row: run Gemini Flash (default) or Gemini Pro (deep), approve (merge), reject (keep separate), or delete any cached AI attempt.\n\n" +
-    "Filter chips below let you focus on fresh rows (no AI run) vs AI-unsure rows.",
+    "Pairs nobody has decided yet — your action queue. Near-matches (70–85% similarity), unmatched single-provider events sharing a time slot, and AI verdicts that came back uncertain.",
   "auto-merged":
-    "Events the matcher silently combined for you — merged at ≥85% team/league similarity, no AI or human touched them yet.\n\n" +
-    "Why a separate tab: these are already in the dashboard working for you, so they don't block. Review them only when you have time. Fetched on demand so it doesn't slow the initial page load.\n\n" +
-    "Actions per row:\n" +
-    "• Approve — lock in as human-verified (moves to Decided)\n" +
-    "• Reject — un-merge the combined event, split each provider's side back into its own event (moves to Decided)\n" +
-    "• Delete — clear the decision and send the pair back to To Review for re-analysis",
+    "Events the matcher silently combined (≥85% similarity) — already in the dashboard, audit them when you have time.",
   decided:
-    "Pairs where someone explicitly decided — AI ≥80% confident OR a human approved/rejected.\n\n" +
-    "The system respects every verdict:\n" +
-    "• SAME → events are merged into one multi-provider event (dashboard compares odds side-by-side)\n" +
-    "• DIFFERENT → events stay separate; matcher won't re-pair them on future syncs\n\n" +
-    "Use the filter chips to focus by decider. Approve/reject overrides any AI verdict with a human one. Delete clears the verdict and sends the pair back to To Review.",
+    "Pairs where someone explicitly decided — AI ≥70% confident OR a human approved/rejected. Verdicts persist across syncs.",
 };
 
-const PIPELINE_HELP =
-  "How the pipeline works\n\n" +
-  "1. Sync pulls events from every provider every 60s. Each provider has its own event IDs and spells team names differently.\n\n" +
-  "2. The matcher scores each cross-provider pair inside a 1-minute time bucket (0.7 × team similarity + 0.3 × league similarity, alias-normalized):\n" +
-  "   • ≥85% → auto-merges the events into one multi-provider entry → Auto-Merged\n" +
-  "   • 70–85% → near-match → To Review\n" +
-  "   • <70% with other providers in the same time slot → unmatched-candidate → To Review\n" +
-  "   • <70% and nothing suggestive → ignored\n\n" +
-  "3. \"Merge\" means the per-provider events collapse into one internal event with all providers' odds attached. That's what lets the dashboard compare prices and surface value bets.\n\n" +
-  "4. On a To Review row you can run Gemini Flash (default) or Gemini Pro (deep reasoning):\n" +
-  "   • SAME ≥80% → merges the events, records AI verdict → Decided\n" +
-  "   • DIFFERENT ≥80% → no merge, records verdict (matcher won't re-pair them) → Decided\n" +
-  "   • UNCERTAIN or <80% → no data change, verdict cached so you can see AI already tried → stays in To Review\n\n" +
-  "5. Human approve/reject anywhere is final. It replaces any prior AI/matcher verdict and lands in Decided.";
-
 // ============================================
-// Model-tier segmented control
+// MatchReviewPanel
 // ============================================
-// Three-way toggle (Lite | Flash | Pro) that all analyze actions read from.
-// We draw our own instead of shadcn Tabs because the active segment needs a
-// model-specific accent color that fades to grey when disabled during a bulk
-// run.
-
-const TIER_ACCENT: Record<ModelTier, string> = {
-  lite: "bg-zinc-700 text-zinc-100",
-  flash: "bg-purple-600 text-white",
-  pro: "bg-blue-500 text-white",
-};
-
-function ModelTierToggle({
-  active,
-  onSelect,
-  disabled,
-}: {
-  active: ModelTier;
-  onSelect: (tier: ModelTier) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Gemini model tier"
-      className={cn(
-        "inline-flex items-center rounded-md border border-zinc-800 bg-zinc-950/60 p-0.5",
-        disabled && "opacity-60 pointer-events-none",
-      )}
-      title="Pick which Gemini tier every analyze action uses. Changes persist across sessions."
-    >
-      {MODEL_TIERS.map((tier) => {
-        const isActive = active === tier;
-        const { label, tagline } = MODEL_LABELS[tier];
-        return (
-          <button
-            key={tier}
-            type="button"
-            role="radio"
-            aria-checked={isActive}
-            onClick={() => onSelect(tier)}
-            title={`${label} — ${tagline}`}
-            className={cn(
-              "h-6 px-2.5 text-[11px] font-medium rounded transition-colors",
-              isActive
-                ? TIER_ACCENT[tier]
-                : "text-zinc-400 hover:text-zinc-200",
-            )}
-          >
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 export function MatchReviewPanel() {
   const [data, setData] = useState<ListResponse | null>(null);
@@ -1373,28 +1167,6 @@ export function MatchReviewPanel() {
   const [toReviewFilter, setToReviewFilter] = useState<ToReviewFilter>("all");
   const [busy, setBusy] = useState<Record<string, string | null>>({});
 
-  // Global model tier — persisted so your preference survives refreshes.
-  // Every analyze action (per-row + bulk) uses this unless explicitly
-  // overridden (e.g. the "Try Pro" chip on ambiguous verdicts).
-  const [modelTier, setModelTier] = useState<ModelTier>("flash");
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("nahidarbx.gemini.model");
-      if (stored === "lite" || stored === "flash" || stored === "pro") {
-        setModelTier(stored);
-      }
-    } catch {
-      // localStorage blocked (SSR, private mode) — stay on flash default.
-    }
-  }, []);
-  const selectModel = useCallback((tier: ModelTier) => {
-    setModelTier(tier);
-    try {
-      localStorage.setItem("nahidarbx.gemini.model", tier);
-    } catch {
-      // ignore storage failures
-    }
-  }, []);
   const [isBulkBusy, setIsBulkBusy] = useState(false);
   const [isBulkPaused, setIsBulkPaused] = useState(false);
   const [controlBusy, setControlBusy] = useState<
@@ -1421,13 +1193,11 @@ export function MatchReviewPanel() {
           second: "2-digit",
         }),
       };
-      // keep the log bounded
       const combined = [...prev, next];
       return combined.length > 500
         ? combined.slice(combined.length - 500)
         : combined;
     });
-    // auto-scroll to bottom on next paint
     requestAnimationFrame(() => {
       const el = logScrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
@@ -1470,8 +1240,6 @@ export function MatchReviewPanel() {
     fetchData();
   }, [fetchData]);
 
-  // Lazy: first time the user opens Auto-Merged, fetch it. Re-fetch on
-  // manual refresh while on that tab.
   useEffect(() => {
     if (bucket === "auto-merged" && autoMerged === null) {
       fetchAutoMerged();
@@ -1479,13 +1247,6 @@ export function MatchReviewPanel() {
   }, [bucket, autoMerged, fetchAutoMerged]);
 
   // Always-on subscription to the bulk-run event stream.
-  //
-  // This is the single source of truth for bulk-analyze UI state: progress,
-  // log, pause/abort. Running a new bulk from this tab and rehydrating after
-  // a page refresh use the exact same code path, so a mid-run reload doesn't
-  // lose visibility. The worker loop on the server keeps running regardless
-  // of client connection state; events are buffered and replayed to late
-  // subscribers.
   useEffect(() => {
     const es = new EventSource("/api/match-review/bulk-stream");
 
@@ -1494,9 +1255,6 @@ export function MatchReviewPanel() {
       if (!snap) return decision?.key ?? "(unknown pair)";
       return pairLabel(snap.eventA, snap.eventB);
     };
-    // Map a Gemini SDK model ID back to a tier label ("lite" / "flash" /
-    // "pro") so the ticker row can render a colored model badge. Falls
-    // back to undefined when the cached verdict predates tier tracking.
     const modelIdToTier = (id?: string): ModelTier | undefined => {
       if (!id) return undefined;
       if (/lite/i.test(id)) return "lite";
@@ -1530,7 +1288,6 @@ export function MatchReviewPanel() {
       const d = payload.decision;
       if (!d) return null;
 
-      // Structured verdict — the row renders badges and shows reasoning on hover.
       const tier =
         modelIdToTier(d.model) ??
         (model === "pro" || model === "lite" ? model : "flash");
@@ -1548,7 +1305,7 @@ export function MatchReviewPanel() {
       return {
         tone,
         icon,
-        title: "", // structured renderer ignores title when `verdict` is set
+        title: "",
         verdict: {
           verdict: d.verdict,
           confidence: d.confidence,
@@ -1557,20 +1314,10 @@ export function MatchReviewPanel() {
           sideA: sides.sideA,
           sideB: sides.sideB,
         },
-        reasoning: d.reasoning || undefined,
       };
     };
 
-    // Track the active model (flash/pro) across events so `result` entries
-    // format with the right label even on rehydration.
     let activeModel: string | null = null;
-
-    // Replay-vs-live state. The server buffers recent events and replays
-    // them to new subscribers, then emits a synthetic `hydrated` frame, then
-    // tails live events. We silence user-facing toasts during replay so
-    // switching tabs (which remounts this panel and triggers a fresh SSE
-    // connection + replay) doesn't re-surface a `Bulk run finished` toast
-    // for a run that already ended.
     let hydrated = false;
 
     const handlers: Record<string, (data: unknown) => void> = {
@@ -1586,10 +1333,7 @@ export function MatchReviewPanel() {
         }
       },
       start: (data) => {
-        const p = data as {
-          model: string;
-          total: number;
-        };
+        const p = data as { model: string; total: number };
         activeModel = p.model;
         setIsBulkBusy(true);
         setIsBulkPaused(false);
@@ -1649,11 +1393,6 @@ export function MatchReviewPanel() {
           title: `Done · ${p.analyzed} analyzed · ${p.cached} cached · ${p.errored} errors`,
           subtitle: `of ${p.total} total${p.aborted ? " · aborted" : ""}`,
         });
-        // Only surface the terminal toast for LIVE completions. A `done`
-        // event that arrives while `hydrated` is still false is a replay of
-        // a historical run (this panel was mounted after the run already
-        // ended) — the user either saw the toast the first time or it never
-        // ran in this browser session; either way, don't re-prompt.
         if (hydrated) {
           if (p.aborted) {
             toast.info("Bulk run aborted", {
@@ -1663,7 +1402,7 @@ export function MatchReviewPanel() {
           } else if (p.errored > 0) {
             toast.warning("Bulk run finished with errors", {
               id: "bulk-run-done",
-              description: `${p.analyzed} analyzed · ${p.cached} cached · ${p.errored} errors — see log for details`,
+              description: `${p.analyzed} analyzed · ${p.cached} cached · ${p.errored} errors`,
             });
           } else {
             toast.success("Bulk run complete", {
@@ -1676,9 +1415,6 @@ export function MatchReviewPanel() {
         setIsBulkPaused(false);
         setBulkProgress(null);
         activeModel = null;
-        // Refresh main data so newly-decided pairs move tabs. Only do this
-        // for live completions — a replayed done happened long ago and the
-        // main list has already been refreshed since.
         if (hydrated) {
           void fetchData();
           if (autoMerged !== null) void fetchAutoMerged();
@@ -1696,19 +1432,29 @@ export function MatchReviewPanel() {
       }
     };
 
-    // EventSource uses named events for anything other than default "message".
-    // Attach listeners for every type we care about.
+    // MEMORY-LEAK GUARD — DO NOT REMOVE.
+    // Each listener closes over `appendLog`, `setBulkProgress`, `fetchData`
+    // and friends, which transitively retain the entire panel's React tree.
+    // We must `removeEventListener` for every type we registered; relying on
+    // `es.close()` alone leaves zombie listeners holding the panel state on
+    // every remount of this component. If you change the registration loop,
+    // mirror the change in the cleanup loop below.
+    const registered: Array<{
+      type: string;
+      fn: (e: Event) => void;
+    }> = [];
     for (const type of Object.keys(handlers)) {
-      es.addEventListener(type, (e) =>
-        dispatch(type, (e as MessageEvent).data),
-      );
+      const fn = (e: Event) => dispatch(type, (e as MessageEvent).data);
+      es.addEventListener(type, fn);
+      registered.push({ type, fn });
     }
 
     return () => {
+      for (const { type, fn } of registered) {
+        es.removeEventListener(type, fn);
+      }
       es.close();
     };
-    // Intentionally empty deps — we want exactly one long-lived subscription.
-    // `appendLog`, `fetchData`, `fetchAutoMerged` are stable (useCallback).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1723,9 +1469,6 @@ export function MatchReviewPanel() {
     return counts;
   }, [data]);
 
-  // Verdict counts honor the active decider filter so the two filter rows
-  // feel composable — toggling "Human" should show how the Approved/Rejected
-  // split looks for just those rows.
   const verdictCounts = useMemo(() => {
     const counts = { approved: 0, rejected: 0, uncertain: 0 };
     if (!data) return counts;
@@ -1744,9 +1487,6 @@ export function MatchReviewPanel() {
     return counts;
   }, [data, deciderFilter]);
 
-  // "AI unsure" = cache entry exists, not human-decided, not confident enough
-  // to have moved into Decided. That's the exact predicate that keeps these
-  // rows in To Review even after AI ran.
   const isAIUnsure = (it: ReviewItem): boolean => {
     const d = it.cachedDecision;
     if (!d) return false;
@@ -1810,9 +1550,6 @@ export function MatchReviewPanel() {
       .filter(matchesDeciderFilter)
       .filter(matchesVerdictFilter);
 
-    // Sort To Review so fresh (no AI attempt) rows come first and
-    // AI-unsure rows cluster at the bottom — the user knows those have
-    // already been tried.
     if (bucket === "to-review") {
       byFilter.sort((a, b) => {
         const aFresh = a.cachedDecision ? 1 : 0;
@@ -1891,7 +1628,7 @@ export function MatchReviewPanel() {
           ? "Different"
           : "Uncertain";
     if (cached) {
-      const by = d.decidedBy === "human" ? "you" : "Gemini";
+      const by = d.decidedBy === "human" ? "you" : "AI";
       return {
         tone: "info",
         title: `${verdictWord} · ${d.confidence}% (cached)`,
@@ -1926,8 +1663,6 @@ export function MatchReviewPanel() {
     };
   };
 
-  // Refresh main list + Auto-Merged list (if already loaded). Used after
-  // any mutation that can move a row between tabs.
   const refreshAll = useCallback(async () => {
     await fetchData();
     if (autoMerged !== null) {
@@ -1935,10 +1670,14 @@ export function MatchReviewPanel() {
     }
   }, [fetchData, autoMerged, fetchAutoMerged]);
 
-  const analyzeOne = useCallback(
-    async (item: ReviewItem, model: ModelTier, forceRefresh = false) => {
+  const verifyOne = useCallback(
+    async (item: ReviewItem, choice: VerifyChoice) => {
+      const model = choice.model;
+      const isDecidedTab = bucket === "decided";
+      // Decided tab → re-verify replaces the existing AI verdict.
+      const forceRefresh = isDecidedTab;
       setItemBusy(item.key, model);
-      const modelLabel = `Gemini ${model}`;
+      const modelLabel = `AI ${MODEL_LABELS[model].label}`;
       try {
         const res = await fetch("/api/match-review", {
           method: "POST",
@@ -1961,7 +1700,7 @@ export function MatchReviewPanel() {
         if (!r) {
           toast.error("No result from AI");
         } else if (r.status === "error") {
-          toast.error("AI analysis failed", { description: r.error });
+          toast.error("AI verify failed", { description: r.error });
         } else {
           const msg = describeVerdict(
             item,
@@ -1976,30 +1715,29 @@ export function MatchReviewPanel() {
         }
         await refreshAll();
       } catch (err) {
-        toast.error("AI analysis failed", {
+        toast.error("AI verify failed", {
           description: (err as Error).message,
         });
       } finally {
         setItemBusy(item.key, null);
       }
     },
-    [refreshAll],
+    [bucket, refreshAll],
   );
 
-  const bulkAnalyze = useCallback(
-    async (model: ModelTier, forceRefresh = false) => {
+  const bulkVerify = useCallback(
+    async (choice: VerifyChoice) => {
+      const model = choice.model;
+      const forceRefresh = bucket === "decided";
       if (selected.size === 0) {
         toast.error("Nothing selected", {
-          description: "Pick one or more rows to analyze",
+          description: "Pick rows first.",
         });
         return;
       }
-      // Latest-decision-wins: AI can overwrite a human verdict on re-run.
-      // The user asked for it — if they click Try Pro on a human-decided pair
-      // they're explicitly saying "let the AI take another pass".
       const items = filtered.filter((it) => selected.has(it.key));
-      const modelLabel = `Gemini ${model}`;
-      const verb = forceRefresh ? "re-run" : "bulk analyze";
+      const modelLabel = `AI ${MODEL_LABELS[model].label}`;
+      const verb = forceRefresh ? "re-verify" : "verify";
 
       setLog([]);
       setLogOpen(true);
@@ -2027,7 +1765,6 @@ export function MatchReviewPanel() {
           }),
         });
         if (!res.ok) {
-          // Try to surface the structured error (e.g. "already running").
           let msg = `HTTP ${res.status}`;
           try {
             const errJson = await res.json();
@@ -2038,11 +1775,6 @@ export function MatchReviewPanel() {
           throw new Error(msg);
         }
 
-        // Drain the response body without parsing: the server's worker loop
-        // only keeps running while the Response stream has a consumer.
-        // All UI updates come from the /bulk-stream SSE subscription in the
-        // effect below — same code path used on refresh rehydration, so
-        // there's exactly one source of truth.
         if (res.body) {
           const reader = res.body.getReader();
           void (async () => {
@@ -2052,9 +1784,7 @@ export function MatchReviewPanel() {
                 if (done) break;
               }
             } catch {
-              // Client disconnect or network hiccup — the bulk-stream SSE
-              // remains the source of truth; the server's worker loop keeps
-              // going and fans events out regardless.
+              // Client disconnect or network hiccup — bulk-stream SSE tracks state.
             }
           })();
         }
@@ -2073,7 +1803,7 @@ export function MatchReviewPanel() {
         setBulkProgress(null);
       }
     },
-    [selected, filtered, appendLog],
+    [selected, filtered, bucket, appendLog],
   );
 
   const bulkControl = useCallback(
@@ -2106,10 +1836,8 @@ export function MatchReviewPanel() {
             icon: "uncertain",
             title: "Bulk run abort requested",
           });
-          // "info", not "success" — aborting isn't a positive outcome, and
-          // the final "done" toast confirms completion.
           toast.info("Aborting bulk run", {
-            description: "Workers will stop after the current item",
+            description: "Workers stop after the current item",
           });
         }
       } catch (err) {
@@ -2150,10 +1878,8 @@ export function MatchReviewPanel() {
               description: `${fixture} • ${providers}`,
             });
           } else if (json.deferred) {
-            // Events have rotated out of the live store between fetch and click —
-            // verdict saved, merge will happen on the next sync.
             toast.warning("Verdict saved — merge deferred", {
-              description: `${fixture} will merge on the next sync (events aren't currently in the store).`,
+              description: `${fixture} will merge on the next sync.`,
             });
           } else {
             toast.success("Verdict saved", {
@@ -2260,397 +1986,360 @@ export function MatchReviewPanel() {
   const toReviewCount = data.toReview.length;
   const decidedCount = data.decided.length;
 
+  const tabBtn = (
+    id: BucketId,
+    label: string,
+    count: number,
+    accent: {
+      active: string;
+      idle: string;
+    },
+  ) => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={() => setBucket(id)}
+          className={cn(
+            "px-2.5 py-1 text-xs rounded transition-colors",
+            bucket === id ? accent.active : accent.idle,
+          )}
+        >
+          {label} ({count})
+          {id === "auto-merged" &&
+            bucket === "auto-merged" &&
+            isLoadingAutoMerged && (
+              <Loader2 className="inline w-3 h-3 ml-1 animate-spin" />
+            )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-sm leading-snug">
+        {TAB_TOOLTIPS[id]}
+      </TooltipContent>
+    </Tooltip>
+  );
+
   return (
-    <div className="h-full flex flex-col bg-zinc-900/30 border border-zinc-800 rounded-lg overflow-hidden">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-zinc-800/50 flex items-center gap-2">
-        <button
-          onClick={() => setBucket("to-review")}
-          className={cn(
-            "px-2.5 py-1 text-xs rounded transition-colors",
-            bucket === "to-review"
-              ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-              : "text-zinc-400 hover:text-zinc-200",
-          )}
-          title={TAB_TOOLTIPS["to-review"]}
-        >
-          To Review ({toReviewCount})
-        </button>
-        <button
-          onClick={() => setBucket("auto-merged")}
-          className={cn(
-            "px-2.5 py-1 text-xs rounded transition-colors",
-            bucket === "auto-merged"
-              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-              : "text-zinc-400 hover:text-zinc-200",
-          )}
-          title={TAB_TOOLTIPS["auto-merged"]}
-        >
-          Auto-Merged ({data.autoMergedCount})
-          {bucket === "auto-merged" && isLoadingAutoMerged && (
-            <Loader2 className="inline w-3 h-3 ml-1 animate-spin" />
-          )}
-        </button>
-        <button
-          onClick={() => setBucket("decided")}
-          className={cn(
-            "px-2.5 py-1 text-xs rounded transition-colors",
-            bucket === "decided"
-              ? "bg-sky-500/15 text-sky-300 border border-sky-500/30"
-              : "text-zinc-400 hover:text-zinc-200",
-          )}
-          title={TAB_TOOLTIPS.decided}
-        >
-          Decided ({decidedCount})
-        </button>
+    <TooltipProvider delayDuration={200}>
+      <div className="h-full flex flex-col bg-zinc-900/30 border border-zinc-800 rounded-lg overflow-hidden">
+        {/* Single header row — tabs + meta + actions, no extra layers */}
+        <div className="px-3 py-2 border-b border-zinc-800/50 flex flex-wrap items-center gap-2">
+          {tabBtn("to-review", "To Review", toReviewCount, {
+            active: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+            idle: "text-zinc-400 hover:text-zinc-200",
+          })}
+          {tabBtn("auto-merged", "Auto-Merged", data.autoMergedCount, {
+            active:
+              "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+            idle: "text-zinc-400 hover:text-zinc-200",
+          })}
+          {tabBtn("decided", "Decided", decidedCount, {
+            active: "bg-sky-500/15 text-sky-300 border border-sky-500/30",
+            idle: "text-zinc-400 hover:text-zinc-200",
+          })}
 
-        <div className="ml-auto flex items-center gap-2">
-          <span
-            className="inline-flex items-center text-zinc-500 hover:text-zinc-300 cursor-help"
-            title={PIPELINE_HELP}
-          >
-            <Info className="w-3.5 h-3.5" />
-          </span>
-          <span
-            className="text-[10px] text-zinc-500"
-            title={
-              "Cached decisions summary.\n" +
-              "• Total = every decision in cache.\n" +
-              "• ✓ = pairs you approved. ✗ = pairs you rejected.\n" +
-              "AI verdicts count in Total but not in ✓/✗."
-            }
-          >
-            Cached: {data.stats.total} · ✓ {data.stats.humanApproved} · ✗{" "}
-            {data.stats.humanRejected}
-          </span>
-          <LoadingButton
-            size="sm"
-            variant="ghost"
-            className="h-7 w-7 p-0"
-            onClick={() => {
-              fetchData();
-              if (bucket === "auto-merged") fetchAutoMerged();
-            }}
-            loading={isRefreshing || isLoadingAutoMerged}
-            icon={RefreshCw}
-            iconClassName="w-3.5 h-3.5"
-            title="Refresh the current tab (Auto-Merged refreshes only when it's the active tab)."
-          />
+          {bucket === "to-review" && (
+            <ToReviewFilterChips
+              filter={toReviewFilter}
+              setFilter={setToReviewFilter}
+              counts={toReviewCounts}
+              total={toReviewCount}
+            />
+          )}
+
+          {bucket === "decided" && (
+            <DecidedInlineFilters
+              verdictFilter={verdictFilter}
+              setVerdictFilter={setVerdictFilter}
+              deciderFilter={deciderFilter}
+              setDeciderFilter={setDeciderFilter}
+              verdictCounts={verdictCounts}
+              deciderCounts={deciderCounts}
+              decidedCount={decidedCount}
+              show={showFilters}
+              setShow={setShowFilters}
+            />
+          )}
+
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] text-zinc-500 tabular-nums">
+              Cached: {data.stats.total} · ✓ {data.stats.humanApproved} · ✗{" "}
+              {data.stats.humanRejected}
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <LoadingButton
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0"
+                  onClick={() => {
+                    fetchData();
+                    if (bucket === "auto-merged") fetchAutoMerged();
+                  }}
+                  loading={isRefreshing || isLoadingAutoMerged}
+                  icon={RefreshCw}
+                  iconClassName="w-3.5 h-3.5"
+                />
+              </TooltipTrigger>
+              <TooltipContent>Refresh the current tab</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-      </div>
 
-      {/* To Review filter chips */}
-      {bucket === "to-review" && (
-        <div
-          className="px-3 py-1.5 border-b border-zinc-800/50 flex items-center gap-1 text-[11px]"
-          title="Split the queue by whether an AI has already been tried on the row."
-        >
-          <span className="text-zinc-500 mr-1">Filter:</span>
-          {(
-            [
-              {
-                id: "all",
-                label: `All (${toReviewCount})`,
-                title:
-                  "Every row in the queue, regardless of whether AI has tried.",
-              },
-              {
-                id: "fresh",
-                label: `No AI yet (${toReviewCounts.fresh})`,
-                title:
-                  "Rows no AI has analyzed — the cheapest wins. Start here.",
-              },
-              {
-                id: "ai-unsure",
-                label: `AI unsure (${toReviewCounts.aiUnsure})`,
-                title:
-                  "Rows where AI already ran but came back UNCERTAIN or below 80% confidence. These need a human call.",
-              },
-            ] as { id: ToReviewFilter; label: string; title: string }[]
-          ).map((chip) => (
+        {/* Compact toolbar — search + selection + bulk action */}
+        <div className="px-3 py-1.5 border-b border-zinc-800/50 flex flex-wrap items-center gap-2">
+          <div className="relative w-[260px] shrink-0">
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by team, competition…"
+              className="h-7 pl-7 text-xs"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={selectAll}
+                  disabled={filtered.length === 0}
+                  className="px-2 py-0.5 rounded border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Select all{" "}
+                  <span className="tabular-nums text-zinc-500">
+                    ({filtered.length})
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Select every row currently shown</TooltipContent>
+            </Tooltip>
+            {selected.size > 0 && (
+              <>
+                <button
+                  onClick={clearSelection}
+                  className="px-2 py-0.5 rounded border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors"
+                >
+                  Clear
+                </button>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 font-medium">
+                  <span className="tabular-nums">{selected.size}</span>
+                  selected
+                </span>
+              </>
+            )}
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Bulk verify dropdown — single button, AI is opt-in */}
+          {selected.size > 0 && (
+            <AiVerifyButton
+              running={isBulkBusy}
+              disabled={isBulkBusy}
+              tooltip="Run AI on every selected pair. AI calls cost money — prefer Approve/Reject row-by-row when you can decide visually."
+              onChoose={(c) => bulkVerify(c)}
+              bulkLabel={`Verify ${selected.size}`}
+            />
+          )}
+        </div>
+
+        {/* List */}
+        <div className="flex-1 overflow-auto">
+          {filtered.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-sm text-zinc-500 text-center px-6">
+              {bucket === "to-review"
+                ? toReviewFilter === "fresh"
+                  ? "No fresh rows — every pair here has been AI-attempted."
+                  : toReviewFilter === "ai-unsure"
+                    ? "No AI-unsure rows."
+                    : "Queue is empty — nothing needs a decision right now."
+                : bucket === "auto-merged"
+                  ? isLoadingAutoMerged
+                    ? "Loading…"
+                    : "No matcher auto-merges to audit right now."
+                  : verdictFilter !== "all"
+                    ? `No ${verdictFilter} decisions${deciderFilter !== "all" ? ` by ${deciderFilter === "ai" ? "AI" : "human"}` : ""} yet.`
+                    : deciderFilter !== "all"
+                      ? `No decisions by ${deciderFilter === "ai" ? "AI" : "human"} yet.`
+                      : "No decisions recorded yet."}
+            </div>
+          ) : bucket === "to-review" ? (
+            (() => {
+              const ungrouped: ReviewItem[] = [];
+              const groups = new Map<string, ReviewItem[]>();
+              for (const it of filtered) {
+                if (it.source === "unmatched-candidate" && it.bucketKey) {
+                  const arr = groups.get(it.bucketKey);
+                  if (arr) arr.push(it);
+                  else groups.set(it.bucketKey, [it]);
+                } else {
+                  ungrouped.push(it);
+                }
+              }
+              const sortedGroups = Array.from(groups.entries()).sort(
+                ([a], [b]) => a.localeCompare(b),
+              );
+              return (
+                <>
+                  {ungrouped.map((item) => (
+                    <ItemRow
+                      key={item.key}
+                      item={item}
+                      bucket={bucket}
+                      selected={selected.has(item.key)}
+                      onToggleSelect={toggleSelect}
+                      onVerifyAI={verifyOne}
+                      onApprove={approve}
+                      onReject={reject}
+                      onDelete={removeDecision}
+                      onOpenSearch={openSearch}
+                      busyAction={busy[item.key] || null}
+                    />
+                  ))}
+                  {sortedGroups.map(([bucketKey, items]) => {
+                    const ordered = [...items].sort((a, b) => {
+                      const ap = a.autoSuggested ? 0 : 1;
+                      const bp = b.autoSuggested ? 0 : 1;
+                      if (ap !== bp) return ap - bp;
+                      return b.score - a.score;
+                    });
+                    const autoCount = items.filter(
+                      (i) => i.autoSuggested,
+                    ).length;
+                    return (
+                      <div key={bucketKey}>
+                        <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur px-3 py-1 border-y border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider">
+                          Unmatched bucket ·{" "}
+                          {new Date(bucketKey).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                          <span className="ml-2 text-zinc-600 normal-case tracking-normal">
+                            {items.length} candidate
+                            {items.length === 1 ? "" : "s"}
+                            {autoCount > 0 && (
+                              <span className="ml-2 text-violet-400">
+                                · {autoCount} auto-suggested
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {ordered.map((item) => (
+                          <ItemRow
+                            key={item.key}
+                            item={item}
+                            bucket={bucket}
+                            selected={selected.has(item.key)}
+                            onToggleSelect={toggleSelect}
+                            onVerifyAI={verifyOne}
+                            onApprove={approve}
+                            onReject={reject}
+                            onDelete={removeDecision}
+                            onOpenSearch={openSearch}
+                            busyAction={busy[item.key] || null}
+                          />
+                        ))}
+                      </div>
+                    );
+                  })}
+                </>
+              );
+            })()
+          ) : (
+            filtered.map((item) => (
+              <ItemRow
+                key={item.key}
+                item={item}
+                bucket={bucket}
+                selected={selected.has(item.key)}
+                onToggleSelect={toggleSelect}
+                onVerifyAI={verifyOne}
+                onApprove={approve}
+                onReject={reject}
+                onDelete={removeDecision}
+                onOpenSearch={openSearch}
+                busyAction={busy[item.key] || null}
+              />
+            ))
+          )}
+        </div>
+
+        {(log.length > 0 || isBulkBusy) && (
+          <ActivityDrawer
+            log={log}
+            logOpen={logOpen}
+            setLogOpen={setLogOpen}
+            setLog={setLog}
+            logScrollRef={logScrollRef}
+            isBulkBusy={isBulkBusy}
+            isBulkPaused={isBulkPaused}
+            controlBusy={controlBusy}
+            bulkProgress={bulkProgress}
+            onControl={bulkControl}
+          />
+        )}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function ToReviewFilterChips({
+  filter,
+  setFilter,
+  counts,
+  total,
+}: {
+  filter: ToReviewFilter;
+  setFilter: (f: ToReviewFilter) => void;
+  counts: { fresh: number; aiUnsure: number };
+  total: number;
+}) {
+  const chips: { id: ToReviewFilter; label: string; tooltip: string }[] = [
+    {
+      id: "all",
+      label: `All (${total})`,
+      tooltip: "Every row in the queue, regardless of whether AI has tried.",
+    },
+    {
+      id: "fresh",
+      label: `No AI yet (${counts.fresh})`,
+      tooltip: "Rows no AI has analyzed — start here, no cost.",
+    },
+    {
+      id: "ai-unsure",
+      label: `AI unsure (${counts.aiUnsure})`,
+      tooltip:
+        "AI already ran but came back UNCERTAIN or below 80% confidence — needs a human call.",
+    },
+  ];
+  return (
+    <div className="inline-flex items-center gap-1 text-[11px] ml-1 pl-2 border-l border-zinc-800">
+      {chips.map((chip) => (
+        <Tooltip key={chip.id}>
+          <TooltipTrigger asChild>
             <button
-              key={chip.id}
-              onClick={() => setToReviewFilter(chip.id)}
-              title={chip.title}
+              onClick={() => setFilter(chip.id)}
               className={cn(
                 "px-2 py-0.5 rounded border transition-colors",
-                toReviewFilter === chip.id
+                filter === chip.id
                   ? "bg-zinc-800 border-zinc-600 text-zinc-100"
                   : "border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700",
               )}
             >
               {chip.label}
             </button>
-          ))}
-        </div>
-      )}
-
-      {/* Toolbar */}
-      <div className="px-3 py-2 border-b border-zinc-800/50 flex flex-wrap items-center gap-2">
-        {/* Selection controls — sit on the left, aligned with the row
-            checkbox column they control. */}
-        <div className="flex items-center gap-1.5 text-[11px] shrink-0">
-          <button
-            onClick={selectAll}
-            disabled={filtered.length === 0}
-            title={`Select every row currently shown (${filtered.length}).`}
-            className="px-2 py-0.5 rounded border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-zinc-400 disabled:hover:border-zinc-800"
-          >
-            Select all{" "}
-            <span className="tabular-nums text-zinc-500">
-              ({filtered.length})
-            </span>
-          </button>
-          {selected.size > 0 && (
-            <>
-              <button
-                onClick={clearSelection}
-                title="Clear the selection."
-                className="px-2 py-0.5 rounded border border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-600 transition-colors"
-              >
-                Clear
-              </button>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 font-medium">
-                <span className="tabular-nums">{selected.size}</span>
-                selected
-              </span>
-            </>
-          )}
-        </div>
-
-        <div className="relative w-[240px] shrink-0">
-          <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter by team, competition…"
-            className="h-7 pl-7 text-xs"
-          />
-        </div>
-
-        {bucket === "decided" && (
-          <DecidedInlineFilters
-            verdictFilter={verdictFilter}
-            setVerdictFilter={setVerdictFilter}
-            deciderFilter={deciderFilter}
-            setDeciderFilter={setDeciderFilter}
-            verdictCounts={verdictCounts}
-            deciderCounts={deciderCounts}
-            decidedCount={decidedCount}
-            show={showFilters}
-            setShow={setShowFilters}
-          />
-        )}
-
-        <div className="flex-1" />
-
-        {/* Model tier segmented control — applies to every analyze action
-            (per-row + bulk). Choice persists in localStorage so your
-            preference survives refreshes. */}
-        <ModelTierToggle
-          active={modelTier}
-          onSelect={selectModel}
-          disabled={isBulkBusy}
-        />
-
-        {/* Bulk action — single button that uses the active model tier. */}
-        <div className="flex items-center gap-1.5">
-          {(() => {
-            const label = MODEL_LABELS[modelTier].label;
-            const Icon =
-              modelTier === "pro"
-                ? Sparkles
-                : modelTier === "lite"
-                  ? Activity
-                  : Cpu;
-            const verb = bucket === "decided" ? "Re-run" : "Analyze";
-            const title =
-              bucket === "decided"
-                ? `Re-run Gemini ${label} on the selected pairs. Replaces each existing verdict. Human-decided rows are skipped (delete those first to re-run).`
-                : `Send all selected pairs to Gemini ${label}. Runs one at a time. Each verdict streams into the log panel.`;
-            return (
-              <Button
-                size="sm"
-                disabled={selected.size === 0 || isBulkBusy}
-                onClick={() => bulkAnalyze(modelTier, bucket === "decided")}
-                title={title}
-                className={cn(
-                  "h-7 px-3 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors",
-                  "bg-zinc-100 hover:bg-white text-zinc-900 shadow-[0_0_0_1px_rgba(255,255,255,0.1)]",
-                  "disabled:bg-zinc-700/40 disabled:text-zinc-500 disabled:shadow-none",
-                )}
-              >
-                {isBulkBusy ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Icon className="w-3.5 h-3.5" />
-                )}
-                {verb} {label}
-                <span className="tabular-nums opacity-80">
-                  ({selected.size})
-                </span>
-              </Button>
-            );
-          })()}
-        </div>
-      </div>
-
-      {/* List */}
-      <div className="flex-1 overflow-auto">
-        {filtered.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-sm text-zinc-500 text-center px-6">
-            {bucket === "to-review"
-              ? toReviewFilter === "fresh"
-                ? "No fresh rows — every pair here has been AI-attempted."
-                : toReviewFilter === "ai-unsure"
-                  ? "No AI-unsure rows. Either AI hasn't run, or every attempt was confident enough to move to Decided."
-                  : "Queue is empty — nothing needs a decision right now."
-              : bucket === "auto-merged"
-                ? isLoadingAutoMerged
-                  ? "Loading…"
-                  : "No matcher auto-merges to audit right now."
-                : verdictFilter !== "all"
-                  ? `No ${verdictFilter} decisions${deciderFilter !== "all" ? ` by ${deciderFilter === "ai" ? "AI" : "human"}` : ""} yet.`
-                  : deciderFilter !== "all"
-                    ? `No decisions by ${deciderFilter === "ai" ? "AI" : "human"} yet.`
-                    : "No decisions recorded yet. As soon as AI or you decide, they'll show here."}
-          </div>
-        ) : bucket === "to-review" ? (
-          // Within To Review, group unmatched-bucket candidates together so
-          // related suggestions sit near each other. Near-matches come first
-          // (no bucket), then bucket-grouped unmatched.
-          (() => {
-            const ungrouped: ReviewItem[] = [];
-            const groups = new Map<string, ReviewItem[]>();
-            for (const it of filtered) {
-              if (it.source === "unmatched-candidate" && it.bucketKey) {
-                const arr = groups.get(it.bucketKey);
-                if (arr) arr.push(it);
-                else groups.set(it.bucketKey, [it]);
-              } else {
-                ungrouped.push(it);
-              }
-            }
-            const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) =>
-              a.localeCompare(b),
-            );
-            return (
-              <>
-                {ungrouped.map((item) => (
-                  <ItemRow
-                    key={item.key}
-                    item={item}
-                    bucket={bucket}
-                    selected={selected.has(item.key)}
-                    modelTier={modelTier}
-                    onToggleSelect={toggleSelect}
-                    onAnalyze={analyzeOne}
-                    onApprove={approve}
-                    onReject={reject}
-                    onDelete={removeDecision}
-                    onOpenSearch={openSearch}
-                    busyAction={busy[item.key] || null}
-                  />
-                ))}
-                {sortedGroups.map(([bucketKey, items]) => {
-                  const ordered = [...items].sort((a, b) => {
-                    const ap = a.autoSuggested ? 0 : 1;
-                    const bp = b.autoSuggested ? 0 : 1;
-                    if (ap !== bp) return ap - bp;
-                    return b.score - a.score;
-                  });
-                  const autoCount = items.filter((i) => i.autoSuggested).length;
-                  return (
-                    <div key={bucketKey}>
-                      <div className="sticky top-0 z-10 bg-zinc-900/90 backdrop-blur px-3 py-1 border-y border-zinc-800 text-[10px] text-zinc-400 uppercase tracking-wider">
-                        Unmatched bucket ·{" "}
-                        {new Date(bucketKey).toLocaleString([], {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        <span className="ml-2 text-zinc-600 normal-case tracking-normal">
-                          {items.length} candidate
-                          {items.length === 1 ? "" : "s"}
-                          {autoCount > 0 && (
-                            <span className="ml-2 text-violet-400">
-                              · {autoCount} auto-suggested
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      {ordered.map((item) => (
-                        <ItemRow
-                          key={item.key}
-                          item={item}
-                          bucket={bucket}
-                          selected={selected.has(item.key)}
-                          modelTier={modelTier}
-                          onToggleSelect={toggleSelect}
-                          onAnalyze={analyzeOne}
-                          onApprove={approve}
-                          onReject={reject}
-                          onDelete={removeDecision}
-                          onOpenSearch={openSearch}
-                          busyAction={busy[item.key] || null}
-                        />
-                      ))}
-                    </div>
-                  );
-                })}
-              </>
-            );
-          })()
-        ) : (
-          filtered.map((item) => (
-            <ItemRow
-              key={item.key}
-              item={item}
-              bucket={bucket}
-              selected={selected.has(item.key)}
-              modelTier={modelTier}
-              onToggleSelect={toggleSelect}
-              onAnalyze={analyzeOne}
-              onApprove={approve}
-              onReject={reject}
-              onDelete={removeDecision}
-              onOpenSearch={openSearch}
-              busyAction={busy[item.key] || null}
-            />
-          ))
-        )}
-      </div>
-
-      {/* Activity drawer — pinned to bottom of panel. Auto-hides when idle.
-          Collapsed: a 32px strip with progress fill as background, icon +
-          title of the latest entry, and (when a bulk run is active) the
-          pause/abort controls. Click to expand upward into the full log.
-          This keeps the list always visible during a run — the drawer
-          never pushes rows off-screen. */}
-      {(log.length > 0 || isBulkBusy) && (
-        <ActivityDrawer
-          log={log}
-          logOpen={logOpen}
-          setLogOpen={setLogOpen}
-          setLog={setLog}
-          logScrollRef={logScrollRef}
-          isBulkBusy={isBulkBusy}
-          isBulkPaused={isBulkPaused}
-          controlBusy={controlBusy}
-          bulkProgress={bulkProgress}
-          onControl={bulkControl}
-        />
-      )}
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs text-sm leading-snug">
+            {chip.tooltip}
+          </TooltipContent>
+        </Tooltip>
+      ))}
     </div>
   );
 }
 
-/**
- * Inline filter controls for the Decided tab. An icon-only toggle reveals
- * verdict + decider chip groups side-by-side in the toolbar. A badge on the
- * icon shows how many non-default filters are active.
- */
 function DecidedInlineFilters({
   verdictFilter,
   setVerdictFilter,
@@ -2719,25 +2408,29 @@ function DecidedInlineFilters({
 
   return (
     <>
-      <button
-        onClick={() => setShow(!show)}
-        className={cn(
-          "relative h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors shrink-0",
-          show || activeCount > 0
-            ? "bg-blue-500/15 border-blue-500/40 text-blue-200"
-            : "bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700",
-        )}
-        title="Toggle verdict and decider filters."
-        aria-label="Toggle filters"
-        aria-pressed={show}
-      >
-        <SlidersHorizontal className="w-3.5 h-3.5" />
-        {activeCount > 0 && (
-          <span className="absolute -top-1 -right-1 tabular-nums text-[9px] leading-none px-1 py-0.5 rounded bg-blue-500 text-white">
-            {activeCount}
-          </span>
-        )}
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => setShow(!show)}
+            className={cn(
+              "relative h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors shrink-0",
+              show || activeCount > 0
+                ? "bg-blue-500/15 border-blue-500/40 text-blue-200"
+                : "bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700",
+            )}
+            aria-label="Toggle filters"
+            aria-pressed={show}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            {activeCount > 0 && (
+              <span className="absolute -top-1 -right-1 tabular-nums text-[9px] leading-none px-1 py-0.5 rounded bg-blue-500 text-white">
+                {activeCount}
+              </span>
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Toggle verdict and decider filters</TooltipContent>
+      </Tooltip>
 
       {show && (
         <>

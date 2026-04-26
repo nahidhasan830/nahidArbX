@@ -1,7 +1,7 @@
 /**
  * Next.js-side optimizer scheduler.
  *
- * Polls `optimization_runs WHERE status='queued'` every 30s and tells the
+ * Polls `optimization_runs WHERE status='queued'` every 5s and tells the
  * Python sidecar to start each one. The sidecar owns all status transitions
  * after kickoff — this scheduler is fire-and-forget.
  *
@@ -12,13 +12,18 @@
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
 import { triggerJobExecution } from "./api-client";
-import { runAutoValidation } from "./auto-validation";
 import { recomputeLiveMetrics } from "./live-metrics-aggregator";
 import {
   processPendingRunNotifications,
   processPendingRunStartedNotifications,
 } from "./notifier-tick";
-import { claimQueuedRun, createRun, listQueuedRuns } from "./repository";
+import {
+  claimQueuedRun,
+  createRun,
+  listQueuedRuns,
+  reconcileStuckClaims,
+  unclaimRun,
+} from "./repository";
 import {
   listDueSchedules,
   scheduleCreatedBy,
@@ -27,7 +32,13 @@ import {
 import type { CvStrategyJson, DataFiltersJson, SearchSpaceJson } from "./types";
 
 const tag = "OptimizerScheduler";
-const POLL_INTERVAL_MS = 30_000;
+// 5s tick: gives the Telegram "run started" notification near-real-time
+// latency (was up to 30s when this was 30_000). The tick body itself is
+// cheap — a couple of indexed SELECTs — so polling 6× more often is
+// negligible cost in exchange for a much better operator experience.
+// `METRICS_TICK_EVERY` is bumped in lockstep so live-metrics still
+// recompute every ~10 minutes, not every ~100 seconds.
+const POLL_INTERVAL_MS = 5_000;
 
 interface SchedulerState {
   active: boolean;
@@ -94,17 +105,32 @@ async function fireDueSchedules(): Promise<void> {
   }
 }
 
-// Live-metrics aggregator runs every Nth tick (= every 30s × N). Defaults
-// to N=20 → roughly every 10 minutes.
-const METRICS_TICK_EVERY = 20;
-// Auto-validation runs roughly every hour from the scheduler's POV; the
-// validator itself enforces the 7-day per-strategy cadence in DB.
-const AUTO_VALIDATION_TICK_EVERY = 120; // 30s × 120 = 60 min
+// Live-metrics aggregator runs every Nth tick. With POLL_INTERVAL_MS=5s,
+// N=120 → recompute every 10 minutes (the same wall-clock cadence as the
+// previous 30s × 20 setup).
+const METRICS_TICK_EVERY = 120;
 let tickCounter = 0;
 
 async function tick(): Promise<void> {
   state.lastTickAt = Date.now();
   tickCounter += 1;
+
+  // 0. Reconcile any rows stuck in `running` with no Job behind them.
+  //    This is the safety net for crashes between claimQueuedRun and
+  //    triggerJobExecution — neither inline rollback path runs in that
+  //    case. Reverts rows to `queued` so step 4 below can retry them.
+  try {
+    const reverted = await reconcileStuckClaims();
+    if (reverted.length > 0) {
+      logger.warn(
+        tag,
+        `Reconciled ${reverted.length} stuck claim(s) → queued: ${reverted.join(", ")}`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(tag, `reconcileStuckClaims failed: ${msg}`);
+  }
 
   // 1. Fire any schedules whose time has come — they create rows that the
   //    queue step below picks up in the same tick.
@@ -121,20 +147,7 @@ async function tick(): Promise<void> {
     }
   }
 
-  // 3. Auto-validation — checks if any live strategy has drifted past its
-  //    OOS confidence band, auto-pauses on 3 consecutive drift checks.
-  //    The validator itself enforces a per-strategy 7-day cadence in DB so
-  //    this hourly poll is just "see if anyone is due".
-  if (tickCounter % AUTO_VALIDATION_TICK_EVERY === 0) {
-    try {
-      await runAutoValidation();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(tag, `runAutoValidation failed: ${msg}`);
-    }
-  }
-
-  // 4a. Telegram "run started" ping — once the sidecar sets started_at.
+  // 3a. Telegram "run started" ping — once the sidecar sets started_at.
   //     At-most-once via `optimization_runs.started_notified_at`.
   try {
     await processPendingRunStartedNotifications();
@@ -143,7 +156,7 @@ async function tick(): Promise<void> {
     logger.warn(tag, `processPendingRunStartedNotifications failed: ${msg}`);
   }
 
-  // 4b. Telegram notification for runs that just hit a terminal status.
+  // 3b. Telegram notification for runs that just hit a terminal status.
   //     At-most-once delivery guaranteed by `optimization_runs.notified_at`.
   try {
     await processPendingRunNotifications();
@@ -152,7 +165,7 @@ async function tick(): Promise<void> {
     logger.warn(tag, `processPendingRunNotifications failed: ${msg}`);
   }
 
-  // 5. Trigger a Cloud Run Job execution for every queued run.
+  // 4. Trigger a Cloud Run Job execution for every queued run.
   //    Atomic claim: `claimQueuedRun` flips status='queued'→'running' in a
   //    single UPDATE; only the winning caller actually triggers the Job, so
   //    a concurrent immediate-kick from `kickRunNow` can't double-fire.
@@ -162,22 +175,36 @@ async function tick(): Promise<void> {
 
     logger.info(tag, `Found ${queued.length} queued run(s); triggering Jobs`);
     for (const run of queued) {
+      const claimed = await claimQueuedRun(run.id);
+      if (!claimed) {
+        // Another caller (e.g. POST /api/optimizer/runs immediate kick) won
+        // the race and already triggered the Job. Nothing to do.
+        continue;
+      }
       try {
-        const claimed = await claimQueuedRun(run.id);
-        if (!claimed) {
-          // Another caller (e.g. POST /api/optimizer/runs immediate kick) won
-          // the race and already triggered the Job. Nothing to do.
-          continue;
-        }
         await triggerJobExecution(run.id);
         state.totalKickoffs += 1;
       } catch (err) {
-        // Don't crash the loop — Cloud Run might be down; we'll retry next
-        // tick. (The runner will pick up the run row regardless of which
-        // tick wins; the Job execution just needs to start.)
+        // Trigger failed AFTER we won the claim — the row is now `running`
+        // but no Job is behind it. Revert to `queued` so the next tick can
+        // retry; otherwise the row would sit stuck forever (listQueuedRuns
+        // only returns status='queued').
         const msg = err instanceof Error ? err.message : String(err);
-        logger.warn(tag, `Failed to trigger run ${run.id}: ${msg}`);
+        logger.warn(
+          tag,
+          `Failed to trigger run ${run.id} after claim; reverting to queued: ${msg}`,
+        );
         state.lastError = msg;
+        try {
+          await unclaimRun(run.id);
+        } catch (revertErr) {
+          const revertMsg =
+            revertErr instanceof Error ? revertErr.message : String(revertErr);
+          logger.warn(
+            tag,
+            `Failed to revert claim for run ${run.id}: ${revertMsg}`,
+          );
+        }
       }
     }
   } catch (err) {
@@ -228,18 +255,23 @@ export function getOptimizerSchedulerStatus(): {
 
 /**
  * Kicks a single run immediately (called from POST /api/optimizer/runs so
- * the user doesn't wait up to 30s for the next poll). Atomic-claims the
+ * the user doesn't wait up to 5s for the next poll). Atomic-claims the
  * row before triggering so concurrent ticks/kicks can't double-fire.
- * Failures are silent — the scheduler will retry on its next tick.
+ *
+ * If the trigger fails after the claim, we revert `running` → `queued` so
+ * the scheduler tick will retry. Without this rollback, a transient ADC /
+ * Cloud Run Admin API failure would leave the row stuck in `running` with
+ * no Job behind it and no recovery path (listQueuedRuns only returns
+ * status='queued').
  */
 export async function kickRunNow(runId: string): Promise<void> {
+  const claimed = await claimQueuedRun(runId);
+  if (!claimed) {
+    // Already claimed by the scheduler tick — Job is in flight or running.
+    logger.info(tag, `Run ${runId} already claimed; skipping immediate kick`);
+    return;
+  }
   try {
-    const claimed = await claimQueuedRun(runId);
-    if (!claimed) {
-      // Already claimed by the scheduler tick — Job is in flight or running.
-      logger.info(tag, `Run ${runId} already claimed; skipping immediate kick`);
-      return;
-    }
     await triggerJobExecution(runId);
     state.totalKickoffs += 1;
     logger.info(tag, `Run ${runId} kicked immediately`);
@@ -247,7 +279,14 @@ export async function kickRunNow(runId: string): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(
       tag,
-      `Immediate kick failed for ${runId}; will retry on next tick: ${msg}`,
+      `Immediate kick failed for ${runId}; reverting claim so scheduler retries: ${msg}`,
     );
+    try {
+      await unclaimRun(runId);
+    } catch (revertErr) {
+      const revertMsg =
+        revertErr instanceof Error ? revertErr.message : String(revertErr);
+      logger.warn(tag, `Failed to revert claim for ${runId}: ${revertMsg}`);
+    }
   }
 }

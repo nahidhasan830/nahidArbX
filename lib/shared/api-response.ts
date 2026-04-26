@@ -6,6 +6,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { logger } from "./logger";
 
 /**
  * Standard API error response format
@@ -56,7 +57,7 @@ export function apiServerError(
 ): NextResponse<ApiErrorResponse> {
   const message = error instanceof Error ? error.message : "Unknown error";
   if (context) {
-    console.error(`[${context}]`, error);
+    logger.error(context, message, error);
   }
   return apiError(message, 500);
 }

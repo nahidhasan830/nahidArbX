@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { BetsHistoryToolbar } from "./BetsHistoryToolbar";
@@ -19,6 +20,13 @@ import { estimateBatchCostUsd } from "@/lib/settle/cost-guard";
 import { useBetsHistoryPrefs } from "@/lib/bets-history/use-bets-history-prefs";
 import { canResettle } from "@/lib/bets-history/resettle";
 import { resolvePreset } from "@/lib/bets-history/date-presets";
+import { useLocalStorage } from "@/components/hooks/useLocalStorage";
+import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
+import {
+  betsHistoryFiltersMatchTemplate,
+  strategyToBetsHistoryPatch,
+} from "@/lib/optimizer/apply-strategy-to-prefs";
+import type { StrategyFilters } from "@/lib/optimizer/strategy-filters";
 import type { AiLabelResponse } from "@/lib/bets-history/api-client";
 import type { ListFilters } from "@/lib/bets-history/api-client";
 import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
@@ -41,7 +49,7 @@ export function BetsHistorySpreadsheet() {
   } = useBetsHistoryPrefs();
   const { key: sortKey, dir: sortDir } = sort;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [aiSettlingIds, setAiSettlingIds] = useState<Set<string>>(new Set());
+  const [, setAiSettlingIds] = useState<Set<string>>(new Set());
   // Separate from aiSettlingIds so the re-settle spinner doesn't overlap
   // with the AI-settle spinner on the same row.
   const [resettlingIds, setResettlingIds] = useState<Set<string>>(new Set());
@@ -68,6 +76,78 @@ export function BetsHistorySpreadsheet() {
     const id = setInterval(() => setTick((t) => t + 1), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
+
+  // Strategy = filter template. Picking a strategy populates the toolbar's
+  // strategy-mapped fields (EV / odds / providers / markets) so the user can
+  // see exactly what's being filtered and adjust further (date, search…).
+  // Persisted per-surface so the last selection survives reloads, but the
+  // toolbar values themselves are the source of truth — once any strategy
+  // field is edited, the picker badge drops via `isStrategyModified`.
+  const [appliedStrategyIds, setAppliedStrategyIds] = useLocalStorage<string[]>(
+    "bets-history:applied-strategies",
+    [],
+  );
+  const { data: strategies } = useApplicableStrategies();
+  const appliedStrategyFilters = useMemo<StrategyFilters[]>(() => {
+    if (!strategies || appliedStrategyIds.length === 0) return [];
+    return appliedStrategyIds
+      .map((id) => strategies.find((s) => s.id === id))
+      .filter((s): s is NonNullable<typeof s> => s != null)
+      .map((s) => s.filters as StrategyFilters);
+  }, [strategies, appliedStrategyIds]);
+
+  // Drop the "applied" badge once the toolbar diverges from the merged
+  // template. The user can still see which strategies they last picked
+  // (the dropdown shows checkmarks); the badge just reflects whether the
+  // toolbar values still equal the template.
+  const isStrategyModified = useMemo(() => {
+    if (appliedStrategyFilters.length === 0) return false;
+    return !betsHistoryFiltersMatchTemplate(filters, appliedStrategyFilters);
+  }, [filters, appliedStrategyFilters]);
+
+  const handleAppliedStrategiesChange = useCallback(
+    (ids: string[]) => {
+      setAppliedStrategyIds(ids);
+      const list = strategies ?? [];
+      const picked = ids
+        .map((id) => list.find((s) => s.id === id))
+        .filter((s): s is NonNullable<typeof s> => s != null)
+        .map((s) => s.filters as StrategyFilters);
+      const patch = strategyToBetsHistoryPatch(picked);
+      setFilters((prev) => ({ ...prev, ...patch }));
+    },
+    [setAppliedStrategyIds, strategies, setFilters],
+  );
+
+  // Cross-page hand-off: /lab/optimisation StrategiesTable links here with
+  // ?strategy=<id> when the user clicks "View bets" on a row. Apply once
+  // strategies are loaded, then strip the param so refresh doesn't reapply.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Dashboard accounts panel cross-page hand-off
+  useEffect(() => {
+    const p = searchParams.get("provider");
+    const s = searchParams.get("status");
+    if (p || s) {
+      setFilters((prev) => ({
+        ...prev,
+        softProviders: p ? [p] : prev.softProviders,
+        outcome: (s as Outcome) || prev.outcome,
+        placedOnly: true,
+      }));
+      router.replace("/bets");
+    }
+  }, [searchParams, setFilters, router]);
+
+  useEffect(() => {
+    const sid = searchParams.get("strategy");
+    if (!sid || !strategies) return;
+    const exists = strategies.some((s) => s.id === sid);
+    if (exists) {
+      handleAppliedStrategiesChange([sid]);
+    }
+    router.replace("/bets");
+  }, [searchParams, strategies, handleAppliedStrategiesChange, router]);
 
   const effectiveFilters = useMemo<ListFilters>(() => {
     const f: ListFilters = { ...filters };
@@ -245,8 +325,8 @@ export function BetsHistorySpreadsheet() {
         const chunk = chunks[my];
         try {
           // This entry-point is the UI's explicit "AI settle" button —
-          // the user opted in, so unlock the paid Gemini fallback tier.
-          const data = await aiLabelBets(chunk, { useAi: true });
+          // the user opted in, so go straight to Gemini Tier 3.
+          const data = await aiLabelBets(chunk, { forceAi: true });
           if (data.telemetry) {
             summary.tier0 += data.telemetry.tier0_hits;
             summary.tier1 += data.telemetry.tier1_hits;
@@ -570,6 +650,7 @@ export function BetsHistorySpreadsheet() {
 
   const handleResetToDefaults = () => {
     resetToDefaults();
+    setAppliedStrategyIds([]);
     toast.success(
       hasSavedDefaults ? "Reset to saved defaults" : "Reset to system defaults",
     );
@@ -616,6 +697,9 @@ export function BetsHistorySpreadsheet() {
           onClearSavedDefaults={handleClearSavedDefaults}
           isAtDefaults={isAtDefaults}
           hasSavedDefaults={hasSavedDefaults}
+          appliedStrategyIds={appliedStrategyIds}
+          onAppliedStrategiesChange={handleAppliedStrategiesChange}
+          strategyTemplateModified={isStrategyModified}
         />
 
         <BetsHistoryTable
@@ -633,29 +717,14 @@ export function BetsHistorySpreadsheet() {
           hasNextPage={list.hasNextPage}
           isFetchingNextPage={list.isFetchingNextPage}
           onLoadMore={() => list.fetchNextPage()}
-        />
-
-        <div className="flex items-center justify-between px-3 py-1.5 border-t border-border bg-muted/30 text-[11px] text-muted-foreground">
-          <div>
-            <span className="tabular-nums text-foreground">
-              {filteredCount}
-            </span>{" "}
-            of <span className="tabular-nums">{totalCount}</span> loaded
-            {list.isFetchingNextPage && (
-              <span className="ml-2 inline-flex items-center gap-1 text-muted-foreground/80">
-                · loading more…
-              </span>
-            )}
-            {!list.isFetchingNextPage && list.isFetching && (
-              <span className="ml-2 inline-flex items-center gap-1 text-muted-foreground/80">
-                · refreshing…
-              </span>
-            )}
-          </div>
-          {!list.hasNextPage && filteredCount > 0 && (
-            <span className="text-muted-foreground/80">End of results</span>
+          renderFooter={() => (
+            <div className="text-center text-xs text-muted-foreground/60">
+              Showing all {filteredCount} rows
+              {totalCount !== filteredCount &&
+                ` (${totalCount} total before filters)`}
+            </div>
           )}
-        </div>
+        />
       </Card>
 
       <AiSettleDialog

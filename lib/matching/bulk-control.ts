@@ -82,7 +82,6 @@ const BUFFER_CAP = 300;
 // reload in dev doesn't keep a stale object with missing fields (which would
 // silently crash subscribers and leave zombie `active: true` flags).
 declare global {
-  // eslint-disable-next-line no-var
   var __bulkControlStateV2: BulkControlState | undefined;
 }
 

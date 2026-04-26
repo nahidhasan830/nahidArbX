@@ -15,7 +15,7 @@
 
 import { getFamilyIdByAtom } from "../registry";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
-import { compareTwoStrings } from "string-similarity";
+import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
 
 // ============================================
 // Constants

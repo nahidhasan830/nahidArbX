@@ -1,205 +1,166 @@
 /**
- * Alias Auto-Learner
+ * Near-match → entity-resolution bridge.
  *
- * Extracts aliases from confirmed near-matches and saves them.
- * Uses Pinnacle as the canonical source when available.
+ * The legacy "learner" wrote name pairs into the JSON alias store; this
+ * thin wrapper records observations into the new entity-resolution
+ * store and updates the near-match status. The promoter judges the
+ * candidate later (Tier 0/1/2).
+ *
+ * The diagnostics UI's "confirm" button is the main caller — when an
+ * operator confirms a near-match pair, both teams (with home/away
+ * orientation considered) and the competition flow through here.
  */
 
 import type { NearMatch } from "../diagnostics/types";
 import { updateNearMatchStatus, getNearMatchById } from "../diagnostics/store";
-import { addTeamAlias, addCompetitionAlias } from "./store";
 import { logger } from "../../shared/logger";
-
-// ============================================
-// Types
-// ============================================
+import {
+  ensureCompetitionEntity,
+  ensureTeamEntity,
+  recordObservation,
+} from "../entities";
 
 export interface LearnedAliases {
   teamAliases: { source: string; canonical: string }[];
   competitionAliases: { source: string; canonical: string }[];
 }
 
-// ============================================
-// Learning Logic
-// ============================================
-
 /**
- * Learn aliases from a confirmed near-match.
- *
- * When a user confirms that two events are the same, we extract
- * differing names as aliases. Uses Pinnacle as canonical source
- * when available (most reliable team names with explicit HOME/AWAY).
+ * Learn aliases from a confirmed near-match: records 4 observations
+ * (home + away on both sides) plus 1 competition observation. Pinnacle
+ * is the canonical source when present; otherwise the side with the
+ * longer team name wins.
  */
-export function learnFromConfirmedMatch(
+export async function learnFromConfirmedMatch(
   nearMatch: NearMatch,
   userId?: string,
-): LearnedAliases {
+): Promise<LearnedAliases> {
   const learned: LearnedAliases = {
     teamAliases: [],
     competitionAliases: [],
   };
-
-  // Update status first
   updateNearMatchStatus(nearMatch.id, "confirmed", userId);
 
-  // Determine canonical source - prefer Pinnacle
   const pinnacleEvent =
     nearMatch.eventA.provider === "pinnacle"
       ? nearMatch.eventA
       : nearMatch.eventB.provider === "pinnacle"
         ? nearMatch.eventB
         : null;
-
-  const otherEvent =
-    pinnacleEvent === nearMatch.eventA ? nearMatch.eventB : nearMatch.eventA;
-
-  // If no Pinnacle, use the event with longer team names (usually more complete)
   const canonicalEvent =
-    pinnacleEvent ||
+    pinnacleEvent ??
     (nearMatch.eventA.homeTeam.length >= nearMatch.eventB.homeTeam.length
       ? nearMatch.eventA
       : nearMatch.eventB);
   const variantEvent =
     canonicalEvent === nearMatch.eventA ? nearMatch.eventB : nearMatch.eventA;
-
   const orientation = nearMatch.breakdown.bestOrientation;
 
-  // Learn team aliases
-  const { homeAlias, awayAlias } = extractTeamAliases(
-    canonicalEvent,
-    variantEvent,
-    orientation,
-    nearMatch.breakdown,
-    userId,
-  );
+  const compEntity = await ensureCompetitionEntity(canonicalEvent.competition);
+  const competitionId = compEntity?.id ?? null;
 
-  if (homeAlias) {
-    learned.teamAliases.push(homeAlias);
+  const homeEntity = await ensureTeamEntity({
+    canonicalName: canonicalEvent.homeTeam,
+    competitionId,
+  });
+  const awayEntity = await ensureTeamEntity({
+    canonicalName: canonicalEvent.awayTeam,
+    competitionId,
+  });
+
+  // Variant side, with home/away orientation honored.
+  const variantHomeRaw =
+    orientation === "normal" ? variantEvent.homeTeam : variantEvent.awayTeam;
+  const variantAwayRaw =
+    orientation === "normal" ? variantEvent.awayTeam : variantEvent.homeTeam;
+
+  const recordOne = async (
+    raw: string,
+    entityId: string | null,
+    provider: string,
+    kind: "team" | "competition",
+    compId: string | null,
+  ) => {
+    if (!entityId) return;
+    await recordObservation({
+      kind,
+      surface: raw,
+      provider,
+      competitionId: compId,
+      pairedWithEntityId: entityId,
+      matchScore: nearMatch.breakdown.finalScore ?? null,
+      outcome: "manual-confirm",
+      source: "learner",
+    });
+  };
+
+  if (
+    homeEntity &&
+    variantHomeRaw.toLowerCase() !== canonicalEvent.homeTeam.toLowerCase()
+  ) {
+    await recordOne(
+      variantHomeRaw,
+      homeEntity.id,
+      variantEvent.provider,
+      "team",
+      competitionId,
+    );
+    learned.teamAliases.push({
+      source: variantHomeRaw,
+      canonical: canonicalEvent.homeTeam,
+    });
   }
-  if (awayAlias) {
-    learned.teamAliases.push(awayAlias);
+  if (
+    awayEntity &&
+    variantAwayRaw.toLowerCase() !== canonicalEvent.awayTeam.toLowerCase()
+  ) {
+    await recordOne(
+      variantAwayRaw,
+      awayEntity.id,
+      variantEvent.provider,
+      "team",
+      competitionId,
+    );
+    learned.teamAliases.push({
+      source: variantAwayRaw,
+      canonical: canonicalEvent.awayTeam,
+    });
   }
 
-  // Learn competition alias
-  const compAlias = extractCompetitionAlias(
-    canonicalEvent,
-    variantEvent,
-    nearMatch.breakdown,
-    userId,
-  );
-
-  if (compAlias) {
-    learned.competitionAliases.push(compAlias);
+  if (
+    compEntity &&
+    variantEvent.competition.toLowerCase() !==
+      canonicalEvent.competition.toLowerCase()
+  ) {
+    await recordOne(
+      variantEvent.competition,
+      compEntity.id,
+      variantEvent.provider,
+      "competition",
+      null,
+    );
+    learned.competitionAliases.push({
+      source: variantEvent.competition,
+      canonical: canonicalEvent.competition,
+    });
   }
 
   logger.info(
     "Learner",
-    `Learned ${learned.teamAliases.length} team aliases, ` +
-      `${learned.competitionAliases.length} competition aliases from confirmed match`,
+    `Recorded ${learned.teamAliases.length} team + ${learned.competitionAliases.length} comp observations from confirmed match`,
   );
-
   return learned;
 }
 
-/**
- * Extract team aliases from a confirmed match.
- */
-function extractTeamAliases(
-  canonicalEvent: NearMatch["eventA"],
-  variantEvent: NearMatch["eventB"],
-  orientation: "normal" | "swapped",
-  breakdown: NearMatch["breakdown"],
-  userId?: string,
-): {
-  homeAlias: { source: string; canonical: string } | null;
-  awayAlias: { source: string; canonical: string } | null;
-} {
-  let homeAlias: { source: string; canonical: string } | null = null;
-  let awayAlias: { source: string; canonical: string } | null = null;
-
-  const canonicalHome = canonicalEvent.homeTeam.toLowerCase().trim();
-  const canonicalAway = canonicalEvent.awayTeam.toLowerCase().trim();
-
-  // Get variant team based on orientation
-  const variantHome =
-    orientation === "normal"
-      ? variantEvent.homeTeam.toLowerCase().trim()
-      : variantEvent.awayTeam.toLowerCase().trim();
-
-  const variantAway =
-    orientation === "normal"
-      ? variantEvent.awayTeam.toLowerCase().trim()
-      : variantEvent.homeTeam.toLowerCase().trim();
-
-  // Learn home team alias if different
-  // Note: We learn aliases even for high-similarity pairs (like "Weg Taif" vs "Weg Taif SC")
-  // because those trivial variations are exactly what aliases help resolve
-  if (canonicalHome !== variantHome) {
-    addTeamAlias(variantHome, canonicalHome, {
-      autoLearned: true,
-      addedBy: userId,
-    });
-    homeAlias = { source: variantHome, canonical: canonicalHome };
-  }
-
-  // Learn away team alias if different
-  if (canonicalAway !== variantAway) {
-    addTeamAlias(variantAway, canonicalAway, {
-      autoLearned: true,
-      addedBy: userId,
-    });
-    awayAlias = { source: variantAway, canonical: canonicalAway };
-  }
-
-  return { homeAlias, awayAlias };
-}
-
-/**
- * Extract competition alias from a confirmed match.
- */
-function extractCompetitionAlias(
-  canonicalEvent: NearMatch["eventA"],
-  variantEvent: NearMatch["eventB"],
-  breakdown: NearMatch["breakdown"],
-  userId?: string,
-): { source: string; canonical: string } | null {
-  const compA = canonicalEvent.competition.toLowerCase().trim();
-  const compB = variantEvent.competition.toLowerCase().trim();
-
-  // Learn if different (even high-similarity variations are useful aliases)
-  if (compA !== compB) {
-    // Use longer name as canonical (usually more specific)
-    const [canonical, variant] =
-      compA.length >= compB.length ? [compA, compB] : [compB, compA];
-
-    addCompetitionAlias(variant, canonical, {
-      autoLearned: true,
-      addedBy: userId,
-    });
-
-    return { source: variant, canonical };
-  }
-
-  return null;
-}
-
-// ============================================
-// Match Operations
-// ============================================
-
-/**
- * Confirm a near-match by ID and learn aliases.
- */
-export function confirmNearMatch(
+export async function confirmNearMatch(
   nearMatchId: string,
   userId?: string,
-): LearnedAliases | null {
+): Promise<LearnedAliases | null> {
   const nearMatch = getNearMatchById(nearMatchId);
   if (!nearMatch) {
     logger.warn("Learner", `Near-match not found: ${nearMatchId}`);
     return null;
   }
-
   if (nearMatch.status !== "pending") {
     logger.warn(
       "Learner",
@@ -207,55 +168,10 @@ export function confirmNearMatch(
     );
     return null;
   }
-
   return learnFromConfirmedMatch(nearMatch, userId);
 }
 
-/**
- * Reject a near-match (mark as not-same-event).
- */
 export function rejectNearMatch(nearMatchId: string, userId?: string): boolean {
   const result = updateNearMatchStatus(nearMatchId, "rejected", userId);
   return result !== null;
-}
-
-// ============================================
-// Bulk Operations
-// ============================================
-
-/**
- * Auto-confirm high-confidence near-matches.
- * Use with caution - only for scores very close to threshold.
- */
-export function autoConfirmHighConfidence(
-  minScore: number = 0.83,
-  userId: string = "auto",
-): LearnedAliases[] {
-  // Import here to avoid circular dependency
-  const { getNearMatches } = require("../diagnostics/store");
-
-  const candidates = getNearMatches({
-    status: "pending",
-    minScore,
-  });
-
-  const results: LearnedAliases[] = [];
-
-  for (const nearMatch of candidates) {
-    // Additional safety checks for auto-confirmation
-    const { breakdown } = nearMatch;
-
-    // Only auto-confirm if team score is very high
-    if (breakdown.teamScore >= 0.9) {
-      const learned = learnFromConfirmedMatch(nearMatch, userId);
-      results.push(learned);
-    }
-  }
-
-  logger.info(
-    "Learner",
-    `Auto-confirmed ${results.length} high-confidence near-matches`,
-  );
-
-  return results;
 }

@@ -197,8 +197,6 @@ export const ninewicketsSportsbookAdapter: BettingProviderAdapter = {
   },
 
   async placeBet(req: PlaceBetRequest): Promise<PlaceBetResult> {
-    const session = await getSession();
-
     // See GeniusSportsBetPayload in ./types.ts for field semantics.
     // eventId is the Genius Sports internal id, betfairEventId is
     // the exchange id — BOTH are required for placement to succeed.
@@ -220,7 +218,7 @@ export const ninewicketsSportsbookAdapter: BettingProviderAdapter = {
     params.set("voucherId", "");
     params.set("isOneClickBet", "0");
 
-    let requestSnapshot: any = null;
+    let requestSnapshot: Record<string, unknown> | null = null;
 
     try {
       return await callWithSessionRetry(async (session) => {
@@ -309,6 +307,14 @@ interface ParsedBetResult {
   odds?: number;
   isPending?: boolean;
   pending?: boolean;
+  // Genius Sports nests the real ticket id one level down on accept
+  // responses. `unMatchTicket.id` is the ticket id used in the bet-history
+  // feed; `txn.betId` is the same value reachable via the transaction
+  // record. Either is enough to mark the placement as "placed" on the
+  // spot — no need to wait for the confirmation poller. Mirrors the
+  // Velki adapter's parsing (sister Genius Sports deployment).
+  unMatchTicket?: { id?: string | number } | null;
+  txn?: { id?: string | number; betId?: string | number } | null;
 }
 
 interface ParsedBetResponse {
@@ -346,8 +352,19 @@ function interpretBetResponse(
   }
 
   const rawStatus = (result.status ?? "").toUpperCase();
+  // Probe every known location for the ticket id so an instant accept
+  // gets marked `placed` straight away instead of bouncing through the
+  // bet-history confirmation poller. Genius Sports varies between
+  // top-level (older shape) and nested under `unMatchTicket` / `txn`
+  // (newer shape) — both providers return the same shape.
   const ticketId =
-    result.ticketId ?? result.orderId ?? result.betId ?? result.id;
+    result.ticketId ??
+    result.orderId ??
+    result.betId ??
+    result.id ??
+    result.unMatchTicket?.id ??
+    result.txn?.betId ??
+    result.txn?.id;
   const isPendingFlag = Boolean(result.isPending ?? result.pending);
 
   // Confirmed — book gave us a ticket id.

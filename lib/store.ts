@@ -62,7 +62,6 @@ interface CachedStats {
 // the background fetcher's `setEvents` writes to one module instance while
 // route handlers read from another, and you see store=0 despite data flowing.
 declare global {
-  // eslint-disable-next-line no-var
   var __nahidArbxStore:
     | {
         store: Store;

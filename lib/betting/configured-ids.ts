@@ -12,4 +12,5 @@
  */
 export const CONFIGURED_BETTING_PROVIDER_IDS: string[] = [
   "ninewickets-sportsbook",
+  "velki-sportsbook",
 ];

@@ -13,6 +13,7 @@ import { MarketsFilter } from "@/components/filters/MarketsFilter";
 import { ProvidersFilter } from "@/components/filters/ProvidersFilter";
 import { EvRangeFilter } from "@/components/filters/EvRangeFilter";
 import { TriggerBadge } from "@/components/filters/TriggerBadge";
+import { StrategyPickerPill } from "@/components/optimizer/StrategyPickerPill";
 import type { ProviderKey } from "@/lib/providers/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,15 @@ export interface SpreadsheetToolbarProps {
   onSaveAsDefault: () => void;
   onClearDefaults: () => void;
   hasSavedDefaults: boolean;
+
+  /**
+   * Strategies whose filter values populate the toolbar as a template.
+   * Empty = no template applied. The picker drops its "applied" badge once
+   * `strategyTemplateModified` is true (toolbar diverged from template).
+   */
+  appliedStrategyIds: string[];
+  onAppliedStrategiesChange: (ids: string[]) => void;
+  strategyTemplateModified: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -113,6 +123,9 @@ export function SpreadsheetToolbar({
   onSaveAsDefault,
   onClearDefaults,
   hasSavedDefaults,
+  appliedStrategyIds,
+  onAppliedStrategiesChange,
+  strategyTemplateModified,
 }: SpreadsheetToolbarProps) {
   // Main search input — keep focus across re-renders
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -165,6 +178,14 @@ export function SpreadsheetToolbar({
   return (
     <div className="px-3 py-1.5 border-b border-border bg-muted/50 overflow-x-auto">
       <div className="flex items-center gap-1.5 min-w-max">
+        {/* Strategy template — populates toolbar from a saved /lab/optimisation strategy */}
+        <StrategyPickerPill
+          appliedStrategyIds={appliedStrategyIds}
+          onApply={onAppliedStrategiesChange}
+          isModified={strategyTemplateModified}
+        />
+        <Separator />
+
         {/* ── Strategy-shared filters (same as BetsHistoryToolbar) ── */}
         <MarketsFilter
           selected={Array.from(selectedMarketTypes)}
@@ -211,29 +232,40 @@ export function SpreadsheetToolbar({
         </ToggleGroup>
 
         {/* Value Only toggle */}
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={onToggleShowOnlyValue}
-          className="flex items-center gap-1.5 h-7 px-1 rounded-sm hover:bg-accent/50 transition-colors"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggleShowOnlyValue();
+            }
+          }}
+          className="flex items-center gap-1.5 h-7 px-1 rounded-sm hover:bg-accent/50 transition-colors cursor-pointer select-none"
           title="Show only value bets (positive EV)"
         >
-          <Checkbox
-            checked={showOnlyValue}
-            onCheckedChange={onToggleShowOnlyValue}
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <Checkbox
+              checked={showOnlyValue}
+              onCheckedChange={onToggleShowOnlyValue}
+            />
+          </div>
           <span className="text-[11px] font-medium">Value Only</span>
           <span
             className={cn(
               "inline-flex items-center justify-center rounded-full h-4 min-w-[18px] px-1.5 text-[10px] font-medium tabular-nums",
               valueRowCount > 0
-                ? "bg-cyan-500/20 text-cyan-400 animate-value-pulse"
+                ? "bg-cyan-500/20 text-cyan-400 animate-pulse"
                 : "bg-secondary text-secondary-foreground dark:bg-white/10",
             )}
           >
             {valueRowCount}
           </span>
-        </button>
+        </div>
 
         {/* Suspicious filter */}
         <DropdownMenu modal={false}>

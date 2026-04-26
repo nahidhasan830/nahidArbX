@@ -22,6 +22,10 @@ import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
 import { canResettle, prettySettledBy } from "@/lib/bets-history/resettle";
 import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
+import {
+  getProviderShortName,
+  getProviderTextInline,
+} from "@/lib/providers/registry";
 import { cn } from "@/lib/utils";
 import { formatMarketType, formatAtomLabel } from "@/lib/formatting/labels";
 import { fmtDateTime, fmtSeen } from "@/lib/formatting/helpers";
@@ -54,20 +58,6 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   void: "Void",
 };
 
-const PROVIDER_SHORT: Record<string, string> = {
-  "ninewickets-exchange": "9W-Ex",
-  "ninewickets-sportsbook": "9W-SB",
-  betconstruct: "BC",
-  pinnacle: "Pinnacle",
-};
-
-const PROVIDER_COLOR: Record<string, string> = {
-  "ninewickets-exchange": "text-purple-400 dark:text-purple-300",
-  "ninewickets-sportsbook": "text-amber-400 dark:text-amber-300",
-  betconstruct: "text-sky-400 dark:text-sky-300",
-  pinnacle: "text-cyan-400 dark:text-cyan-300",
-};
-
 type Decorated = ValueBetRow & { _evPctMax: number; _kellyFraction: number };
 
 export type BacktestTableProps = {
@@ -85,6 +75,7 @@ export type BacktestTableProps = {
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   onLoadMore?: () => void;
+  renderFooter?: () => React.ReactNode;
 };
 
 // Clickable header for parent-controlled sort. Cycles via the parent's
@@ -173,6 +164,7 @@ export function BetsHistoryTable({
   hasNextPage,
   isFetchingNextPage,
   onLoadMore,
+  renderFooter,
 }: BacktestTableProps) {
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
 
@@ -357,13 +349,13 @@ export function BetsHistoryTable({
         ),
         cell: ({ row }) => {
           const r = row.original;
-          const sharpName = PROVIDER_SHORT[r.sharpProvider] ?? r.sharpProvider;
+          const sharpName = getProviderShortName(r.sharpProvider);
           return (
             <>
               <span
                 className={cn(
                   "text-[10px] mr-1",
-                  PROVIDER_COLOR[r.sharpProvider],
+                  getProviderTextInline(r.sharpProvider),
                 )}
               >
                 {sharpName}
@@ -384,7 +376,7 @@ export function BetsHistoryTable({
         ),
         cell: ({ row }) => {
           const r = row.original;
-          const softName = PROVIDER_SHORT[r.softProvider] ?? r.softProvider;
+          const softName = getProviderShortName(r.softProvider);
           return (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -392,7 +384,7 @@ export function BetsHistoryTable({
                   <span
                     className={cn(
                       "text-[10px]",
-                      PROVIDER_COLOR[r.softProvider],
+                      getProviderTextInline(r.softProvider),
                     )}
                   >
                     {softName}
@@ -405,7 +397,7 @@ export function BetsHistoryTable({
                   <span
                     className={cn(
                       "text-[10px] font-semibold",
-                      PROVIDER_COLOR[r.softProvider],
+                      getProviderTextInline(r.softProvider),
                     )}
                   >
                     {softName}
@@ -721,6 +713,7 @@ export function BetsHistoryTable({
           Loading value bets…
         </span>
       )}
+      renderFooter={renderFooter}
     />
   );
 }

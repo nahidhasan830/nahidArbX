@@ -145,10 +145,11 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     const allMarkets = catalog.geniusSportsMarkets;
     if (!allMarkets || allMarkets.length === 0) return null;
 
-    // Filter markets by live status
-    const isEventLive = catalog.live ?? false;
-    const markets = allMarkets.filter((m) => (m.live ?? false) === isEventLive);
-    if (markets.length === 0) return null;
+    // Include all markets regardless of live flag — some market types
+    // (team totals, team corners) only exist as pre-match even during
+    // live events. The apiSiteStatus check in extractOdds already
+    // handles suspended/closed markets correctly.
+    const markets = allMarkets;
 
     // Step 2: Fetch odds
     const marketIds = markets.map((m) => m.id);
@@ -284,9 +285,7 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     const allMarkets = catalog.geniusSportsMarkets;
     if (!allMarkets || allMarkets.length === 0) return null;
 
-    const isEventLive = catalog.live ?? false;
-    const markets = allMarkets.filter((m) => (m.live ?? false) === isEventLive);
-    if (markets.length === 0) return null;
+    const markets = allMarkets;
 
     // Step 2: Odds
     const marketIds = markets.map((m) => m.id);

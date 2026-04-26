@@ -53,22 +53,22 @@ export function SessionPill() {
 
   const dotClass =
     status === "ok"
-      ? "status-dot--ok"
+      ? "bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.45)]"
       : status === "degraded"
-        ? "status-dot--degraded"
+        ? "bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.45)]"
         : status === "down"
-          ? "status-dot--down"
-          : "status-dot--loading";
+          ? "bg-danger shadow-[0_0_5px_oklch(0.66_0.13_22/0.45)]"
+          : "bg-muted-foreground/50 animate-pulse";
 
   return (
     <div
-      className="appshell-status-bar"
+      className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-muted-foreground/70 tracking-tight"
       title={
         lastCheckedAt ? `Last checked ${formatAgo(lastCheckedAt)}` : "Pinging…"
       }
     >
       {/* Health dot */}
-      <span className={cn("status-dot", dotClass)} />
+      <span className={cn("size-[5px] rounded-full shrink-0", dotClass)} />
 
       {/* Label + timestamp — hidden when sidebar collapsed */}
       <span className="group-data-[collapsible=icon]:hidden truncate">

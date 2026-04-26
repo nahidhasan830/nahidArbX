@@ -9,35 +9,26 @@ import { settleBatch } from "@/lib/settle/settle-batch";
 import { AiBudgetError } from "@/lib/settle/cost-guard";
 
 /**
- * Settlement endpoint. Wraps the waterfall (`settleBatch`) — cheap
- * tiers first, AI last (only if the kill switch is enabled upstream).
+ * Settlement endpoint. Wraps the waterfall (`settleBatch`) — Tier 0/1/2
+ * deterministic resolution by default; Gemini Tier 3 only when the
+ * caller explicitly sets `forceAi`.
  *
  * Bets that remain pending after the waterfall are returned as-is so
- * the UI can surface them for manual verification (Google AI Mode link).
- *
- * Historical note: this route used to have a per-bet legacy-AI fallback.
- * That path was removed once ESPN + SofaScore drove coverage above 95%
- * and the existing alias-learning feature was able to close remaining
- * team-name mismatches organically.
+ * the UI can surface them for manual verification.
  */
 const MAX_IDS = 500;
 
 const BodySchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(MAX_IDS),
   /**
-   * Opt into the paid AI fallback (Gemini url_context) for events the
-   * free tiers can't resolve. Default false — the automatic settlement
-   * loop never sends this; only the UI "AI settle" button does.
-   */
-  useAi: z.boolean().default(false),
-  /**
    * Skip the DB cache so the waterfall re-resolves scores even when a
    * stale entry exists. "Re-run default pipeline" in the UI sends this.
    */
   bypassCache: z.boolean().default(false),
   /**
-   * Skip every free tier and go directly to AI. "Re-run with Lite/
-   * Flash/Pro" sends this along with aiModel.
+   * Operator-triggered: send events straight to Gemini Tier 3. The ONLY
+   * way to invoke paid AI from this route. "Re-run with Lite/Flash/Pro"
+   * sends this along with aiModel.
    */
   forceAi: z.boolean().default(false),
   aiModel: z.enum(["lite", "flash", "pro"]).optional(),
@@ -57,7 +48,6 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await settleBatch(parsed.data.ids, {
-      allowAi: parsed.data.useAi,
       bypassCache: parsed.data.bypassCache,
       forceAi: parsed.data.forceAi,
       aiModel: parsed.data.aiModel,

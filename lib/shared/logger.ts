@@ -98,6 +98,25 @@ export interface ScopedLogger {
 
 // --- Public API ---
 
+// Process-local ring of recent errors. Powers `/errors` in the Telegram
+// bot. Pinned to globalThis so HMR-duplicated module copies share one
+// buffer; capped to keep memory bounded.
+const ERR_RING_MAX = 100;
+declare global {
+  var __nahidArbX_errRing__:
+    | Array<{ at: string; ctx: string; msg: string }>
+    | undefined;
+}
+function getErrRing(): Array<{ at: string; ctx: string; msg: string }> {
+  return (globalThis.__nahidArbX_errRing__ ??= []);
+}
+export function getRecentLoggedErrors(
+  n = 10,
+): Array<{ at: string; ctx: string; msg: string }> {
+  const r = getErrRing();
+  return r.slice(-n).reverse();
+}
+
 function log(
   level: LogLevel,
   context: string,
@@ -105,6 +124,11 @@ function log(
   data?: unknown,
 ): void {
   if (shouldLog(level)) emit(level, context, message, data);
+  if (level === "error") {
+    const r = getErrRing();
+    r.push({ at: new Date().toISOString(), ctx: context, msg: message });
+    if (r.length > ERR_RING_MAX) r.splice(0, r.length - ERR_RING_MAX);
+  }
 }
 
 export const logger = {

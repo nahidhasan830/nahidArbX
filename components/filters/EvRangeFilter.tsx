@@ -22,7 +22,7 @@ import { TriggerBadge } from "./TriggerBadge";
 // Slider bounds — cover realistic EV% range
 const EV_MIN = -10;
 const EV_MAX = 30;
-const EV_STEP = 0.5;
+const EV_STEP = 0.25;
 
 function toSlider(val: number | undefined, edge: number): number {
   return val ?? edge;

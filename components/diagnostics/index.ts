@@ -1,9 +1,10 @@
 /**
  * Diagnostics Components
  *
- * UI components for match review, alias management and data cleanup.
+ * UI components for match review, entity inspection (replaces alias
+ * management) and data cleanup.
  */
 
 export { DiagnosticsTab } from "./DiagnosticsTab";
 export { MatchReviewPanel } from "./MatchReviewPanel";
-export { AliasManager } from "./AliasManager";
+export { EntityInspector } from "./EntityInspector";

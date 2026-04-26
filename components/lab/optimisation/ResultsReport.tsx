@@ -125,7 +125,9 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
     {
       label: (
         <span className="inline-flex items-center gap-1">
-          <TermTooltip term="pbo">Overfit risk (PBO)</TermTooltip>
+          <TermTooltip term="pbo" value={pbo ?? undefined}>
+            Overfit risk (PBO)
+          </TermTooltip>
         </span>
       ),
       value: pbo != null ? `${(pbo * 100).toFixed(1)}%` : "—",
@@ -149,7 +151,9 @@ export function ResultsReport({ run, trials }: ResultsReportProps) {
     {
       label: (
         <span className="inline-flex items-center gap-1">
-          <TermTooltip term="wrc">Beats baseline (WRC)</TermTooltip>
+          <TermTooltip term="wrc" value={wrc ?? undefined}>
+            Beats baseline (WRC)
+          </TermTooltip>
         </span>
       ),
       value: wrc != null ? wrc.toFixed(3) : "—",
@@ -371,11 +375,6 @@ function fmtPct(n: number | null | undefined): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 }
 
-function fmtNum(n: number | null | undefined): string {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return n.toFixed(2);
-}
-
 /** Banner variant — drops above the TrialsTable when the composite-max
  *  winner is Unreliable. Minimal, loud, actionable. */
 export function UnreliableWinnerBanner({ run, trials }: ResultsReportProps) {
@@ -401,9 +400,9 @@ export function UnreliableWinnerBanner({ run, trials }: ResultsReportProps) {
           Strategy #{winner.trialIndex} is on top only because the score rewards
           small-sample outliers when nothing else is around.{" "}
           <span className="font-medium">Reason:</span> {q.reason}{" "}
-          <Info className="inline size-3 -mt-0.5" aria-hidden /> Don't promote
-          it. The Results report above flags the first safe-to-promote strategy
-          if one exists.{" "}
+          <Info className="inline size-3 -mt-0.5" aria-hidden /> Don&apos;t
+          promote it. The Results report above flags the first safe-to-promote
+          strategy if one exists.{" "}
           <span className="text-amber-900/70 dark:text-amber-200/70">
             Run ID {run.id.slice(0, 12)}…
           </span>
