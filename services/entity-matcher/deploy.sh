@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Deploys entity-matcher to Cloud Run as an always-on Service.
 #
-# Replaces nahidarbx-entity-classifier (LightGBM, untrained, 403'd in prod).
-# This service is always-on (min-instances=1) because both transformer
-# models take ~15 s to load and the auto-resolver calls /score on every
-# new surface form during sync — cold-start latency would block matching.
+# This service is the ML backbone: hosts BGE-M3 bi-encoder + cross-encoder
+# for inference (/embed, /score), AND runs the background ML scheduler that
+# processes inbox match pairs autonomously (reads config from matcher_config
+# table, writes results to match_pairs + matcher_runs).
+#
+# Always-on (min-instances=1) because both transformer models take ~15 s
+# to load and the scheduler + auto-resolver need sub-second scoring.
 #
 # Reuses the same Artifact Registry repo and service account as the
 # optimizer Job + entity-classifier so we don't proliferate IAM.
@@ -40,7 +43,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --cpu 2 \
   --min-instances 1 \
   --max-instances 4 \
-  --timeout 60 \
+  --timeout 300 \
   --concurrency 8 \
   --set-cloudsql-instances "${INSTANCE_CN}" \
   --set-env-vars "CLOUD_SQL_INSTANCE=${INSTANCE_CN},ARTEFACT_DIR=/var/lib/entity-matcher" \

@@ -11,13 +11,17 @@ import type { ProviderKey } from "../../providers/registry";
 import type { MatchScoreBreakdown, NearMatch, FailureReason } from "./types";
 import { NEAR_MATCH_MIN_SCORE, NEAR_MATCH_MAX_SCORE } from "./types";
 import { MATCH_THRESHOLD } from "../../shared/constants";
-import { addNearMatch } from "./store";
 import {
   applyTeamAlias,
   applyCompetitionAlias,
   type PreNormalizedNames,
 } from "../normalize";
-import { computePairKey, isPairResolved } from "../ai-decision-cache";
+import { computePairKey } from "../pair-key";
+import {
+  upsertMatchPair,
+  getByPairKey,
+} from "../../db/repositories/match-pairs";
+import { logger as log } from "../../shared/logger";
 
 // ============================================
 // Score Computation
@@ -164,14 +168,14 @@ export function analyzeFailureReasons(
 // ============================================
 
 /**
- * Check if a pair qualifies as a near-match and store it.
+ * Check if a pair qualifies as a near-match and persist it to Postgres.
  * Called when events don't meet the match threshold.
  */
-export function detectAndStoreNearMatch(
+export async function detectAndStoreNearMatch(
   eventA: NormalizedEvent,
   eventB: NormalizedEvent,
   breakdown: MatchScoreBreakdown,
-): NearMatch | null {
+): Promise<NearMatch | null> {
   // Only track if in near-match range
   if (
     breakdown.finalScore < NEAR_MATCH_MIN_SCORE ||
@@ -188,16 +192,14 @@ export function detectAndStoreNearMatch(
     return null;
   }
 
-  // Skip if this pair has already been resolved — either a human clicked
-  // approve/reject, or the AI returned a confident SAME/DIFFERENT verdict.
-  // The cache key is built from canonical team/competition names so the
-  // decision survives sync cycles and internal event-id churn. Time isn't
-  // in the key because we're already comparing inside a time bucket.
   const pairKey = computePairKey(eventA, eventB, {
     team: applyTeamAlias,
     competition: applyCompetitionAlias,
   });
-  if (isPairResolved(pairKey)) {
+
+  // Skip if this pair already exists in the ML pipeline with a decision
+  const existing = await getByPairKey(pairKey);
+  if (existing?.decision) {
     return null;
   }
 
@@ -225,7 +227,36 @@ export function detectAndStoreNearMatch(
     status: "pending",
   };
 
-  addNearMatch(nearMatch);
+  try {
+    await upsertMatchPair({
+      pairKey,
+      source: "near-match",
+      stringScore: breakdown.finalScore,
+      stringBreakdown: breakdown,
+      eventA: {
+        provider: providerA,
+        homeTeam: eventA.homeTeam,
+        awayTeam: eventA.awayTeam,
+        competition: eventA.competition,
+        startTime: eventA.startTime,
+        eventId: eventA.providers[providerA]?.eventId,
+      },
+      eventB: {
+        provider: providerB,
+        homeTeam: eventB.homeTeam,
+        awayTeam: eventB.awayTeam,
+        competition: eventB.competition,
+        startTime: eventB.startTime,
+        eventId: eventB.providers[providerB]?.eventId,
+      },
+    });
+  } catch (err) {
+    log.warn(
+      "Diagnostics",
+      `upsertMatchPair failed: ${(err as Error).message}`,
+    );
+  }
+
   return nearMatch;
 }
 

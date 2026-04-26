@@ -104,7 +104,7 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/matcher-lab",
         label: "Matcher Lab",
         icon: Brain,
-        feature: "diagnostics",
+        feature: "matcher-lab",
       },
       {
         href: "/lab/optimisation",

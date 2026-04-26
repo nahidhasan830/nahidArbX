@@ -12,7 +12,7 @@ import path from "path";
 import { logger } from "../../shared/logger";
 import type { NearMatch, DiagnosticStats, FailurePattern } from "./types";
 import { MAX_NEAR_MATCHES, NEAR_MATCH_MAX_AGE_MS } from "./types";
-import { computePairKey } from "../ai-decision-cache";
+import { computePairKey } from "../pair-key";
 import { applyTeamAlias, applyCompetitionAlias } from "../normalize";
 
 // ============================================

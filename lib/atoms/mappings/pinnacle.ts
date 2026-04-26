@@ -362,6 +362,7 @@ const BOOKINGS_AH_ATOMS: Record<number, { home: string; away: string }> = {
  * @param side - Outcome side (HOME, AWAY, DRAW)
  * @param direction - Outcome direction (OVER, UNDER)
  * @param marketSide - Market-level side for team totals (HOME, AWAY)
+ * @param halfIndicator - Half indicator (0=main/FT, 1=1H for TEAM_TOTAL_POINTS)
  * @returns atom_id or null if unmapped
  */
 export function mapPinnacleToAtom(
@@ -371,6 +372,7 @@ export function mapPinnacleToAtom(
   side: string,
   direction: string,
   marketSide?: string,
+  halfIndicator?: number,
 ): string | null {
   const period = normalizePeriod(periodType);
   if (!period) return null;
@@ -466,7 +468,11 @@ export function mapPinnacleToAtom(
     case "TEAM_TOTAL_POINTS": {
       const teamSide = (marketSide || "").toLowerCase();
       if (teamSide !== "home" && teamSide !== "away") return null;
-      const key = `${period}|${teamSide}|${handicap}`;
+      // For TEAM_TOTAL_POINTS, halfIndicator encodes the time scope
+      // (periodType is always "Regular" for both FT and 1H):
+      //   halfIndicator=0 → Full Time,  halfIndicator=1 → 1st Half
+      const ttPeriod = halfIndicator === 1 ? "1h" : (period ?? "ft");
+      const key = `${ttPeriod}|${teamSide}|${handicap}`;
       const mapping = TEAM_TOTALS_ATOMS[key];
       if (!mapping) return null;
       if (dirLower === "over") return mapping.over;
@@ -587,10 +593,12 @@ export function extractPinnacleOdds(
     return entries;
   }
 
-  // Skip alternative line markets (halfIndicator=1 means alternative market, not first-half)
+  // Skip alternative line markets (halfIndicator=1 means alternative market).
   // Main markets have halfIndicator=0 and higher max stakes.
-  // Exception: TEAM_TOTAL_POINTS — Pinnacle flags all team-total lines as
-  // "alternative" (halfIndicator≠0), so the filter would discard every one.
+  // Exception: TEAM_TOTAL_POINTS — halfIndicator encodes the time scope:
+  //   0 → Full Time team totals
+  //   1 → 1st Half team totals
+  // Both carry periodType "Regular", so we override the period below.
   if (halfIndicator !== 0 && marketType !== "TEAM_TOTAL_POINTS") {
     return entries;
   }
@@ -629,6 +637,7 @@ export function extractPinnacleOdds(
       side,
       direction,
       marketSide,
+      halfIndicator,
     );
 
     if (!atomId) {

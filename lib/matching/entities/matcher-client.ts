@@ -5,11 +5,16 @@
  * at `ENTITY_MATCHER_URL` exposing /embed, /score (bi-encoder | cross-encoder),
  * and /reload.
  *
+ * Auth: the Cloud Run service requires IAM auth (`--no-allow-unauthenticated`).
+ * We use `google-auth-library` to obtain an ID token with the service URL as
+ * audience — same ADC pattern the optimizer client uses.
+ *
  * Failure mode: every call returns `null` on timeout or non-2xx. The
  * auto-resolver treats `null` as "model unavailable → escalate to operator
  * inbox". The sync hot path never throws because of a matcher outage.
  */
 
+import { GoogleAuth } from "google-auth-library";
 import { logger } from "../../shared/logger";
 
 const tag = "EntityMatcherClient";
@@ -39,6 +44,43 @@ function baseUrl(): string | null {
   return u.replace(/\/$/, "");
 }
 
+let _auth: GoogleAuth | null = null;
+function getAuth(): GoogleAuth {
+  if (_auth) return _auth;
+  _auth = new GoogleAuth();
+  return _auth;
+}
+
+export async function getIdToken(): Promise<string | null> {
+  const audience = baseUrl();
+  if (!audience) return null;
+  try {
+    const client = await getAuth().getIdTokenClient(audience);
+    const hdrs = await client.getRequestHeaders();
+    let authHeader: string | null | undefined = null;
+
+    // google-auth-library might return a Headers instance or a plain object
+    if (typeof hdrs.get === "function") {
+      authHeader = hdrs.get("authorization") ?? hdrs.get("Authorization");
+    } else {
+      const record = hdrs as Record<string, string>;
+      authHeader = record.authorization ?? record.Authorization;
+    }
+
+    return authHeader?.replace("Bearer ", "") ?? null;
+  } catch (err) {
+    logger.warn(tag, `Failed to get ID token: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getIdToken();
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
+}
+
 async function postJson<T>(
   path: string,
   body: unknown,
@@ -50,9 +92,10 @@ async function postJson<T>(
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    const headers = await authHeaders();
     const res = await fetch(`${base}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -125,6 +168,43 @@ export async function scoreCrossEncoder(
 }
 
 /**
+ * Batch-embed a list of surface forms. Returns a Map from each input text
+ * to its 1024-dim BGE-M3 embedding vector, or null if the service is
+ * unreachable.
+ *
+ * Used by the ML pair scorer to embed all unique team/competition names
+ * from a batch of match pairs in a single round-trip (~100ms for 150
+ * names), then compute cosine similarities locally.
+ *
+ * The /embed-batch endpoint accepts `{ texts: string[] }` and returns
+ * `{ embeddings: number[][] }` in the same order.
+ */
+export async function embedBatch(
+  texts: string[],
+): Promise<Map<string, number[]> | null> {
+  if (texts.length === 0) return new Map();
+
+  const deduped = [...new Set(texts)];
+  const out = await postJson<{ embeddings?: number[][] }>(
+    "/embed-batch",
+    { texts: deduped },
+    Math.max(15_000, deduped.length * 20 + 2000),
+  );
+  if (!out?.embeddings || out.embeddings.length !== deduped.length) {
+    return null;
+  }
+
+  const map = new Map<string, number[]>();
+  for (let i = 0; i < deduped.length; i++) {
+    const vec = out.embeddings[i];
+    if (vec && vec.length === EMBEDDING_DIM) {
+      map.set(deduped[i], vec);
+    }
+  }
+  return map;
+}
+
+/**
  * Probe whether the matcher service is reachable. Used by the calibration
  * monitor + the UI health pill. Caches via the caller — this is a raw
  * health check, no caching here.
@@ -138,7 +218,11 @@ export async function checkHealthz(): Promise<{
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(`${base}/healthz`, { signal: ctrl.signal });
+    const headers = await authHeaders();
+    const res = await fetch(`${base}/healthz`, {
+      headers,
+      signal: ctrl.signal,
+    });
     if (!res.ok) return { ok: false };
     const data = (await res.json()) as { calibrator_version?: string };
     return { ok: true, calibrator_version: data.calibrator_version };

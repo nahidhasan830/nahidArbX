@@ -149,7 +149,7 @@ export const PROVIDER_REGISTRY = {
       textInline: "text-sky-400 dark:text-sky-300",
     },
     requiresAuth: false,
-    enabled: true,
+    enabled: false,
     commissionPct: 0, // Sportsbook, margin built into odds
     fetch: { concurrency: 50 },
   },
@@ -267,6 +267,17 @@ export function getSoftProviders(): ProviderKey[] {
   return PROVIDER_IDS.filter(
     (id) =>
       PROVIDER_REGISTRY[id].enabled &&
+      PROVIDER_REGISTRY[id].bookmakerType === "soft",
+  );
+}
+
+/**
+ * Get IDs of disabled soft providers — used to auto-exclude from dataset queries.
+ */
+export function getDisabledSoftProviderIds(): string[] {
+  return PROVIDER_IDS.filter(
+    (id) =>
+      !PROVIDER_REGISTRY[id].enabled &&
       PROVIDER_REGISTRY[id].bookmakerType === "soft",
   );
 }

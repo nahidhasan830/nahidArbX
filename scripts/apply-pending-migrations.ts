@@ -46,6 +46,8 @@ const MIGRATIONS = [
   "0032_entity_review_queue.sql",
   "0033_entity_resolver_runs.sql",
   "0034_matcher_rebuild.sql",
+  "0035_match_pairs.sql",
+  "0036_matcher_config.sql",
 ];
 
 async function buildPool(): Promise<Pool> {
@@ -176,6 +178,12 @@ async function main() {
       what: "entity_decision_blocklist table",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
               WHERE table_schema = 'public' AND table_name = 'entity_decision_blocklist'`,
+      expect: 1,
+    },
+    {
+      what: "match_pairs table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'match_pairs'`,
       expect: 1,
     },
     {

@@ -16,6 +16,9 @@
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "../shared/logger";
+import { computePairKey, type EventFingerprintInput } from "./pair-key";
+
+export { computePairKey, type EventFingerprintInput };
 
 const FILE = path.join(
   process.cwd(),
@@ -60,53 +63,6 @@ export interface CachedDecision {
   /** Frozen snapshot of the pair at decision time. Optional for backward
    * compatibility with entries saved before this field existed. */
   snapshot?: { eventA: DecisionSnapshotSide; eventB: DecisionSnapshotSide };
-}
-
-export interface EventFingerprintInput {
-  homeTeam: string;
-  awayTeam: string;
-  competition: string;
-}
-
-// ============================================
-// Key derivation
-// ============================================
-
-/**
- * Compute the canonical identity of a single event side.
- *
- * Teams are alphabetized so "Home=A, Away=B" and "Home=B, Away=A" collapse
- * to the same identity — we don't care which side is home when deciding
- * whether two fixtures describe the same real-world match.
- *
- * Time is NOT part of the key: the matcher already groups events into
- * 1-minute buckets before scoring, so any pair we compare is at the same
- * minute by construction. Adding time would wrongly separate decisions
- * across fixture dates.
- */
-function sideIdentity(
-  e: EventFingerprintInput,
-  aliasTeam: (s: string) => string,
-  aliasComp: (s: string) => string,
-): string {
-  const teams = [aliasTeam(e.homeTeam), aliasTeam(e.awayTeam)].sort();
-  return `${teams[0]}|${teams[1]}|${aliasComp(e.competition)}`;
-}
-
-/**
- * Compute a stable, order-independent cache key for a pair of events.
- */
-export function computePairKey(
-  a: EventFingerprintInput,
-  b: EventFingerprintInput,
-  alias: {
-    team: (s: string) => string;
-    competition: (s: string) => string;
-  },
-): string {
-  const sideA = sideIdentity(a, alias.team, alias.competition);
-  const sideB = sideIdentity(b, alias.team, alias.competition);
-  return sideA < sideB ? `${sideA}::${sideB}` : `${sideB}::${sideA}`;
 }
 
 // ============================================

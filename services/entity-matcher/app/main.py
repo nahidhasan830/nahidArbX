@@ -1,19 +1,15 @@
-"""FastAPI app exposing /embed, /score, /reload, /healthz.
+"""FastAPI app: /embed, /score, /reload, /healthz + scheduler endpoints.
 
-Replaces services/entity-classifier. Endpoints:
+Inference endpoints (embed, score, reload, healthz) serve the auto-resolver
+and playground. Scheduler endpoints let the Next.js UI control the
+background ML processing loop that runs inside this same process.
 
-  POST /embed         { text }                  -> { embedding: [1024] }
-  POST /embed-batch   { texts: [...] }          -> { embeddings: [[...]] }
-  POST /score         { name_a, name_b, stage } -> { score, pvalue, stage_used, model_version }
-  POST /reload                                  -> reload calibrator + model weights
-  GET  /healthz                                 -> liveness + model load status
-
-Stages:
-  - "bi-encoder"     fast cosine-similarity (no calibration; pvalue=null)
-  - "cross-encoder"  reranker with conformal calibration (pvalue from MAPIE)
-
-Caller (lib/matching/entities/auto-resolve.ts) decides which stage to call
-based on cost + uncertainty band.
+Scheduler endpoints:
+  GET  /scheduler/status          → scheduler + config state
+  POST /scheduler/run-now         → trigger one batch immediately
+  GET  /scheduler/runs            → recent run history from Postgres
+  GET  /config                    → current matcher_config row
+  POST /config   { ... }         → update config (UI writes here)
 """
 
 from __future__ import annotations
@@ -25,6 +21,7 @@ from typing import Literal, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import text as sa_text
 
 from .conformal import get_calibrator, reload_calibrator
 from .models import (
@@ -39,7 +36,7 @@ from .models import (
 log = logging.getLogger("entity-matcher")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="entity-matcher", version="0.1.0")
+app = FastAPI(title="entity-matcher", version="0.2.0")
 
 
 # ─────────────────────────── /healthz ──────────────────────────────────
@@ -47,12 +44,13 @@ app = FastAPI(title="entity-matcher", version="0.1.0")
 
 @app.get("/healthz")
 def healthz() -> dict:
-    """Liveness check. Doesn't load models — Cloud Run startup probe needs
-    to return fast, and model load is ~15 s."""
+    from .scheduler import get_scheduler_status
+
     return {
         "status": "ok",
         "embedding_dim": EMBEDDING_DIM,
         "calibrator_version": get_calibrator().model_version,
+        "scheduler": get_scheduler_status(),
     }
 
 
@@ -98,10 +96,6 @@ Stage = Literal["bi-encoder", "cross-encoder"]
 
 
 class ScoreContext(BaseModel):
-    """Optional context to disambiguate same-named entities in different
-    competitions. Currently informational only; future: cross-encoder
-    prompt could include this."""
-
     provider: Optional[str] = None
     competition_canonical: Optional[str] = None
 
@@ -122,12 +116,6 @@ class ScoreResponse(BaseModel):
 
 @app.post("/score", response_model=ScoreResponse)
 def score(req: ScoreRequest) -> ScoreResponse:
-    """Score two surface forms.
-
-    bi-encoder:    cosine similarity of L2-normalized embeddings, [0, 1].
-    cross-encoder: sigmoid of reranker logit, [0, 1], with conformal
-                   p-value over the negative-class calibration distribution.
-    """
     if req.stage == "bi-encoder":
         vecs = embed_many([req.name_a, req.name_b])
         cos = float(np.dot(vecs[0], vecs[1]))
@@ -138,7 +126,6 @@ def score(req: ScoreRequest) -> ScoreResponse:
             model_version=get_calibrator().model_version,
         )
 
-    # cross-encoder + conformal
     raw = float(cross_score([(req.name_a, req.name_b)])[0])
     cal = get_calibrator().predict(raw)
     return ScoreResponse(
@@ -159,26 +146,135 @@ class ReloadResponse(BaseModel):
 
 @app.post("/reload", response_model=ReloadResponse)
 def reload() -> ReloadResponse:
-    """Hot-reload the conformal calibrator after the trainer Job
-    publishes new weights. Models themselves stay loaded — only the
-    calibrator artefact is re-read from disk."""
     cal = reload_calibrator()
     return ReloadResponse(reloaded=True, calibrator_version=cal.model_version)
+
+
+# ─────────────────────── scheduler endpoints ───────────────────────────
+
+
+@app.get("/scheduler/status")
+def scheduler_status() -> dict:
+    from .scheduler import get_scheduler_status
+    return get_scheduler_status()
+
+
+@app.post("/scheduler/run-now")
+async def scheduler_run_now() -> dict:
+    import asyncio
+    from .scheduler import process_batch
+    result = await asyncio.to_thread(process_batch, "manual")
+    return result
+
+
+@app.get("/scheduler/runs")
+def scheduler_runs(limit: int = 20) -> dict:
+    from .db import get_engine
+
+    limit = min(limit, 100)
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(sa_text("""
+            SELECT id, started_at, completed_at, duration_ms,
+                   processed, merged, rejected, escalated,
+                   status, trigger, error_message
+            FROM matcher_runs
+            ORDER BY started_at DESC
+            LIMIT :lim
+        """), {"lim": limit}).mappings().all()
+
+    return {
+        "runs": [dict(r) for r in rows],
+        "total": len(rows),
+    }
+
+
+# ─────────────────────── config endpoints ──────────────────────────────
+
+
+class ConfigUpdateRequest(BaseModel):
+    enabled: Optional[bool] = None
+    interval_ms: Optional[int] = None
+    team_merge_threshold: Optional[float] = None
+    comp_merge_threshold: Optional[float] = None
+    team_reject_threshold: Optional[float] = None
+    combined_merge_threshold: Optional[float] = None
+    combined_reject_threshold: Optional[float] = None
+    xe_escalation_enabled: Optional[bool] = None
+    xe_escalation_low: Optional[float] = None
+    xe_escalation_high: Optional[float] = None
+    xe_merge_threshold: Optional[float] = None
+    xe_pvalue_threshold: Optional[float] = None
+
+
+@app.get("/config")
+def get_config() -> dict:
+    from .scheduler import read_config
+    cfg = read_config()
+    return {
+        "enabled": cfg.enabled,
+        "interval_ms": cfg.interval_ms,
+        "team_merge_threshold": cfg.team_merge_threshold,
+        "comp_merge_threshold": cfg.comp_merge_threshold,
+        "team_reject_threshold": cfg.team_reject_threshold,
+        "combined_merge_threshold": cfg.combined_merge_threshold,
+        "combined_reject_threshold": cfg.combined_reject_threshold,
+        "xe_escalation_enabled": cfg.xe_escalation_enabled,
+        "xe_escalation_low": cfg.xe_escalation_low,
+        "xe_escalation_high": cfg.xe_escalation_high,
+        "xe_merge_threshold": cfg.xe_merge_threshold,
+        "xe_pvalue_threshold": cfg.xe_pvalue_threshold,
+    }
+
+
+@app.post("/config")
+def update_config(req: ConfigUpdateRequest) -> dict:
+    from .db import get_engine
+
+    updates: list[str] = []
+    params: dict = {}
+
+    for field_name in req.model_fields_set:
+        val = getattr(req, field_name)
+        if val is not None:
+            updates.append(f"{field_name} = :{field_name}")
+            params[field_name] = val
+
+    if not updates:
+        return {"updated": False}
+
+    updates.append("updated_at = now()")
+    set_clause = ", ".join(updates)
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            sa_text(f"UPDATE matcher_config SET {set_clause} WHERE id = 'default'"),
+            params,
+        )
+
+    log.info("Config updated: %s", params)
+    return {"updated": True, "fields": list(params.keys())}
 
 
 # ─────────────────────────── warm-up ───────────────────────────────────
 
 
 @app.on_event("startup")
-def warmup() -> None:
-    """Pre-load both models on startup so the first /score request
-    doesn't pay the ~15 s model-load cost. Cloud Run min-instances=1
-    keeps this hot."""
+async def warmup() -> None:
     log.info("Warming up models…")
     get_bi_encoder()
     get_cross_encoder()
     get_calibrator()
     log.info("Warm-up complete")
+
+    # Start the background scheduler (reads config from Postgres)
+    try:
+        from .scheduler import start_scheduler
+        start_scheduler()
+        log.info("Background scheduler started")
+    except Exception:
+        log.exception("Failed to start scheduler — will retry on next config read")
 
 
 if __name__ == "__main__":

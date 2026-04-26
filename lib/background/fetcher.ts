@@ -56,6 +56,8 @@ import {
 } from "../scores/websocket";
 import { reconcilePendingBets } from "../betting/ninewickets/reconciler";
 import { singleton } from "../util/singleton";
+// ML scheduler now runs on the entity-matcher Cloud Run Service (reads
+// config from matcher_config table). No more in-process setTimeout loop.
 
 /**
  * How often to poll the book's myBets feed for pending-bet
@@ -730,6 +732,9 @@ export function startScheduler(): void {
     process.exit(1);
   });
 
+  // ML scheduler now runs on the entity-matcher Cloud Run Service.
+  // Config is read from matcher_config table in Postgres.
+
   // Initial full sync
   syncAll();
 
@@ -887,6 +892,8 @@ export function restartScheduler(
 export function stopScheduler(): void {
   // Stop health monitoring
   stopHealthMonitoring();
+
+  // ML scheduler runs on the entity-matcher server (not in this process).
 
   sch.active = false;
 

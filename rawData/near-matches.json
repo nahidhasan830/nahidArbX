@@ -22494,186 +22494,6 @@
       "status": "confirmed",
       "confirmedAt": "2026-04-26T11:08:22.263Z"
     },
-    "nm-ninewickets-sportsbook-35534044-pinnacle-1628922103": {
-      "id": "nm-ninewickets-sportsbook-35534044-pinnacle-1628922103",
-      "eventA": {
-        "id": "ninewickets-sportsbook-35534044",
-        "provider": "ninewickets-sportsbook",
-        "homeTeam": "St. Patrick F.C.",
-        "awayTeam": "Sliema Wanderers FC",
-        "competition": "Maltese Premier League",
-        "startTime": "2026-04-26T13:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628922103",
-        "provider": "pinnacle",
-        "homeTeam": "Zabbar Saint Patrick",
-        "awayTeam": "Sliema Wanderers",
-        "competition": "Malta - Premier League",
-        "startTime": "2026-04-26T13:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.7592592592592593,
-        "homeHomeSimilarity": 0.5185185185185185,
-        "awayAwaySimilarity": 1,
-        "homeAwaySimilarity": 0,
-        "awayHomeSimilarity": 0.06451612903225806,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "yohealth malta premier",
-        "competitionB": "yohealth malta premier",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.8314814814814815
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.5185185185185185,
-            "awayScore": 1,
-            "teamA": {
-              "home": "St. Patrick F.C.",
-              "away": "Sliema Wanderers FC"
-            },
-            "teamB": {
-              "home": "Zabbar Saint Patrick",
-              "away": "Sliema Wanderers"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.8314814814814815,
-            "threshold": 0.85,
-            "gap": 0.01851851851851849
-          }
-        }
-      ],
-      "detectedAt": "2026-04-25T13:47:10.955Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-sportsbook-35534080-pinnacle-1629042243": {
-      "id": "nm-ninewickets-sportsbook-35534080-pinnacle-1629042243",
-      "eventA": {
-        "id": "ninewickets-sportsbook-35534080",
-        "provider": "ninewickets-sportsbook",
-        "homeTeam": "Man Utd U21",
-        "awayTeam": "Sunderland U21",
-        "competition": "English Premier League 2 - Div 1",
-        "startTime": "2026-04-26T13:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1629042243",
-        "provider": "pinnacle",
-        "homeTeam": "Manchester United",
-        "awayTeam": "Sunderland",
-        "competition": "England - Premier League 2 U21",
-        "startTime": "2026-04-26T13:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.6978021978021978,
-        "homeHomeSimilarity": 0.5384615384615384,
-        "awayAwaySimilarity": 0.8571428571428571,
-        "homeAwaySimilarity": 0.2,
-        "awayHomeSimilarity": 0.2222222222222222,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "premier league 2 div 1",
-        "competitionB": "premier league 2  div 1",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7884615384615383
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.5384615384615384,
-            "awayScore": 0.8571428571428571,
-            "teamA": {
-              "home": "Man Utd U21",
-              "away": "Sunderland U21"
-            },
-            "teamB": {
-              "home": "Manchester United",
-              "away": "Sunderland"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7884615384615383,
-            "threshold": 0.85,
-            "gap": 0.06153846153846165
-          }
-        }
-      ],
-      "detectedAt": "2026-04-25T13:47:11.023Z",
-      "status": "pending"
-    },
-    "nm-ninewickets-sportsbook-35533962-pinnacle-1628868957": {
-      "id": "nm-ninewickets-sportsbook-35533962-pinnacle-1628868957",
-      "eventA": {
-        "id": "ninewickets-sportsbook-35533962",
-        "provider": "ninewickets-sportsbook",
-        "homeTeam": "Al Nahdha",
-        "awayTeam": "Dhufar",
-        "competition": "Omani Professional League",
-        "startTime": "2026-04-26T14:00:00.000Z"
-      },
-      "eventB": {
-        "id": "pinnacle-1628868957",
-        "provider": "pinnacle",
-        "homeTeam": "Al-Nahda",
-        "awayTeam": "Dhofar Club",
-        "competition": "Oman - Pro League",
-        "startTime": "2026-04-26T14:00:00.000Z"
-      },
-      "breakdown": {
-        "teamScore": 0.5989010989010989,
-        "homeHomeSimilarity": 0.7692307692307693,
-        "awayAwaySimilarity": 0.42857142857142855,
-        "homeAwaySimilarity": 0.125,
-        "awayHomeSimilarity": 0,
-        "bestOrientation": "normal",
-        "competitionScore": 1,
-        "competitionA": "omani professional league",
-        "competitionB": "omani professional league",
-        "timeScore": 1,
-        "timeDiffMs": 0,
-        "finalScore": 0.7192307692307691
-      },
-      "failureReasons": [
-        {
-          "type": "team_mismatch",
-          "details": {
-            "homeScore": 0.7692307692307693,
-            "awayScore": 0.42857142857142855,
-            "teamA": {
-              "home": "Al Nahdha",
-              "away": "Dhufar"
-            },
-            "teamB": {
-              "home": "Al-Nahda",
-              "away": "Dhofar Club"
-            }
-          }
-        },
-        {
-          "type": "score_below_threshold",
-          "details": {
-            "score": 0.7192307692307691,
-            "threshold": 0.85,
-            "gap": 0.13076923076923086
-          }
-        }
-      ],
-      "detectedAt": "2026-04-25T16:15:09.300Z",
-      "status": "pending"
-    },
     "nm-ninewickets-sportsbook-35533752-pinnacle-1628872869": {
       "id": "nm-ninewickets-sportsbook-35533752-pinnacle-1628872869",
       "eventA": {
@@ -29802,6 +29622,186 @@
         }
       ],
       "detectedAt": "2026-04-26T16:07:01.186Z",
+      "status": "pending"
+    },
+    "nm-pinnacle-1628882426-velki-sportsbook-35537667": {
+      "id": "nm-pinnacle-1628882426-velki-sportsbook-35537667",
+      "eventA": {
+        "id": "pinnacle-1628882426",
+        "provider": "pinnacle",
+        "homeTeam": "Casertana",
+        "awayTeam": "Giugliano",
+        "competition": "Italy - Serie C Group C",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "eventB": {
+        "id": "velki-sportsbook-35537667",
+        "provider": "velki-sportsbook",
+        "homeTeam": "AZ Picerno ASD",
+        "awayTeam": "Sorrento",
+        "competition": "Italian Serie C",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.5904100529100529,
+        "homeHomeSimilarity": 0.671957671957672,
+        "awayAwaySimilarity": 0.49074074074074076,
+        "homeAwaySimilarity": 0.5935185185185184,
+        "awayHomeSimilarity": 0.5873015873015873,
+        "bestOrientation": "swapped",
+        "competitionScore": 1,
+        "competitionA": "serie c group c",
+        "competitionB": "serie c",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.713287037037037
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5935185185185184,
+            "awayScore": 0.5873015873015873,
+            "teamA": {
+              "home": "Casertana",
+              "away": "Giugliano"
+            },
+            "teamB": {
+              "home": "AZ Picerno ASD",
+              "away": "Sorrento"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.713287037037037,
+            "threshold": 0.85,
+            "gap": 0.13671296296296298
+          }
+        }
+      ],
+      "detectedAt": "2026-04-26T17:52:39.555Z",
+      "status": "pending"
+    },
+    "nm-pinnacle-1628883480-velki-sportsbook-35537667": {
+      "id": "nm-pinnacle-1628883480-velki-sportsbook-35537667",
+      "eventA": {
+        "id": "pinnacle-1628883480",
+        "provider": "pinnacle",
+        "homeTeam": "Cavese",
+        "awayTeam": "Cosenza",
+        "competition": "Italy - Serie C Group C",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "eventB": {
+        "id": "velki-sportsbook-35537667",
+        "provider": "velki-sportsbook",
+        "homeTeam": "AZ Picerno ASD",
+        "awayTeam": "Sorrento",
+        "competition": "Italian Serie C",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.5734126984126984,
+        "homeHomeSimilarity": 0.5396825396825397,
+        "awayAwaySimilarity": 0.6071428571428571,
+        "homeAwaySimilarity": 0.4305555555555555,
+        "awayHomeSimilarity": 0.6190476190476191,
+        "bestOrientation": "normal",
+        "competitionScore": 1,
+        "competitionA": "serie c group c",
+        "competitionB": "serie c",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7013888888888888
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.5396825396825397,
+            "awayScore": 0.6071428571428571,
+            "teamA": {
+              "home": "Cavese",
+              "away": "Cosenza"
+            },
+            "teamB": {
+              "home": "AZ Picerno ASD",
+              "away": "Sorrento"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7013888888888888,
+            "threshold": 0.85,
+            "gap": 0.14861111111111114
+          }
+        }
+      ],
+      "detectedAt": "2026-04-26T17:52:39.561Z",
+      "status": "pending"
+    },
+    "nm-ninewickets-sportsbook-35485378-pinnacle-1628882423": {
+      "id": "nm-ninewickets-sportsbook-35485378-pinnacle-1628882423",
+      "eventA": {
+        "id": "ninewickets-sportsbook-35485378",
+        "provider": "ninewickets-sportsbook",
+        "homeTeam": "Torino",
+        "awayTeam": "Inter",
+        "competition": "Italian Serie A",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "eventB": {
+        "id": "pinnacle-1628882423",
+        "provider": "pinnacle",
+        "homeTeam": "Picerno",
+        "awayTeam": "Sorrento",
+        "competition": "Italy - Serie C Group C",
+        "startTime": "2026-04-26T16:00:00.000Z"
+      },
+      "breakdown": {
+        "teamScore": 0.6992063492063492,
+        "homeHomeSimilarity": 0.6626984126984127,
+        "awayAwaySimilarity": 0.3833333333333333,
+        "homeAwaySimilarity": 0.7222222222222222,
+        "awayHomeSimilarity": 0.6761904761904761,
+        "bestOrientation": "swapped",
+        "competitionScore": 0.8514285714285714,
+        "competitionA": "serie a",
+        "competitionB": "serie c group c",
+        "timeScore": 1,
+        "timeDiffMs": 0,
+        "finalScore": 0.7448730158730158
+      },
+      "failureReasons": [
+        {
+          "type": "team_mismatch",
+          "details": {
+            "homeScore": 0.7222222222222222,
+            "awayScore": 0.6761904761904761,
+            "teamA": {
+              "home": "Torino",
+              "away": "Inter"
+            },
+            "teamB": {
+              "home": "Picerno",
+              "away": "Sorrento"
+            }
+          }
+        },
+        {
+          "type": "score_below_threshold",
+          "details": {
+            "score": 0.7448730158730158,
+            "threshold": 0.85,
+            "gap": 0.10512698412698418
+          }
+        }
+      ],
+      "detectedAt": "2026-04-26T17:58:00.207Z",
       "status": "pending"
     }
   },
@@ -56045,5 +56045,5 @@
       "key": "u21 league|uae u21"
     }
   ],
-  "version": 939
+  "version": 941
 }

@@ -162,3 +162,27 @@ export function buildHumanSearchUrl(
   });
   return `https://www.google.com/search?${params.toString()}`;
 }
+
+/**
+ * Build a Google AI-mode search URL for entity resolution — verifying
+ * whether a surface form is the same team/competition as a canonical.
+ */
+export function buildEntitySearchUrl(
+  surface: string,
+  canonical: string,
+  competition?: string | null,
+): string {
+  const comp = competition ? ` in ${competition}` : "";
+  const query =
+    `Is "${surface}" the same team as "${canonical}"${comp}? ` +
+    `Check official league rosters, aliases, and transliterations. ` +
+    `End with a line containing exactly YES or NO.`;
+
+  const params = new URLSearchParams({
+    q: query,
+    udm: "50",
+    aep: "1",
+    hl: "en",
+  });
+  return `https://www.google.com/search?${params.toString()}`;
+}

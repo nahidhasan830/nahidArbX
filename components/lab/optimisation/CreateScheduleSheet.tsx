@@ -112,10 +112,10 @@ const hasFilters = (f: DataFiltersJson): boolean =>
 
 function summariseScope(f: DataFiltersJson): string {
   const parts: string[] = [];
-  if (f.excludeSoftProviders?.length)
-    parts.push(`−${f.excludeSoftProviders.length} providers`);
   if (f.includeSoftProviders?.length)
     parts.push(`only ${f.includeSoftProviders.length} providers`);
+  else if (f.excludeSoftProviders?.length)
+    parts.push(`−${f.excludeSoftProviders.length} providers`);
   if (f.excludeMarketTypes?.length)
     parts.push(`−${f.excludeMarketTypes.length} markets`);
   if (f.includeMarketTypes?.length)

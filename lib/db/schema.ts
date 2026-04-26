@@ -714,46 +714,6 @@ export type NameObservationRow = typeof nameObservations.$inferSelect;
 export type NewNameObservationRow = typeof nameObservations.$inferInsert;
 
 /**
- * Weekly entity-trainer Cloud Run Job execution log. Replaces the old
- * `entity_resolver_runs` (Splink/Leiden cleanup). Tracks per-run training
- * accuracy plus shadow-mode fields (Layer 3 of the error-mitigation
- * strategy): a freshly-trained model is "in shadow" — every auto-confirm
- * goes to the operator inbox first as "model wants to confirm — agree?" —
- * until 100 decisions accumulate with ≥99% operator agreement, at which
- * point `promotedToTrustedAt` flips to non-NULL and full auto resumes.
- */
-export const entityTrainerRuns = pgTable(
-  "entity_trainer_runs",
-  {
-    id: text().primaryKey(),
-    status: text().notNull(), // 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-    triggeredBy: text().notNull(),
-    cloudRunExecution: text(),
-    startedAt: ts(),
-    finishedAt: ts(),
-    durationMs: integer(),
-    pairsTrained: integer(),
-    accuracyBefore: real(),
-    accuracyAfter: real(),
-    promotedToTrustedAt: ts(),
-    shadowDecisionsSeen: integer().notNull().default(0),
-    shadowAgreements: integer().notNull().default(0),
-    artefactUri: text(),
-    error: text(),
-    createdAt: tsNow(),
-  },
-  (t) => [
-    index("entity_trainer_runs_recent_idx").on(t.createdAt.desc()),
-    index("entity_trainer_runs_active_idx")
-      .on(t.status)
-      .where(sql`${t.status} IN ('queued','running')`),
-  ],
-);
-
-export type EntityTrainerRunRow = typeof entityTrainerRuns.$inferSelect;
-export type NewEntityTrainerRunRow = typeof entityTrainerRuns.$inferInsert;
-
-/**
  * Override blocklist (Layer 1 of the error-mitigation strategy:
  * reversibility). When the operator overrides an auto-decision, a row
  * lands here with a 30-day expiry. The auto-resolver checks this before
@@ -792,6 +752,130 @@ export type EntityDecisionBlocklistRow =
 export type NewEntityDecisionBlocklistRow =
   typeof entityDecisionBlocklist.$inferInsert;
 
+/**
+ * ML-Augmented Matcher Pipeline — event pairs flowing through a 4-stage
+ * state machine: inbox → ml_queued → ml_resolved/human_review → history.
+ *
+ * Replaces the file-backed near-matches.json + ai-decision-cache.json.
+ */
+export const matchPairs = pgTable(
+  "match_pairs",
+  {
+    id: text().primaryKey(),
+    stage: text().notNull(), // 'inbox' | 'ml_queued' | 'ml_resolved' | 'human_review' | 'history'
+
+    // Event A snapshot
+    eventAProvider: text().notNull(),
+    eventAHomeTeam: text().notNull(),
+    eventAAwayTeam: text().notNull(),
+    eventACompetition: text().notNull(),
+    eventAStartTime: ts().notNull(),
+    eventAEventId: text(),
+
+    // Event B snapshot
+    eventBProvider: text().notNull(),
+    eventBHomeTeam: text().notNull(),
+    eventBAwayTeam: text().notNull(),
+    eventBCompetition: text().notNull(),
+    eventBStartTime: ts().notNull(),
+    eventBEventId: text(),
+
+    // String similarity (from sync)
+    stringScore: real().notNull(),
+    stringBreakdown: jsonb(),
+
+    // ML scores (bi-encoder)
+    mlHomeCosine: real(),
+    mlAwayCosine: real(),
+    mlCompCosine: real(),
+    mlCombinedScore: real(),
+    mlScoredAt: ts(),
+    mlModelVersion: text(),
+
+    // Cross-encoder (bi-encoder uncertain band)
+    xeScore: real(),
+    xePvalue: real(),
+    xeScoredAt: ts(),
+
+    // Resolution
+    decision: text(),
+    decidedBy: text(),
+    decidedAt: ts(),
+    decisionReason: text(),
+
+    // Canonical pair key (dedup + lookup)
+    pairKey: text().notNull().unique(),
+
+    // Timestamps
+    detectedAt: tsNow(),
+    stageChangedAt: tsNow(),
+
+    // Source tracking
+    source: text().notNull(), // 'near-match' | 'unmatched-candidate'
+  },
+  (t) => [
+    index("match_pairs_stage_idx").on(t.stage),
+    index("match_pairs_stage_detected_idx").on(t.stage, t.detectedAt.desc()),
+  ],
+);
+
+export type MatchPairRow = typeof matchPairs.$inferSelect;
+export type NewMatchPairRow = typeof matchPairs.$inferInsert;
+
+/**
+ * matcher_config — singleton config row read by the ML server scheduler.
+ * The UI writes config here; the ML server reads it every tick.
+ */
+export const matcherConfig = pgTable("matcher_config", {
+  id: text().primaryKey().default("default"),
+  enabled: boolean().notNull().default(false),
+  intervalMs: integer("interval_ms").notNull().default(60000),
+
+  teamMergeThreshold: real("team_merge_threshold").notNull().default(0.9),
+  compMergeThreshold: real("comp_merge_threshold").notNull().default(0.75),
+  teamRejectThreshold: real("team_reject_threshold").notNull().default(0.5),
+  combinedMergeThreshold: real("combined_merge_threshold")
+    .notNull()
+    .default(0.88),
+  combinedRejectThreshold: real("combined_reject_threshold")
+    .notNull()
+    .default(0.5),
+
+  xeEscalationEnabled: boolean("xe_escalation_enabled").notNull().default(true),
+  xeEscalationLow: real("xe_escalation_low").notNull().default(0.7),
+  xeEscalationHigh: real("xe_escalation_high").notNull().default(0.89),
+  xeMergeThreshold: real("xe_merge_threshold").notNull().default(0.9),
+  xePvalueThreshold: real("xe_pvalue_threshold").notNull().default(0.05),
+
+  updatedAt: ts().notNull().defaultNow(),
+});
+
+export type MatcherConfigRow = typeof matcherConfig.$inferSelect;
+
+/**
+ * matcher_runs — persisted run history written by the ML server scheduler.
+ * The UI reads this to show the processing log.
+ */
+export const matcherRuns = pgTable(
+  "matcher_runs",
+  {
+    id: text().primaryKey(),
+    startedAt: ts().notNull().defaultNow(),
+    completedAt: ts(),
+    durationMs: integer("duration_ms"),
+    processed: integer().notNull().default(0),
+    merged: integer().notNull().default(0),
+    rejected: integer().notNull().default(0),
+    escalated: integer().notNull().default(0),
+    status: text().notNull().default("running"),
+    trigger: text().notNull().default("scheduler"),
+    errorMessage: text("error_message"),
+  },
+  (t) => [index("matcher_runs_started_idx").on(t.startedAt.desc())],
+);
+
+export type MatcherRunRow = typeof matcherRuns.$inferSelect;
+
 export const schema = {
   bets,
   matchScores,
@@ -805,6 +889,8 @@ export const schema = {
   entities,
   entityNames,
   nameObservations,
-  entityTrainerRuns,
   entityDecisionBlocklist,
+  matchPairs,
+  matcherConfig,
+  matcherRuns,
 };

@@ -16,6 +16,7 @@ import {
   type OptimizationRunRow,
   type OptimizationTrialRow,
 } from "../db/schema";
+import { getSoftProviders } from "../providers/registry";
 import type {
   CreateRunRequest,
   CvStrategyJson,
@@ -50,7 +51,20 @@ export async function createRun(
     ...(req.cvStrategy ?? {}),
   };
   const searchSpace: SearchSpaceJson = req.searchSpace ?? { dimensions: [] };
-  const dataFilters: DataFiltersJson = req.dataFilters ?? {};
+  const rawFilters: DataFiltersJson = req.dataFilters ?? {};
+  const enabledSoft = getSoftProviders() as string[];
+  const dataFilters: DataFiltersJson = (() => {
+    if (rawFilters.includeSoftProviders) return rawFilters;
+    if (rawFilters.excludeSoftProviders?.length) {
+      const excluded = new Set(rawFilters.excludeSoftProviders);
+      const { excludeSoftProviders: _, ...rest } = rawFilters;
+      return {
+        ...rest,
+        includeSoftProviders: enabledSoft.filter((p) => !excluded.has(p)),
+      };
+    }
+    return { ...rawFilters, includeSoftProviders: enabledSoft };
+  })();
   const rngSeed = req.rngSeed ?? Math.floor(Math.random() * 2_147_483_647);
 
   const [row] = await db
@@ -261,6 +275,8 @@ export interface DatasetPreview {
 export async function previewDataset(
   filters: DataFiltersJson,
 ): Promise<DatasetPreview> {
+  const enabledSoftIds = getSoftProviders() as string[];
+
   const conds: ReturnType<typeof sql>[] = [
     sql`outcome IN ('won','half_won','lost','half_lost','void')`,
   ];
@@ -272,6 +288,8 @@ export async function previewDataset(
     conds.push(sql`soft_provider = ANY(${filters.includeSoftProviders})`);
   } else if (filters.excludeSoftProviders?.length) {
     conds.push(sql`soft_provider <> ALL(${filters.excludeSoftProviders})`);
+  } else {
+    conds.push(sql`soft_provider = ANY(${enabledSoftIds})`);
   }
   if (filters.includeMarketTypes?.length) {
     conds.push(sql`market_type = ANY(${filters.includeMarketTypes})`);
@@ -289,7 +307,7 @@ export async function previewDataset(
   const whereSql = sql.join(conds, sql` AND `);
 
   const totalRows = await db.execute(
-    sql`SELECT COUNT(*)::int AS n FROM bets WHERE outcome IN ('won','half_won','lost','half_lost','void')`,
+    sql`SELECT COUNT(*)::int AS n FROM bets WHERE outcome IN ('won','half_won','lost','half_lost','void') AND soft_provider = ANY(${enabledSoftIds})`,
   );
   const includedRows = await db.execute(
     sql`SELECT COUNT(*)::int AS n FROM bets WHERE ${whereSql}`,

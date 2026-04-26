@@ -116,7 +116,7 @@ export async function matchEvents(
     recordBucketProcess();
 
     // Full matching for this bucket (with pre-normalized names)
-    const groupResult = findMatchesInGroup(events, preNormalized);
+    const groupResult = await findMatchesInGroup(events, preNormalized);
     totalMatches += groupResult.matches.length;
     totalNearMatches += groupResult.nearMatchCount;
 
@@ -311,10 +311,10 @@ interface GroupMatchResult {
   nearMatchCount: number;
 }
 
-function findMatchesInGroup(
+async function findMatchesInGroup(
   events: NormalizedEvent[],
   preNormalized: Map<string, PreNormalizedNames>,
-): GroupMatchResult {
+): Promise<GroupMatchResult> {
   const matchingConfig = getMatchingConfig();
   const matches: MatchResult[] = [];
   const used = new Set<string>();
@@ -399,8 +399,11 @@ function findMatchesInGroup(
           }
         }
       } else if (isNearMatch(score)) {
-        // Store near-match for later review
-        const nm = detectAndStoreNearMatch(sorted[i], sorted[j], breakdown);
+        const nm = await detectAndStoreNearMatch(
+          sorted[i],
+          sorted[j],
+          breakdown,
+        );
         if (nm) nearMatchCount++;
       }
     }

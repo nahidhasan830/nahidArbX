@@ -220,11 +220,11 @@ function detectMarketType(
   }
 
   // Team Total Goals - pattern: "{TeamName} Goals Over / Under {line}"
-  // Detect by checking for "goals over / under" without "total" prefix
+  // Excludes "total goals" (that's the match-total market, handled below)
   // Examples: "Arsenal Goals Over / Under 1.5", "Half Time Chelsea Goals Over / Under 0.5"
   if (
     lower.includes("goals over / under") &&
-    !lower.startsWith("total") &&
+    !lower.includes("total goals") &&
     line !== null
   ) {
     // Pass marketName so we can match team later

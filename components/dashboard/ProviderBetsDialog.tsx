@@ -30,13 +30,9 @@ export function ProviderBetsDialog({
 }) {
   const filters = useMemo(() => {
     if (!provider || !status) return {};
-    const effectiveStatus =
-      status === "settled"
-        ? "won,half_won,lost,half_lost,void,cancelled"
-        : status;
     return {
       softProviders: [provider],
-      outcome: effectiveStatus,
+      outcome: status,
       placedOnly: true,
     };
   }, [provider, status]);

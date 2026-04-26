@@ -3,15 +3,14 @@
 /**
  * Pre-search data-scope filter editor for the submit-run sheet.
  *
- * UX inversion: every provider/market renders CHECKED by default (= "this
- * is included"), so when the user opens the sheet they see every source
- * already participating in the analysis. Unticking a box EXCLUDES it;
- * re-ticking re-includes. We persist this as `excludeSoftProviders` /
- * `excludeMarketTypes` so the backend contract (empty = all) is unchanged.
+ * Include semantics: checkboxes represent which providers/markets are
+ * INCLUDED in the run. The backend defaults to "all enabled soft providers"
+ * when no explicit filter is set — so starting with `{}` is safe. When the
+ * user unchecks a provider, we switch to an explicit `includeSoftProviders`
+ * whitelist so only the selected providers enter the analysis.
  *
  * Live preview POSTs `/api/optimizer/dataset/preview` as the scope
- * changes and renders a `Loader2` spinner while in-flight — no more
- * "computing…" text.
+ * changes and renders a `Loader2` spinner while in-flight.
  */
 
 import * as React from "react";
@@ -68,27 +67,32 @@ export function DataFiltersSection({
   const allProviders = catalog?.byProvider ?? [];
   const allMarkets = catalog?.byMarket ?? [];
 
-  // Inverted semantics: checkbox is CHECKED when the source is INCLUDED
-  // (i.e. NOT in the exclude list). Unchecking adds it to excludes.
-  const isProviderIncluded = (p: string) =>
-    !(value.excludeSoftProviders ?? []).includes(p);
+  const allProviderIds = React.useMemo(
+    () => allProviders.map((p) => p.provider),
+    [allProviders],
+  );
+
+  const included = value.includeSoftProviders ?? allProviderIds;
+  const isProviderIncluded = (p: string) => included.includes(p);
+
   const isMarketIncluded = (m: string) =>
     !(value.excludeMarketTypes ?? []).includes(m);
 
-  const toggleProvider = (p: string, included: boolean) => {
-    const set = new Set(value.excludeSoftProviders ?? []);
-    if (included) set.delete(p);
-    else set.add(p);
+  const toggleProvider = (p: string, checked: boolean) => {
+    const set = new Set(included);
+    if (checked) set.add(p);
+    else set.delete(p);
     const arr = Array.from(set);
     onChange({
       ...value,
-      excludeSoftProviders: arr.length > 0 ? arr : undefined,
+      includeSoftProviders: arr,
+      excludeSoftProviders: undefined,
     });
   };
 
-  const toggleMarket = (m: string, included: boolean) => {
+  const toggleMarket = (m: string, checked: boolean) => {
     const set = new Set(value.excludeMarketTypes ?? []);
-    if (included) set.delete(m);
+    if (checked) set.delete(m);
     else set.add(m);
     const arr = Array.from(set);
     onChange({
@@ -187,9 +191,8 @@ export function DataFiltersSection({
               onToggle={(all) => {
                 onChange({
                   ...value,
-                  excludeSoftProviders: all
-                    ? undefined
-                    : allProviders.map((p) => p.provider),
+                  includeSoftProviders: all ? undefined : [],
+                  excludeSoftProviders: undefined,
                 });
               }}
             />
@@ -327,6 +330,5 @@ function SelectAllToggle({
 }
 
 const toIso = (yyyymmdd: string): string => {
-  // Treat the input as UTC-midnight to avoid timezone surprises in CV splits.
   return `${yyyymmdd}T00:00:00.000Z`;
 };

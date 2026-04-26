@@ -26,6 +26,7 @@ import {
   getEntityById,
   insertObservation,
   setEntityNameStatus,
+  updateNameAfterObservation,
   type EntityNameRow,
 } from "../../db/repositories/entities";
 import { isBlocked } from "./blocklist";
@@ -286,23 +287,51 @@ async function applyVerdict(
   candidate: EntityNameRow,
   result: AutoResolveResult,
 ): Promise<void> {
-  if (result.decision === "escalate") return;
-  if (result.decision === "auto-confirm" && candidate.status === "active")
-    return;
-  if (result.decision === "auto-reject" && candidate.status === "retired")
-    return;
-
-  const newStatus = result.decision === "auto-confirm" ? "active" : "retired";
-
   try {
+    // Always write the ML score back to entity_names so the inbox query
+    // (classifierScore IS NOT NULL) can find escalated candidates.
+    if (result.score !== undefined) {
+      await updateNameAfterObservation(candidate.id, {
+        classifierScore: result.score,
+      });
+    }
+
+    if (result.decision === "escalate") return;
+    if (result.decision === "auto-confirm" && candidate.status === "active")
+      return;
+    if (result.decision === "auto-reject" && candidate.status === "retired")
+      return;
+
+    const newStatus = result.decision === "auto-confirm" ? "active" : "retired";
     await setEntityNameStatus(candidate.id, newStatus);
+
+    // Record the auto-decision as an observation so it shows in the
+    // "Recent Auto-decisions" feed and as training data for the trainer.
+    await insertObservation({
+      surfaceRaw: candidate.surfaceRaw,
+      surfaceNormalized: candidate.surfaceNormalized,
+      competitionId: candidate.competitionId,
+      provider: candidate.provider,
+      pairedWithEntityId: candidate.entityId,
+      matchScore: result.score ?? null,
+      classifierScore: result.score ?? null,
+      outcome: result.decision,
+      source: "auto-resolver",
+      metadata: {
+        auto: true,
+        stage: result.stage,
+        reason: result.reason,
+        pvalue: result.pvalue,
+        modelVersion: result.modelVersion,
+        entity_name_id: candidate.id,
+      },
+    });
+
     logger.info(
       tag,
       `${result.decision} ${candidate.surfaceRaw} → entity ${candidate.entityId} ` +
         `(${result.stage}: ${result.reason})`,
     );
-    // Tell every Next.js worker to drop its 30 s LRU so the resolver picks
-    // up the new alias on the very next lookup.
     await notifyResolverInvalidation();
   } catch (err) {
     logger.warn(tag, `applyVerdict failed: ${(err as Error).message}`);

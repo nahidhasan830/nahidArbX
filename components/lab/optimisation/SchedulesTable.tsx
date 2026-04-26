@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, Trash2 } from "lucide-react";
+import { Loader2, Play, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -46,8 +46,11 @@ export function SchedulesTable() {
     onError: (e: Error) => toast.error(`Toggle failed: ${e.message}`),
   });
 
+  const [runningId, setRunningId] = React.useState<string | null>(null);
+
   const runNow = useMutation({
     mutationFn: async (id: string) => {
+      setRunningId(id);
       const res = await fetch(`/api/optimizer/schedules/${id}/run-now`, {
         method: "POST",
       });
@@ -58,6 +61,7 @@ export function SchedulesTable() {
       toast.success("Manual run queued");
       qc.invalidateQueries({ queryKey: ["optimizer", "runs"] });
     },
+    onSettled: () => setRunningId(null),
     onError: (e: Error) => toast.error(`Run-now failed: ${e.message}`),
   });
 
@@ -160,10 +164,14 @@ export function SchedulesTable() {
                       size="sm"
                       className="h-7 px-2"
                       onClick={() => runNow.mutate(s.id)}
-                      disabled={runNow.isPending}
+                      disabled={runningId === s.id}
                       title="Run now (manual fire — does not affect schedule)"
                     >
-                      <Play className="size-3.5" />
+                      {runningId === s.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Play className="size-3.5" />
+                      )}
                     </Button>
                     <Button
                       variant="ghost"

@@ -390,10 +390,10 @@ function NotifySummaryValue({
 
 function summariseScope(f: DataFiltersJson): string {
   const parts: string[] = [];
-  if (f.excludeSoftProviders?.length)
-    parts.push(`−${f.excludeSoftProviders.length} providers`);
   if (f.includeSoftProviders?.length)
     parts.push(`only ${f.includeSoftProviders.length} providers`);
+  else if (f.excludeSoftProviders?.length)
+    parts.push(`−${f.excludeSoftProviders.length} providers`);
   if (f.excludeMarketTypes?.length)
     parts.push(`−${f.excludeMarketTypes.length} markets`);
   if (f.includeMarketTypes?.length)
@@ -856,10 +856,10 @@ function NotifyToggle({
 }
 
 function ScopeReview({ filters }: { filters: DataFiltersJson }) {
-  const exProviders = filters.excludeSoftProviders ?? [];
+  const incProviders = filters.includeSoftProviders;
   const exMarkets = filters.excludeMarketTypes ?? [];
   const hasAny =
-    exProviders.length > 0 ||
+    (incProviders && incProviders.length > 0) ||
     exMarkets.length > 0 ||
     filters.eventStartFrom ||
     filters.eventStartTo ||
@@ -875,16 +875,9 @@ function ScopeReview({ filters }: { filters: DataFiltersJson }) {
 
   return (
     <div className="flex flex-wrap gap-1.5 justify-end">
-      {exProviders.map((p) => (
-        <ExcludedChip key={`ep-${p}`}>
-          <ProviderBadge
-            id={p}
-            size="sm"
-            short
-            className="!border-0 !bg-transparent !text-inherit !px-0 !py-0"
-          />
-        </ExcludedChip>
-      ))}
+      {incProviders && incProviders.length > 0 && (
+        <PlainChip>{incProviders.length} providers</PlainChip>
+      )}
       {exMarkets.map((m) => (
         <ExcludedChip key={`em-${m}`}>{formatMarketType(m)}</ExcludedChip>
       ))}
