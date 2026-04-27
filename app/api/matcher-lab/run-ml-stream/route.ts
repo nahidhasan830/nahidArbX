@@ -14,8 +14,13 @@ import { getIdToken } from "@/lib/matching/entities/matcher-client";
 
 const tag = "MlStreamRoute";
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
+    const body = await request.json().catch(() => ({}));
+    const pairIds: string[] | undefined = Array.isArray(body.pairIds)
+      ? body.pairIds
+      : undefined;
+
     const matcherUrl = process.env.ENTITY_MATCHER_URL;
     if (!matcherUrl) {
       return new Response(
@@ -51,6 +56,7 @@ export async function POST(_request: NextRequest) {
             {
               method: "POST",
               headers,
+              body: JSON.stringify({ pairIds }),
             },
           );
 

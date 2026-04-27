@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStageCounts } from "@/lib/db/repositories/match-pairs";
 import { db } from "@/lib/db/client";
 import { matcherConfig, matcherRuns } from "@/lib/db/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { logger } from "@/lib/shared/logger";
 
 export async function GET(request: NextRequest) {
@@ -21,15 +21,19 @@ export async function GET(request: NextRequest) {
       50,
     );
 
-    const [stageCounts, configRows, runs] = await Promise.all([
-      getStageCounts(),
-      db.select().from(matcherConfig).where(eq(matcherConfig.id, "default")),
-      db
-        .select()
-        .from(matcherRuns)
-        .orderBy(desc(matcherRuns.startedAt))
-        .limit(historyLimit),
-    ]);
+    const [stageCounts, configRows, runs, totalProcessedResult] =
+      await Promise.all([
+        getStageCounts(),
+        db.select().from(matcherConfig).where(eq(matcherConfig.id, "default")),
+        db
+          .select()
+          .from(matcherRuns)
+          .orderBy(desc(matcherRuns.startedAt))
+          .limit(historyLimit),
+        db
+          .select({ total: sql<number>`SUM(processed)::int` })
+          .from(matcherRuns),
+      ]);
 
     const config = configRows[0] ?? null;
 
@@ -40,7 +44,7 @@ export async function GET(request: NextRequest) {
           intervalMs: config.intervalMs,
           lastRunAt: runs[0]?.completedAt ?? null,
           lastBatchSize: runs[0]?.processed ?? 0,
-          totalProcessed: 0,
+          totalProcessed: totalProcessedResult[0]?.total ?? 0,
         }
       : null;
 

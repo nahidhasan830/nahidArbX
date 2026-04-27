@@ -257,8 +257,12 @@ def score_pairs_batch(pairs: list[dict], cfg: MatcherConfig) -> list[PairResult]
 # ─── Batch processing (direct SQL routing) ───────────────────────────────
 
 
-def process_batch(trigger: str = "scheduler") -> dict:
+def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = None) -> dict:
     """Pick up inbox pairs, score in-process, route via direct SQL."""
+    cfg = read_config()
+    if trigger == "scheduler" and not cfg.enabled:
+        return {"status": "disabled", "processed": 0, "merged": 0, "rejected": 0, "escalated": 0}
+
     if _state.processing:
         return {"status": "already_running", "processed": 0, "merged": 0, "rejected": 0, "escalated": 0}
 
@@ -266,7 +270,6 @@ def process_batch(trigger: str = "scheduler") -> dict:
     t0 = time.time()
     run_id = str(uuid.uuid4())
     engine = get_engine()
-    cfg = read_config()
 
     try:
         # Atomically move inbox → ml_queued
@@ -275,12 +278,20 @@ def process_batch(trigger: str = "scheduler") -> dict:
                 "INSERT INTO matcher_runs (id, trigger) VALUES (:id, :trigger)"
             ), {"id": run_id, "trigger": trigger})
 
-            result = conn.execute(text("""
-                UPDATE match_pairs
-                SET stage = 'ml_queued', stage_changed_at = now()
-                WHERE stage = 'inbox'
-                RETURNING id
-            """))
+            if pair_ids:
+                result = conn.execute(text("""
+                    UPDATE match_pairs
+                    SET stage = 'ml_queued', stage_changed_at = now()
+                    WHERE stage = 'inbox' AND id = ANY(:ids)
+                    RETURNING id
+                """), {"ids": pair_ids})
+            else:
+                result = conn.execute(text("""
+                    UPDATE match_pairs
+                    SET stage = 'ml_queued', stage_changed_at = now()
+                    WHERE stage = 'inbox'
+                    RETURNING id
+                """))
             ids = [row[0] for row in result]
 
         if not ids:
@@ -457,47 +468,4 @@ def process_batch(trigger: str = "scheduler") -> dict:
         _state.processing = False
 
 
-# ─── Async scheduler loop ────────────────────────────────────────────────
-
-
-async def _scheduler_loop():
-    log.info("Scheduler loop started")
-    while True:
-        try:
-            cfg = read_config()
-            if not cfg.enabled:
-                _state.running = False
-                await asyncio.sleep(5)
-                continue
-
-            _state.running = True
-            interval_sec = cfg.interval_ms / 1000
-
-            await asyncio.to_thread(process_batch, "scheduler")
-
-            await asyncio.sleep(interval_sec)
-
-        except asyncio.CancelledError:
-            log.info("Scheduler loop cancelled")
-            _state.running = False
-            raise
-        except Exception:
-            log.exception("Scheduler tick failed, retrying in 30s")
-            await asyncio.sleep(30)
-
-
-def start_scheduler():
-    if _state.task is not None and not _state.task.done():
-        log.info("Scheduler already running")
-        return
-
-    loop = asyncio.get_event_loop()
-    _state.task = loop.create_task(_scheduler_loop())
-    log.info("Scheduler task created")
-
-
-def stop_scheduler():
-    if _state.task and not _state.task.done():
-        _state.task.cancel()
-    _state.running = False
-    log.info("Scheduler stopped")
+# ─── Batch processing (direct SQL routing) ───────────────────────────────

@@ -41,7 +41,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --no-allow-unauthenticated \
   --memory 8Gi \
   --cpu 2 \
-  --min-instances 1 \
+  --min-instances 0 \
   --max-instances 4 \
   --timeout 300 \
   --concurrency 8 \

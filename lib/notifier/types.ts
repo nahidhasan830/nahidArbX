@@ -12,7 +12,18 @@ export type NotificationEvent =
   | BetErrorEvent
   | SystemEvent
   | OptimizerRunStartedEvent
-  | OptimizerRunCompletedEvent;
+  | OptimizerRunCompletedEvent
+  | MlRunCompletedEvent;
+
+export interface MlRunCompletedEvent {
+  type: "ml:run_completed";
+  at: string;
+  processed: number;
+  merged: number;
+  rejected: number;
+  escalated: number;
+  durationMs: number;
+}
 
 export interface BetPlacedEvent {
   type: "bet:placed";

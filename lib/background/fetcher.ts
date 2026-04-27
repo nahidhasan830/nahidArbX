@@ -56,6 +56,8 @@ import {
 } from "../scores/websocket";
 import { reconcilePendingBets } from "../betting/ninewickets/reconciler";
 import { singleton } from "../util/singleton";
+import { getIdToken } from "../matching/entities/matcher-client";
+import { notify } from "../notifier";
 // ML scheduler now runs on the entity-matcher Cloud Run Service (reads
 // config from matcher_config table). No more in-process setTimeout loop.
 
@@ -77,6 +79,7 @@ const sch = singleton("fetcher:scheduler", () => ({
   fixtureTimer: null as ReturnType<typeof setTimeout> | null,
   oddsTimer: null as ReturnType<typeof setTimeout> | null,
   reconcileTimer: null as ReturnType<typeof setTimeout> | null,
+  mlTimer: null as ReturnType<typeof setTimeout> | null,
   fixtureInterval: FIXTURE_INTERVAL_MS,
   oddsInterval: ODDS_INTERVAL_MS,
   fixturesSyncing: false,
@@ -866,9 +869,67 @@ export function startScheduler(): void {
     }, RECONCILE_INTERVAL_MS);
   }
 
+  function scheduleNextMl(): void {
+    if (!sch.active) return;
+
+    sch.mlTimer = setTimeout(async () => {
+      if (!sch.active) return;
+      if (sch.paused) {
+        scheduleNextMl();
+        return;
+      }
+
+      const start = Date.now();
+      try {
+        const u = process.env.ENTITY_MATCHER_URL;
+        if (u) {
+          const token = await getIdToken();
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+          if (token) headers.Authorization = `Bearer ${token}`;
+
+          const res = await fetch(`${u.replace(/\/$/, "")}/scheduler/cron`, {
+            method: "POST",
+            headers,
+          });
+
+          if (res.ok) {
+            const result = await res.json();
+            if (
+              result.status === "success" &&
+              (result.merged > 0 || result.rejected > 0 || result.escalated > 0)
+            ) {
+              // Only notify if it actually did something actionable
+              await notify({
+                type: "ml:run_completed",
+                at: new Date().toISOString(),
+                processed: result.processed ?? 0,
+                merged: result.merged ?? 0,
+                rejected: result.rejected ?? 0,
+                escalated: result.escalated ?? 0,
+                durationMs: result.durationMs ?? 0,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        // Silent catch for network errors
+      }
+
+      if (sch.active) {
+        const wait = Math.max(0, 60000 - (Date.now() - start));
+        sch.mlTimer = setTimeout(() => {
+          scheduleNextMl();
+        }, wait);
+      }
+    }, 60000);
+  }
+
   scheduleNextFixtures();
   scheduleNextOdds();
   scheduleNextReconcile();
+  scheduleNextMl();
 }
 
 export function restartScheduler(
@@ -908,6 +969,10 @@ export function stopScheduler(): void {
   if (sch.reconcileTimer) {
     clearTimeout(sch.reconcileTimer);
     sch.reconcileTimer = null;
+  }
+  if (sch.mlTimer) {
+    clearTimeout(sch.mlTimer);
+    sch.mlTimer = null;
   }
 
   // Release any odds sync waiting on fixtures

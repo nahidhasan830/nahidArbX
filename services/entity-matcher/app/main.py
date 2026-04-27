@@ -159,11 +159,25 @@ def scheduler_status() -> dict:
     return get_scheduler_status()
 
 
+class RunNowRequest(BaseModel):
+    pairIds: Optional[list[str]] = None
+
 @app.post("/scheduler/run-now")
-async def scheduler_run_now() -> dict:
+async def scheduler_run_now(req: Optional[RunNowRequest] = None) -> dict:
     import asyncio
     from .scheduler import process_batch
-    result = await asyncio.to_thread(process_batch, "manual")
+    pair_ids = req.pairIds if req else None
+    result = await asyncio.to_thread(process_batch, "manual", pair_ids)
+    return result
+
+
+@app.post("/scheduler/cron")
+async def scheduler_cron() -> dict:
+    import asyncio
+    from .scheduler import process_batch
+    # Called by Next.js every 60s. Passes "scheduler" trigger so
+    # process_batch will check if the matcher is actually enabled.
+    result = await asyncio.to_thread(process_batch, "scheduler")
     return result
 
 
@@ -267,15 +281,6 @@ async def warmup() -> None:
     get_cross_encoder()
     get_calibrator()
     log.info("Warm-up complete")
-
-    # Start the background scheduler (reads config from Postgres)
-    try:
-        from .scheduler import start_scheduler
-        start_scheduler()
-        log.info("Background scheduler started")
-    except Exception:
-        log.exception("Failed to start scheduler — will retry on next config read")
-
 
 if __name__ == "__main__":
     import uvicorn

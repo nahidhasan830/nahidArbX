@@ -194,18 +194,35 @@ export function MatcherLab() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const prevRowIdsRef = useRef<string>("");
 
-  // Auto-select all rows when inbox rows change
+  // Auto-select NEW rows when inbox rows change
   useEffect(() => {
     if (activeStage !== "inbox") return;
     const rowIds = rows.map((r) => r.id).join(",");
     if (rowIds === prevRowIdsRef.current) return;
+
+    const prevIds = new Set(
+      prevRowIdsRef.current ? prevRowIdsRef.current.split(",") : [],
+    );
     prevRowIdsRef.current = rowIds;
 
-    const allSelected: RowSelectionState = {};
-    rows.forEach((_, i) => {
-      allSelected[i] = true;
+    setRowSelection((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      rows.forEach((row) => {
+        if (!prevIds.has(row.id)) {
+          next[row.id] = true;
+          changed = true;
+        }
+      });
+      // Cleanup deleted rows from selection state
+      for (const id of Object.keys(next)) {
+        if (!rows.some((r) => r.id === id)) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
-    setRowSelection(allSelected);
   }, [rows, activeStage]);
 
   const selectedCount = useMemo(() => {
@@ -217,9 +234,8 @@ export function MatcherLab() {
     if (activeStage !== "inbox") return [];
     return Object.entries(rowSelection)
       .filter(([, selected]) => selected)
-      .map(([index]) => rows[Number(index)]?.id)
-      .filter(Boolean);
-  }, [rowSelection, rows, activeStage]);
+      .map(([id]) => id);
+  }, [rowSelection, activeStage]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -301,6 +317,7 @@ export function MatcherLab() {
     setMlRunning(true);
     setPairStatuses(new Map());
     setMlProgress(null);
+    setRowSelection({}); // Reset selection immediately
 
     // Mark all selected as queued
     const initial = new Map<string, PairProcessingStatus>();
@@ -314,7 +331,7 @@ export function MatcherLab() {
         switch (event.type) {
           case "transitioning":
             setMlProgress({
-              phase: "Moving to ML queue",
+              phase: "Processing ML batch...",
               current: 0,
               total: 0,
             });
@@ -512,14 +529,12 @@ export function MatcherLab() {
             </Badge>
           )}
 
-          {(activeStage === "inbox" || activeStage === "ml_queued") && (
+          {activeStage === "inbox" && (
             <Button
               size="sm"
               variant="outline"
               className="h-7 px-2.5 text-[11px] gap-1"
-              disabled={
-                mlRunning || (activeStage === "inbox" && selectedCount === 0)
-              }
+              disabled={mlRunning || selectedCount === 0}
               onClick={handleRunMl}
               title={
                 selectedCount === 0
@@ -533,7 +548,7 @@ export function MatcherLab() {
                 <Play className="size-3" />
               )}
               Run ML
-              {activeStage === "inbox" && selectedCount > 0 && (
+              {selectedCount > 0 && (
                 <span className="tabular-nums">({selectedCount})</span>
               )}
             </Button>

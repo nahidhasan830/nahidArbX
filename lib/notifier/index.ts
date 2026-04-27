@@ -25,6 +25,8 @@ function summarizeEvent(e: NotificationEvent): string {
       return `Run started · ${e.name}`;
     case "optimizer:run_completed":
       return `Run ${e.status} · ${e.name}`;
+    case "ml:run_completed":
+      return `ML Matcher · ${e.processed} pairs processed`;
     default:
       return (e as { type: string }).type;
   }

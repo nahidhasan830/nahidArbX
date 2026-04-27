@@ -60,6 +60,22 @@ interface InlineKey {
   url: string;
 }
 
+function formatMlRunCompleted(e: MlRunCompletedEvent): FormattedMessage {
+  const lines: string[] = [];
+
+  lines.push(`🧠 <b>ML Matcher Batch Complete</b>`);
+  lines.push(`Total pairs processed: <b>${e.processed}</b>`);
+  lines.push(`✅ Auto-merged: <b>${e.merged}</b>`);
+  lines.push(`❌ Auto-rejected: <b>${e.rejected}</b>`);
+  lines.push(`⚠️ Needs human review: <b>${e.escalated}</b>`);
+  lines.push(`⏱ Duration: <b>${(e.durationMs / 1000).toFixed(1)}s</b>`);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return {
+    text: lines.join("\n"),
+  };
+}
+
 export const telegramChannel: NotificationChannel = {
   id: "telegram",
   async send(event: NotificationEvent): Promise<void> {
@@ -128,6 +144,8 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatOptimizerRunStarted(event);
     case "optimizer:run_completed":
       return formatOptimizerRunCompleted(event);
+    case "ml:run_completed":
+      return formatMlRunCompleted(event);
   }
 }
 
