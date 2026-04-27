@@ -96,12 +96,14 @@ function saveToDisk() {
 // ============================================
 
 /**
- * Is this provider currently enabled (static flag AND not runtime-disabled)?
+ * Is this provider currently enabled (not runtime-disabled)?
+ * Note: We ignore the static meta.enabled flag so the UI/runtime
+ * state is the absolute single source of truth.
  */
 export function isProviderRuntimeEnabled(id: string): boolean {
   const key = id as ProviderKey;
   const meta = PROVIDER_REGISTRY[key];
-  if (!meta?.enabled) return false;
+  if (!meta) return false;
   return !state().disabled.has(key);
 }
 
@@ -148,4 +150,26 @@ export function setDisabledProviders(ids: ProviderKey[]): void {
  */
 export function getRuntimeEnabledProviderIds(): ProviderKey[] {
   return PROVIDER_IDS.filter((id) => isProviderRuntimeEnabled(id));
+}
+
+/**
+ * Enumerate runtime-enabled soft providers.
+ */
+export function getRuntimeSoftProviders(): ProviderKey[] {
+  return PROVIDER_IDS.filter(
+    (id) =>
+      isProviderRuntimeEnabled(id) &&
+      PROVIDER_REGISTRY[id].bookmakerType === "soft",
+  );
+}
+
+/**
+ * Enumerate runtime-enabled sharp providers.
+ */
+export function getRuntimeSharpProviders(): ProviderKey[] {
+  return PROVIDER_IDS.filter(
+    (id) =>
+      isProviderRuntimeEnabled(id) &&
+      PROVIDER_REGISTRY[id].bookmakerType === "sharp",
+  );
 }

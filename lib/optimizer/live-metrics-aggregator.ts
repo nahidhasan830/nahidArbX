@@ -42,8 +42,10 @@ export async function recomputeLiveMetrics(): Promise<{
         .select({
           nTotal: sql<number>`COUNT(*)::int`,
           nSettled: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} IN ('won','half_won','lost','half_lost','void'))::int`,
-          nWon: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} IN ('won','half_won'))::int`,
-          nLost: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} IN ('lost','half_lost'))::int`,
+          nWon: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} = 'won')::int`,
+          nHalfWon: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} = 'half_won')::int`,
+          nLost: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} = 'lost')::int`,
+          nHalfLost: sql<number>`COUNT(*) FILTER (WHERE ${bets.outcome} = 'half_lost')::int`,
           totalStake: sql<number>`COALESCE(SUM(${bets.stake}) FILTER (WHERE ${bets.placedAt} IS NOT NULL), 0)::float`,
           totalPnl: sql<number>`COALESCE(SUM(${bets.pnl}) FILTER (WHERE ${bets.placedAt} IS NOT NULL), 0)::float`,
           meanClvPct: sql<
@@ -55,8 +57,9 @@ export async function recomputeLiveMetrics(): Promise<{
 
       if (!r) continue;
 
+      const winWeighted = r.nWon + r.nHalfWon * 0.5;
       const winRatePct =
-        r.nWon + r.nLost > 0 ? (r.nWon / (r.nWon + r.nLost)) * 100 : null;
+        r.nSettled > 0 ? (winWeighted / r.nSettled) * 100 : null;
       const liveRoiPct =
         r.totalStake !== null && r.totalStake > 0
           ? ((r.totalPnl ?? 0) / r.totalStake) * 100

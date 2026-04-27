@@ -80,18 +80,20 @@ def _evaluate_ml_fold(
     capped = np.minimum(sized, sizing_kelly_cap_pct / 100.0) * bankroll
 
     odds = selected["soft_odds"].to_numpy()
+    commission = selected["soft_commission_pct"].to_numpy()
     outcomes = selected["outcome"].to_numpy()
-    pnls = _compute_pnl(capped, odds, outcomes)
+    pnls = _compute_pnl(capped, odds, commission, outcomes)
 
     total_stake = float(capped.sum())
     total_pnl = float(pnls.sum())
     roi_pct = (total_pnl / total_stake * 100.0) if total_stake > 0 else 0.0
 
-    decisive = np.isin(outcomes, ["won", "half_won", "lost", "half_lost"])
-    wins = np.isin(outcomes, ["won", "half_won"])
-    decisive_count = int(decisive.sum())
+    settled_count = outcomes.size
+    wins_full = np.sum(outcomes == "won")
+    wins_half = np.sum(outcomes == "half_won")
     win_rate_pct = (
-        (float(wins.sum()) / decisive_count * 100.0) if decisive_count > 0 else 0.0
+        (float(wins_full + wins_half * 0.5) / settled_count * 100.0)
+        if settled_count > 0 else 0.0
     )
 
     with np.errstate(divide="ignore", invalid="ignore"):

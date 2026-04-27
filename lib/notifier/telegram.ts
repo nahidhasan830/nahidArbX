@@ -30,6 +30,7 @@ import type {
   NotificationChannel,
   NotificationEvent,
   OptimizerRunCompletedEvent,
+  MlRunCompletedEvent,
   OptimizerRunStartedEvent,
   SystemEvent,
 } from "./types";

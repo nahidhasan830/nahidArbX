@@ -77,7 +77,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Initial fetch
   useEffect(() => {
-    fetchUser().finally(() => setIsLoading(false));
+    let isMounted = true;
+    const init = async () => {
+      await fetchUser();
+      if (isMounted) setIsLoading(false);
+    };
+    init();
+    return () => {
+      isMounted = false;
+    };
   }, [fetchUser]);
 
   // Heartbeat to update last activity and detect session revocation (every 30 seconds)

@@ -17,6 +17,18 @@ import {
   Ban,
   ArrowUpRight,
 } from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Sparkles, Crown, Bot } from "lucide-react";
+import { verifyAiMatch } from "./api";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -162,6 +174,82 @@ function PairStatusCell({ status }: { status: PairProcessingStatus }) {
 
 // ─── Main component ───────────────────────────────────────────────────
 
+function AiVerifyDropdown({
+  disabled,
+  running,
+  selectedCount,
+  onVerify,
+  inline = false,
+}: {
+  disabled: boolean;
+  running: boolean;
+  selectedCount?: number;
+  onVerify: (model: "lite" | "flash" | "pro") => void;
+  inline?: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size={inline ? "icon" : "sm"}
+          variant={inline ? "ghost" : "outline"}
+          className={cn(
+            inline ? "size-6" : "h-7 px-2.5 text-[11px] gap-1",
+            inline && "text-muted-foreground hover:text-foreground",
+          )}
+          disabled={disabled || running}
+          title="Verify match using Gemini"
+        >
+          {running ? (
+            <Loader2
+              className={cn("animate-spin", inline ? "size-3.5" : "size-3")}
+            />
+          ) : inline ? (
+            <Bot className="size-3.5" />
+          ) : (
+            <>
+              <Bot className="size-3" />
+              Verify with AI
+              {selectedCount != null && selectedCount > 0 && (
+                <span className="tabular-nums">({selectedCount})</span>
+              )}
+            </>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-[160px] p-1">
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+          Select Model
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={() => onVerify("lite")}
+          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
+          title="Cheapest AI — default model"
+        >
+          <Zap className="size-3.5 text-blue-400" />
+          <span className="text-[11px]">Lite</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onVerify("flash")}
+          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
+          title="Balanced"
+        >
+          <Sparkles className="size-3.5 text-violet-400" />
+          <span className="text-[11px]">Flash</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => onVerify("pro")}
+          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
+          title="Most capable — use for stuck rows"
+        >
+          <Crown className="size-3.5 text-amber-400" />
+          <span className="text-[11px]">Pro</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function MatcherLab() {
   const [activeStage, setActiveStage] = useState<MatchPairStage>("inbox");
   const [rows, setRows] = useState<MatchPairRow[]>([]);
@@ -194,9 +282,34 @@ export function MatcherLab() {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const prevRowIdsRef = useRef<string>("");
 
-  // Auto-select NEW rows when inbox rows change
+  // Keep track of previous stage to handle transitions
+  const prevStageRef = useRef<MatchPairStage>(activeStage);
+
+  // Auto-select NEW rows when inbox rows change, and handle stage transitions
   useEffect(() => {
-    if (activeStage !== "inbox") return;
+    if (prevStageRef.current !== activeStage) {
+      setRowSelection({});
+      prevRowIdsRef.current = "";
+      prevStageRef.current = activeStage;
+      if (activeStage !== "inbox") return; // don't auto-select on other tabs initially
+    }
+
+    if (activeStage !== "inbox") {
+      // For non-inbox tabs, just cleanup deleted rows
+      setRowSelection((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const id of Object.keys(next)) {
+          if (!rows.some((r) => r.id === id)) {
+            delete next[id];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      return;
+    }
+
     const rowIds = rows.map((r) => r.id).join(",");
     if (rowIds === prevRowIdsRef.current) return;
 
@@ -226,12 +339,12 @@ export function MatcherLab() {
   }, [rows, activeStage]);
 
   const selectedCount = useMemo(() => {
-    if (activeStage !== "inbox") return 0;
+    if (activeStage !== "inbox" && activeStage !== "human_review") return 0;
     return Object.values(rowSelection).filter(Boolean).length;
   }, [rowSelection, activeStage]);
 
   const selectedPairIds = useMemo(() => {
-    if (activeStage !== "inbox") return [];
+    if (activeStage !== "inbox" && activeStage !== "human_review") return [];
     return Object.entries(rowSelection)
       .filter(([, selected]) => selected)
       .map(([id]) => id);
@@ -310,6 +423,77 @@ export function MatcherLab() {
       }
     },
     [refresh],
+  );
+
+  const [aiVerifyingIds, setAiVerifyingIds] = useState<Set<string>>(new Set());
+  const [isBulkVerifying, setIsBulkVerifying] = useState(false);
+
+  const handleVerifyAi = useCallback(
+    async (model: "lite" | "flash" | "pro", singleId?: string) => {
+      const idsToRun = singleId ? [singleId] : [...selectedPairIds];
+      if (idsToRun.length === 0) return;
+
+      if (!singleId) {
+        setRowSelection({});
+        setIsBulkVerifying(true);
+      }
+
+      setAiVerifyingIds((prev) => {
+        const next = new Set(prev);
+        for (const id of idsToRun) next.add(id);
+        return next;
+      });
+
+      let merged = 0;
+      let rejected = 0;
+      let errors = 0;
+
+      for (const id of idsToRun) {
+        try {
+          const result = await verifyAiMatch(id, model);
+          if (result.decision === "UNCERTAIN") {
+            toast.warning("AI Uncertain", {
+              description: `Confidence: ${result.confidence}%`,
+            });
+            continue;
+          }
+          const decision =
+            result.decision === "SAME" ? "human-merge" : "human-reject";
+          await decidePair(id, decision, "human");
+          if (result.decision === "SAME") merged++;
+          else rejected++;
+
+          toast.success(
+            `AI ${result.decision === "SAME" ? "Merged" : "Rejected"}`,
+            {
+              description: `Confidence: ${result.confidence}%`,
+            },
+          );
+        } catch (err) {
+          errors++;
+          toast.error("AI Verify failed", {
+            description: (err as Error).message,
+          });
+        } finally {
+          setAiVerifyingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+        }
+      }
+
+      setIsBulkVerifying(false);
+
+      if (idsToRun.length > 1) {
+        toast.info("AI Batch Complete", {
+          description: `Merged: ${merged}, Rejected: ${rejected}${errors > 0 ? `, Errors: ${errors}` : ""}`,
+        });
+      }
+
+      await refresh();
+    },
+    [selectedPairIds, refresh],
   );
 
   const handleRunMl = useCallback(async () => {
@@ -463,8 +647,23 @@ export function MatcherLab() {
   }, [selectedPairIds, refresh]);
 
   const columns = useMemo(
-    () => buildColumns(activeStage, actingOn, pairStatuses, handleDecide),
-    [activeStage, actingOn, pairStatuses, handleDecide],
+    () =>
+      buildColumns(
+        activeStage,
+        actingOn,
+        pairStatuses,
+        handleDecide,
+        aiVerifyingIds,
+        handleVerifyAi,
+      ),
+    [
+      activeStage,
+      actingOn,
+      pairStatuses,
+      handleDecide,
+      aiVerifyingIds,
+      handleVerifyAi,
+    ],
   );
 
   return (
@@ -554,6 +753,15 @@ export function MatcherLab() {
             </Button>
           )}
 
+          {(activeStage === "inbox" || activeStage === "human_review") && (
+            <AiVerifyDropdown
+              disabled={selectedCount === 0}
+              running={isBulkVerifying}
+              selectedCount={selectedCount}
+              onVerify={(model) => handleVerifyAi(model)}
+            />
+          )}
+
           <SchedulerPopover
             mlStats={mlStats}
             history={mlHistory}
@@ -633,10 +841,18 @@ export function MatcherLab() {
           enableSorting
           enableVirtualization
           enableColumnResizing
-          enableRowSelection={activeStage === "inbox"}
-          rowSelection={activeStage === "inbox" ? rowSelection : undefined}
+          enableRowSelection={
+            activeStage === "inbox" || activeStage === "human_review"
+          }
+          rowSelection={
+            activeStage === "inbox" || activeStage === "human_review"
+              ? rowSelection
+              : undefined
+          }
           onRowSelectionChange={
-            activeStage === "inbox" ? setRowSelection : undefined
+            activeStage === "inbox" || activeStage === "human_review"
+              ? setRowSelection
+              : undefined
           }
           density="compact"
           persistenceKey={`matcher-lab-${activeStage}`}
@@ -681,10 +897,12 @@ function buildColumns(
   actingOn: Set<string>,
   pairStatuses: Map<string, PairProcessingStatus>,
   onDecide: (id: string, decision: "human-merge" | "human-reject") => void,
+  aiVerifyingIds: Set<string>,
+  onVerifyAi: (model: "lite" | "flash" | "pro", id?: string) => void,
 ): ColumnDef<MatchPairRow, unknown>[] {
   const cols: ColumnDef<MatchPairRow, unknown>[] = [];
 
-  if (stage === "inbox") {
+  if (stage === "inbox" || stage === "human_review") {
     cols.push({
       id: "select",
       size: 32,
@@ -959,7 +1177,7 @@ function buildColumns(
     ),
   });
 
-  if (stage === "human_review") {
+  if (stage === "human_review" || stage === "inbox") {
     cols.push({
       id: "actions",
       header: "",
@@ -996,6 +1214,12 @@ function buildColumns(
               <XCircle className="size-3.5 text-red-500" />
             </Button>
 
+            <AiVerifyDropdown
+              inline
+              disabled={busy}
+              running={aiVerifyingIds.has(id)}
+              onVerify={(model) => onVerifyAi(model, id)}
+            />
             <a
               href={buildSearchUrl(row.original)}
               target="_blank"
@@ -1058,8 +1282,34 @@ function EventCell({
 }
 
 function buildSearchUrl(pair: MatchPairRow): string {
-  const q = `${pair.eventAHomeTeam} vs ${pair.eventAAwayTeam} ${pair.eventBHomeTeam} vs ${pair.eventBAwayTeam}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  const d = pair.eventAStartTime
+    ? new Date(pair.eventAStartTime).toISOString().slice(0, 10)
+    : "";
+  const t = pair.eventAStartTime
+    ? new Date(pair.eventAStartTime).toISOString().slice(11, 16)
+    : "";
+
+  const query = [
+    `Are these two fixtures the exact same match?`,
+    ``,
+    `Fixture A: ${pair.eventAHomeTeam} vs ${pair.eventAAwayTeam} (${pair.eventACompetition})`,
+    `Fixture B: ${pair.eventBHomeTeam} vs ${pair.eventBAwayTeam} (${pair.eventBCompetition})`,
+    ``,
+    `Scheduled for: ${d} ${t} UTC.`,
+    ``,
+    `Task:`,
+    `1. Verify if both team names refer to the same entities (accounting for youth/reserve teams, naming differences, or transliterations).`,
+    `2. Verify if the competitions align or are just named differently across providers.`,
+    `3. End with a clear conclusion: Are they the same event? YES or NO.`,
+  ].join("\n");
+
+  const params = new URLSearchParams({
+    q: query,
+    udm: "50",
+    aep: "1",
+    hl: "en",
+  });
+  return `https://www.google.com/search?${params.toString()}`;
 }
 
 export default MatcherLab;

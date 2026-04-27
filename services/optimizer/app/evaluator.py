@@ -146,7 +146,9 @@ def _compute_stakes(df: pl.DataFrame, config: dict[str, Any]) -> pl.Series:
 # ── P&L mathematics — must match TS `computePnl()` exactly ────────────────
 
 
-def _compute_pnl(stake: np.ndarray, odds: np.ndarray, outcome: np.ndarray) -> np.ndarray:
+def _compute_pnl(
+    stake: np.ndarray, odds: np.ndarray, commission_pct: np.ndarray, outcome: np.ndarray
+) -> np.ndarray:
     """Vectorized P&L. `outcome` is a Utf8 numpy array."""
     won = outcome == "won"
     half_won = outcome == "half_won"
@@ -154,8 +156,9 @@ def _compute_pnl(stake: np.ndarray, odds: np.ndarray, outcome: np.ndarray) -> np
     half_lost = outcome == "half_lost"
     # void / cancelled / pending → 0
 
-    payout_won = stake * (odds - 1.0)
-    payout_half_won = stake * (odds - 1.0) / 2.0
+    cf = 1.0 - (commission_pct / 100.0)
+    payout_won = stake * (odds - 1.0) * cf
+    payout_half_won = stake * (odds - 1.0) * cf / 2.0
 
     pnl = np.zeros_like(stake, dtype=np.float64)
     pnl = np.where(won, payout_won, pnl)
@@ -181,18 +184,22 @@ def _evaluate_fold(test_df: pl.DataFrame, config: dict[str, Any]) -> FoldMetrics
     stake_s = _compute_stakes(filtered, config)
     stakes = stake_s.to_numpy()
     odds = filtered["soft_odds"].to_numpy()  # Use soft_odds — what we'd actually book at.
+    commission = filtered["soft_commission_pct"].to_numpy()
     outcomes = filtered["outcome"].to_numpy()
 
-    pnls = _compute_pnl(stakes, odds, outcomes)
+    pnls = _compute_pnl(stakes, odds, commission, outcomes)
     total_stake = float(stakes.sum())
     total_pnl = float(pnls.sum())
     roi_pct = (total_pnl / total_stake * 100.0) if total_stake > 0 else 0.0
 
-    # Win rate over decided outcomes (won + half_won = win).
-    decisive = np.isin(outcomes, ["won", "half_won", "lost", "half_lost"])
-    wins = np.isin(outcomes, ["won", "half_won"])
-    decisive_count = int(decisive.sum())
-    win_rate_pct = (float(wins.sum()) / decisive_count * 100.0) if decisive_count > 0 else 0.0
+    # Win rate matches TS computeFlatMetrics (includes void in denom, half_won=0.5).
+    settled_count = outcomes.size
+    wins_full = np.sum(outcomes == "won")
+    wins_half = np.sum(outcomes == "half_won")
+    win_rate_pct = (
+        (float(wins_full + wins_half * 0.5) / settled_count * 100.0)
+        if settled_count > 0 else 0.0
+    )
 
     # Sharpe / Sortino / max-drawdown on per-bet returns (pnl / stake when staked).
     with np.errstate(divide="ignore", invalid="ignore"):

@@ -123,3 +123,19 @@ export async function runMlStream(
     }
   }
 }
+
+export async function verifyAiMatch(
+  id: string,
+  model?: "lite" | "flash" | "pro",
+): Promise<{ decision: string; confidence: number; model: string }> {
+  const res = await fetch("/api/matcher-lab/verify-ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, model }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to verify match");
+  }
+  return data.result;
+}

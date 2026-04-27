@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ProviderBadge } from "@/components/ui/ProviderBadge";
 import { TermTooltip } from "@/components/ui/TermTooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatMarketType } from "@/lib/formatting/labels";
 import { PROVIDER_REGISTRY } from "@/lib/providers/registry";
 import type { DataFiltersJson } from "@/lib/optimizer/types";
@@ -52,7 +53,7 @@ export function DataFiltersSection({
   value,
   onChange,
 }: DataFiltersSectionProps) {
-  const { data: catalog } = useQuery({
+  const { data: catalog, isLoading: isCatalogLoading } = useQuery({
     queryKey: ["optimizer", "preview", "catalog"],
     queryFn: () => fetchPreview({}),
     staleTime: 60_000,
@@ -178,100 +179,138 @@ export function DataFiltersSection({
       </p>
 
       {/* Soft providers */}
-      {allProviders.length > 0 && (
+      {isCatalogLoading ? (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-medium text-foreground/80">
-              Soft providers
-            </p>
-            <SelectAllToggle
-              allIncluded={allProviders.every((p) =>
-                isProviderIncluded(p.provider),
-              )}
-              onToggle={(all) => {
-                onChange({
-                  ...value,
-                  includeSoftProviders: all ? undefined : [],
-                  excludeSoftProviders: undefined,
-                });
-              }}
-            />
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-3 w-12" />
           </div>
           <div className="space-y-1">
-            {allProviders.map(({ provider, count }) => {
-              const known = Boolean(
-                PROVIDER_REGISTRY[provider as keyof typeof PROVIDER_REGISTRY],
-              );
-              return (
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-2 py-1 px-1.5">
+                <Skeleton className="size-4 rounded-sm shrink-0" />
+                <Skeleton className="h-4 w-24 rounded-full" />
+                <div className="flex-1" />
+                <Skeleton className="h-3 w-8" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        allProviders.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium text-foreground/80">
+                Soft providers
+              </p>
+              <SelectAllToggle
+                allIncluded={allProviders.every((p) =>
+                  isProviderIncluded(p.provider),
+                )}
+                onToggle={(all) => {
+                  onChange({
+                    ...value,
+                    includeSoftProviders: all ? undefined : [],
+                    excludeSoftProviders: undefined,
+                  });
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              {allProviders.map(({ provider, count }) => {
+                const known = Boolean(
+                  PROVIDER_REGISTRY[provider as keyof typeof PROVIDER_REGISTRY],
+                );
+                return (
+                  <label
+                    key={provider}
+                    className="flex items-center gap-2 cursor-pointer text-xs py-1 px-1.5 rounded hover:bg-muted/40"
+                  >
+                    <Checkbox
+                      checked={isProviderIncluded(provider)}
+                      onCheckedChange={(v) =>
+                        toggleProvider(provider, Boolean(v))
+                      }
+                    />
+                    <span className="flex-1 inline-flex items-center gap-2 min-w-0">
+                      {known ? (
+                        <ProviderBadge id={provider} size="sm" withDot />
+                      ) : (
+                        <span className="truncate">{provider}</span>
+                      )}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums text-[11px]">
+                      {count.toLocaleString()}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Market types */}
+      {isCatalogLoading ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-3 w-12" />
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="flex items-center gap-2 py-1 px-1.5">
+                <Skeleton className="size-4 rounded-sm shrink-0" />
+                <Skeleton className="h-4 w-20" />
+                <div className="flex-1" />
+                <Skeleton className="h-3 w-6" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        allMarkets.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium text-foreground/80">
+                Market types
+              </p>
+              <SelectAllToggle
+                allIncluded={allMarkets
+                  .slice(0, 12)
+                  .every((m) => isMarketIncluded(m.market))}
+                onToggle={(all) => {
+                  onChange({
+                    ...value,
+                    excludeMarketTypes: all
+                      ? undefined
+                      : allMarkets.slice(0, 12).map((m) => m.market),
+                  });
+                }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+              {allMarkets.slice(0, 12).map(({ market, count }) => (
                 <label
-                  key={provider}
-                  className="flex items-center gap-2 cursor-pointer text-xs py-1 px-1.5 rounded hover:bg-muted/40"
+                  key={market}
+                  className="flex items-center gap-2 cursor-pointer text-xs py-1 px-1.5 rounded hover:bg-muted/40 min-w-0"
+                  title={market}
                 >
                   <Checkbox
-                    checked={isProviderIncluded(provider)}
-                    onCheckedChange={(v) =>
-                      toggleProvider(provider, Boolean(v))
-                    }
+                    checked={isMarketIncluded(market)}
+                    onCheckedChange={(v) => toggleMarket(market, Boolean(v))}
                   />
-                  <span className="flex-1 inline-flex items-center gap-2 min-w-0">
-                    {known ? (
-                      <ProviderBadge id={provider} size="sm" withDot />
-                    ) : (
-                      <span className="truncate">{provider}</span>
-                    )}
+                  <span className="flex-1 truncate">
+                    {formatMarketType(market)}
                   </span>
                   <span className="text-muted-foreground tabular-nums text-[11px]">
                     {count.toLocaleString()}
                   </span>
                 </label>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Market types */}
-      {allMarkets.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-medium text-foreground/80">
-              Market types
-            </p>
-            <SelectAllToggle
-              allIncluded={allMarkets
-                .slice(0, 12)
-                .every((m) => isMarketIncluded(m.market))}
-              onToggle={(all) => {
-                onChange({
-                  ...value,
-                  excludeMarketTypes: all
-                    ? undefined
-                    : allMarkets.slice(0, 12).map((m) => m.market),
-                });
-              }}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-            {allMarkets.slice(0, 12).map(({ market, count }) => (
-              <label
-                key={market}
-                className="flex items-center gap-2 cursor-pointer text-xs py-1 px-1.5 rounded hover:bg-muted/40 min-w-0"
-                title={market}
-              >
-                <Checkbox
-                  checked={isMarketIncluded(market)}
-                  onCheckedChange={(v) => toggleMarket(market, Boolean(v))}
-                />
-                <span className="flex-1 truncate">
-                  {formatMarketType(market)}
-                </span>
-                <span className="text-muted-foreground tabular-nums text-[11px]">
-                  {count.toLocaleString()}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
+        )
       )}
 
       {/* Date range + placed-only */}

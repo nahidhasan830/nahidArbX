@@ -1627,7 +1627,7 @@ function PermissionsTab({
       {/* Permissions by category */}
       {filteredPermissions.length === 0 ? (
         <div className="text-center text-gray-500 py-6 text-sm">
-          No permissions match "{searchTerm}"
+          No permissions match &quot;{searchTerm}&quot;
         </div>
       ) : (
         categoryOrder.map((category) => {

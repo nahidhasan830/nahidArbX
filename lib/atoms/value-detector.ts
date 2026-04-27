@@ -15,11 +15,11 @@
  */
 
 import type { ProviderKey } from "../providers/registry";
+import { getProviderCommission } from "../providers/registry";
 import {
-  getSharpProviders,
-  getSoftProviders,
-  getProviderCommission,
-} from "../providers/registry";
+  getRuntimeSoftProviders,
+  getRuntimeSharpProviders,
+} from "../providers/runtime-state";
 import { getAllOddsForAtom, getFamiliesForEvent, parseDirtyKey } from "./store";
 import { getFamily } from "./registry";
 import {
@@ -87,7 +87,7 @@ export function detectAllValueBetsIncremental(
         const vbs = detectValueForFamily(eventId, familyId, options);
         valueCache.set(key, vbs);
         // Cache vig data for API use
-        const sharpProviders = getSharpProviders();
+        const sharpProviders = getRuntimeSharpProviders();
         if (sharpProviders.length > 0) {
           vigCache.set(
             key,
@@ -120,7 +120,7 @@ export function detectAllValueBetsIncremental(
         detectValueForFamily(eventId, familyId, options),
       );
       // Update vig cache
-      const sharpProviders = getSharpProviders();
+      const sharpProviders = getRuntimeSharpProviders();
       if (sharpProviders.length > 0) {
         vigCache.set(
           dirtyKey,
@@ -225,7 +225,7 @@ export function detectValueForAtom(
   } = options;
 
   const valueBets: ValueBet[] = [];
-  const softProviders = getSoftProviders();
+  const softProviders = getRuntimeSoftProviders();
   const now = Date.now();
 
   const allOdds = getAllOddsForAtom(eventId, familyId, atomId);
@@ -341,7 +341,7 @@ export function detectValueForFamily(
   if (!family) return [];
 
   // Get sharp provider (typically Pinnacle)
-  const sharpProviders = getSharpProviders();
+  const sharpProviders = getRuntimeSharpProviders();
   if (sharpProviders.length === 0) {
     // No sharp providers configured - can't detect value
     return [];

@@ -230,10 +230,12 @@ export function AiSettleDialog({
   onRerun,
 }: Props) {
   const [overrides, setOverrides] = useState<Record<string, Outcome>>({});
+  const [prevOpen, setPrevOpen] = useState(open);
 
-  useEffect(() => {
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (!open) setOverrides({});
-  }, [open]);
+  }
 
   const rowsById = useMemo(
     () => new Map(candidateRows.map((r) => [r.id, r])),
@@ -243,7 +245,7 @@ export function AiSettleDialog({
   const finalOutcome = (p: AiLabelResult): Outcome =>
     overrides[p.id] ?? p.proposedOutcome;
 
-  const applyableUpdates = useMemo(() => {
+  const applyableUpdates = (() => {
     if (!response) return [];
     return response.proposals
       .filter((p): p is AiLabelResult => !isError(p))
@@ -259,7 +261,7 @@ export function AiSettleDialog({
         score: p.score,
       }))
       .filter((u) => u.outcome !== "pending");
-  }, [response, overrides]);
+  })();
 
   const errorCount = response ? response.proposals.filter(isError).length : 0;
   const pendingCount = response

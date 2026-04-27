@@ -63,7 +63,7 @@ export async function getIdToken(): Promise<string | null> {
     if (typeof hdrs.get === "function") {
       authHeader = hdrs.get("authorization") ?? hdrs.get("Authorization");
     } else {
-      const record = hdrs as Record<string, string>;
+      const record = hdrs as unknown as Record<string, string>;
       authHeader = record.authorization ?? record.Authorization;
     }
 

@@ -8,7 +8,7 @@
  *   - the Next.js scheduler doesn't write trial rows; it just kicks the sidecar.
  */
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql, inArray, notInArray } from "drizzle-orm";
 import { db } from "../db/client";
 import {
   optimizationRuns,
@@ -17,6 +17,7 @@ import {
   type OptimizationTrialRow,
 } from "../db/schema";
 import { getSoftProviders } from "../providers/registry";
+import { getRuntimeSoftProviders } from "../providers/runtime-state";
 import type {
   CreateRunRequest,
   CvStrategyJson,
@@ -52,7 +53,7 @@ export async function createRun(
   };
   const searchSpace: SearchSpaceJson = req.searchSpace ?? { dimensions: [] };
   const rawFilters: DataFiltersJson = req.dataFilters ?? {};
-  const enabledSoft = getSoftProviders() as string[];
+  const enabledSoft = getRuntimeSoftProviders() as string[];
   const dataFilters: DataFiltersJson = (() => {
     if (rawFilters.includeSoftProviders) return rawFilters;
     if (rawFilters.excludeSoftProviders?.length) {
@@ -275,7 +276,7 @@ export interface DatasetPreview {
 export async function previewDataset(
   filters: DataFiltersJson,
 ): Promise<DatasetPreview> {
-  const enabledSoftIds = getSoftProviders() as string[];
+  const enabledSoftIds = getRuntimeSoftProviders() as string[];
 
   const conds: ReturnType<typeof sql>[] = [
     sql`outcome IN ('won','half_won','lost','half_lost','void')`,
@@ -285,16 +286,16 @@ export async function previewDataset(
     conds.push(sql`placed_at IS NOT NULL`);
   }
   if (filters.includeSoftProviders?.length) {
-    conds.push(sql`soft_provider = ANY(${filters.includeSoftProviders})`);
+    conds.push(inArray(sql`soft_provider`, filters.includeSoftProviders));
   } else if (filters.excludeSoftProviders?.length) {
-    conds.push(sql`soft_provider <> ALL(${filters.excludeSoftProviders})`);
+    conds.push(notInArray(sql`soft_provider`, filters.excludeSoftProviders));
   } else {
-    conds.push(sql`soft_provider = ANY(${enabledSoftIds})`);
+    conds.push(inArray(sql`soft_provider`, enabledSoftIds));
   }
   if (filters.includeMarketTypes?.length) {
-    conds.push(sql`market_type = ANY(${filters.includeMarketTypes})`);
+    conds.push(inArray(sql`market_type`, filters.includeMarketTypes));
   } else if (filters.excludeMarketTypes?.length) {
-    conds.push(sql`market_type <> ALL(${filters.excludeMarketTypes})`);
+    conds.push(notInArray(sql`market_type`, filters.excludeMarketTypes));
   }
   if (filters.eventStartFrom) {
     conds.push(sql`event_start_time >= ${filters.eventStartFrom}`);
@@ -307,7 +308,7 @@ export async function previewDataset(
   const whereSql = sql.join(conds, sql` AND `);
 
   const totalRows = await db.execute(
-    sql`SELECT COUNT(*)::int AS n FROM bets WHERE outcome IN ('won','half_won','lost','half_lost','void') AND soft_provider = ANY(${enabledSoftIds})`,
+    sql`SELECT COUNT(*)::int AS n FROM bets WHERE outcome IN ('won','half_won','lost','half_lost','void') AND ${inArray(sql`soft_provider`, enabledSoftIds)}`,
   );
   const includedRows = await db.execute(
     sql`SELECT COUNT(*)::int AS n FROM bets WHERE ${whereSql}`,

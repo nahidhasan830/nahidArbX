@@ -38,6 +38,13 @@ import { reconcilePendingBets } from "@/lib/betting/ninewickets/reconciler";
 import { resetValueCache } from "@/lib/atoms/value-detector";
 import { invalidateResponseCache } from "@/lib/cache/response-cache";
 import { invalidateActiveStrategiesCache } from "@/lib/optimizer/active-strategies";
+import { toggleProviderAction } from "@/lib/providers/actions";
+import { isProviderRuntimeEnabled } from "@/lib/providers/runtime-state";
+import {
+  PROVIDER_IDS,
+  PROVIDER_REGISTRY,
+  type ProviderKey,
+} from "@/lib/providers/registry";
 import { registerCommand } from "../registry";
 import { esc, header, kvList } from "../format";
 
@@ -307,6 +314,68 @@ registerCommand({
     invalidateResponseCache();
     invalidateActiveStrategiesCache();
     await reply("✅ Caches reset (value-detect, response, active-strategies).");
+    return { alreadyReplied: true };
+  },
+});
+
+// ── /provider [id] [on|off] ──────────────────────────────────────────────
+
+registerCommand({
+  name: "provider",
+  usage: "/provider [id] [on|off]",
+  description: "Enable or disable a provider (fetches, odds, matching).",
+  explanation:
+    "Without arguments, lists the current enabled/disabled state of all providers. " +
+    "To turn a provider on or off, pass its ID and the desired state (e.g., /provider ninewickets-exchange off). " +
+    "Turning a provider off immediately purges its data from the active event store.",
+  group: "control",
+  async handler({ args, reply }) {
+    if (args.length === 0) {
+      const lines = [header("🔌", "Providers Status")];
+      for (const id of PROVIDER_IDS) {
+        const meta = PROVIDER_REGISTRY[id];
+        const enabled = isProviderRuntimeEnabled(id);
+        lines.push(`${enabled ? "🟢" : "⚪"} <b>${esc(meta.displayName)}</b>`);
+        lines.push(`<code>${esc(id)}</code> · ${enabled ? "ON" : "OFF"}`);
+        lines.push("");
+      }
+      lines.push("<i>Usage: /provider &lt;id&gt; [on|off]</i>");
+      await reply(lines.join("\n"));
+      return { alreadyReplied: true };
+    }
+
+    const providerIdRaw = args[0];
+    const meta =
+      PROVIDER_REGISTRY[providerIdRaw as ProviderKey] ||
+      Object.values(PROVIDER_REGISTRY).find(
+        (p) =>
+          p.shortName.toLowerCase() === providerIdRaw.toLowerCase() ||
+          p.id.toLowerCase() === providerIdRaw.toLowerCase(),
+      );
+
+    if (!meta) {
+      await reply(`⚠️ Unknown provider <code>${esc(providerIdRaw)}</code>.`);
+      return { alreadyReplied: true };
+    }
+
+    const stateArg = (args[1] ?? "").toLowerCase();
+    if (stateArg !== "on" && stateArg !== "off") {
+      await reply(`Usage: /provider ${esc(meta.id)} [on|off]`);
+      return { alreadyReplied: true };
+    }
+
+    const enable = stateArg === "on";
+    const purged = toggleProviderAction(meta.id as ProviderKey, enable);
+
+    if (enable) {
+      await reply(
+        `🟢 <b>${esc(meta.displayName)}</b> is now ON. Data will repopulate on the next sync.`,
+      );
+    } else {
+      await reply(
+        `⚪ <b>${esc(meta.displayName)}</b> is now OFF. Purged ${purged} event(s) from memory.`,
+      );
+    }
     return { alreadyReplied: true };
   },
 });

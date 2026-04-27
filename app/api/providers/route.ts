@@ -22,68 +22,12 @@ import {
 import {
   getRuntimeDisabledProviders,
   isProviderRuntimeEnabled,
-  setProviderRuntimeEnabled,
-  setDisabledProviders,
 } from "@/lib/providers/runtime-state";
-import { getEvents, setEvents } from "@/lib/store";
-import { resetMatchCache } from "@/lib/matching/match-cache";
-import type { NormalizedEvent } from "@/lib/types";
 import { logger } from "@/lib/shared/logger";
-import { getAtomsAdapter } from "@/lib/adapters/unified-registry";
-
-/**
- * Apply provider-specific side effects when flipping runtime state.
- * Adapters that hold persistent connections (WebSockets, pollers) implement
- * onEnable/onDisable hooks themselves; this just dispatches.
- */
-function applyRuntimeSideEffects(
-  provider: ProviderKey,
-  enabled: boolean,
-): void {
-  const adapter = getAtomsAdapter(provider);
-  if (!adapter) return;
-  if (enabled) {
-    if (!adapter.onEnable) return;
-    // Fire and forget — onEnable may be async but we don't want to block the API
-    Promise.resolve(adapter.onEnable()).catch((err: Error) =>
-      logger.warn(
-        "ProvidersAPI",
-        `${provider} onEnable failed: ${err.message}`,
-      ),
-    );
-  } else {
-    adapter.onDisable?.();
-  }
-}
-
-/**
- * Remove a provider's data from every event in the store. Any event that ends
- * up without providers is dropped entirely. Re-enabling will repopulate on
- * the next sync.
- */
-
-function purgeProviderFromStore(provider: ProviderKey): number {
-  const events = getEvents();
-  const kept: NormalizedEvent[] = [];
-  let affected = 0;
-  for (const ev of events) {
-    if (ev.providers[provider]) {
-      affected++;
-      const rest = { ...ev.providers };
-      delete rest[provider];
-      if (Object.keys(rest).length === 0) {
-        continue; // event had only this provider — drop it entirely
-      }
-      kept.push({ ...ev, providers: rest });
-    } else {
-      kept.push(ev);
-    }
-  }
-  setEvents(kept);
-  // Match cache can reference events we just touched; invalidate it.
-  resetMatchCache();
-  return affected;
-}
+import {
+  toggleProviderAction,
+  setDisabledProvidersAction,
+} from "@/lib/providers/actions";
 
 export async function GET() {
   const disabled = getRuntimeDisabledProviders();
@@ -121,13 +65,7 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      setProviderRuntimeEnabled(provider, enabled);
-      applyRuntimeSideEffects(provider, enabled);
-      const purged = enabled ? 0 : purgeProviderFromStore(provider);
-      logger.info(
-        "ProvidersAPI",
-        `${provider} ${enabled ? "enabled" : "disabled"} (purged ${purged} events)`,
-      );
+      const purged = toggleProviderAction(provider, enabled);
       return NextResponse.json({
         success: true,
         provider,
@@ -153,22 +91,7 @@ export async function POST(request: NextRequest) {
           );
         }
       }
-      // Snapshot previous state so we can detect transitions in both directions.
-      const prevEnabled = new Set(
-        PROVIDER_IDS.filter((id) => isProviderRuntimeEnabled(id)),
-      );
-      setDisabledProviders(disabled);
-      let totalPurged = 0;
-      for (const id of PROVIDER_IDS) {
-        const nowEnabled = isProviderRuntimeEnabled(id);
-        const wasEnabled = prevEnabled.has(id);
-        if (wasEnabled !== nowEnabled) {
-          applyRuntimeSideEffects(id, nowEnabled);
-        }
-        if (wasEnabled && !nowEnabled) {
-          totalPurged += purgeProviderFromStore(id);
-        }
-      }
+      const totalPurged = setDisabledProvidersAction(disabled);
       return NextResponse.json({
         success: true,
         disabled,
