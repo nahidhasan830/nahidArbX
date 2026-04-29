@@ -19,6 +19,7 @@
 
 import { getFamilyIdByAtom, isValidAtom } from "../registry";
 import { matchTeamSide } from "../../shared/team-matching";
+import { bufferUnmappedMarket } from "../unmapped-buffer";
 import {
   formatLine,
   formatHandicapLine,
@@ -93,11 +94,12 @@ function detectTimeScope(marketName: string): TimeScope {
 function detectMarketType(
   marketName: string,
   apiSiteMarketType?: number,
+  handicap?: number,
 ): DetectedMarket | null {
   const lower = marketName
     .toLowerCase()
     .replace(/over\/under/g, "over / under");
-  const line = extractLine(marketName);
+  const line = extractLine(marketName) ?? handicap ?? null;
 
   // Use apiSiteMarketType to detect Half-Time markets (more reliable than name patterns)
   let timeScope = detectTimeScope(marketName);
@@ -219,16 +221,20 @@ function detectMarketType(
     };
   }
 
-  // Team Total Goals - pattern: "{TeamName} Goals Over / Under {line}"
-  // Excludes "total goals" (that's the match-total market, handled below)
-  // Examples: "Arsenal Goals Over / Under 1.5", "Half Time Chelsea Goals Over / Under 0.5"
+  // Team Total Goals
   if (
-    lower.includes("goals over / under") &&
-    !lower.includes("total goals") &&
-    line !== null
+    lower.includes("team total goals") ||
+    lower.includes("team goals over / under") ||
+    (lower.includes("goals over / under") && !lower.includes("total goals")) ||
+    lower === "home team total" ||
+    lower === "away team total" ||
+    lower === "half time home team total" ||
+    lower === "half time away team total"
   ) {
-    // Pass marketName so we can match team later
-    return { marketType: "HOME_TEAM_TOTAL", timeScope, line, marketName };
+    if (line !== null) {
+      // Pass marketName so we can match team later
+      return { marketType: lower.includes("away") ? "AWAY_TEAM_TOTAL" : "HOME_TEAM_TOTAL", timeScope, line, marketName };
+    }
   }
 
   // Total Goals (Over/Under) - use startsWith for exact pattern matching
@@ -547,9 +553,10 @@ export function mapSportsbookToAtom(
   marketName: string,
   homeTeam: string,
   awayTeam: string,
+  handicap?: number,
 ): string | null {
   // Detect market type from name, using apiSiteMarketType to identify HT markets
-  const detected = detectMarketType(marketName, apiSiteMarketType);
+  const detected = detectMarketType(marketName, apiSiteMarketType, handicap);
   if (!detected) return null;
 
   // Generate atom ID
@@ -608,9 +615,23 @@ export function extractSportsbookOdds(
       market.marketName,
       homeTeam,
       awayTeam,
+      selection.handicap,
     );
 
     if (!atomId) {
+      // Harvest unmapped market for diagnostics
+      bufferUnmappedMarket({
+        provider: "ninewickets-sportsbook",
+        rawMarketKey: `${market.apiSiteMarketType}:${market.marketName}:${selection.selectionName}`,
+        rawMarketName: `${market.marketName} / ${selection.selectionName}`,
+        samplePayload: {
+          apiSiteMarketType: market.apiSiteMarketType,
+          marketName: market.marketName,
+          selectionName: selection.selectionName,
+          odds: selection.odds,
+          handicap: selection.handicap,
+        },
+      });
       continue;
     }
 

@@ -18,6 +18,7 @@ import {
   getProviderConcurrency,
 } from "../providers/registry";
 import { getProviderPolicy } from "../shared/circuit-breaker";
+import { flushUnmappedBuffer } from "./unmapped-buffer";
 import type { NormalizedEvent } from "../types";
 
 // ============================================
@@ -148,6 +149,9 @@ export async function fetchAllOddsForMatchedEvents(
 
   // Clean up stale entries not refreshed in this cycle
   endFetchCycleCleanup(events.map((e) => e.id));
+
+  // Flush accumulated unmapped-market telemetry to DB (fire-and-forget)
+  void flushUnmappedBuffer();
 
   return stats;
 }

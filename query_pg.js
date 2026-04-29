@@ -7,10 +7,9 @@ const pool = new Pool({
 
 async function run() {
   try {
-    const res = await pool.query(
-      "SELECT * FROM bets WHERE mode = 'manual' ORDER BY placed_at DESC LIMIT 1",
-    );
-    console.log("Full manual bet:", res.rows[0]);
+    const query = process.argv[2] || "SELECT * FROM bets WHERE mode = 'manual' ORDER BY placed_at DESC LIMIT 1";
+    const res = await pool.query(query);
+    console.log(JSON.stringify(res.rows, null, 2));
   } catch (e) {
     console.error(e);
   } finally {

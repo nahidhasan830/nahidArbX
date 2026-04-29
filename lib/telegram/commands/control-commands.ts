@@ -251,7 +251,7 @@ registerCommand({
   usage: "/refresh-token",
   description: "Force a Pinnacle Bearer-token refresh.",
   explanation:
-    "Pinnacle requires a Bearer token captured via Playwright/betjili that expires after ~1h. Sync auto-refreshes when TTL drops below 20 minutes, " +
+    "Pinnacle requires a Bearer token captured via betjili that expires after ~1h. Sync auto-refreshes when TTL drops below 20 minutes, " +
     "but if a sync is failing because the token went missing you can force the refresh now. The capture runs server-side; this command returns " +
     "once the refresh attempt finishes (success or failure surfaces in the reply).",
   group: "control",

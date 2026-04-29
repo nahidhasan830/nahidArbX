@@ -33,6 +33,7 @@
 
 import { getFamilyIdByAtom } from "../registry";
 import { formatLine } from "../../formatting/lines";
+import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import type { BCMarket, BCEvent } from "../../adapters/betconstruct/client";
 
@@ -71,10 +72,14 @@ const SECOND_HALF_RESULT_ATOMS: Record<string, string> = {
 // ============================================
 
 // Supported total lines for FT
-const SUPPORTED_FT_TOTAL_LINES = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5];
+const SUPPORTED_FT_TOTAL_LINES = [
+  0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5, 3.75,
+  4.0, 4.25, 4.5, 4.75, 5.0, 5.25, 5.5, 5.75, 6.0, 6.25, 6.5, 6.75, 7.0, 7.25,
+  7.5, 7.75, 8.0, 8.25, 8.5
+];
 
 // Supported total lines for 1H/2H
-const SUPPORTED_HALF_TOTAL_LINES = [0.5, 1.5, 2.5];
+const SUPPORTED_HALF_TOTAL_LINES = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0, 3.25, 3.5];
 
 function getTotalsAtom(
   base: number,
@@ -93,7 +98,7 @@ function getTotalsAtom(
 // ============================================
 
 // Supported team total lines
-const SUPPORTED_TEAM_TOTAL_LINES = [0.5, 1.5, 2.5, 3.5];
+const SUPPORTED_TEAM_TOTAL_LINES = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5];
 
 function getTeamTotalsAtom(
   base: number,
@@ -125,7 +130,8 @@ const BTTS_1H_ATOMS: Record<string, string> = {
 
 // Supported Asian Handicap lines (FT)
 const SUPPORTED_FT_AH_LINES = [
-  -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3,
+  -4.5, -4.25, -4, -3.75, -3.5, -3.25, -3, -2.75, -2.5, -2.25, -2, -1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25, 0,
+  0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5,
 ];
 
 // Supported Asian Handicap lines (1H)
@@ -201,8 +207,8 @@ function getCornersAtom(
 
 // Supported corners handicap lines
 const SUPPORTED_CORNERS_AH_LINES = [
-  -6.5, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1,
-  1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5,
+  -8.5, -8, -7.5, -7, -6.5, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1,
+  1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5,
 ];
 
 function getCornersHandicapAtom(base: number, isHome: boolean): string | null {
@@ -215,6 +221,25 @@ function getCornersHandicapAtom(base: number, isHome: boolean): string | null {
 
   // Use event.base directly - it already has the correct sign per team
   return `ft_corners_${team}_ah_${sign}${line}`;
+}
+
+
+// ============================================
+// Corners Team Totals Mapping
+// ============================================
+
+const SUPPORTED_TEAM_CORNERS_LINES = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5];
+
+function getCornersTeamTotalAtom(
+  base: number,
+  direction: "over" | "under",
+  isHome: boolean,
+  scope: "ft" | "1h" = "ft",
+): string | null {
+  if (!SUPPORTED_TEAM_CORNERS_LINES.includes(base)) return null;
+  const line = formatLine(base);
+  const team = isHome ? "home" : "away";
+  return `${scope}_${team}_corners_${direction}_${line}`;
 }
 
 // ============================================
@@ -373,6 +398,27 @@ export function mapBetConstructToAtom(
     // =============================================
 
     // Corners Over/Under (Full Time)
+
+    case "CornersTotalHome": {
+      if (base === undefined || !displayKey) return null;
+      const direction = getOverUnderDirection(selectionType, selectionName);
+      if (!direction) return null;
+      if (displayKey.includes("1ST HALF")) {
+        return getCornersTeamTotalAtom(base, direction, true, "1h");
+      }
+      return getCornersTeamTotalAtom(base, direction, true, "ft");
+    }
+
+    case "CornersTotalAway": {
+      if (base === undefined || !displayKey) return null;
+      const direction = getOverUnderDirection(selectionType, selectionName);
+      if (!direction) return null;
+      if (displayKey.includes("1ST HALF")) {
+        return getCornersTeamTotalAtom(base, direction, false, "1h");
+      }
+      return getCornersTeamTotalAtom(base, direction, false, "ft");
+    }
+
     case "CornersOverUnder": {
       if (base === undefined) return null;
       const direction = getOverUnderDirection(selectionType, selectionName);
@@ -485,6 +531,20 @@ export function extractBetConstructOdds(
     );
 
     if (!atomId) {
+      // Harvest unmapped market for diagnostics
+      bufferUnmappedMarket({
+        provider: "betconstruct",
+        rawMarketKey: `${market.type}:${event.type_1}:${market.display_key ?? ""}`,
+        rawMarketName: `${market.type} / ${event.name}`,
+        samplePayload: {
+          marketType: market.type,
+          displayKey: market.display_key,
+          selectionType: event.type_1,
+          selectionName: event.name,
+          base: event.base ?? market.base,
+          price: event.price,
+        },
+      });
       continue;
     }
 

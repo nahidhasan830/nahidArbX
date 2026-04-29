@@ -22,7 +22,7 @@ export const MAX_ODDS_AGE_MS = 90_000; // 90 seconds - odds older than this are 
 export const MIN_EV_PCT = 2.0; // Minimum EV% to flag as value bet
 export const KELLY_FRACTION = 0.25; // Quarter Kelly for risk management
 export const VALUE_TOTAL_STAKE = 1000; // Default bankroll for Kelly calculation
-export const MAX_VALUE_ODDS_AGE_MS = 90_000; // Max age of sharp odds snapshot used for detection
+export const MAX_VALUE_ODDS_AGE_MS = 180_000; // Max age of sharp odds snapshot used for detection (3 min — survives fixture sync delays)
 // Auto-placement stake rules.
 //   - BUCKET: stakes always snap to a multiple of this (100 BDT) so we
 //     never submit fractional amounts like 4.69 — operator preference.
@@ -43,3 +43,7 @@ export const PRIORITY_MAX_KELLY_PCT = 10; // Max Kelly as % of bankroll for norm
 // API
 export const DEFAULT_PAGE_SIZE = 1000;
 export const PINNACLE_DAYS_AHEAD = 1;
+
+// Market Diagnostics
+export const ANOMALY_IP_DEVIATION_THRESHOLD = 0.15; // 15% — suppress value bets with IP deviation above this
+export const ANOMALY_PARTICIPANT_REVERSAL_THRESHOLD = 0.30; // 30% — classify as likely participant reversal

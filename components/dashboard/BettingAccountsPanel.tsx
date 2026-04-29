@@ -16,6 +16,7 @@
 import { useMemo, useState } from "react";
 import {
   AlertCircle,
+  CheckCircle2,
   Loader2,
   Pause,
   Play,
@@ -56,8 +57,6 @@ export interface BettingAccount {
   session: {
     health: SessionHealth;
     capturedAt: string | null;
-    expiresAt: string | null;
-    msUntilExpiry: number | null;
   };
 }
 
@@ -94,6 +93,7 @@ export interface OverviewVelki {
 
 export interface ProviderStats {
   stake: number;
+  openStake: number;
   openBets: number;
   settledBets: number;
 }
@@ -104,6 +104,7 @@ export interface BettingAccountsPanelProps {
     byBook: {
       key: string;
       stake: number;
+      openStake: number;
       openBets: number;
       settledBets: number;
     }[];
@@ -270,7 +271,6 @@ function AccountCard({
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <StatusBadge account={account} reloginBusy={reloginBusy} />
-          <SessionBadge session={account.session} isDemo={account.isDemo} />
         </div>
       </div>
 
@@ -317,16 +317,10 @@ function AccountCard({
               </div>
             </div>
 
-            <div className="flex flex-col gap-1 px-3 py-2.5 rounded-[8px] bg-black/20 border border-white/[0.04]">
-              <div className="text-[9px] font-bold tracking-[0.08em] uppercase text-muted-foreground/70">
-                Turnover
-              </div>
-              <div className="text-[13px] font-semibold leading-none tracking-[-0.01em] font-mono tabular-nums text-foreground/80 mt-1">
-                {providerStats
-                  ? money(providerStats.stake, account.currency)
-                  : "—"}
-              </div>
-            </div>
+            <PendingTurnoverTile
+              openStake={providerStats?.openStake ?? null}
+              currency={account.currency}
+            />
           </div>
 
           {/* ── Pending and Settled count tiles ── */}
@@ -408,66 +402,57 @@ function AccountCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Pending Turnover tile — subtle emerald tint when cleared
+// ─────────────────────────────────────────────────────────────────────
+
+function PendingTurnoverTile({
+  openStake,
+  currency,
+}: {
+  openStake: number | null;
+  currency: string;
+}) {
+  const cleared = openStake !== null && openStake === 0;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1 px-3 py-2.5 rounded-[8px] border",
+        cleared
+          ? "bg-emerald-950/20 border-emerald-500/25"
+          : "bg-black/20 border-white/[0.04]",
+      )}
+    >
+      <div
+        className={cn(
+          "text-[9px] font-bold tracking-[0.08em] uppercase",
+          cleared ? "text-emerald-400/80" : "text-muted-foreground/70",
+        )}
+      >
+        Pending T.O.
+      </div>
+
+      {cleared ? (
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <CheckCircle2 className="size-3 text-emerald-400" />
+          <span className="text-[13px] font-semibold leading-none tracking-[-0.01em] text-emerald-400">
+            Cleared
+          </span>
+        </div>
+      ) : (
+        <div className="text-[13px] font-semibold leading-none tracking-[-0.01em] font-mono tabular-nums text-foreground/80 mt-1">
+          {openStake !== null ? money(openStake, currency) : "—"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Leaf components
 // ─────────────────────────────────────────────────────────────────────
 
-function SessionBadge({
-  session,
-  isDemo,
-}: {
-  session: BettingAccount["session"];
-  isDemo: boolean;
-}) {
-  if (isDemo) return null;
-  const ms = session.msUntilExpiry;
-  const label = formatSessionWindow(ms);
-  const title =
-    session.expiresAt && session.capturedAt
-      ? `Session captured ${new Date(session.capturedAt).toLocaleString()} · expires ${new Date(session.expiresAt).toLocaleString()}`
-      : "No session captured yet";
-  switch (session.health) {
-    case "healthy":
-      return (
-        <Badge
-          variant="outline"
-          className="text-[9px] h-4 px-1.5 text-emerald-600 border-emerald-600/40"
-          title={title}
-        >
-          Session {label}
-        </Badge>
-      );
-    case "expiring":
-      return (
-        <Badge
-          variant="outline"
-          className="text-[9px] h-4 px-1.5 text-amber-600 border-amber-600/40"
-          title={title}
-        >
-          Expires {label}
-        </Badge>
-      );
-    case "expired":
-      return (
-        <Badge
-          variant="destructive"
-          className="text-[9px] h-4 px-1.5"
-          title={title}
-        >
-          Expired
-        </Badge>
-      );
-    default:
-      return (
-        <Badge
-          variant="outline"
-          className="text-[9px] h-4 px-1.5 text-muted-foreground"
-          title={title}
-        >
-          No session
-        </Badge>
-      );
-  }
-}
+
 
 function StatusBadge({
   account,
@@ -708,15 +693,7 @@ function formatRelative(iso: string | null): string {
   return `${day}d ago`;
 }
 
-function formatSessionWindow(ms: number | null): string {
-  if (ms === null) return "—";
-  if (ms <= 0) return "expired";
-  const mins = Math.floor(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  const remM = mins % 60;
-  return remM ? `${hours}h${remM}m` : `${hours}h`;
-}
+
 
 function renderAutoLoginAge(iso: string): string | null {
   const t = Date.parse(iso);

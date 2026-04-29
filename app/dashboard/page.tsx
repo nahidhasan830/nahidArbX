@@ -119,8 +119,6 @@ interface BettingAccount {
   session: {
     health: SessionHealth;
     capturedAt: string | null;
-    expiresAt: string | null;
-    msUntilExpiry: number | null;
   };
 }
 
@@ -133,6 +131,7 @@ interface BreakdownRow {
   roiPct: number;
   avgClvPct: number | null;
   openBets: number;
+  openStake: number;
   settledBets: number;
 }
 

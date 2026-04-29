@@ -18,9 +18,15 @@ export async function GET(req: Request) {
     200,
     Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50),
   );
+  const [entries, stats, counts] = await Promise.all([
+    getCommandHistory(n),
+    getCommandHistoryStats(),
+    getCommandCounts(),
+  ]);
+  
   return NextResponse.json({
-    entries: getCommandHistory(n),
-    stats: getCommandHistoryStats(),
-    counts: getCommandCounts(),
+    entries,
+    stats,
+    counts,
   });
 }

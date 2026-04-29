@@ -11,10 +11,7 @@ import {
 } from "../store";
 import { matchEvents } from "../matching";
 import { fetchAllOddsForMatchedEvents } from "../atoms/fetcher";
-import {
-  detectAllValueBetsIncremental,
-  resetValueCache,
-} from "../atoms/value-detector";
+import { detectAllValueBetsIncremental } from "../atoms/value-detector";
 import { persistValueBets } from "../db/repositories/bets";
 import { getBettingSettings } from "../db/repositories/betting-settings";
 import { maybeAutoPlace } from "../betting/auto-placer";
@@ -231,8 +228,15 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     // Store matched events with raw count for stats
     setEvents(matchedEvents, allEvents.length);
 
-    // Reset incremental cache — events changed, need full recomputation next odds sync
-    resetValueCache();
+    // NOTE: we intentionally do NOT call resetValueCache() here.
+    // The incremental detector already prunes events that leave the
+    // active set (value-detector.ts L104-111). Resetting after
+    // fixtures caused value bets to be lost: the matching phase can
+    // hang for 3+ minutes (entity-matcher Cloud Run), so by the time
+    // the post-fixture odds sync runs, sharp odds are stale (>90s
+    // staleness gate) and the full recompute returns zero bets.
+    // Removing this reset lets valid cached value bets survive across
+    // fixture boundaries.
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.info("Sync", `Fixtures complete in ${duration}s`);
@@ -791,29 +795,10 @@ export function startScheduler(): void {
         return;
       }
 
-      if (sch.fixturesSyncing) {
-        // Fixtures are running — wait for them to finish, then run odds immediately
-        sch.oddsQueued = true;
-        logger.debug(
-          "Sync",
-          "Odds deferred — waiting for fixtures to complete",
-        );
-        await new Promise<void>((resolve) => {
-          const prev = sch.onFixDone;
-          sch.onFixDone = () => {
-            sch.onFixDone = prev; // restore previous callback
-            resolve();
-          };
-        });
-        sch.oddsQueued = false;
-
-        // Fixtures just finished and already triggered a post-fixture odds sync.
-        // Skip this cycle to avoid a double odds sync, and schedule the next one.
-        if (sch.active) {
-          scheduleNextOdds();
-        }
-        return;
-      }
+      // Odds sync runs independently of fixtures. It uses the last-known
+      // matched events from the store (getMatchedEvents). This prevents
+      // the 3+ minute starvation window when the entity-matcher Cloud Run
+      // service hangs during the fixture matching phase.
 
       const syncStart = Date.now();
       await syncOddsOnly();

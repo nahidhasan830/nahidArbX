@@ -111,6 +111,11 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Optimisation",
         icon: FlaskConical,
       },
+      {
+        href: "/lab/market-matcher",
+        label: "Market Matcher",
+        icon: Search,
+      },
     ],
   },
   {

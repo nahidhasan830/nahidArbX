@@ -90,7 +90,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     await reply(
       `❓ Unknown command <code>${cmdName.replace(/[<>&]/g, "")}</code>. Try /help.`,
     );
-    recordCommandHistory({
+    await recordCommandHistory({
       at: new Date(startedAt).toISOString(),
       command: cleanName,
       text: text.slice(0, 200),
@@ -107,7 +107,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     await reply(
       `🚫 <b>${spec.name}</b> is disabled. Re-enable it on the /telegram page in the dashboard.`,
     );
-    recordCommandHistory({
+    await recordCommandHistory({
       at: new Date(startedAt).toISOString(),
       command: spec.name,
       text: text.slice(0, 200),
@@ -131,7 +131,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     if (result && !result.alreadyReplied && result.text) {
       await reply(result.text, result.reply_markup);
     }
-    recordCommandHistory({
+    await recordCommandHistory({
       at: new Date(startedAt).toISOString(),
       command: spec.name,
       text: text.slice(0, 200),
@@ -145,7 +145,7 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     await reply(
       `⚠️ <b>${spec.name}</b> failed: <code>${m.replace(/[<>&]/g, "")}</code>`,
     );
-    recordCommandHistory({
+    await recordCommandHistory({
       at: new Date(startedAt).toISOString(),
       command: spec.name,
       text: text.slice(0, 200),

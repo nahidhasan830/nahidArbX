@@ -23,7 +23,6 @@ export interface SavedDefaults {
   selectedProviders: string[];
   showOnlyValue: boolean;
   showOnlySuspicious: boolean;
-  minProviderCount: number;
   minEvPct: number;
   timeFilter: TimeFilter;
   suspiciousThresholdPct: number;
@@ -41,7 +40,6 @@ const SYSTEM_DEFAULTS: SavedDefaults = {
   selectedProviders: [...PROVIDER_IDS],
   showOnlyValue: true,
   showOnlySuspicious: false,
-  minProviderCount: 1,
   minEvPct: 2.0,
   timeFilter: "all",
   suspiciousThresholdPct: 30,
@@ -67,8 +65,6 @@ export interface BulkAnalysisPreferences {
   setShowOnlyValue: (value: boolean) => void;
   showOnlySuspicious: boolean;
   setShowOnlySuspicious: (value: boolean) => void;
-  minProviderCount: number;
-  setMinProviderCount: (value: number) => void;
   minEvPct: number;
   setMinEvPct: (value: number) => void;
   searchTerm: string;
@@ -152,10 +148,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const [showOnlySuspicious, setShowOnlySuspicious] = useLocalStorage<boolean>(
     "bulk-analysis-suspicious-only",
     false,
-  );
-  const [minProviderCount, setMinProviderCount] = useLocalStorage<number>(
-    "bulk-analysis-min-providers",
-    2,
   );
   const [minEvPct, setMinEvPct] = useLocalStorage<number>(
     "bulk-analysis-min-ev-pct",
@@ -377,7 +369,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     const d = activeDefaults;
     setShowOnlyValue(d.showOnlyValue);
     setShowOnlySuspicious(d.showOnlySuspicious);
-    setMinProviderCount(d.minProviderCount);
     setMinEvPct(d.minEvPct);
     setSuspiciousThresholdPct(d.suspiciousThresholdPct);
     setSearchTerm("");
@@ -395,7 +386,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     activeDefaults,
     setShowOnlyValue,
     setShowOnlySuspicious,
-    setMinProviderCount,
     setMinEvPct,
     setSuspiciousThresholdPct,
     setTimeFilter,
@@ -422,7 +412,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     return (
       showOnlyValue !== d.showOnlyValue ||
       showOnlySuspicious !== d.showOnlySuspicious ||
-      minProviderCount !== d.minProviderCount ||
       minEvPct !== d.minEvPct ||
       suspiciousThresholdPct !== d.suspiciousThresholdPct ||
       searchTerm !== "" ||
@@ -441,7 +430,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     activeDefaults,
     showOnlyValue,
     showOnlySuspicious,
-    minProviderCount,
     minEvPct,
     suspiciousThresholdPct,
     searchTerm,
@@ -462,7 +450,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
       selectedProviders: selectedProvidersArray,
       showOnlyValue,
       showOnlySuspicious,
-      minProviderCount,
       minEvPct,
       timeFilter,
       suspiciousThresholdPct,
@@ -479,7 +466,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     selectedProvidersArray,
     showOnlyValue,
     showOnlySuspicious,
-    minProviderCount,
     minEvPct,
     timeFilter,
     suspiciousThresholdPct,
@@ -512,8 +498,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setShowOnlyValue,
     showOnlySuspicious,
     setShowOnlySuspicious,
-    minProviderCount,
-    setMinProviderCount,
     minEvPct,
     setMinEvPct,
     searchTerm,

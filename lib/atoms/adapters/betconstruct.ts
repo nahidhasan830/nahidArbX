@@ -26,6 +26,7 @@ import {
   extractBetConstructOdds,
   isSupportedMarketType,
 } from "../mappings/betconstruct";
+import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import { stopBCScorePolling } from "../../scores/bc-poller";
 import { logger } from "../../shared/logger";
@@ -108,8 +109,34 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
 
     // Extract odds from each supported market
     for (const market of Object.values(game.market)) {
-      // Skip unsupported market types
-      if (!isSupportedMarketType(market.type)) continue;
+      // Harvest unsupported market types (Drop Point 1)
+      if (!isSupportedMarketType(market.type)) {
+        // Grab one sample selection for the raw data viewer
+        const sampleEvent = market.event
+          ? (Object.values(market.event)[0] as { type_1?: string; name?: string; base?: number; price?: number } | undefined)
+          : undefined;
+        bufferUnmappedMarket({
+          provider: "betconstruct",
+          rawMarketKey: `UNSUPPORTED_TYPE:${market.type}`,
+          rawMarketName: market.name,
+          samplePayload: {
+            marketType: market.type,
+            marketName: market.name,
+            displayKey: market.display_key,
+            base: market.base,
+            sampleSelection: sampleEvent
+              ? {
+                  type_1: sampleEvent.type_1,
+                  name: sampleEvent.name,
+                  base: sampleEvent.base,
+                  price: sampleEvent.price,
+                }
+              : null,
+            selectionsCount: Object.keys(market.event ?? {}).length,
+          },
+        });
+        continue;
+      }
 
       // Skip markets without selections
       if (!market.event || Object.keys(market.event).length === 0) continue;

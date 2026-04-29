@@ -197,7 +197,6 @@ interface ValueBetEvent {
 interface AnalyzeOptions {
   selectedProviders: Set<ProviderKey> | null; // null = all providers
   selectedMarketTypes: Set<string> | null; // null = all market types
-  minProviderCount: number;
 }
 
 function analyzeEvents(
@@ -206,7 +205,6 @@ function analyzeEvents(
   options: AnalyzeOptions = {
     selectedProviders: null,
     selectedMarketTypes: null,
-    minProviderCount: 1,
   },
 ): {
   events: ValueBetEvent[];
@@ -280,10 +278,6 @@ function analyzeEvents(
         if (bestProviderVal && oddsByProvider[bestProviderVal]) {
           oddsByProvider[bestProviderVal]!.isBest = true;
         }
-
-        // Skip atoms with fewer providers than required
-        if (Object.keys(oddsByProvider).length < options.minProviderCount)
-          continue;
 
         // Look up value bet for this atom (key: eventId:familyId:atomId)
         const valueKey = `${event.id}:${familyId}:${atomId}`;
@@ -459,9 +453,6 @@ export async function GET(request: Request) {
   const selectedMarketTypes: Set<string> | null = marketTypesParam
     ? new Set(marketTypesParam.split(",").filter(Boolean))
     : null; // null = all market types
-  const minProviderCount = parseInt(
-    url.searchParams.get("minProviderCount") || "1",
-  );
 
   // Field-selection: when ?fields= is provided, only compute/return requested sections.
   // When absent, return everything (backward compatible).
@@ -537,8 +528,7 @@ export async function GET(request: Request) {
   const hasDisplayFilters =
     selectedProviders !== null ||
     timeFilter !== "all" ||
-    selectedMarketTypes !== null ||
-    minProviderCount > 1;
+    selectedMarketTypes !== null;
   const canUseCache =
     requestedFields === null &&
     page === 0 &&
@@ -665,12 +655,10 @@ export async function GET(request: Request) {
     eventsToAnalyze = eventsToAnalyze.slice(start, end);
   }
 
-  // Analyze events (with server-side provider/market/minProvider filtering)
   const analyzed = needsEventAnalysis
     ? analyzeEvents(eventsToAnalyze, valuesByAtom, {
         selectedProviders,
         selectedMarketTypes,
-        minProviderCount,
       })
     : {
         events: [],

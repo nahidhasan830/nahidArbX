@@ -53,8 +53,6 @@ export interface BettingAccount {
   session: {
     health: SessionHealth;
     capturedAt: string | null;
-    expiresAt: string | null;
-    msUntilExpiry: number | null;
   };
 }
 
@@ -255,8 +253,6 @@ function buildDemoAccount(): BettingAccount {
     session: {
       health: "unknown",
       capturedAt: null,
-      expiresAt: null,
-      msUntilExpiry: null,
     },
   };
 }
@@ -306,8 +302,6 @@ function buildVelkiSessionStatus(
   return {
     health: capturedAt ? "healthy" : "unknown",
     capturedAt,
-    expiresAt: null,
-    msUntilExpiry: null,
   };
 }
 
@@ -319,13 +313,10 @@ function buildSessionStatus(
     return {
       health: "unknown",
       capturedAt,
-      expiresAt: null,
-      msUntilExpiry: null,
     };
   }
   const expMs = accessTokenExp * 1000;
   const msUntil = expMs - Date.now();
-  const expiresAt = new Date(expMs).toISOString();
 
   let health: SessionHealth;
   if (msUntil <= 0) health = "expired";
@@ -335,7 +326,5 @@ function buildSessionStatus(
   return {
     health,
     capturedAt,
-    expiresAt,
-    msUntilExpiry: msUntil,
   };
 }

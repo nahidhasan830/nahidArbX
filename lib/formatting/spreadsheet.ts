@@ -166,7 +166,6 @@ export type TimeFilter = "all" | "live" | "upcoming";
 
 export interface TransformOptions {
   selectedProviders?: Set<ProviderKey>;
-  minProviderCount?: number;
   showOnlyValue?: boolean; // Filter to show only value bets
   minEvPct?: number; // Minimum EV% to show (default 0)
   searchTerm?: string;
@@ -188,7 +187,6 @@ export function transformToSpreadsheetRows(
 ): SpreadsheetRow[] {
   const {
     selectedProviders = new Set(PROVIDER_IDS),
-    minProviderCount = 1,
     showOnlyValue = false,
     minEvPct = 0,
     searchTerm = "",
@@ -256,9 +254,6 @@ export function transformToSpreadsheetRows(
             selectedProviders.has(p as ProviderKey) &&
             atom.oddsByProvider[p as ProviderKey],
         ).length;
-
-        // Filter by min provider count
-        if (providerCount < minProviderCount) continue;
 
         // Check if this atom has a value bet meeting threshold
         const hasValue = !!atom.valueBet && atom.valueBet.evPct >= minEvPct;

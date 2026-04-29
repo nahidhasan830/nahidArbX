@@ -13,6 +13,7 @@
  */
 
 import { getFamilyIdByAtom } from "../registry";
+import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 
 // ============================================
@@ -67,9 +68,16 @@ const TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
   "ft|1.5": { over: "ft_total_over_1_5", under: "ft_total_under_1_5" },
   "ft|2.5": { over: "ft_total_over_2_5", under: "ft_total_under_2_5" },
   "ft|3.5": { over: "ft_total_over_3_5", under: "ft_total_under_3_5" },
-  "ft|4.5": { over: "ft_total_over_4_5", under: "ft_total_under_4_5" },
-  "ft|5.5": { over: "ft_total_over_5_5", under: "ft_total_under_5_5" },
+  "ft|6.25": { over: "ft_total_over_6_25", under: "ft_total_under_6_25" },
   "ft|6.5": { over: "ft_total_over_6_5", under: "ft_total_under_6_5" },
+  "ft|6.75": { over: "ft_total_over_6_75", under: "ft_total_under_6_75" },
+  "ft|7": { over: "ft_total_over_7", under: "ft_total_under_7" },
+  "ft|7.25": { over: "ft_total_over_7_25", under: "ft_total_under_7_25" },
+  "ft|7.5": { over: "ft_total_over_7_5", under: "ft_total_under_7_5" },
+  "ft|7.75": { over: "ft_total_over_7_75", under: "ft_total_under_7_75" },
+  "ft|8": { over: "ft_total_over_8", under: "ft_total_under_8" },
+  "ft|8.25": { over: "ft_total_over_8_25", under: "ft_total_under_8_25" },
+  "ft|8.5": { over: "ft_total_over_8_5", under: "ft_total_under_8_5" },
   // Full Time - Quarter-goal lines (split settlement)
   "ft|0.75": { over: "ft_total_over_0_75", under: "ft_total_under_0_75" },
   "ft|1.25": { over: "ft_total_over_1_25", under: "ft_total_under_1_25" },
@@ -91,8 +99,12 @@ const TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
   "ft|6": { over: "ft_total_over_6", under: "ft_total_under_6" },
   // First Half
   "1h|0.5": { over: "1h_total_over_0_5", under: "1h_total_under_0_5" },
-  "1h|1.5": { over: "1h_total_over_1_5", under: "1h_total_under_1_5" },
+  "1h|2.25": { over: "1h_total_over_2_25", under: "1h_total_under_2_25" },
   "1h|2.5": { over: "1h_total_over_2_5", under: "1h_total_under_2_5" },
+  "1h|2.75": { over: "1h_total_over_2_75", under: "1h_total_under_2_75" },
+  "1h|3": { over: "1h_total_over_3", under: "1h_total_under_3" },
+  "1h|3.25": { over: "1h_total_over_3_25", under: "1h_total_under_3_25" },
+  "1h|3.5": { over: "1h_total_over_3_5", under: "1h_total_under_3_5" },
 };
 
 // ============================================
@@ -114,6 +126,12 @@ const AH_ATOMS: Record<string, { home: string; away: string }> = {
   "ft|-1": { home: "ft_home_ah_m1", away: "ft_away_ah_p1" },
   "ft|-0.75": { home: "ft_home_ah_m0_75", away: "ft_away_ah_p0_75" },
   "ft|-0.5": { home: "ft_home_ah_m0_5", away: "ft_away_ah_p0_5" },
+  "ft|-3.25": { home: "ft_home_ah_m3_25", away: "ft_away_ah_p3_25" },
+  "ft|-3.5": { home: "ft_home_ah_m3_5", away: "ft_away_ah_p3_5" },
+  "ft|-3.75": { home: "ft_home_ah_m3_75", away: "ft_away_ah_p3_75" },
+  "ft|-4": { home: "ft_home_ah_m4", away: "ft_away_ah_p4" },
+  "ft|-4.25": { home: "ft_home_ah_m4_25", away: "ft_away_ah_p4_25" },
+  "ft|-4.5": { home: "ft_home_ah_m4_5", away: "ft_away_ah_p4_5" },
   "ft|-0.25": { home: "ft_home_ah_m0_25", away: "ft_away_ah_p0_25" },
   "ft|0": { home: "ft_home_ah_0", away: "ft_away_ah_0" },
   // Full Time - Positive lines (home receiving)
@@ -129,6 +147,12 @@ const AH_ATOMS: Record<string, { home: string; away: string }> = {
   "ft|2.5": { home: "ft_home_ah_p2_5", away: "ft_away_ah_m2_5" },
   "ft|2.75": { home: "ft_home_ah_p2_75", away: "ft_away_ah_m2_75" },
   "ft|3": { home: "ft_home_ah_p3", away: "ft_away_ah_m3" },
+  "ft|3.25": { home: "ft_home_ah_p3_25", away: "ft_away_ah_m3_25" },
+  "ft|3.5": { home: "ft_home_ah_p3_5", away: "ft_away_ah_m3_5" },
+  "ft|3.75": { home: "ft_home_ah_p3_75", away: "ft_away_ah_m3_75" },
+  "ft|4": { home: "ft_home_ah_p4", away: "ft_away_ah_m4" },
+  "ft|4.25": { home: "ft_home_ah_p4_25", away: "ft_away_ah_m4_25" },
+  "ft|4.5": { home: "ft_home_ah_p4_5", away: "ft_away_ah_m4_5" },
   // First Half
   "1h|-1.5": { home: "1h_home_ah_m1_5", away: "1h_away_ah_p1_5" },
   "1h|-1.25": { home: "1h_home_ah_m1_25", away: "1h_away_ah_p1_25" },
@@ -156,11 +180,15 @@ const TEAM_TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
   "ft|home|1.5": { over: "ft_home_over_1_5", under: "ft_home_under_1_5" },
   "ft|home|2.5": { over: "ft_home_over_2_5", under: "ft_home_under_2_5" },
   "ft|home|3.5": { over: "ft_home_over_3_5", under: "ft_home_under_3_5" },
+  "ft|home|4.5": { over: "ft_home_over_4_5", under: "ft_home_under_4_5" },
+  "ft|home|5.5": { over: "ft_home_over_5_5", under: "ft_home_under_5_5" },
   // Away Team - Full Time
   "ft|away|0.5": { over: "ft_away_over_0_5", under: "ft_away_under_0_5" },
   "ft|away|1.5": { over: "ft_away_over_1_5", under: "ft_away_under_1_5" },
   "ft|away|2.5": { over: "ft_away_over_2_5", under: "ft_away_under_2_5" },
   "ft|away|3.5": { over: "ft_away_over_3_5", under: "ft_away_under_3_5" },
+  "ft|away|4.5": { over: "ft_away_over_4_5", under: "ft_away_under_4_5" },
+  "ft|away|5.5": { over: "ft_away_over_5_5", under: "ft_away_under_5_5" },
   // Home Team - First Half
   "1h|home|0.5": { over: "1h_home_over_0_5", under: "1h_home_under_0_5" },
   "1h|home|1.5": { over: "1h_home_over_1_5", under: "1h_home_under_1_5" },
@@ -175,25 +203,30 @@ const TEAM_TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
 // Corners Totals Mapping
 // ============================================
 
-const CORNERS_TOTALS_ATOMS: Record<number, { over: string; under: string }> = {
-  5: { over: "ft_corners_over_5", under: "ft_corners_under_5" },
-  5.5: { over: "ft_corners_over_5_5", under: "ft_corners_under_5_5" },
-  6: { over: "ft_corners_over_6", under: "ft_corners_under_6" },
-  6.5: { over: "ft_corners_over_6_5", under: "ft_corners_under_6_5" },
-  7: { over: "ft_corners_over_7", under: "ft_corners_under_7" },
-  7.5: { over: "ft_corners_over_7_5", under: "ft_corners_under_7_5" },
-  8: { over: "ft_corners_over_8", under: "ft_corners_under_8" },
-  8.5: { over: "ft_corners_over_8_5", under: "ft_corners_under_8_5" },
-  9: { over: "ft_corners_over_9", under: "ft_corners_under_9" },
-  9.5: { over: "ft_corners_over_9_5", under: "ft_corners_under_9_5" },
-  10: { over: "ft_corners_over_10", under: "ft_corners_under_10" },
-  10.5: { over: "ft_corners_over_10_5", under: "ft_corners_under_10_5" },
-  11: { over: "ft_corners_over_11", under: "ft_corners_under_11" },
-  11.5: { over: "ft_corners_over_11_5", under: "ft_corners_under_11_5" },
-  12: { over: "ft_corners_over_12", under: "ft_corners_under_12" },
-  12.5: { over: "ft_corners_over_12_5", under: "ft_corners_under_12_5" },
-  13: { over: "ft_corners_over_13", under: "ft_corners_under_13" },
-  13.5: { over: "ft_corners_over_13_5", under: "ft_corners_under_13_5" },
+const CORNERS_TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
+  // Full Time
+  "ft|5": { over: "ft_corners_over_5", under: "ft_corners_under_5" },
+  "ft|5.5": { over: "ft_corners_over_5_5", under: "ft_corners_under_5_5" },
+  "ft|6": { over: "ft_corners_over_6", under: "ft_corners_under_6" },
+  "ft|6.5": { over: "ft_corners_over_6_5", under: "ft_corners_under_6_5" },
+  "ft|7": { over: "ft_corners_over_7", under: "ft_corners_under_7" },
+  "ft|7.5": { over: "ft_corners_over_7_5", under: "ft_corners_under_7_5" },
+  "ft|8": { over: "ft_corners_over_8", under: "ft_corners_under_8" },
+  "ft|8.5": { over: "ft_corners_over_8_5", under: "ft_corners_under_8_5" },
+  "ft|9": { over: "ft_corners_over_9", under: "ft_corners_under_9" },
+  "ft|9.5": { over: "ft_corners_over_9_5", under: "ft_corners_under_9_5" },
+  "ft|10": { over: "ft_corners_over_10", under: "ft_corners_under_10" },
+  "ft|10.5": { over: "ft_corners_over_10_5", under: "ft_corners_under_10_5" },
+  "ft|11": { over: "ft_corners_over_11", under: "ft_corners_under_11" },
+  "ft|11.5": { over: "ft_corners_over_11_5", under: "ft_corners_under_11_5" },
+  "ft|12": { over: "ft_corners_over_12", under: "ft_corners_under_12" },
+  "ft|12.5": { over: "ft_corners_over_12_5", under: "ft_corners_under_12_5" },
+  "ft|13": { over: "ft_corners_over_13", under: "ft_corners_under_13" },
+  "ft|13.5": { over: "ft_corners_over_13_5", under: "ft_corners_under_13_5" },
+  // First Half
+  "1h|3.5": { over: "1h_corners_over_3_5", under: "1h_corners_under_3_5" },
+  "1h|4.5": { over: "1h_corners_over_4_5", under: "1h_corners_under_4_5" },
+  "1h|5.5": { over: "1h_corners_over_5_5", under: "1h_corners_under_5_5" },
 };
 
 // ============================================
@@ -201,6 +234,10 @@ const CORNERS_TOTALS_ATOMS: Record<number, { over: string; under: string }> = {
 // ============================================
 
 const CORNERS_AH_ATOMS: Record<number, { home: string; away: string }> = {
+  [-8.5]: { home: "ft_corners_home_ah_m8_5", away: "ft_corners_away_ah_p8_5" },
+  [-8]: { home: "ft_corners_home_ah_m8", away: "ft_corners_away_ah_p8" },
+  [-7.5]: { home: "ft_corners_home_ah_m7_5", away: "ft_corners_away_ah_p7_5" },
+  [-7]: { home: "ft_corners_home_ah_m7", away: "ft_corners_away_ah_p7" },
   [-6.5]: { home: "ft_corners_home_ah_m6_5", away: "ft_corners_away_ah_p6_5" },
   [-6]: { home: "ft_corners_home_ah_m6", away: "ft_corners_away_ah_p6" },
   [-5.5]: { home: "ft_corners_home_ah_m5_5", away: "ft_corners_away_ah_p5_5" },
@@ -228,7 +265,11 @@ const CORNERS_AH_ATOMS: Record<number, { home: string; away: string }> = {
   [5.5]: { home: "ft_corners_home_ah_p5_5", away: "ft_corners_away_ah_m5_5" },
   [6]: { home: "ft_corners_home_ah_p6", away: "ft_corners_away_ah_m6" },
   [6.5]: { home: "ft_corners_home_ah_p6_5", away: "ft_corners_away_ah_m6_5" },
-};
+
+  [7]: { home: "ft_corners_home_ah_p7", away: "ft_corners_away_ah_m7" },
+  [7.5]: { home: "ft_corners_home_ah_p7_5", away: "ft_corners_away_ah_m7_5" },
+  [8]: { home: "ft_corners_home_ah_p8", away: "ft_corners_away_ah_m8" },
+  [8.5]: { home: "ft_corners_home_ah_p8_5", away: "ft_corners_away_ah_m8_5" },};
 
 // ============================================
 // Corners Team Totals Mapping
@@ -238,9 +279,9 @@ const CORNERS_TEAM_TOTALS_ATOMS: Record<
   string,
   { over: string; under: string }
 > = {
-  "home|0.5": {
-    over: "ft_home_corners_over_0_5",
-    under: "ft_home_corners_under_0_5",
+  "home|1": {
+    over: "ft_home_corners_over_1",
+    under: "ft_home_corners_under_1",
   },
   "home|1.5": {
     over: "ft_home_corners_over_1_5",
@@ -254,17 +295,33 @@ const CORNERS_TEAM_TOTALS_ATOMS: Record<
     over: "ft_home_corners_over_2_5",
     under: "ft_home_corners_under_2_5",
   },
+  "home|3": {
+    over: "ft_home_corners_over_3",
+    under: "ft_home_corners_under_3",
+  },
   "home|3.5": {
     over: "ft_home_corners_over_3_5",
     under: "ft_home_corners_under_3_5",
+  },
+  "home|4": {
+    over: "ft_home_corners_over_4",
+    under: "ft_home_corners_under_4",
   },
   "home|4.5": {
     over: "ft_home_corners_over_4_5",
     under: "ft_home_corners_under_4_5",
   },
+  "home|5": {
+    over: "ft_home_corners_over_5",
+    under: "ft_home_corners_under_5",
+  },
   "home|5.5": {
     over: "ft_home_corners_over_5_5",
     under: "ft_home_corners_under_5_5",
+  },
+  "home|6": {
+    over: "ft_home_corners_over_6",
+    under: "ft_home_corners_under_6",
   },
   "home|6.5": {
     over: "ft_home_corners_over_6_5",
@@ -278,9 +335,17 @@ const CORNERS_TEAM_TOTALS_ATOMS: Record<
     over: "ft_home_corners_over_7_5",
     under: "ft_home_corners_under_7_5",
   },
-  "away|0.5": {
-    over: "ft_away_corners_over_0_5",
-    under: "ft_away_corners_under_0_5",
+  "home|8": {
+    over: "ft_home_corners_over_8",
+    under: "ft_home_corners_under_8",
+  },
+  "home|8.5": {
+    over: "ft_home_corners_over_8_5",
+    under: "ft_home_corners_under_8_5",
+  },
+  "away|1": {
+    over: "ft_away_corners_over_1",
+    under: "ft_away_corners_under_1",
   },
   "away|1.5": {
     over: "ft_away_corners_over_1_5",
@@ -294,17 +359,33 @@ const CORNERS_TEAM_TOTALS_ATOMS: Record<
     over: "ft_away_corners_over_2_5",
     under: "ft_away_corners_under_2_5",
   },
+  "away|3": {
+    over: "ft_away_corners_over_3",
+    under: "ft_away_corners_under_3",
+  },
   "away|3.5": {
     over: "ft_away_corners_over_3_5",
     under: "ft_away_corners_under_3_5",
+  },
+  "away|4": {
+    over: "ft_away_corners_over_4",
+    under: "ft_away_corners_under_4",
   },
   "away|4.5": {
     over: "ft_away_corners_over_4_5",
     under: "ft_away_corners_under_4_5",
   },
+  "away|5": {
+    over: "ft_away_corners_over_5",
+    under: "ft_away_corners_under_5",
+  },
   "away|5.5": {
     over: "ft_away_corners_over_5_5",
     under: "ft_away_corners_under_5_5",
+  },
+  "away|6": {
+    over: "ft_away_corners_over_6",
+    under: "ft_away_corners_under_6",
   },
   "away|6.5": {
     over: "ft_away_corners_over_6_5",
@@ -317,6 +398,14 @@ const CORNERS_TEAM_TOTALS_ATOMS: Record<
   "away|7.5": {
     over: "ft_away_corners_over_7_5",
     under: "ft_away_corners_under_7_5",
+  },
+  "away|8": {
+    over: "ft_away_corners_over_8",
+    under: "ft_away_corners_under_8",
+  },
+  "away|8.5": {
+    over: "ft_away_corners_over_8_5",
+    under: "ft_away_corners_under_8_5",
   },
 };
 
@@ -382,9 +471,13 @@ export function mapPinnacleToAtom(
 
   // Handle Corners period separately
   if (period === "corners") {
+    // Treat halfIndicator=1 as 1H for corners, otherwise FT
+    const timeScope = halfIndicator === 1 ? "1h" : "ft";
+    
     switch (marketType) {
       case "TOTAL_POINTS": {
-        const mapping = CORNERS_TOTALS_ATOMS[handicap];
+        const key = `${timeScope}|${handicap}`;
+        const mapping = CORNERS_TOTALS_ATOMS[key];
         if (!mapping) return null;
         if (dirLower === "over") return mapping.over;
         if (dirLower === "under") return mapping.under;
@@ -392,6 +485,7 @@ export function mapPinnacleToAtom(
       }
 
       case "SPREAD": {
+        if (timeScope !== "ft") return null; // We only map FT corner spreads
         const mapping = CORNERS_AH_ATOMS[handicap];
         if (!mapping) return null;
         if (sideLower === "home") return mapping.home;
@@ -641,6 +735,22 @@ export function extractPinnacleOdds(
     );
 
     if (!atomId) {
+      // Harvest unmapped market for diagnostics
+      bufferUnmappedMarket({
+        provider: "pinnacle",
+        rawMarketKey: `${marketType}:${periodType}:${adjustedHandicap}:${side}:${direction}`,
+        rawMarketName: `${marketType} / ${periodType} / ${side || direction}`,
+        samplePayload: {
+          marketType,
+          periodType,
+          handicap: adjustedHandicap,
+          side,
+          direction,
+          marketSide,
+          halfIndicator,
+          odds,
+        },
+      });
       continue;
     }
 

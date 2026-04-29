@@ -145,7 +145,6 @@ export function ValueBetSpreadsheet({
   // is fetched, not how existing data is filtered.
   const deferredFilters = useDeferredValue({
     selectedProviders: effectiveSelectedProviders,
-    minProviderCount: prefs.minProviderCount,
     searchTerm,
     selectedMarketTypes: prefs.selectedMarketTypes,
     timeFilter: prefs.timeFilter,

@@ -353,8 +353,10 @@ registerCommand({
   group: "read",
   async handler({ args, reply }) {
     const n = Math.min(50, Math.max(1, parseInt(args[0] ?? "15", 10) || 15));
-    const stats = getCommandHistoryStats();
-    const entries = getCommandHistory(n);
+    const [stats, entries] = await Promise.all([
+      getCommandHistoryStats(),
+      getCommandHistory(n),
+    ]);
     if (entries.length === 0) {
       await reply("No command history yet.");
       return { alreadyReplied: true };

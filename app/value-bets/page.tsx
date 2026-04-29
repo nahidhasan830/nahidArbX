@@ -272,7 +272,6 @@ export default function AdminPage() {
     selectedProviders,
     timeFilter,
     selectedMarketTypes,
-    minProviderCount,
   } = useBulkAnalysisPreferences();
 
   const { isImpersonating } = useAuth();
@@ -305,7 +304,6 @@ export default function AdminPage() {
         selectedMarketTypes.size > 0
           ? Array.from(selectedMarketTypes)
           : undefined,
-      minProviderCount,
     },
   });
 
