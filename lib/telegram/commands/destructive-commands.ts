@@ -323,7 +323,6 @@ registerCommand({
           sharpProvider: vb.sharpProvider,
           sharpOdds: vb.sharpOdds,
           sharpTrueProb: vb.trueProb,
-          sharpOddsAgeMs: vb.sharpOddsAgeMs,
           softProvider: vb.softProvider,
           softCommissionPct: vb.commissionPct,
           softOdds: vb.softOdds,
@@ -331,14 +330,11 @@ registerCommand({
           lastSeenAt: new Date().toISOString(),
           tickCount: 1,
           closingSharpOdds: null,
-          closingSoftOdds: null,
           outcome: "pending",
-          outcomeMarkedAt: null,
           settledBySource: null,
+          settledAt: null,
           settleAttempts: 0,
           lastSettleAttemptAt: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
         };
         try {
           const outcome = await placeBetForValueBet({
@@ -510,7 +506,7 @@ registerCommand({
 
 const KNOWN_FILTER_KEYS = [
   "min_ev_pct",
-  "max_odds_age_sec",
+
   "min_sharp_prob",
   "odds_lo",
   "odds_hi",
@@ -629,15 +625,15 @@ registerCommand({
   },
 });
 
-// ── /autoplace-on <provider> ─────────────────────────────────────────────
+// ── /autoplaceon <provider> ──────────────────────────────────────────────
 // Lifted out of the read-only /autoplace command into its own
 // confirm-gated destructive command — turning auto-place ON enables real
 // money to flow without operator review, so it gets the same treatment as
 // /place.
 
 registerCommand({
-  name: "autoplace-on",
-  usage: "/autoplace-on <providerId>",
+  name: "autoplaceon",
+  usage: "/autoplaceon <providerId>",
   description: "Enable auto-place for a provider (real-money flow).",
   explanation:
     "Turns the auto-placer ON for one provider. After this, every detected value bet that passes the auto-placer's filters will be submitted to the book without human review. " +

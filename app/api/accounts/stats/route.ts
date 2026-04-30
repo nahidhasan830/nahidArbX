@@ -228,7 +228,7 @@ function buildHeatmap(rows: BetRow[]) {
     { dow: number; hour: number; bets: number; stake: number }
   >();
   for (const r of rows) {
-    const d = new Date(r.placedAt ?? r.createdAt);
+    const d = new Date(r.placedAt ?? r.firstSeenAt);
     const dow = d.getUTCDay();
     const hour = d.getUTCHours();
     const key = `${dow}-${hour}`;
@@ -251,7 +251,7 @@ function buildTopBets(settled: BetRow[], kind: "wins" | "losses") {
     .slice(0, 5)
     .map((r) => ({
       id: r.id,
-      placedAt: r.placedAt ?? r.createdAt,
+      placedAt: r.placedAt ?? r.firstSeenAt,
       eventName: `${r.homeTeam} vs ${r.awayTeam}`,
       marketName: r.marketType,
       selectionName: r.atomLabel,
@@ -270,7 +270,7 @@ function buildTopBets(settled: BetRow[], kind: "wins" | "losses") {
 
 function buildStreaks(settled: BetRow[]) {
   const chrono = [...settled].sort((a, b) =>
-    (a.placedAt ?? a.createdAt).localeCompare(b.placedAt ?? b.createdAt),
+    (a.placedAt ?? a.firstSeenAt).localeCompare(b.placedAt ?? b.firstSeenAt),
   );
   let longestWin = 0;
   let longestLoss = 0;
@@ -298,7 +298,7 @@ function buildStreaks(settled: BetRow[]) {
   }
 
   const newestFirst = [...settled].sort((a, b) =>
-    (b.placedAt ?? b.createdAt).localeCompare(a.placedAt ?? a.createdAt),
+    (b.placedAt ?? b.firstSeenAt).localeCompare(a.placedAt ?? a.firstSeenAt),
   );
   let currentType: "W" | "L" | "none" = "none";
   let currentLen = 0;

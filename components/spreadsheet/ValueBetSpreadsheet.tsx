@@ -60,6 +60,9 @@ import {
 } from "./ValueBetDetailsModal";
 import { SpreadsheetRow } from "./SpreadsheetRow";
 import { useSpreadsheetColumnWidths } from "./useSpreadsheetColumnWidths";
+import { MovementDetailModal } from "@/components/bets-history/MovementDetailModal";
+import type { OddsMovementData } from "@/lib/bets-history/types";
+import type { AtomOddsData } from "@/lib/formatting/spreadsheet";
 
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   event: 320,
@@ -69,14 +72,14 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   provider: 70,
   ev: 100,
   kelly: 70,
-  captured: 70,
+
   actions: 100,
 };
 
 interface ValueBetSpreadsheetProps {
   events: ValueBetEvent[];
   isLoading?: boolean;
-  isSyncing?: boolean;
+  isEngineWarming?: boolean;
   onRefreshComplete?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
@@ -105,7 +108,7 @@ type SelectedValueBet = {
 export function ValueBetSpreadsheet({
   events,
   isLoading = false,
-  isSyncing = false,
+  isEngineWarming = false,
   onRefreshComplete,
   hasNextPage = false,
   isFetchingNextPage = false,
@@ -119,6 +122,34 @@ export function ValueBetSpreadsheet({
 
   const [selectedValueBet, setSelectedValueBet] =
     useState<SelectedValueBet | null>(null);
+
+  // Movement chart modal state
+  const [movementModal, setMovementModal] = useState<{
+    data: OddsMovementData;
+    eventLabel: string;
+    marketLabel: string;
+  } | null>(null);
+
+  const handleMovementClick = useCallback(
+    (
+      movement: NonNullable<AtomOddsData["movement"]>,
+      context: { eventLabel: string; marketLabel: string; providerLabel: string },
+    ) => {
+      setMovementModal({
+        data: {
+          provider: context.providerLabel,
+          openingOdds: movement.openingOdds,
+          peakOdds: movement.peakOdds,
+          troughOdds: movement.troughOdds,
+          totalTicks: movement.totalTicks,
+          sparkline: movement.sparkline,
+        },
+        eventLabel: context.eventLabel,
+        marketLabel: `${context.marketLabel} · ${context.providerLabel}`,
+      });
+    },
+    [],
+  );
 
   const searchTerm = controlledSearchTerm ?? prefs.searchTerm;
   const onSearchChange = controlledOnSearchChange ?? prefs.setSearchTerm;
@@ -160,16 +191,8 @@ export function ValueBetSpreadsheet({
     [deferredFilters, prefs.showOnlyValue],
   );
 
-  // Freshness clock — drives the age-dot on each odds cell.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(interval);
-  }, []);
 
-  const [refreshingEvents, setRefreshingEvents] = useState<Set<string>>(
-    new Set(),
-  );
+
   const [copyingRawData, setCopyingRawData] = useState<string | null>(null);
   const [hiddenFamilies, setHiddenFamilies] = useState<Set<string>>(new Set());
 
@@ -183,81 +206,6 @@ export function ValueBetSpreadsheet({
 
   const { columnSizeVars, handleResizeStart } = useSpreadsheetColumnWidths(
     DEFAULT_COLUMN_WIDTHS,
-  );
-
-  // Refresh a single event. 12s client-side timeout < server's 15s.
-  const handleRefreshEvent = useCallback(
-    async (
-      eventId: string,
-      providerEventIds?: Record<string, string>,
-      eventLabel?: string,
-    ) => {
-      setRefreshingEvents((prev) => new Set(prev).add(eventId));
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const teamLabel = eventLabel || "Event";
-
-      try {
-        const res = await fetch("/api/value-bets/refresh-event", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ eventId, providers: providerEventIds }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) {
-          const data = await res
-            .json()
-            .catch(() => ({ error: "Unknown error" }));
-          toast.error("Couldn't refresh event", {
-            description: `${teamLabel} — ${data.error || "unknown error"}`,
-          });
-          return;
-        }
-
-        const data = await res.json();
-        if (data.skipped) {
-          toast.info("Sync in progress", {
-            description: `${teamLabel} will update automatically`,
-          });
-          return;
-        }
-
-        if (data.oddsCount > 0) {
-          const breakdown = Object.entries(data.byProvider || {})
-            .filter(([, count]) => (count as number) > 0)
-            .map(([id, count]) => `${getProviderShortName(id)} ${count}`)
-            .join(" · ");
-          toast.success("Event refreshed", {
-            description: `${teamLabel} — ${breakdown || `${data.oddsCount} markets`}`,
-          });
-          onRefreshComplete?.();
-        } else {
-          toast.warning("No odds available", {
-            description: `${teamLabel} — no provider returned markets`,
-          });
-        }
-      } catch (err) {
-        clearTimeout(timeoutId);
-        if (err instanceof Error && err.name === "AbortError") {
-          toast.error("Refresh timed out", {
-            description: `${teamLabel} — try again in a moment`,
-          });
-        } else {
-          toast.error("Network error", {
-            description: `Couldn't refresh ${teamLabel}`,
-          });
-        }
-      } finally {
-        setRefreshingEvents((prev) => {
-          const next = new Set(prev);
-          next.delete(eventId);
-          return next;
-        });
-      }
-    },
-    [onRefreshComplete],
   );
 
   // Copy a provider's raw JSON response for the given event.
@@ -522,7 +470,7 @@ export function ValueBetSpreadsheet({
   }, [allRows]);
 
   // Keep the open modal's details in sync when the underlying row data
-  // refreshes (e.g. after refresh-event returns new odds).
+  // refreshes (e.g. after the reactive engine pushes new odds).
   useEffect(() => {
     if (!selectedValueBet) return;
 
@@ -612,8 +560,8 @@ export function ValueBetSpreadsheet({
   const isColVisible = (col: string) => true;
 
   const visibleColCount =
-    // event (+ competition inline), ko, market, outcome, ev, kelly, captured
-    7 + visibleProviders.length + 1; // + actions
+    // event (+ competition inline), ko, market, outcome, ev, kelly
+    6 + visibleProviders.length + 1; // + actions
 
   const ResizeHandle = ({ col }: { col: string }) => (
     <div
@@ -802,22 +750,7 @@ export function ValueBetSpreadsheet({
                 {getProviderShortName(providerId)}
               </th>
             ))}
-            {isColVisible("captured") && (
-              <th
-                className="text-center px-2 h-8 font-semibold text-[11px] text-foreground whitespace-nowrap"
-                style={{ width: "calc(var(--col-captured-size) * 1px)" }}
-              >
-                <button
-                  type="button"
-                  className={sortButtonClass}
-                  onClick={() => prefs.cycleTableSort("captured")}
-                  title="Odds freshness — click to sort"
-                >
-                  Captured
-                  <SortIndicator col="captured" />
-                </button>
-              </th>
-            )}
+
             <th
               className="text-center px-2 h-8 font-semibold text-[11px] text-foreground whitespace-nowrap"
               style={{ width: "calc(var(--col-actions-size) * 1px)" }}
@@ -839,14 +772,22 @@ export function ValueBetSpreadsheet({
                     Loading events...
                   </span>
                 ) : events.length === 0 ? (
-                  isSyncing ? (
-                    "Sync in progress. Events will appear shortly..."
+                  isEngineWarming ? (
+                    <div className="flex flex-col items-center gap-2 py-4">
+                      <Loader2 className="size-5 animate-spin text-primary" />
+                      <span className="text-sm font-medium text-foreground">
+                        Syncing provider data
+                      </span>
+                      <span className="text-xs text-muted-foreground/70">
+                        Pulling fixtures from all sportsbooks and matching across providers — this usually takes 1–2 minutes after a cold start.
+                      </span>
+                    </div>
                   ) : searchTerm ? (
                     `No events found matching "${searchTerm}". Try a different search term.`
                   ) : prefs.hasActiveFilters ? (
-                    "No events match current filters. Try adjusting or resetting filters."
+                    "No value bets match your current filters. Try widening the EV range, odds range, or resetting filters."
                   ) : (
-                    "No matched events found. Try triggering a sync."
+                    "No matched events found. Odds will appear as the engine processes data."
                   )
                 ) : searchTerm ? (
                   `No events found matching "${searchTerm}". Try a different search term.`
@@ -874,15 +815,14 @@ export function ValueBetSpreadsheet({
                       rows[index + 1]?.familyId !== row.familyId ||
                       rows[index + 1]?.eventId !== row.eventId
                     }
-                    now={now}
-                    isRefreshing={refreshingEvents.has(row.eventId)}
-                    onRefresh={handleRefreshEvent}
+
                     eventProviders={eventInfo?.providers || []}
                     providerEventIds={eventInfo?.providerEventIds || {}}
                     copyingRawData={copyingRawData}
                     onSelectValueBet={setSelectedValueBet}
                     onCopyRawData={handleCopyRawData}
                     onHide={handleHideFamily}
+                    onMovementClick={handleMovementClick}
                     liveScore={eventInfo?.liveScore}
                     suspended={eventInfo?.suspended}
                   />
@@ -970,9 +910,6 @@ export function ValueBetSpreadsheet({
               eventId={selectedValueBet.eventId}
               providerEventIds={selectedValueBet.providerEventIds}
               liveScore={selectedValueBet.liveScore}
-              onRefresh={handleRefreshEvent}
-              isRefreshing={refreshingEvents.has(selectedValueBet.eventId)}
-              isSyncing={isSyncing}
               placementContext={{
                 familyId: selectedValueBet.familyId,
                 atomId: selectedValueBet.atomId,
@@ -986,6 +923,14 @@ export function ValueBetSpreadsheet({
             />
           );
         })()}
+
+      <MovementDetailModal
+        open={movementModal !== null}
+        onOpenChange={(open) => { if (!open) setMovementModal(null); }}
+        data={movementModal?.data ?? null}
+        eventLabel={movementModal?.eventLabel ?? ""}
+        marketLabel={movementModal?.marketLabel ?? ""}
+      />
     </>
   );
 }

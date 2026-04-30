@@ -16,7 +16,7 @@ registerCommand({
   usage: "/settings",
   description: "Show the current betting settings (EV cutoff, Kelly, caps).",
   explanation:
-    "Displays every field on the singleton betting_settings row that the auto-placer reads on every tick: minimum EV%, Kelly fraction + cap, stake unit + minimum + bucket, max odds age, and the daily / exposure / cooldown safety rails. Use /set to change any field; use the dashboard for the long-form 'why each one matters' tooltips.",
+    "Displays every field on the singleton betting_settings row that the auto-placer reads on every tick: minimum EV%, Kelly fraction + cap, stake unit + minimum + bucket. Use /set to change any field; use the dashboard for the long-form 'why each one matters' tooltips.",
   group: "read",
   async handler({ reply }) {
     const { row, ready, error } = await getBettingSettings();
@@ -42,38 +42,8 @@ registerCommand({
         ["Kelly cap", pct(row.kellyCapPct)],
       ]),
       "",
-      b("Detection thresholds"),
       kvList([
         ["Min EV%", pct(row.minEvPct)],
-        ["Max odds age", `${row.maxOddsAgeSec}s`],
-      ]),
-      "",
-      b("Safety rails"),
-      kvList([
-        [
-          "Daily max loss",
-          row.dailyMaxLossBdt != null ? money(row.dailyMaxLossBdt) : "—",
-        ],
-        [
-          "Daily max stake",
-          row.dailyMaxStakeBdt != null ? money(row.dailyMaxStakeBdt) : "—",
-        ],
-        [
-          "Concurrent exposure cap",
-          row.maxConcurrentExposureBdt != null
-            ? money(row.maxConcurrentExposureBdt)
-            : "—",
-        ],
-        [
-          "Bets/day cap",
-          row.maxBetsPerDay != null ? String(row.maxBetsPerDay) : "—",
-        ],
-        [
-          "Cooldown after loss",
-          row.cooldownAfterLossSec != null
-            ? `${row.cooldownAfterLossSec}s`
-            : "—",
-        ],
       ]),
       "",
       `<i>Last updated ${esc(row.updatedAt)}. Use ${code("/set ev=2.5 kelly=0.25 …")} to change.</i>`,
@@ -103,32 +73,7 @@ const FIELD_MAP: Record<
     field: "useLiveBalance",
     parse: (s) => s === "true" || s === "on" || s === "1",
   },
-  oddage: { field: "maxOddsAgeSec", parse: (s) => parseInt(s, 10) },
-  daymaxloss: {
-    field: "dailyMaxLossBdt",
-    parse: (s) => (s === "off" || s === "null" ? null : parseFloat(s)),
-    nullable: true,
-  },
-  daymaxstake: {
-    field: "dailyMaxStakeBdt",
-    parse: (s) => (s === "off" || s === "null" ? null : parseFloat(s)),
-    nullable: true,
-  },
-  maxexp: {
-    field: "maxConcurrentExposureBdt",
-    parse: (s) => (s === "off" || s === "null" ? null : parseFloat(s)),
-    nullable: true,
-  },
-  maxbets: {
-    field: "maxBetsPerDay",
-    parse: (s) => (s === "off" || s === "null" ? null : parseInt(s, 10)),
-    nullable: true,
-  },
-  cooldown: {
-    field: "cooldownAfterLossSec",
-    parse: (s) => (s === "off" || s === "null" ? null : parseInt(s, 10)),
-    nullable: true,
-  },
+
 };
 
 registerCommand({
@@ -139,8 +84,7 @@ registerCommand({
     `Patches the betting_settings row. Whitespace-separate kv pairs, e.g. ${"<code>/set ev=2.5 kelly=0.5</code>"}. ` +
     "Recognised keys: ev / minev (min EV%), kelly (Kelly fraction 0–1), kellycap (Kelly cap %), " +
     "unit (unit size BDT), minstake (min stake BDT), bucket (stake bucket BDT), manualbank (manual bankroll BDT), " +
-    "livebal (true/false), oddage (max odds age sec), daymaxloss / daymaxstake / maxexp / maxbets / cooldown — " +
-    "any of those last five accept 'off' or 'null' to clear the cap. Changes are applied atomically and " +
+    "livebal (true/false). Changes are applied atomically and " +
     "the auto-placer picks them up on the next tick.",
   group: "control",
   async handler({ args, reply }) {

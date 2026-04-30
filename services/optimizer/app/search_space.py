@@ -106,10 +106,7 @@ DEFAULT_SEARCH_SPACE = SearchSpace(
         # Small +EV + big sample size can still be profitable; the composite
         # score already penalises tiny samples so we don't risk flukes.
         Dimension("min_ev_pct", "continuous", low=0.25, high=8.0, step=0.25),
-        # Sharp-staleness gate. Widened 2026-04-25 from [30, 180] → [30, 600]
-        # so the sampler can test whether accepting up to 10-minute-old sharp
-        # odds unlocks more bets in slow-moving markets.
-        Dimension("max_odds_age_sec", "continuous", low=30, high=600, step=30),
+
         # Kelly fraction — clamped to [0.1, 0.5] (research-empirical sweet spot).
         Dimension("kelly_fraction", "continuous", low=0.10, high=0.50, step=0.05),
         # Bankroll cap on per-bet stake.

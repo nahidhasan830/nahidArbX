@@ -26,7 +26,6 @@ export type AtomMarketType =
   | "CORNERS_EUROPEAN_HANDICAP"
   | "HOME_CORNERS_TOTAL"
   | "AWAY_CORNERS_TOTAL"
-  | "CARDS"
   | "BOOKINGS"
   | "BOOKINGS_HANDICAP"
   // New market types

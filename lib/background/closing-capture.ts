@@ -101,11 +101,6 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
       .update(bets)
       .set({
         closingSharpOdds: sharpSnap.odds,
-        closingSoftOdds:
-          softSnap && now - softSnap.timestamp <= MAX_SNAPSHOT_AGE_MS
-            ? softSnap.odds
-            : null,
-        updatedAt: new Date().toISOString(),
       })
       .where(eq(bets.id, row.id));
 

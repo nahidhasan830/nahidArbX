@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { ExternalLink } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,11 +17,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { DataTable } from "@/components/ui/data-table";
+import { OddsMovementTooltipContent } from "@/components/spreadsheet/OddsMovementTooltip";
 import { RerunButton, type RerunChoice } from "./AiSettleDialog";
+import { MovementDetailModal } from "./MovementDetailModal";
 import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
 import { canResettle, prettySettledBy } from "@/lib/bets-history/resettle";
-import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
+import type { Outcome, ValueBetRow, OddsMovementData } from "@/lib/bets-history/types";
 import {
   getProviderShortName,
   getProviderTextInline,
@@ -29,6 +31,13 @@ import {
 import { cn } from "@/lib/utils";
 import { formatMarketType, formatAtomLabel } from "@/lib/formatting/labels";
 import { fmtDateTime, fmtSeen } from "@/lib/formatting/helpers";
+
+/** Runtime type guard for the odds_movement JSONB blob. */
+function isOddsMovement(v: unknown): v is OddsMovementData {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return Array.isArray(o.sparkline) && typeof o.totalTicks === "number";
+}
 
 type SortKey =
   | "firstSeenAt"
@@ -38,7 +47,7 @@ type SortKey =
   | "eventStartTime";
 type SortDir = "asc" | "desc" | "none";
 
-const PERSISTENCE_KEY = "bets-history-table:layout:v1";
+const PERSISTENCE_KEY = "bets-history-table:layout:v2";
 
 const OUTCOME_PILL: Record<Outcome, string> = {
   pending: "bg-muted text-muted-foreground border border-border",
@@ -167,6 +176,15 @@ export function BetsHistoryTable({
   renderFooter,
 }: BacktestTableProps) {
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
+  const [movementRow, setMovementRow] = useState<Decorated | null>(null);
+
+  const openMovement = useCallback((row: Decorated) => {
+    setMovementRow(row);
+  }, []);
+
+  const closeMovement = useCallback((open: boolean) => {
+    if (!open) setMovementRow(null);
+  }, []);
 
   // EV displayed in the row is evPctFirst — the EV at the entry price we'd
   // have actually bet at. Using evPctMax (best price ever observed) would
@@ -413,9 +431,9 @@ export function BetsHistoryTable({
                   <span className="text-right font-medium">
                     {r.softOdds.toFixed(2)}
                   </span>
-                  <span className="opacity-60">Closing (CLV)</span>
+                  <span className="opacity-60">Closing sharp</span>
                   <span className="text-right">
-                    {r.closingSoftOdds?.toFixed(2) ?? "—"}
+                    {r.closingSharpOdds?.toFixed(2) ?? "—"}
                   </span>
                 </div>
               </TooltipContent>
@@ -423,6 +441,66 @@ export function BetsHistoryTable({
           );
         },
         meta: { align: "center", initialSize: 95 },
+      },
+      {
+        id: "movement",
+        header: () => (
+          <StaticHeader
+            label="Δ"
+            hint="Sharp-line price movement from opening to last observation. Hover for sparkline chart, opening→closing, and peak/trough range."
+          />
+        ),
+        cell: ({ row }) => {
+          const raw = row.original.oddsMovement;
+          if (!isOddsMovement(raw) || raw.sparkline.length < 2) {
+            return (
+              <span className="text-muted-foreground/40 text-[10px]">—</span>
+            );
+          }
+          const m = raw;
+
+          const first = m.sparkline[0][1];
+          const last = m.sparkline[m.sparkline.length - 1][1];
+          const changePct =
+            first !== 0
+              ? Math.round(((last - first) / first) * 10000) / 100
+              : 0;
+          const isUp = changePct > 0.01;
+          const isDown = changePct < -0.01;
+          const dirColor = isUp
+            ? "text-emerald-400"
+            : isDown
+              ? "text-red-400"
+              : "text-muted-foreground";
+          const dirArrow = isUp ? "▲" : isDown ? "▼" : "";
+
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => openMovement(row.original)}
+                  className={`cursor-pointer font-mono text-[10px] tabular-nums hover:underline decoration-dotted underline-offset-2 ${dirColor}`}
+                >
+                  {dirArrow && <span className="text-[8px] mr-0.5 inline-block -translate-y-px">{dirArrow}</span>}
+                  {changePct > 0 ? "+" : ""}
+                  {changePct.toFixed(1)}%
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                className="p-0 overflow-hidden rounded-lg border border-border/60"
+                sideOffset={6}
+              >
+                <OddsMovementTooltipContent
+                  movement={m}
+                  currentOdds={last}
+                />
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
+        meta: { align: "center", initialSize: 55 },
       },
       {
         id: "ev",
@@ -619,15 +697,15 @@ export function BetsHistoryTable({
         ),
         cell: ({ row }) => {
           const r = row.original;
-          if (!r.outcomeMarkedAt) {
+          if (!r.settledAt) {
             return <span className="text-muted-foreground/60">—</span>;
           }
           return (
             <span
               className="text-[10px] text-muted-foreground"
-              title={new Date(r.outcomeMarkedAt).toLocaleString()}
+              title={new Date(r.settledAt).toLocaleString()}
             >
-              {fmtSeen(r.outcomeMarkedAt)}
+              {fmtSeen(r.settledAt)}
             </span>
           );
         },
@@ -690,30 +768,51 @@ export function BetsHistoryTable({
     onMarkOutcome,
     onRerunRow,
     onSortChange,
+    openMovement,
   ]);
 
+  // Derive modal labels from the selected row
+  const movementData = movementRow
+    ? (isOddsMovement(movementRow.oddsMovement) ? movementRow.oddsMovement : null)
+    : null;
+  const movementEventLabel = movementRow
+    ? `${movementRow.homeTeam} vs ${movementRow.awayTeam}`
+    : "";
+  const movementMarketLabel = movementRow
+    ? `[${movementRow.timeScope}] ${formatMarketType(movementRow.marketType)}${movementRow.familyLine != null ? ` ${movementRow.familyLine}` : ""} · ${formatAtomLabel(movementRow.atomLabel)}`
+    : "";
+
   return (
-    <DataTable<Decorated>
-      data={sorted}
-      columns={columns}
-      getRowId={(row) => row.id}
-      enableColumnResizing
-      enableColumnOrdering
-      enableVirtualization
-      rowHeight={30}
-      persistenceKey={PERSISTENCE_KEY}
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      onLoadMore={onLoadMore}
-      loading={loading}
-      renderEmpty={() => "No value bets match the current filters."}
-      renderLoading={() => (
-        <span className="inline-flex items-center gap-2">
-          <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-transparent" />
-          Loading value bets…
-        </span>
-      )}
-      renderFooter={renderFooter}
-    />
+    <>
+      <DataTable<Decorated>
+        data={sorted}
+        columns={columns}
+        getRowId={(row) => row.id}
+        enableColumnResizing
+        enableColumnOrdering
+        enableVirtualization
+        rowHeight={30}
+        persistenceKey={PERSISTENCE_KEY}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadMore={onLoadMore}
+        loading={loading}
+        renderEmpty={() => "No value bets match the current filters."}
+        renderLoading={() => (
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-muted-foreground/40 border-t-transparent" />
+            Loading value bets…
+          </span>
+        )}
+        renderFooter={renderFooter}
+      />
+      <MovementDetailModal
+        open={movementRow !== null}
+        onOpenChange={closeMovement}
+        data={movementData}
+        eventLabel={movementEventLabel}
+        marketLabel={movementMarketLabel}
+      />
+    </>
   );
 }

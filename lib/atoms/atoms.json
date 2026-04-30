@@ -2103,50 +2103,6 @@
         "ft_away_corners_under_7_5"
       ]
     },
-    "ft_cards_2_5": {
-      "id": "ft_cards_2_5",
-      "type": "pair",
-      "time_scope": "FT",
-      "market_type": "CARDS",
-      "line": 2.5,
-      "atoms": [
-        "ft_cards_over_2_5",
-        "ft_cards_under_2_5"
-      ]
-    },
-    "ft_cards_3_5": {
-      "id": "ft_cards_3_5",
-      "type": "pair",
-      "time_scope": "FT",
-      "market_type": "CARDS",
-      "line": 3.5,
-      "atoms": [
-        "ft_cards_over_3_5",
-        "ft_cards_under_3_5"
-      ]
-    },
-    "ft_cards_4_5": {
-      "id": "ft_cards_4_5",
-      "type": "pair",
-      "time_scope": "FT",
-      "market_type": "CARDS",
-      "line": 4.5,
-      "atoms": [
-        "ft_cards_over_4_5",
-        "ft_cards_under_4_5"
-      ]
-    },
-    "ft_cards_5_5": {
-      "id": "ft_cards_5_5",
-      "type": "pair",
-      "time_scope": "FT",
-      "market_type": "CARDS",
-      "line": 5.5,
-      "atoms": [
-        "ft_cards_over_5_5",
-        "ft_cards_under_5_5"
-      ]
-    },
     "ft_bookings_2_5": {
       "id": "ft_bookings_2_5",
       "type": "pair",

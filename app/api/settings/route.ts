@@ -17,7 +17,6 @@ export const revalidate = 0;
 const positiveNumber = z.number().positive();
 const nonNegativeNumber = z.number().min(0);
 
-// Nullable → null means "no limit" for the safety-rail fields.
 const PatchSchema = z
   .object({
     useLiveBalance: z.boolean(),
@@ -28,12 +27,7 @@ const PatchSchema = z
     minStakeBdt: nonNegativeNumber,
     stakeBucketBdt: positiveNumber,
     minEvPct: nonNegativeNumber,
-    maxOddsAgeSec: z.number().int().min(5).max(3600),
-    dailyMaxLossBdt: positiveNumber.nullable(),
-    dailyMaxStakeBdt: positiveNumber.nullable(),
-    maxConcurrentExposureBdt: positiveNumber.nullable(),
-    maxBetsPerDay: z.number().int().positive().nullable(),
-    cooldownAfterLossSec: z.number().int().min(0).nullable(),
+
     activeStrategyIds: z.array(z.string()),
   })
   .partial();

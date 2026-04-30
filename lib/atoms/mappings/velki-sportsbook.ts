@@ -5,7 +5,7 @@
  * Sports platform. Verified empirically (scripts/test-velki-mapping-
  * verify.ts, 2026-04-26): all market name conventions, selection
  * naming, line / handicap formatting are identical. Markets that the
- * 9W mapping handles (Match Result, Asian Handicap, Total Cards O/U,
+ * 9W mapping handles (Match Result, Asian Handicap, Total Cards→Bookings O/U,
  * Team Total Cards, Draw No Bet, Second Half Result, Odd/Even, etc.)
  * map identically for Velki — zero invalid atoms produced.
  *

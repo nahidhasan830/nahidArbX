@@ -6,28 +6,16 @@
  *   - inline label:input rows (single 32-36px row per field)
  *   - help text lives inside `?` tooltips, not in hints below
  *   - `%` / `BDT` rendered as trailing badges inside the input
- *   - Safety rails rendered as "+ Add limit" affordances so blank
- *     fields have zero visual weight
  *   - Save lives in the header row of the popover
  */
 import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
-import {
-  Loader2,
-  Settings2,
-  SlidersHorizontal,
-  Check,
-  CircleHelp,
-  X,
-  Plus,
-  Info,
-} from "lucide-react";
+import { Loader2, Settings2, SlidersHorizontal, Check, CircleHelp, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,11 +37,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+
 import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
 import {
   formatFilterChips,
@@ -75,12 +59,6 @@ interface Settings {
   minStakeBdt: number;
   stakeBucketBdt: number;
   minEvPct: number;
-  maxOddsAgeSec: number;
-  dailyMaxLossBdt: number | null;
-  dailyMaxStakeBdt: number | null;
-  maxConcurrentExposureBdt: number | null;
-  maxBetsPerDay: number | null;
-  cooldownAfterLossSec: number | null;
   /**
    * Strategies the auto-placer must match before placing a bet. Empty =
    * the global EV cutoff applies to everything (pre-strategy behaviour).
@@ -96,65 +74,7 @@ function toDraft(s: Settings): Draft {
   return rest;
 }
 
-type NullableKey =
-  | "dailyMaxLossBdt"
-  | "dailyMaxStakeBdt"
-  | "maxConcurrentExposureBdt"
-  | "maxBetsPerDay"
-  | "cooldownAfterLossSec";
 
-const SAFETY_FIELDS: Array<{
-  key: NullableKey;
-  label: string;
-  unit: string;
-  step: number;
-  integer?: boolean;
-  defaultValue: number;
-  help: string;
-}> = [
-  {
-    key: "dailyMaxLossBdt",
-    label: "Daily max loss",
-    unit: "BDT",
-    step: 100,
-    defaultValue: 1000,
-    help: "Auto-pauses auto-placing once today's net loss hits this.",
-  },
-  {
-    key: "dailyMaxStakeBdt",
-    label: "Daily max stake",
-    unit: "BDT",
-    step: 100,
-    defaultValue: 5000,
-    help: "Hard cap on total BDT staked per day.",
-  },
-  {
-    key: "maxConcurrentExposureBdt",
-    label: "Max concurrent exposure",
-    unit: "BDT",
-    step: 100,
-    defaultValue: 2000,
-    help: "Skip new bets while total open exposure is above this.",
-  },
-  {
-    key: "maxBetsPerDay",
-    label: "Max bets / day",
-    unit: "",
-    step: 1,
-    integer: true,
-    defaultValue: 20,
-    help: "Hard count ceiling. Useful while evaluating a new strategy.",
-  },
-  {
-    key: "cooldownAfterLossSec",
-    label: "Cooldown after loss",
-    unit: "s",
-    step: 15,
-    integer: true,
-    defaultValue: 60,
-    help: "Wait N seconds before placing again after a lost bet.",
-  },
-];
 
 /**
  * Popover wrapper — the public entry point. Renders a Settings icon
@@ -278,9 +198,6 @@ export function BettingStrategyForm() {
   const bankrollLabel = draft.useLiveBalance
     ? "live balance"
     : `${draft.manualBankrollBdt.toLocaleString()} BDT`;
-  const activeSafetyRails = SAFETY_FIELDS.filter(
-    (f) => draft[f.key] !== null,
-  ).length;
   const activeStrategiesCount = draft.activeStrategyIds?.length ?? 0;
 
   return (
@@ -296,11 +213,6 @@ export function BettingStrategyForm() {
             <StrategyPill label={kellyLabel} />
             <StrategyPill label={`cap ${draft.kellyCapPct}%`} />
             <StrategyPill label={bankrollLabel} />
-            {activeSafetyRails > 0 && (
-              <StrategyPill
-                label={`${activeSafetyRails} safety rail${activeSafetyRails === 1 ? "" : "s"}`}
-              />
-            )}
             {activeStrategiesCount > 0 && (
               <StrategyPill
                 label={`${activeStrategiesCount} active strateg${activeStrategiesCount === 1 ? "y" : "ies"}`}
@@ -393,10 +305,9 @@ export function BettingStrategyForm() {
             </Row>
           </Section>
 
-          {/* QUALITY — which bets pass the filter. */}
           <Section
             title="Bet quality"
-            hint="Which opportunities are eligible for auto-placement. Bets below Min EV or computed from stale sharp odds are dropped before sizing runs."
+            hint="Which opportunities are eligible for auto-placement. Bets below Min EV are dropped before sizing runs."
           >
             <Row
               label="Min EV"
@@ -408,19 +319,6 @@ export function BettingStrategyForm() {
                 step={0.1}
                 min={0}
                 onChange={(v) => setField("minEvPct", v)}
-              />
-            </Row>
-            <Row
-              label="Max odds age"
-              help="Sharp-odds snapshots older than this are considered stale; value bets computed from them are dropped."
-            >
-              <NumericField
-                value={draft.maxOddsAgeSec}
-                unit="s"
-                step={5}
-                min={5}
-                integer
-                onChange={(v) => setField("maxOddsAgeSec", v)}
               />
             </Row>
           </Section>
@@ -462,8 +360,6 @@ export function BettingStrategyForm() {
             </Row>
           </Section>
 
-          {/* SAFETY RAILS — collapsible, blank by default. */}
-          <SafetyRails draft={draft} setField={setField} />
         </div>
 
         {/* ── Sticky save bar (appears only when dirty) ───────────── */}
@@ -805,7 +701,7 @@ function StrategyPill({
 // ------------------------------------------------------------------
 // Section grouping helper — uppercase tracking-wide label with a
 // muted hint below it. Sets up a visual rhythm of Sizing → Bankroll
-// → Bet quality → Rounding → Safety rails so fields aren't a wall
+// → Bet quality → Rounding so fields aren't a wall
 // of label:input pairs.
 // ------------------------------------------------------------------
 function Section({
@@ -1068,126 +964,3 @@ function KellyFractionSelect({
   );
 }
 
-// ------------------------------------------------------------------
-// Safety rails — Stripe/Linear pattern: show a bare "+ Add <limit>"
-// button until enabled; then the input appears with an `x` to remove
-// it. Persistence is null = "no limit", a number = the limit.
-// ------------------------------------------------------------------
-function SafetyRails({
-  draft,
-  setField,
-}: {
-  draft: Draft;
-  setField: <K extends keyof Draft>(k: K, v: Draft[K]) => void;
-}) {
-  const active = SAFETY_FIELDS.filter((f) => draft[f.key] !== null);
-  const inactive = SAFETY_FIELDS.filter((f) => draft[f.key] === null);
-  const [open, setOpen] = useState(active.length > 0);
-  const prevActiveCount = useRef(active.length);
-  useEffect(() => {
-    if (active.length > prevActiveCount.current) setOpen(true);
-    prevActiveCount.current = active.length;
-  }, [active.length]);
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="pt-1">
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className="group flex w-full items-center gap-1.5 text-[10.5px] uppercase tracking-wider text-muted-foreground/90 font-medium hover:text-foreground transition-colors"
-        >
-          <span>Safety rails</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span
-                className="text-muted-foreground/50 group-hover:text-foreground transition-colors"
-                aria-label="Safety rails help"
-              >
-                <CircleHelp className="size-3" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent
-              side="top"
-              align="start"
-              className="max-w-[260px] text-[11px] leading-snug"
-            >
-              Optional auto-pause rules that override sizing. Any rail you
-              enable will block new placements once the threshold is hit; leave
-              them off to run unbounded.
-            </TooltipContent>
-          </Tooltip>
-          {active.length > 0 && (
-            <span className="normal-case tracking-normal rounded-sm bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 px-1.5 py-0.5 text-[10px] font-medium tabular-nums">
-              {active.length} active
-            </span>
-          )}
-          <span className="ml-auto text-[10px] opacity-60 normal-case tracking-normal">
-            {open ? "hide" : "show"}
-          </span>
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-1.5 pt-1.5">
-        {active.map((f) => (
-          <div
-            key={f.key}
-            className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] items-center gap-2"
-          >
-            <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
-              <span className="truncate">{f.label}</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="text-muted-foreground/60 hover:text-foreground transition-colors"
-                    aria-label={`${f.label} help`}
-                  >
-                    <CircleHelp className="size-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="left"
-                  className="max-w-[240px] text-[11px] leading-snug"
-                >
-                  {f.help}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <NumericField
-              value={(draft[f.key] as number | null) ?? f.defaultValue}
-              unit={f.unit}
-              step={f.step}
-              min={0}
-              integer={f.integer}
-              onChange={(v) => setField(f.key, v as Draft[typeof f.key])}
-            />
-            <button
-              type="button"
-              onClick={() => setField(f.key, null as Draft[typeof f.key])}
-              className="text-muted-foreground/60 hover:text-destructive transition-colors"
-              aria-label={`Remove ${f.label}`}
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        ))}
-        {inactive.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {inactive.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() =>
-                  setField(f.key, f.defaultValue as Draft[typeof f.key])
-                }
-                className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border/70 px-1.5 py-0.5 text-[10.5px] text-muted-foreground hover:text-foreground hover:border-border transition-colors"
-              >
-                <Plus className="size-2.5" />
-                {f.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}

@@ -572,8 +572,7 @@ function buildScalarPills(
     out.push({ label: "Sharp ≥", value: fmtNum(filters.min_sharp_prob) });
   if (filters?.min_tick_count != null)
     out.push({ label: "Ticks ≥", value: String(filters.min_tick_count) });
-  if (filters?.max_odds_age_sec != null)
-    out.push({ label: "Age ≤", value: `${filters.max_odds_age_sec}s` });
+
   if (filters?.pre_match_only != null)
     out.push({
       label: "Pre-match",

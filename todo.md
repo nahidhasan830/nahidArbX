@@ -1,3 +1,4 @@
-1. best betting practice so that provider doesn't detect as value bettor
-2. control everything from telegram
-3. alias learner
+1. load balance betting across multiple providers
+2. pinnacle live match odds suspension
+3. market alias learner
+4. rewrite the optimiser

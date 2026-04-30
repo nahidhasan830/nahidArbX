@@ -202,8 +202,8 @@ const buildEquityCurve = (rows: ValueBetRow[]): EquityCurve => {
   const settled = rows
     .filter((r) => isSettledOutcome(r.outcome as Outcome))
     .sort((a, b) =>
-      (a.outcomeMarkedAt ?? a.firstSeenAt).localeCompare(
-        b.outcomeMarkedAt ?? b.firstSeenAt,
+      (a.settledAt ?? a.firstSeenAt).localeCompare(
+        b.settledAt ?? b.firstSeenAt,
       ),
     );
 

@@ -42,8 +42,7 @@ export type ListFilters = {
   oddsMax?: number;
   /** Strategy `min_sharp_prob` — sharp true probability ≥ this value. */
   minSharpProb?: number;
-  /** Strategy `max_odds_age_sec` (in ms here) — sharp odds age ≤ this. NULL ages pass. */
-  maxOddsAgeMs?: number;
+
   /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
   minTickCount?: number;
   limit?: number;

@@ -19,7 +19,6 @@
 
 import { getFamilyIdByAtom, isValidAtom } from "../registry";
 import { matchTeamSide } from "../../shared/team-matching";
-import { bufferUnmappedMarket } from "../unmapped-buffer";
 import {
   formatLine,
   formatHandicapLine,
@@ -247,13 +246,14 @@ function detectMarketType(
     return { marketType: "TOTAL_GOALS", timeScope, line };
   }
 
-  // Cards Total
+  // Cards Total → mapped to BOOKINGS to align with Pinnacle's "Bookings" period.
+  // Both providers refer to the same real-world market (total yellow/red cards).
   if (
     (lower.includes("card") || lower.includes("cards")) &&
     (lower.includes("over / under") || lower.includes("total")) &&
     line !== null
   ) {
-    return { marketType: "CARDS", timeScope, line };
+    return { marketType: "BOOKINGS", timeScope, line };
   }
 
   // Odd/Even Goals - use exact match
@@ -505,10 +505,10 @@ function generateAtomId(
       return null;
     }
 
-    case "CARDS": {
+    case "BOOKINGS": {
       if (!lineStr) return null;
-      if (selection === "over") return `${timePrefix}_cards_over_${lineStr}`;
-      if (selection === "under") return `${timePrefix}_cards_under_${lineStr}`;
+      if (selection === "over") return `${timePrefix}_bookings_over_${lineStr}`;
+      if (selection === "under") return `${timePrefix}_bookings_under_${lineStr}`;
       return null;
     }
 
@@ -618,22 +618,7 @@ export function extractSportsbookOdds(
       selection.handicap,
     );
 
-    if (!atomId) {
-      // Harvest unmapped market for diagnostics
-      bufferUnmappedMarket({
-        provider: "ninewickets-sportsbook",
-        rawMarketKey: `${market.apiSiteMarketType}:${market.marketName}:${selection.selectionName}`,
-        rawMarketName: `${market.marketName} / ${selection.selectionName}`,
-        samplePayload: {
-          apiSiteMarketType: market.apiSiteMarketType,
-          marketName: market.marketName,
-          selectionName: selection.selectionName,
-          odds: selection.odds,
-          handicap: selection.handicap,
-        },
-      });
-      continue;
-    }
+    if (!atomId) continue;
 
     const familyId = getFamilyIdByAtom(atomId);
     if (!familyId) {

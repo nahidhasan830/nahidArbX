@@ -55,8 +55,7 @@ export interface PendingConfirmation {
   familyLine: string | null;
   gradeUrl?: string;
   dashboardUrl?: string;
-  requestPayload: unknown;
-  responsePayload: unknown;
+
   ticketIdHint: string | null;
   submittedAt: number;
   deadlineAt: number;
@@ -312,7 +311,6 @@ async function finaliseConfirmed(
     sharpProvider: "pinnacle",
     sharpOdds: attempt.bookedOdds,
     sharpTrueProb: 0.5,
-    sharpOddsAgeMs: null,
     softProvider: attempt.provider,
     softCommissionPct: 0,
     softOdds: authoritativeOdds,
@@ -322,17 +320,6 @@ async function finaliseConfirmed(
     currency: attempt.currency,
     providerTicketId: ticketId,
     mode: attempt.mode,
-    requestPayload: attempt.requestPayload,
-    responsePayload: driftAlert
-      ? {
-          placementResponse: attempt.responsePayload,
-          confirmedFromFeedTicket: ticket,
-          oddsDrift: driftAlert,
-        }
-      : {
-          placementResponse: attempt.responsePayload,
-          confirmedFromFeedTicket: ticket,
-        },
   };
 
   try {
@@ -381,6 +368,10 @@ async function finaliseConfirmed(
       timeScope: attempt.timeScope,
       familyLine: attempt.familyLine,
       ticketId,
+      balance:
+        attempt.balanceAtSubmit != null
+          ? attempt.balanceAtSubmit - authoritativeStake
+          : undefined,
       gradeUrl: attempt.gradeUrl,
       dashboardUrl: attempt.dashboardUrl,
     });

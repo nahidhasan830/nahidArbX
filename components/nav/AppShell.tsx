@@ -29,7 +29,6 @@ import {
   MessageCircleMore,
   Settings,
   TrendingUp,
-  RefreshCw,
   KeySquare,
   Sparkles,
   ChevronRight,
@@ -110,11 +109,6 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/lab/optimisation",
         label: "Optimisation",
         icon: FlaskConical,
-      },
-      {
-        href: "/lab/market-matcher",
-        label: "Market Matcher",
-        icon: Search,
       },
     ],
   },
@@ -399,21 +393,6 @@ export function AppShell({
           <CommandSeparator />
 
           <CommandGroup heading="Actions">
-            <CommandItem
-              value="sync now"
-              onSelect={() =>
-                runAction("sync-now", () =>
-                  fetch("/api/value-bets", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "syncNow" }),
-                  }),
-                )
-              }
-            >
-              <RefreshCw className="mr-2 size-4" />
-              Sync now
-            </CommandItem>
             <CommandItem
               value="refresh balances"
               onSelect={() =>

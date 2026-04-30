@@ -35,6 +35,8 @@ Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib
 
 NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWickets Exchange/Sportsbook, BetConstruct) against Pinnacle (sharp) and flags positive-EV opportunities. Detected bets persist to Postgres for review + settlement on `/bets`.
 
+**Backend Autonomy:** The server must run autonomously and be completely sufficient to run everything smoothly (syncing, WebSocket STOMP listening, value bet detection, settlement). The frontend is strictly a read-only viewer for what is happening; do not rely on the frontend for any scheduled or background logic.
+
 **4-phase pipeline:** Fixtures → Matching → Markets (atoms) → Value-bet detection. Background sync every 60s. Frontend polls `/api/admin` every 30s (2s when sync active).
 
 **Key terms:** `Family` = market with mutually exclusive outcomes (e.g. 1X2). `Atom` = single outcome (e.g. Home Win). Bet IDs are deterministic: `${eventId}|${familyId}|${atomId}`.
@@ -103,7 +105,7 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 - **Fix scripts: agent runs them, not the operator.** Execute directly using `.env` + ADC. Announce briefly, run, verify outcome, report. If it fails, surface error and ask for the unblocker. Extend existing `scripts/` runners. Cloud SQL DDL: `scripts/apply-pending-migrations.ts`. Destructive actions (DROP TABLE, force push) still need explicit say-so.
 - **Cloud Run: Jobs for batch work, Services for HTTP only.** `--no-cpu-throttling` does NOT prevent idle instance reaping — only `--min-instances=1` does (~$80-100/mo). The optimizer was migrated Service→Job after a sweep died mid-flight.
-- **IPRoyal proxy is SofaScore-fallback only.** Direct request first, proxy only on 403. Never route other sources (ESPN, Pinnacle, Gemini) through it. Cooldowns (30-min per-proxy, 10-min global) are intentional. `sessions/iproyal/proxies.txt` is gitignored.
+- **Scrape.do proxy is SofaScore-fallback only.** Direct request first, proxy only on 403. Never route other sources (ESPN, Pinnacle, Gemini) through it. Free tier: 1,000 credits/month. `lib/settle/sources/scrapedo-proxy.ts` manages usage tracking.
 - **Post-change: always run `npm run build` + `npm run lint`** (unless trivial CSS/text). Don't run Playwright E2E.
 
 ## Entity Resolution

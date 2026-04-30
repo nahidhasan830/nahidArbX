@@ -67,8 +67,8 @@ export const stakeForStrategy = (
  * P&L for a settled row given a stake.
  *
  * Wins are booked at softOdds — the price at first detection, which is
- * the realistic entry price. closingSoftOdds only has analytical value
- * for CLV, not for P&L.
+ * the realistic entry price. closingSharpOdds is used for CLV analysis
+ * only, not for P&L.
  *
  * For Asian-Handicap / Over-Under quarter lines the outcome is split:
  * - "half_won"  → half the stake wins at the quoted odds, the other half

@@ -49,7 +49,6 @@ export function findMatchingActiveStrategy(
 ): OptimizationStrategyRow | null {
   const full: MatchableBet = {
     evPct: bet.evPct,
-    sharpOddsAgeMs: bet.sharpOddsAgeMs ?? null,
     sharpTrueProb: bet.sharpTrueProb ?? 0,
     softOdds: bet.softOdds,
     softProvider: bet.softProvider,

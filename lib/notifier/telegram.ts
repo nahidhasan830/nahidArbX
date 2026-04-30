@@ -33,6 +33,7 @@ import type {
   MlRunCompletedEvent,
   OptimizerRunStartedEvent,
   SystemEvent,
+  SystemBootEvent,
 } from "./types";
 import { logger } from "@/lib/shared/logger";
 import { formatMarketType as formatMarketTypeBase } from "@/lib/formatting/labels";
@@ -141,6 +142,8 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatError(event);
     case "system":
       return formatSystem(event);
+    case "system:boot":
+      return formatBoot(event);
     case "optimizer:run_started":
       return formatOptimizerRunStarted(event);
     case "optimizer:run_completed":
@@ -157,7 +160,7 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
 function formatPlaced(e: BetPlacedEvent): FormattedMessage {
   const modeLabel = e.mode === "auto" ? "Auto" : "Manual";
   const modeEmoji = e.mode === "auto" ? "🤖" : "✋";
-  const potentialReturn = e.stake * e.odds;
+  const potentialProfit = e.stake * e.odds - e.stake;
   const selectionLine = buildSelectionLine(
     e.marketName,
     e.selectionName,
@@ -167,7 +170,7 @@ function formatPlaced(e: BetPlacedEvent): FormattedMessage {
 
   const lines: string[] = [];
   lines.push(`✅ <b>Bet Placed</b> · ${modeEmoji} ${esc(modeLabel)}`);
-  lines.push(`🏟 <b>${esc(e.eventName)}</b>`);
+  lines.push(`${sportEmoji(e.sport)} <b>${esc(e.eventName)}</b>`);
   if (e.competition) lines.push(`🏆 ${esc(e.competition)}`);
   if (e.eventStartTime)
     lines.push(`⏰ ${esc(capitalize(kickoffLabel(e.eventStartTime)))}`);
@@ -175,7 +178,7 @@ function formatPlaced(e: BetPlacedEvent): FormattedMessage {
   lines.push(
     `💰 <b>${esc(money(e.stake, e.currency))}</b> @ <b>${esc(e.odds.toFixed(2))}</b>`,
   );
-  lines.push(`🎁 Return <b>${esc(money(potentialReturn, e.currency))}</b>`);
+  lines.push(`🎁 Profit ${esc(money(potentialProfit, e.currency))}`);
   if (typeof e.evPct === "number") {
     lines.push(`${evEmoji(e.evPct)} EV <b>${esc(signedPct(e.evPct))}</b>`);
   }
@@ -183,6 +186,9 @@ function formatPlaced(e: BetPlacedEvent): FormattedMessage {
     lines.push(`📏 Kelly ${esc(kellyFractionLabel(e.kellyFraction))}`);
   }
   lines.push(`🏦 ${esc(e.providerDisplayName)}`);
+  if (typeof e.balance === "number") {
+    lines.push(`💼 Balance <b>${esc(money(e.balance, e.currency))}</b>`);
+  }
   if (e.ticketId) lines.push(`🎫 <code>${esc(e.ticketId)}</code>`);
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
 
@@ -216,10 +222,6 @@ function formatSettled(e: BetSettledEvent): FormattedMessage {
     e.closingOdds && e.closingOdds > 0 && e.odds > 0
       ? (e.odds / e.closingOdds - 1) * 100
       : null;
-  const heldFor =
-    e.placedAt && e.at
-      ? durationLabel(new Date(e.at).getTime() - new Date(e.placedAt).getTime())
-      : null;
   const selectionLine = buildSelectionLine(
     e.marketName,
     e.selectionName,
@@ -231,15 +233,12 @@ function formatSettled(e: BetSettledEvent): FormattedMessage {
   lines.push(
     `${outcomeIcon[e.outcome]} <b>${esc(outcomeTitle[e.outcome])}</b>`,
   );
-  lines.push(`🏟 <b>${esc(e.eventName)}</b>`);
+  lines.push(`${sportEmoji(e.sport)} <b>${esc(e.eventName)}</b>`);
   if (e.competition) lines.push(`🏆 ${esc(e.competition)}`);
-  if (heldFor) lines.push(`⏱ Held ${esc(heldFor)}`);
 
   if (e.matchScore) {
     const scoreLine = buildScoreLine(e.matchScore);
     if (scoreLine) lines.push(scoreLine);
-    const resultHint = buildResultHint(e.marketName, e.matchScore);
-    if (resultHint) lines.push(`🏅 <i>${esc(resultHint)}</i>`);
   }
 
   lines.push(`🎯 ${selectionLine}`);
@@ -260,6 +259,9 @@ function formatSettled(e: BetSettledEvent): FormattedMessage {
   }
 
   lines.push(`🏦 ${esc(e.providerDisplayName)}`);
+  if (typeof e.balance === "number") {
+    lines.push(`💼 Balance <b>${esc(money(e.balance, e.currency))}</b>`);
+  }
   if (e.settledBySource) lines.push(`🔎 ${esc(e.settledBySource)}`);
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
 
@@ -286,7 +288,7 @@ function formatError(e: BetErrorEvent): FormattedMessage {
       categoryLabel ? ` · <i>${esc(categoryLabel)}</i>` : ""
     }`,
   );
-  lines.push(`🏟 <b>${esc(e.eventName)}</b>`);
+  lines.push(`${sportEmoji(e.sport)} <b>${esc(e.eventName)}</b>`);
   if (e.competition) lines.push(`🏆 ${esc(e.competition)}`);
   if (e.eventStartTime)
     lines.push(`⏰ ${esc(capitalize(kickoffLabel(e.eventStartTime)))}`);
@@ -553,6 +555,74 @@ function formatSystem(e: SystemEvent): FormattedMessage {
 }
 
 // --------------------------------------------------------------------
+// system:boot
+// --------------------------------------------------------------------
+
+function formatBoot(e: SystemBootEvent): FormattedMessage {
+  const lines: string[] = [];
+
+  // Title
+  lines.push(`🚀 <b>Server Started</b>`);
+  lines.push(``);
+
+  // Environment
+  const envEmoji = e.env === "production" ? "🟢" : "🟡";
+  lines.push(`${envEmoji} <b>${esc(e.env)}</b> · Node ${esc(e.nodeVersion)}`);
+
+  // ── Schedulers ────────────────────────────────────────────────────
+  lines.push(``);
+  lines.push(`<b>Schedulers</b>`);
+  lines.push(
+    `${e.syncScheduler ? "✅" : "❌"} Sync: <b>${e.syncScheduler ? "running" : "stopped"}</b>`,
+  );
+  lines.push(
+    `${e.autoSettle ? "✅" : "❌"} Auto-settle: <b>${e.autoSettle ? "running" : "stopped"}</b> · every ${esc(durationLabel(e.autoSettleIntervalSec * 1000))}`,
+  );
+
+  // ── Auto-Place ────────────────────────────────────────────────────
+  if (e.autoPlace.length > 0) {
+    lines.push(``);
+    lines.push(`<b>Auto-Place</b>`);
+    for (const ap of e.autoPlace) {
+      const icon = ap.enabled ? "✅" : "⏸";
+      lines.push(`${icon} ${esc(ap.displayName)}: <b>${ap.enabled ? "ON" : "OFF"}</b>`);
+    }
+  }
+
+  // ── Data Sources ──────────────────────────────────────────────────
+  if (e.dataSources.length > 0) {
+    lines.push(``);
+    lines.push(`<b>Data Sources</b>`);
+    for (const ds of e.dataSources) {
+      lines.push(`📡 ${esc(ds)}`);
+    }
+  }
+
+  // ── Detection ─────────────────────────────────────────────────────
+  lines.push(``);
+  lines.push(`<b>Detection</b>`);
+  lines.push(`⚡ Reactive detector: <b>${e.detectorDebounceMs}ms</b> debounce`);
+
+  // ── Infrastructure ────────────────────────────────────────────────
+  if (e.optimizerJob || e.gcpRegion) {
+    lines.push(``);
+    lines.push(`<b>Infrastructure</b>`);
+    if (e.optimizerJob) {
+      lines.push(`☁️ Job: <code>${esc(e.optimizerJob)}</code>`);
+    }
+    if (e.gcpRegion) {
+      lines.push(`🌏 Region: <code>${esc(e.gcpRegion)}</code>`);
+    }
+  }
+
+  // Timestamp
+  lines.push(``);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
+}
+
+// --------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------
 
@@ -628,7 +698,7 @@ function buildSelectionLine(
   const lineSuffix =
     familyLine && !selectionAlreadyHasLine ? ` ${familyLine}` : "";
   const prefix = scope ? `${scope} · ` : "";
-  return `<i>${esc(`${prefix}${market}`)}</i> → <b>${esc(`${selectionName}${lineSuffix}`)}</b>`;
+  return `<b>${esc(`${selectionName}${lineSuffix}`)}</b> <i>(${esc(`${prefix}${market}`)})</i>`;
 }
 
 function formatTimeScope(scope: string | null): string | null {
@@ -768,6 +838,25 @@ function evEmoji(evPct: number): string {
   if (evPct > 0) return "📈";
   if (evPct === 0) return "➖";
   return "📉";
+}
+
+function sportEmoji(sport?: string | null): string {
+  if (!sport) return "🏟";
+  const map: Record<string, string> = {
+    soccer: "⚽",
+    basketball: "🏀",
+    tennis: "🎾",
+    cricket: "🏏",
+    hockey: "🏒",
+    baseball: "⚾",
+    american_football: "🏈",
+    rugby: "🏉",
+    volleyball: "🏐",
+    handball: "🤾",
+    table_tennis: "🏓",
+    esports: "🎮",
+  };
+  return map[sport] ?? "🏟";
 }
 
 function formatAbsoluteTime(iso: string): string {

@@ -7,7 +7,6 @@
 
 import { BaseAtomsAdapter, type FetchContext } from "./base";
 import { buildOddsEntry } from "../../shared/odds-entry";
-import { DebugFetcher } from "../../shared/debug-fetcher";
 import { validateAndParse } from "../../shared/validation";
 import { createProviderClient } from "../../shared/http";
 import {
@@ -99,41 +98,6 @@ export class NineWicketsExchangeAtomsAdapter extends BaseAtomsAdapter {
     return entries;
   }
 
-  protected captureDebugRequest(debug: DebugFetcher, ctx: FetchContext): void {
-    const params = new URLSearchParams({
-      eventId: ctx.providerEventId,
-      selectionTs: "0",
-    });
-
-    debug.captureRequest({
-      url: `${MARKETS_BASE_URL}${MARKETS_ENDPOINT}`,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
-    });
-  }
-
-  protected async debugFetchRawData(
-    debug: DebugFetcher,
-    ctx: FetchContext,
-  ): Promise<MarketsResponse | null> {
-    const params = new URLSearchParams({
-      eventId: ctx.providerEventId,
-      selectionTs: "0",
-    });
-
-    const data = await debug.executeWithCapture(() =>
-      marketsClient.post(MARKETS_ENDPOINT, params.toString()),
-    );
-
-    if (!data) return null;
-
-    return validateAndParse(
-      data,
-      MarketsResponseSchema,
-      `[NW Exchange Debug] event ${ctx.providerEventId}`,
-    );
-  }
 }
 
 // ============================================
@@ -160,16 +124,3 @@ export async function fetchAndStoreNwExchangeOdds(
   );
 }
 
-export async function debugFetchAndStoreNwExchangeOdds(
-  providerEventId: string,
-  normalizedEventId: string,
-  homeTeam: string,
-  awayTeam: string,
-) {
-  return adapterInstance.debugFetchAndStoreOdds(
-    providerEventId,
-    normalizedEventId,
-    homeTeam,
-    awayTeam,
-  );
-}

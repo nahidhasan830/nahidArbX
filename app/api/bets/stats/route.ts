@@ -68,7 +68,7 @@ const QuerySchema = z.object({
   oddsMin: z.coerce.number().positive().optional(),
   oddsMax: z.coerce.number().positive().optional(),
   minSharpProb: z.coerce.number().min(0).max(1).optional(),
-  maxOddsAgeMs: z.coerce.number().int().nonnegative().optional(),
+
   minTickCount: z.coerce.number().int().nonnegative().optional(),
 });
 

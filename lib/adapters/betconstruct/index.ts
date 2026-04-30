@@ -147,11 +147,7 @@ export const betconstructAdapter: ProviderAdapter = {
 };
 
 // ============================================
-// Re-exports
+// Re-exports (types only — all function callers import from ./client directly)
 // ============================================
 
-export {
-  fetchGameMarkets,
-  disconnect as disconnectBetConstruct,
-} from "./client";
 export type { BCGame, BCMarket, BCEvent } from "./client";

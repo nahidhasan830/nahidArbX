@@ -54,7 +54,6 @@ interface BetRowFull {
   firstSeenAt: string;
   lastSeenAt: string;
   tickCount: number;
-  createdAt: string;
   placedAt: string | null;
   outcome: string;
 }
@@ -156,7 +155,6 @@ async function main(): Promise<void> {
       firstSeenAt: bets.firstSeenAt,
       lastSeenAt: bets.lastSeenAt,
       tickCount: bets.tickCount,
-      createdAt: bets.createdAt,
       placedAt: bets.placedAt,
       outcome: bets.outcome,
     })
@@ -209,7 +207,6 @@ async function main(): Promise<void> {
       .map((r) => r.lastSeenAt)
       .sort()
       .at(-1)!;
-    const createdAt = group.map((r) => r.createdAt).sort()[0]!;
     const tickCount = group.reduce((sum, r) => sum + (r.tickCount || 1), 0);
 
     const idsToDelete = group
@@ -241,9 +238,7 @@ async function main(): Promise<void> {
         const setClauses: string[] = [
           `first_seen_at = ${escapeIso(firstSeenAt)}`,
           `last_seen_at = ${escapeIso(lastSeenAt)}`,
-          `created_at = ${escapeIso(createdAt)}`,
           `tick_count = ${Number(tickCount)}`,
-          `updated_at = NOW()`,
         ];
         if (upgradeSoft) {
           setClauses.push(
@@ -262,7 +257,7 @@ async function main(): Promise<void> {
         if (survivor.id !== key) {
           await tx.execute(
             sql.raw(
-              `UPDATE bets SET id = ${escapeText(key)}, updated_at = NOW() WHERE id = ${escapeText(survivor.id)}`,
+              `UPDATE bets SET id = ${escapeText(key)} WHERE id = ${escapeText(survivor.id)}`,
             ),
           );
           idsRekeyed++;

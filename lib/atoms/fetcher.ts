@@ -1,32 +1,38 @@
 /**
- * Atoms Unified Odds Fetcher
+ * Atoms Single-Event Odds Fetcher
  *
- * Orchestrates parallel odds fetching from all providers
- * and stores directly into the atoms store.
+ * Provides on-demand odds refresh for a single event (UI refresh button).
+ * Batch odds fetching has been removed — odds flow in real-time from
+ * PinnacleSyncService (WebSocket) and GeniusSportsSyncService (continuous polling).
  */
 
 import pLimit from "p-limit";
 import { getEnabledAtomsAdapters } from "./adapters/registry";
-import {
-  beginFetchCycle,
-  endFetchCycleCleanup,
-  clearOddsForEvent,
-} from "./store";
-import {
-  type ProviderKey,
-  PROVIDER_REGISTRY,
-  getProviderConcurrency,
-} from "../providers/registry";
+import { clearOddsForEvent } from "./store";
+import { getProviderConcurrency } from "../providers/registry";
 import { getProviderPolicy } from "../shared/circuit-breaker";
-import { flushUnmappedBuffer } from "./unmapped-buffer";
 import type { NormalizedEvent } from "../types";
+
+// ============================================
+// Types
+// ============================================
+
+/** Provider-level stats (internal helper). */
+interface ProviderStats {
+  events: number;
+  odds: number;
+  errors: number;
+}
+
+/** Result for a single-event refresh request. */
+export interface SingleEventFetchResult {
+  totalOdds: number;
+  byProvider: Record<string, number>;
+}
 
 // ============================================
 // Per-Provider Concurrency Limiters
 // ============================================
-//
-// Concurrency is configured per provider in PROVIDER_REGISTRY[id].fetch.concurrency.
-// Limiters are lazily instantiated on first use and cached for the process lifetime.
 
 const providerLimiters = new Map<string, ReturnType<typeof pLimit>>();
 
@@ -38,124 +44,6 @@ function getProviderLimiter(providerId: string): ReturnType<typeof pLimit> {
   }
   return limiter;
 }
-
-// ============================================
-// Types
-// ============================================
-
-export interface FetchOptions {
-  onProgress?: (phase: FetchPhase, current: number, total: number) => void;
-}
-
-// FetchPhase is now derived from registry
-export type FetchPhase = ProviderKey;
-
-// Provider-level stats
-export interface ProviderStats {
-  events: number;
-  odds: number;
-  errors: number;
-}
-
-// Dynamic fetch stats using provider IDs
-export interface FetchStats {
-  byProvider: Record<string, ProviderStats>;
-  totalOdds: number;
-  durationMs: number;
-}
-
-// Single event fetch result with per-provider breakdown
-export interface SingleEventFetchResult {
-  totalOdds: number;
-  byProvider: Record<string, number>; // e.g. { pinnacle: 56, "ninewickets-exchange": 5 }
-}
-
-// ============================================
-// Core Fetcher
-// ============================================
-
-/**
- * Fetch all odds for matched events and store in atoms store.
- *
- *
- * Flow:
- * 1. Begin fetch cycle (tracks which entries are refreshed)
- * 2. For each enabled provider adapter:
- *    - Filter events for this provider
- *    - Fetch odds in parallel batches (overwrites existing entries)
- * 3. Clean up stale entries not refreshed in this cycle
- *
- * @param events - Matched events with provider info
- * @param options - Fetch options
- * @returns Fetch statistics
- */
-export async function fetchAllOddsForMatchedEvents(
-  events: NormalizedEvent[],
-  options: FetchOptions = {},
-): Promise<FetchStats> {
-  const { onProgress } = options;
-  const startTime = Date.now();
-
-  // Initialize stats dynamically
-  const stats: FetchStats = {
-    byProvider: {},
-    totalOdds: 0,
-    durationMs: 0,
-  };
-
-  // Initialize stats for all providers in registry
-  for (const id of Object.keys(PROVIDER_REGISTRY)) {
-    stats.byProvider[id] = { events: 0, odds: 0, errors: 0 };
-  }
-
-  // Start fetch cycle — tracks which entries are refreshed so stale ones can be cleaned up after
-  beginFetchCycle();
-
-  // Get all enabled adapters
-  const enabledAdapters = getEnabledAtomsAdapters();
-
-  // Process all providers in PARALLEL (not sequentially!)
-  await Promise.all(
-    enabledAdapters.map(async (adapter) => {
-      const providerId = adapter.providerId;
-      const providerEvents = events.filter((e) => e.providers[providerId]);
-
-      if (providerEvents.length === 0) return;
-
-      await fetchProviderOdds(
-        providerEvents,
-        async (event) => {
-          const providerEventId = event.providers[providerId]!.eventId;
-          return adapter.fetchAndStoreOdds(
-            providerEventId,
-            event.id,
-            event.homeTeam,
-            event.awayTeam,
-          );
-        },
-        stats.byProvider[providerId],
-        providerId,
-        (current, total) => onProgress?.(providerId, current, total),
-      );
-    }),
-  );
-
-  // Calculate totals
-  stats.totalOdds = Object.values(stats.byProvider).reduce(
-    (sum, p) => sum + p.odds,
-    0,
-  );
-  stats.durationMs = Date.now() - startTime;
-
-  // Clean up stale entries not refreshed in this cycle
-  endFetchCycleCleanup(events.map((e) => e.id));
-
-  // Flush accumulated unmapped-market telemetry to DB (fire-and-forget)
-  void flushUnmappedBuffer();
-
-  return stats;
-}
-
 // ============================================
 // Helpers
 // ============================================

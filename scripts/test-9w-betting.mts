@@ -14,7 +14,7 @@ async function main() {
         eq(bets.outcome, "pending"),
       ),
     )
-    .orderBy(desc(bets.createdAt))
+    .orderBy(desc(bets.firstSeenAt))
     .limit(10);
 
   if (recentBets.length === 0) {

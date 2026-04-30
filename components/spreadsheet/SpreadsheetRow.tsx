@@ -21,10 +21,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, RefreshCw, X } from "lucide-react";
+import { Copy, X } from "lucide-react";
 import { Feature } from "@/components/auth/AuthProvider";
 import { getProviderColorClasses as getProviderBadgeClasses } from "@/lib/providers/registry";
 import { OddsCell } from "./OddsCell";
+import type { AtomOddsData } from "@/lib/formatting/spreadsheet";
 import {
   getProviderShortName,
   getSharpProviders,
@@ -69,28 +70,7 @@ function formatEventTime(startTime: string): string {
   return `${dateStr} ${timeStr}`;
 }
 
-/** Relative freshness label like "3s" / "1m" from a unix-ms timestamp. */
-function formatAge(ts: number, now: number): string {
-  const s = Math.max(0, Math.round((now - ts) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.round(m / 60);
-  return `${h}h`;
-}
 
-/** Latest odds timestamp on a row (for the Captured column). */
-function newestCapturedAt(
-  odds: Partial<
-    Record<string, { value: number; timestamp: number; suspended?: boolean }>
-  >,
-): number | null {
-  let ts = 0;
-  for (const od of Object.values(odds)) {
-    if (od && od.timestamp > ts) ts = od.timestamp;
-  }
-  return ts > 0 ? ts : null;
-}
 
 /**
  * Count how many soft providers show a positive-EV opportunity at the given
@@ -137,13 +117,7 @@ export interface SpreadsheetRowProps {
   row: SpreadsheetRow;
   visibleProviders: ProviderKey[];
   isLastInFamily: boolean;
-  now: number;
-  isRefreshing: boolean;
-  onRefresh: (
-    eventId: string,
-    providerEventIds?: Record<string, string>,
-    eventLabel?: string,
-  ) => void;
+
   eventProviders: ProviderKey[];
   providerEventIds: Record<string, string>;
   copyingRawData: string | null;
@@ -168,6 +142,8 @@ export interface SpreadsheetRowProps {
     providerEventId?: string,
   ) => void;
   onHide: (eventId: string, familyId: string) => void;
+  /** Opens the movement detail modal for this provider's odds. */
+  onMovementClick?: (movement: NonNullable<AtomOddsData["movement"]>, context: { eventLabel: string; marketLabel: string; providerLabel: string }) => void;
   liveScore?: LiveScoreData;
   /** Event-level suspension (all markets blocked) */
   suspended?: boolean;
@@ -177,15 +153,14 @@ export function SpreadsheetRow({
   row,
   visibleProviders,
   isLastInFamily,
-  now,
-  isRefreshing,
-  onRefresh,
+
   eventProviders,
   providerEventIds,
   copyingRawData,
   onSelectValueBet,
   onCopyRawData,
   onHide,
+  onMovementClick,
   liveScore,
   suspended,
 }: SpreadsheetRowProps) {
@@ -461,36 +436,28 @@ export function SpreadsheetRow({
             }
           : undefined;
         return (
-          <OddsCell key={providerId} odds={od} now={now} onClick={onClick} />
+          <OddsCell
+            key={providerId}
+            odds={od}
+            onClick={onClick}
+            providerLabel={getProviderShortName(providerId)}
+            onMovementClick={onMovementClick
+              ? (movement) => onMovementClick(movement, {
+                  eventLabel: row.eventLabel,
+                  marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
+                  providerLabel: getProviderShortName(providerId),
+                })
+              : undefined
+            }
+          />
         );
       })}
 
-      {isVisible("captured") && (
-        <td className="text-center px-2 text-[10px] tabular-nums text-muted-foreground">
-          {(() => {
-            const ts = newestCapturedAt(row.odds);
-            return ts ? formatAge(ts, now) : "-";
-          })()}
-        </td>
-      )}
+
 
       <td className="text-center px-2">
         <div className="flex items-center justify-center gap-1">
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <Feature id="refresh-event">
-              <LoadingButton
-                variant="ghost"
-                size="icon"
-                className="size-6"
-                onClick={() =>
-                  onRefresh(row.eventId, providerEventIds, row.eventLabel)
-                }
-                loading={isRefreshing}
-                icon={RefreshCw}
-                iconClassName="size-3.5"
-                title="Refresh odds for this event"
-              />
-            </Feature>
             <Feature id="copy-odds">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

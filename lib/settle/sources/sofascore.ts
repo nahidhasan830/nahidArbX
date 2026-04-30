@@ -27,11 +27,11 @@ import { logger } from "../../shared/logger";
 import { applyTeamAlias, learnTeamAlias } from "../aliases";
 import { singleton } from "../../util/singleton";
 import {
-  getProxyAgent,
+  fetchViaScrapeDoProxy,
   isDirectOnCooldown,
+  isProxyAvailable,
   reportDirect403,
-  reportProxy403,
-} from "./iproyal-proxy";
+} from "./scrapedo-proxy";
 
 const BASE_URL = "https://api.sofascore.com/api/v1";
 const MATCH_SCORE_THRESHOLD = 0.65;
@@ -42,7 +42,7 @@ const HTTP_TIMEOUT_MS = 15_000;
  * Browser-ish headers defeat the laziest of Cloudflare's fingerprinters.
  * When the direct request still 403s (Cloud Run IPs hit the adaptive
  * bot-score cap after a few hundred requests), `fetchSofaUrl` transparently
- * retries via the IPRoyal residential pool in `./iproyal-proxy`.
+ * retries via Scrape.do's free API proxy in `./scrapedo-proxy`.
  */
 const BROWSER_HEADERS = {
   "User-Agent":
@@ -244,14 +244,13 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
 };
 
 /**
- * GET a SofaScore URL with residential-proxy fallback on Cloudflare 403.
+ * GET a SofaScore URL with Scrape.do API fallback on Cloudflare 403.
  *
  * Strategy:
  *   1. If direct isn't on a recent-403 cooldown, try direct.
- *   2. On direct 403 (or if direct is on cooldown), try via IPRoyal.
- *   3. If the current proxy also 403s, rotate once and retry.
- *   4. All other errors (404, timeout, etc.) return null without burning
- *      a proxy — they're not Cloudflare blocks.
+ *   2. On direct 403 (or if direct is on cooldown), try via Scrape.do.
+ *   3. All other errors (404, timeout, etc.) return null without burning
+ *      a credit — they're not Cloudflare blocks.
  *
  * Returns `null` on non-recoverable failure; the shape of a successful
  * response depends on the caller (SofaScheduled vs SofaStatsResponse).
@@ -274,7 +273,7 @@ async function fetchSofaUrl<T>(url: string): Promise<T | null> {
         reportDirect403();
         logger.warn(
           "SofaScoreSource",
-          `403 direct for ${url} — falling back to IPRoyal proxy.`,
+          `403 direct for ${url} — falling back to Scrape.do proxy.`,
         );
         // fall through to proxy attempt
       } else if (status === 404) {
@@ -289,43 +288,23 @@ async function fetchSofaUrl<T>(url: string): Promise<T | null> {
     }
   }
 
-  // 2) Proxy fallback — up to 2 attempts (rotate on 403)
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const proxy = getProxyAgent();
-    if (!proxy) {
-      logger.warn(
-        "SofaScoreSource",
-        `No IPRoyal proxy available — cannot retry ${url}.`,
-      );
-      return null;
-    }
-    try {
-      const { data } = await axios.get<T>(url, {
-        ...baseCfg,
-        httpsAgent: proxy.agent,
-        proxy: false,
-      });
-      logger.info(
-        "SofaScoreSource",
-        `Resolved via IPRoyal proxy ${proxy.label} (attempt ${attempt + 1}).`,
-      );
-      return data;
-    } catch (err) {
-      const status = (err as { response?: { status?: number } }).response
-        ?.status;
-      if (status === 403) {
-        reportProxy403(proxy.label);
-        continue;
-      }
-      if (status === 404) return null;
-      logger.warn(
-        "SofaScoreSource",
-        `Proxy ${proxy.label} GET ${url} failed: ${(err as Error).message}`,
-      );
-      return null;
-    }
+  // 2) Scrape.do API fallback — single attempt
+  if (!isProxyAvailable()) {
+    logger.warn(
+      "SofaScoreSource",
+      `Scrape.do monthly limit reached — cannot retry ${url}.`,
+    );
+    return null;
   }
-  return null;
+
+  const data = await fetchViaScrapeDoProxy<T>(url, HTTP_TIMEOUT_MS + 15_000);
+  if (data) {
+    logger.info(
+      "SofaScoreSource",
+      `Resolved via Scrape.do proxy for ${url}.`,
+    );
+  }
+  return data;
 }
 
 // ─── Main entry ──────────────────────────────────────────────────────────────

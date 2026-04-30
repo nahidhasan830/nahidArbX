@@ -14,6 +14,7 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 
 ## Architecture & Data
 
+- **Backend Autonomy:** Server runs autonomously (sync, WebSockets, settlement). Frontend is strictly read-only. Never rely on frontend for background logic.
 - **`singleton()`** (`lib/util/singleton.ts`) for HMR-safe state. Module-level `let` breaks under Turbopack.
 - **`instrumentation.ts`** boots sync + auto-settlement schedulers headlessly.
 - **`bets` is the only settlement table.** `value_bets`/`placed_bets` are dropped legacy.
@@ -51,7 +52,7 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - **Runtime is localhost.** `npm run dev` → `http://localhost:3000`. Cloud SQL Postgres via proxy.
 - **Cloud Run: Jobs for batch work, Services for HTTP only.** `--no-cpu-throttling` doesn't prevent idle reaping.
 - **Fix scripts: agent runs them, not the operator.** Execute directly with `.env` + ADC. Verify outcome. See CLAUDE.md §Fix scripts.
-- **IPRoyal proxy: SofaScore fallback only, never pre-emptive.** Direct first, proxy on 403 only. Don't route other sources through it.
+- **Scrape.do proxy: SofaScore fallback only, never pre-emptive.** Direct first, proxy on 403 only. Free tier 1k credits/mo. Don't route other sources through it.
 - **Post-change:** always `npm run build` + `npm run lint`.
 
 ## Entity Resolution

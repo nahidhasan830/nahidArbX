@@ -12,7 +12,6 @@
 import { z } from "zod";
 import { BaseAtomsAdapter, type FetchContext } from "./base";
 import { buildOddsEntry } from "../../shared/odds-entry";
-import { DebugFetcher } from "../../shared/debug-fetcher";
 import { validateAndParse } from "../../shared/validation";
 import { createProviderClient } from "../../shared/http";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
@@ -124,6 +123,19 @@ interface SportsbookRawData {
 
 export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
+
+  async fetchAndStoreOdds(
+    providerEventId: string,
+    normalizedEventId: string,
+    homeTeam: string,
+    awayTeam: string,
+  ): Promise<number> {
+    // LEGACY: The 15-second polling loop calls this. 
+    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not 
+    // fetch odds via REST here anymore to avoid duplicate work.
+    // The X-Ray diagnostics UI still uses `debugFetchRawData` below.
+    return 0;
+  }
 
   protected async fetchRawData(
     ctx: FetchContext,
@@ -251,82 +263,6 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     return entries;
   }
 
-  protected captureDebugRequest(debug: DebugFetcher, ctx: FetchContext): void {
-    const catalogParams = buildCatalogParams(ctx.providerEventId);
-    debug.captureRequest({
-      label: "Step 1: Catalog",
-      url: ENDPOINT_URL,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: catalogParams.toString(),
-    });
-  }
-
-  protected async debugFetchRawData(
-    debug: DebugFetcher,
-    ctx: FetchContext,
-  ): Promise<SportsbookRawData | null> {
-    // Step 1: Catalog (request already captured in captureDebugRequest)
-    const catalogParams = buildCatalogParams(ctx.providerEventId);
-    const catalogData = await debug.executeWithCapture(() =>
-      client.post(ENDPOINT_URL, catalogParams.toString()),
-    );
-
-    if (!catalogData) return null;
-
-    const catalog = validateAndParse(
-      catalogData,
-      SportsbookResponseSchema,
-      `[NW Sportsbook Debug] catalog event ${ctx.providerEventId}`,
-    );
-
-    if (!catalog) return null;
-
-    const allMarkets = catalog.geniusSportsMarkets;
-    if (!allMarkets || allMarkets.length === 0) return null;
-
-    const markets = allMarkets;
-
-    // Step 2: Odds
-    const marketIds = markets.map((m) => m.id);
-    const selectionTsList = markets.map((m) => m.selectionTs ?? -1);
-    const version = catalog.version ?? 0;
-    const oddsParams = buildOddsParams(
-      ctx.providerEventId,
-      version,
-      marketIds,
-      selectionTsList,
-    );
-
-    // Capture step 2 request
-    debug.captureRequest({
-      label: "Step 2: Odds",
-      url: ENDPOINT_URL,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: oddsParams.toString(),
-    });
-
-    const oddsData = await debug.executeWithCapture(() =>
-      client.post(ENDPOINT_URL, oddsParams.toString()),
-    );
-
-    if (!oddsData) return null;
-
-    const parsed = validateAndParse(
-      oddsData,
-      SportsbookResponseSchema,
-      `[NW Sportsbook Debug] odds event ${ctx.providerEventId}`,
-    );
-
-    if (!parsed || !parsed.geniusSportsMarkets) return null;
-
-    return {
-      markets: parsed.geniusSportsMarkets,
-      homeTeam: ctx.homeTeam,
-      awayTeam: ctx.awayTeam,
-    };
-  }
 }
 
 // ============================================
@@ -347,7 +283,7 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
  * we silently fall through and the guest-tier limits remain. Odds
  * ingestion is never blocked by limits overlay.
  */
-async function overlayAuthenticatedLimits(
+export async function overlayAuthenticatedLimits(
   providerEventId: string,
   markets: SportsbookMarket[],
 ): Promise<void> {
@@ -446,16 +382,3 @@ export async function fetchAndStoreNwSportsbookOdds(
   );
 }
 
-export async function debugFetchAndStoreNwSportsbookOdds(
-  providerEventId: string,
-  normalizedEventId: string,
-  homeTeam: string,
-  awayTeam: string,
-) {
-  return adapterInstance.debugFetchAndStoreOdds(
-    providerEventId,
-    normalizedEventId,
-    homeTeam,
-    awayTeam,
-  );
-}

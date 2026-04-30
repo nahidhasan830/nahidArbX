@@ -492,5 +492,5 @@ export async function listCompetingCandidates(opts: {
 export async function insertObservation(
   row: NewNameObservationRow,
 ): Promise<void> {
-  await db.insert(nameObservations).values(row);
+  await db.insert(nameObservations).values(row).onConflictDoNothing();
 }

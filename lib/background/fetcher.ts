@@ -7,15 +7,9 @@ import {
   setValueBets,
   getMatchedEvents,
   getAllProviderStatus,
-  getValueBets as store_getValueBets,
 } from "../store";
 import { matchEvents } from "../matching";
-import { fetchAllOddsForMatchedEvents } from "../atoms/fetcher";
-import { detectAllValueBetsIncremental } from "../atoms/value-detector";
-import { persistValueBets } from "../db/repositories/bets";
-import { getBettingSettings } from "../db/repositories/betting-settings";
-import { maybeAutoPlace } from "../betting/auto-placer";
-import { getStoreStats, consumeDirtyFamilies } from "../atoms/store";
+import { getStoreStats } from "../atoms/store";
 import type { NormalizedEvent } from "../types";
 import {
   getEnabledProviderIds,
@@ -24,7 +18,8 @@ import {
 } from "../providers/registry";
 import { logger } from "../shared/logger";
 import { getTokenTTL, refreshTokenIfNeeded } from "../auth/token-manager";
-import { FIXTURE_INTERVAL_MS, ODDS_INTERVAL_MS } from "../shared/constants";
+import { FIXTURE_INTERVAL_MS, HEARTBEAT_INTERVAL_MS } from "../shared/constants";
+import { triggerDetection } from "./reactive-detector";
 import { invalidateResponseCache } from "../cache/response-cache";
 import { computeDelta, signalFixturesChanged } from "../cache/delta";
 import { registerEventMappings } from "../scores/multi-source-store";
@@ -74,14 +69,10 @@ const RECONCILE_INTERVAL_MS = 30_000;
 const sch = singleton("fetcher:scheduler", () => ({
   active: false,
   fixtureTimer: null as ReturnType<typeof setTimeout> | null,
-  oddsTimer: null as ReturnType<typeof setTimeout> | null,
   reconcileTimer: null as ReturnType<typeof setTimeout> | null,
   mlTimer: null as ReturnType<typeof setTimeout> | null,
   fixtureInterval: FIXTURE_INTERVAL_MS,
-  oddsInterval: ODDS_INTERVAL_MS,
   fixturesSyncing: false,
-  oddsSyncing: false,
-  oddsQueued: false,
   onFixDone: null as (() => void) | null,
   paused: false,
 }));
@@ -286,232 +277,27 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
 }
 
 /**
- * Phase 3-4: Fetch odds for matched events and detect value bets
- * Runs every 10-15 seconds (odds change frequently)
- */
-export async function syncOddsOnly(
-  matchedEvents?: NormalizedEvent[],
-): Promise<void> {
-  if (sch.oddsSyncing) {
-    logger.debug("Sync", "Odds sync already in progress, skipping");
-    return;
-  }
-
-  // Use provided events or get from store
-  const events = matchedEvents ?? getMatchedEvents();
-
-  if (events.length === 0) {
-    // No matched events — clear stale value bets and set sync complete
-    setValueBets([]);
-    invalidateResponseCache();
-    setSyncStatus({
-      isSyncing: false,
-      lastSyncEnd: new Date(),
-      currentPhase: "idle",
-      phaseProgress: null,
-    });
-    return;
-  }
-
-  sch.oddsSyncing = true;
-  const startTime = Date.now();
-
-  // Set sync status IMMEDIATELY when odds sync starts (before any async work)
-  // This ensures the UI reflects the sync state right away
-  setSyncStatus({
-    isSyncing: true,
-    currentPhase: "markets",
-    phaseProgress: {
-      current: 0,
-      total: events.length,
-      subPhase: getEnabledProviderIds()[0] ?? "fixtures",
-    },
-  });
-
-  syncBus.emitBus({
-    type: "sync:phase",
-    phase: "markets",
-    progress: { current: 0, total: events.length },
-  });
-
-  try {
-    // Fetch all odds into atoms store
-    const fetchStats = await fetchAllOddsForMatchedEvents(events, {
-      onProgress: (phase: ProviderKey, current, total) => {
-        setSyncStatus({
-          phaseProgress: { current, total, subPhase: phase },
-        });
-      },
-    });
-
-    const totalOddsCount = fetchStats.totalOdds;
-    const storeStats = getStoreStats();
-
-    const parts = Object.entries(fetchStats.byProvider)
-      .filter(([, s]) => s.odds > 0)
-      .map(([id, s]) => `${s.odds} ${getProviderShortName(id)}`);
-    logger.info(
-      "Sync",
-      `Odds: ${parts.join(", ")} (${totalOddsCount} total in ${storeStats.totalFamilies} families)`,
-    );
-
-    // Value Bet detection (INCREMENTAL)
-    //
-    // Defense-in-depth pre-match filter: the upstream fetcher already
-    // excludes past-kickoff events from its return (see syncFixturesOnly).
-    // We re-apply the filter here so any future caller that hands us an
-    // event list from a different source still gets pre-match-only
-    // behaviour. In-play detection requires a different architecture —
-    // see `in-play.md`.
-    const nowMs = Date.now();
-    const preMatchEventIds = events
-      .filter((e) => new Date(e.startTime).getTime() > nowMs)
-      .map((e) => e.id);
-    const skippedInPlay = events.length - preMatchEventIds.length;
-    if (skippedInPlay > 0) {
-      logger.debug(
-        "Sync",
-        `Value detection: ${preMatchEventIds.length} pre-match events, ${skippedInPlay} in-play/past-kickoff skipped`,
-      );
-    }
-
-    // Consume dirty families for incremental detection
-    const dirty = consumeDirtyFamilies();
-    const dirtyCount = dirty.size;
-
-    // Pull Kelly multiplier from the user's strategy so Kelly-fraction values
-    // stored on detected bets match whatever the placer will apply at
-    // placement time. The repo caches this for 30s in-process.
-    const { row: bettingSettings } = await getBettingSettings();
-    const valueBets = detectAllValueBetsIncremental(preMatchEventIds, dirty, {
-      kellyFraction: bettingSettings.kellyFraction,
-    });
-
-    if (dirtyCount > 0) {
-      logger.debug(
-        "Sync",
-        `Incremental detection: ${dirtyCount} dirty families recomputed`,
-      );
-    }
-
-    // Track previous count for change detection
-    const prevValueCount = store_getValueBets().length;
-
-    setValueBets(valueBets);
-    invalidateResponseCache();
-
-    if (valueBets.length > 0) {
-      try {
-        const persistResult = await persistValueBets(valueBets);
-        logger.info(
-          "Sync",
-          `DB: +${persistResult.inserted} new, ~${persistResult.updated} updated` +
-            (persistResult.skippedNoEvent ||
-            persistResult.skippedNoFamily ||
-            persistResult.errors
-              ? ` (skip ${persistResult.skippedNoEvent + persistResult.skippedNoFamily}, err ${persistResult.errors})`
-              : ""),
-        );
-      } catch (err) {
-        logger.error(
-          "Sync",
-          `DB persistence failed: ${(err as Error).message} — sync continues`,
-        );
-      }
-
-      for (const vb of valueBets) {
-        maybeAutoPlace(vb).catch((err) =>
-          logger.error(
-            "Sync",
-            `AutoPlace failed for ${vb.id}: ${(err as Error).message}`,
-          ),
-        );
-      }
-    }
-
-    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    logger.info(
-      "Sync",
-      `Odds complete in ${duration}s - ${valueBets.length} value bets found`,
-    );
-
-    // Notify SSE clients
-    syncBus.emitBus({
-      type: "sync:complete",
-      duration: Date.now() - startTime,
-      valueBetCount: valueBets.length,
-      dirtyFamilies: dirtyCount,
-    });
-
-    // Push delta update to SSE clients (avoids full data refetch)
-    const delta = computeDelta(syncBus.version);
-    syncBus.emitBus({ type: "data:delta", delta });
-
-    if (valueBets.length !== prevValueCount) {
-      syncBus.emitBus({
-        type: "value:change",
-        added: Math.max(0, valueBets.length - prevValueCount),
-        removed: Math.max(0, prevValueCount - valueBets.length),
-        total: valueBets.length,
-      });
-    }
-
-    setSyncStatus({
-      isSyncing: false,
-      lastSyncEnd: new Date(),
-      lastSyncDuration: Date.now() - startTime,
-      lastMarketsCount: totalOddsCount,
-      currentPhase: "idle",
-      phaseProgress: null,
-    });
-
-    // Snapshot closing odds for matches kicking off in the next few minutes.
-    // Swallow errors — missing closing data must not break odds sync.
-    try {
-      const { captureClosingOdds } = await import("./closing-capture");
-      await captureClosingOdds();
-    } catch (err) {
-      logger.warn(
-        "Sync",
-        `Closing-odds capture failed: ${(err as Error).message}`,
-      );
-    }
-  } catch (error) {
-    logger.error("Sync", "Error fetching odds:", error);
-    // Clear value bets to avoid stale badges when odds fetch fails
-    setValueBets([]);
-    invalidateResponseCache();
-    setSyncStatus({
-      isSyncing: false,
-      currentPhase: "idle",
-      phaseProgress: null,
-    });
-  } finally {
-    sch.oddsSyncing = false;
-  }
-}
-
-/**
- * Full sync: fixtures + matching + odds + value-bet detection
- * Used for initial sync and manual "Sync Now"
+ * Full sync: fixtures + matching, then trigger reactive detection.
+ * Used for initial sync and manual "Sync Now".
  */
 export async function syncAll(): Promise<void> {
   const startTime = Date.now();
 
   // Phase 1-2: Fixtures + Matching
-  const matchedEvents = await syncFixturesOnly();
+  await syncFixturesOnly();
 
-  // Phase 3-4: Odds + Value detection
-  await syncOddsOnly(matchedEvents);
+  // Trigger reactive detection immediately (consumes any dirty families
+  // that accumulated during fixture sync)
+  triggerDetection();
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
   logger.info("Sync", `Full sync complete in ${duration}s`);
 }
 
 /**
- * Start dual scheduler:
+ * Start scheduler:
  * - Fixtures every 2 minutes (events don't change often)
- * - Odds every 15 seconds (odds change frequently)
+ * - Value detection is event-driven via reactive-detector.ts
  */
 export function startScheduler(): void {
   if (sch.active) {
@@ -522,12 +308,12 @@ export function startScheduler(): void {
   sch.active = true;
   setSyncStatus({
     isSchedulerActive: true,
-    syncInterval: sch.oddsInterval, // Show the faster interval in UI
+    syncInterval: HEARTBEAT_INTERVAL_MS,
   });
 
   logger.info(
     "Sync",
-    `Dual scheduler started (fixtures: ${sch.fixtureInterval / 1000}s, odds: ${sch.oddsInterval / 1000}s)`,
+    `Scheduler started (fixtures: ${sch.fixtureInterval / 1000}s, detection: event-driven)`,
   );
 
   // ==========================================
@@ -644,7 +430,6 @@ export function startScheduler(): void {
       consecutiveFailures: 0,
       details: {
         fixturesSyncing: sch.fixturesSyncing,
-        oddsSyncing: sch.oddsSyncing,
       },
     };
   });
@@ -710,14 +495,16 @@ export function startScheduler(): void {
   // Provider Auto-Heal Callbacks
   // ==========================================
 
-  // When BetConstruct reconnects after failure, trigger an odds sync
+  // When BetConstruct reconnects after failure, re-subscribe all events
+  // (Swarm subscriptions are lost when the session reconnects) and trigger detection
   onBCReconnect(() => {
-    logger.info("Sync", "BetConstruct reconnected - triggering odds sync");
+    logger.info("Sync", "BetConstruct reconnected - re-subscribing all events");
     invalidateResponseCache();
-    // Fire and forget - don't await to avoid blocking
-    syncOddsOnly().catch((err) => {
-      logger.error("Sync", "Post-reconnect odds sync failed:", err);
+    // Lazy import to avoid circular dependency
+    import("../services/betconstruct-sync-service").then(({ betconstructSyncService }) => {
+      betconstructSyncService.resubscribeAll();
     });
+    triggerDetection();
   });
 
   // When Scores WebSocket reconnects, log it (subscriptions auto-restore)
@@ -742,7 +529,7 @@ export function startScheduler(): void {
   // ML scheduler now runs on the entity-matcher Cloud Run Service.
   // Config is read from matcher_config table in Postgres.
 
-  // Initial full sync
+  // Initial fixture sync (reactive detector handles value detection)
   syncAll();
 
   // ==========================================
@@ -766,11 +553,10 @@ export function startScheduler(): void {
       const syncStart = Date.now();
       await syncFixturesOnly();
 
-      // After fixtures complete, immediately trigger an odds sync
-      // (don't wait for the regular odds interval)
-      if (sch.active && !sch.oddsSyncing) {
-        logger.debug("Sync", "Post-fixture odds sync triggered");
-        await syncOddsOnly();
+      // After fixtures complete, trigger reactive detection
+      // (new events may have new dirty families)
+      if (sch.active) {
+        triggerDetection();
       }
 
       // Schedule next fixture run after remaining interval time
@@ -783,35 +569,6 @@ export function startScheduler(): void {
         }, wait);
       }
     }, sch.fixtureInterval);
-  }
-
-  function scheduleNextOdds(): void {
-    if (!sch.active) return;
-
-    sch.oddsTimer = setTimeout(async () => {
-      if (!sch.active) return;
-      if (sch.paused) {
-        scheduleNextOdds();
-        return;
-      }
-
-      // Odds sync runs independently of fixtures. It uses the last-known
-      // matched events from the store (getMatchedEvents). This prevents
-      // the 3+ minute starvation window when the entity-matcher Cloud Run
-      // service hangs during the fixture matching phase.
-
-      const syncStart = Date.now();
-      await syncOddsOnly();
-
-      // Schedule next odds run after remaining interval time
-      if (sch.active) {
-        const elapsed = Date.now() - syncStart;
-        const wait = Math.max(0, sch.oddsInterval - elapsed);
-        sch.oddsTimer = setTimeout(() => {
-          scheduleNextOdds();
-        }, wait);
-      }
-    }, sch.oddsInterval);
   }
 
   // Pending-bet reconciliation loop. Independent of the fixtures/odds
@@ -912,18 +669,13 @@ export function startScheduler(): void {
   }
 
   scheduleNextFixtures();
-  scheduleNextOdds();
   scheduleNextReconcile();
   scheduleNextMl();
 }
 
 export function restartScheduler(
-  oddsIntervalMs?: number,
   fixtureIntervalMs?: number,
 ): void {
-  if (oddsIntervalMs !== undefined) {
-    sch.oddsInterval = oddsIntervalMs;
-  }
   if (fixtureIntervalMs !== undefined) {
     sch.fixtureInterval = fixtureIntervalMs;
   }
@@ -939,17 +691,11 @@ export function stopScheduler(): void {
   // Stop health monitoring
   stopHealthMonitoring();
 
-  // ML scheduler runs on the entity-matcher server (not in this process).
-
   sch.active = false;
 
   if (sch.fixtureTimer) {
     clearTimeout(sch.fixtureTimer);
     sch.fixtureTimer = null;
-  }
-  if (sch.oddsTimer) {
-    clearTimeout(sch.oddsTimer);
-    sch.oddsTimer = null;
   }
   if (sch.reconcileTimer) {
     clearTimeout(sch.reconcileTimer);
@@ -960,9 +706,8 @@ export function stopScheduler(): void {
     sch.mlTimer = null;
   }
 
-  // Release any odds sync waiting on fixtures
+  // Release any state
   sch.onFixDone = null;
-  sch.oddsQueued = false;
 
   setSyncStatus({ isSchedulerActive: false });
   logger.info("Sync", "Scheduler stopped");
@@ -970,10 +715,6 @@ export function stopScheduler(): void {
 
 export function isSchedulerRunning(): boolean {
   return sch.active;
-}
-
-export function isOddsSyncInProgress(): boolean {
-  return sch.oddsSyncing;
 }
 
 // ============================================

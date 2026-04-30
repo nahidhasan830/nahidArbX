@@ -149,6 +149,38 @@
 }
 
 /* ============================================================
+   ODDS MOVEMENT FLASH — one-shot highlight on price changes.
+   Green flash for upward movement, red flash for downward.
+   Can't be expressed as Tailwind utilities (keyframe + animation).
+   ============================================================ */
+
+@keyframes flash-green {
+  0% {
+    background-color: oklch(0.45 0.15 150 / 0.35);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-red {
+  0% {
+    background-color: oklch(0.45 0.15 25 / 0.35);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-flash-green {
+  animation: flash-green 600ms ease-out;
+}
+
+.animate-flash-red {
+  animation: flash-red 600ms ease-out;
+}
+
+/* ============================================================
    GLOBAL SCROLLBAR — pseudo-element, no Tailwind equivalent.
    Teal accent matches the brand in dark mode.
    ============================================================ */

@@ -30,12 +30,7 @@ const DEFAULTS: BettingSettingsRow = {
   minStakeBdt: 200,
   stakeBucketBdt: 100,
   minEvPct: 2,
-  maxOddsAgeSec: 90,
-  dailyMaxLossBdt: null,
-  dailyMaxStakeBdt: null,
-  maxConcurrentExposureBdt: null,
-  maxBetsPerDay: null,
-  cooldownAfterLossSec: null,
+
   activeStrategyIds: [],
   updatedAt: new Date().toISOString(),
 };

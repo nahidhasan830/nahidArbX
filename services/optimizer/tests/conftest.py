@@ -30,7 +30,6 @@ _SCHEMA = {
     "soft_odds": pl.Float64,
     "soft_commission_pct": pl.Float64,
     "sharp_true_prob": pl.Float64,
-    "sharp_odds_age_ms": pl.Int64,
     "tick_count": pl.Int64,
     "ev_pct": pl.Float64,
     "outcome": pl.Utf8,
@@ -107,7 +106,6 @@ def make_synthetic_bets(
             "soft_odds": soft_odds.tolist(),
             "soft_commission_pct": commission.tolist(),
             "sharp_true_prob": sharp_true_prob.tolist(),
-            "sharp_odds_age_ms": [60_000] * n,
             "tick_count": [5] * n,
             "ev_pct": ev_pct.tolist(),
             "outcome": outcome.tolist(),
@@ -143,7 +141,6 @@ def default_config() -> dict:
     """A representative trial config — wide-enough filters to keep most rows."""
     return {
         "min_ev_pct": 0.0,
-        "max_odds_age_sec": 3600,
         "odds_lo": 1.5,
         "odds_hi": 5.0,
         "staking_scheme": "kelly",

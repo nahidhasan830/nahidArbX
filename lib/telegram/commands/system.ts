@@ -19,7 +19,7 @@ import {
   getConnectionHealth as getScoresConnectionHealth,
 } from "@/lib/scores/websocket";
 import { isBCPollingActive, getBCPollingCount } from "@/lib/scores/bc-poller";
-import { getProxyStats } from "@/lib/settle/sources/iproyal-proxy";
+import { getProxyStats } from "@/lib/settle/sources/scrapedo-proxy";
 import {
   PROVIDER_REGISTRY,
   getProviderShortName,
@@ -309,20 +309,20 @@ registerCommand({
 registerCommand({
   name: "proxy",
   usage: "/proxy",
-  description: "IPRoyal residential pool status (sessions, recent 403s).",
+  description: "Scrape.do proxy status (monthly credits, direct cooldown).",
   explanation:
-    "The IPRoyal residential proxy pool exists as a fallback when Cloud Run egress trips Cloudflare on SofaScore. This command shows how many sessions are healthy, how many are on cooldown, and whether a direct-cooldown is currently active (meaning we're routing through the pool right now). If 'sessions remaining' is low, it's time to top up the proxy pool. Example: '498 sessions · 2 cooling down · direct path: clear'.",
+    "The Scrape.do free-tier proxy exists as a fallback when Cloud Run egress trips Cloudflare on SofaScore. This command shows how many of the 1,000 monthly free credits have been used, and whether a direct-cooldown is currently active (meaning we're routing through Scrape.do right now). Example: '847 credits remaining · direct path: clear'.",
   group: "read",
   async handler({ reply }) {
     const stats = getProxyStats();
-    const healthy = Math.max(0, stats.total - stats.onCooldown);
     const lines = [
-      header("🌐", "IPRoyal residential pool"),
+      header("🌐", "Scrape.do proxy (SofaScore fallback)"),
       "",
       kvList([
-        ["Total sessions", num(stats.total)],
-        ["Healthy", num(healthy)],
-        ["On cooldown", num(stats.onCooldown)],
+        ["Service", "scrape.do (free tier)"],
+        ["Monthly limit", num(stats.monthlyLimit)],
+        ["Used", num(stats.usedCredits)],
+        ["Remaining", num(stats.remainingCredits)],
         [
           "Direct cooldown",
           stats.directOnCooldown
@@ -331,10 +331,10 @@ registerCommand({
         ],
       ]),
     ];
-    if (stats.total === 0) {
+    if (stats.remainingCredits < 100) {
       lines.push(
         "",
-        "<i>No proxy file present. SofaScore falls back to direct-only.</i>",
+        "⚠️ <i>Low credits — SofaScore fallback may exhaust soon.</i>",
       );
     }
     await reply(lines.join("\n"));

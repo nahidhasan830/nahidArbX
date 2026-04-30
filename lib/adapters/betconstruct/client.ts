@@ -47,6 +47,16 @@ let onReconnectCallback: (() => void) | null = null;
 // Callback for fatal failures (to trigger server restart)
 let onFatalFailureCallback: (() => void) | null = null;
 
+// ============================================
+// Subscription State
+// ============================================
+
+/** subid → callback for routing subscription push updates */
+const subscriptionCallbacks = new Map<string, (data: unknown) => void>();
+
+/** gameId → subid for lifecycle management (subscribe/unsubscribe) */
+const gameSubscriptions = new Map<number, string>();
+
 // Pending requests waiting for response
 const pendingRequests = new Map<
   string,
@@ -399,8 +409,23 @@ function handleMessage(data: string): void {
           new BetConstructError(message.code, errorMessage, silent),
         );
       }
+      return;
     }
-    // Subscription updates (rid = 0) can be handled here if needed
+
+    // Subscription push updates — Swarm sends deltas keyed by subid
+    // Format: { code: 0, rid: 0, data: { [subid]: { game: { [gameId]: { ...delta } } } } }
+    if (message.data && typeof message.data === "object") {
+      for (const [subid, delta] of Object.entries(message.data)) {
+        const cb = subscriptionCallbacks.get(subid);
+        if (cb) {
+          try {
+            cb(delta);
+          } catch (err) {
+            log.error(`Subscription callback error for subid ${subid}`, err);
+          }
+        }
+      }
+    }
   } catch (err) {
     log.error("Failed to parse message", err);
   }
@@ -662,6 +687,117 @@ function extractGamesFromResponse(response: unknown): BCGame[] {
   return games;
 }
 
+// ============================================
+// Subscription Management (Real-Time Odds)
+// ============================================
+
+/**
+ * Subscribe to a game's markets for real-time push updates.
+ *
+ * Swarm sends the initial market snapshot in the response, then pushes
+ * deltas via the WebSocket whenever any market/event/price changes.
+ * Updates arrive in `handleMessage` and are routed to the `onUpdate`
+ * callback keyed by the `subid` Swarm assigns.
+ *
+ * @param gameId - BetConstruct numeric game ID
+ * @param onUpdate - Called with delta data on every push update
+ * @returns The initial BCGame snapshot (with full markets), or null
+ */
+export async function subscribeToGame(
+  gameId: number,
+  onUpdate: (delta: unknown) => void,
+): Promise<BCGame | null> {
+  // Already subscribed — skip
+  if (gameSubscriptions.has(gameId)) return null;
+
+  const response = await sendSessionRequest({
+    command: "get",
+    params: {
+      source: "betting",
+      what: {
+        sport: ["name"],
+        region: ["name"],
+        competition: ["name"],
+        game: [
+          [
+            "id",
+            "stats",
+            "info",
+            "markets_count",
+            "type",
+            "start_ts",
+            "team1_id",
+            "team1_name",
+            "team2_id",
+            "team2_name",
+            "is_blocked",
+          ],
+        ],
+        market: [
+          "id",
+          "group_id",
+          "group_name",
+          "type",
+          "name",
+          "base",
+          "display_key",
+          "express_id",
+        ],
+        event: ["id", "type_1", "price", "name", "base", "order"],
+      },
+      where: {
+        game: { id: gameId },
+        sport: { alias: "Soccer" },
+      },
+      subscribe: true,
+    },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resp = response as any;
+  const subid = resp?.data?.subid;
+
+  if (!subid) {
+    log.warn(`subscribeToGame(${gameId}): no subid in response`);
+    return null;
+  }
+
+  // Register callback
+  subscriptionCallbacks.set(String(subid), onUpdate);
+  gameSubscriptions.set(gameId, String(subid));
+
+  // Extract initial game snapshot
+  const games = extractGamesFromResponse(response);
+  return games.length > 0 ? games[0] : null;
+}
+
+/**
+ * Unsubscribe from a game's real-time updates.
+ */
+export async function unsubscribeFromGame(gameId: number): Promise<void> {
+  const subid = gameSubscriptions.get(gameId);
+  if (!subid) return;
+
+  subscriptionCallbacks.delete(subid);
+  gameSubscriptions.delete(gameId);
+
+  try {
+    await sendSessionRequest({
+      command: "unsubscribe",
+      params: { subid },
+    });
+  } catch {
+    // Best-effort — connection may already be dead
+  }
+}
+
+/**
+ * Get all currently subscribed game IDs.
+ */
+export function getSubscribedGameIds(): number[] {
+  return Array.from(gameSubscriptions.keys());
+}
+
 /**
  * Close the WebSocket connection (intentionally)
  */
@@ -674,6 +810,10 @@ export function disconnect(): void {
   }
   isReconnecting = false;
   consecutiveTimeouts = 0;
+
+  // Clear all subscriptions
+  subscriptionCallbacks.clear();
+  gameSubscriptions.clear();
 
   if (ws) {
     ws.removeAllListeners();

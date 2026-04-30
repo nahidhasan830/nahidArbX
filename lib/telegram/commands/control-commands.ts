@@ -1,7 +1,7 @@
 /**
  * Control commands (safe writes — no confirm flow):
  *   /sync, /scheduler, /settle, /autoplace (off-only),
- *   /refresh-token, /reconcile, /cache.
+ *   /refreshtoken, /reconcile, /cache.
  *
  * The /ai kill-switch command was removed in 2026 along with all
  * automatic Gemini AI usage. Manual AI re-runs still happen from the
@@ -18,8 +18,8 @@ import {
   restartScheduler,
   syncAll,
   syncFixturesOnly,
-  syncOddsOnly,
 } from "@/lib/background/fetcher";
+import { triggerDetection } from "@/lib/background/reactive-detector";
 import {
   pauseAutoSettleScheduler,
   resumeAutoSettleScheduler,
@@ -63,8 +63,8 @@ registerCommand({
       void syncFixturesOnly();
       await reply("🔄 Fixtures sync triggered.");
     } else if (phase === "odds") {
-      void syncOddsOnly();
-      await reply("🔄 Odds sync triggered.");
+      triggerDetection();
+      await reply("🔄 Reactive detection triggered.");
     } else {
       void syncAll();
       await reply("🔄 Full sync triggered (fixtures + matching + odds).");
@@ -233,7 +233,7 @@ registerCommand({
       );
     } else if (target === "on" || target === "1" || target === "true") {
       await reply(
-        `Use /autoplace-on ${esc(known.provider)} (confirm-gated) to enable. This route is read/disable-only.`,
+        `Use /autoplaceon ${esc(known.provider)} (confirm-gated) to enable. This route is read/disable-only.`,
       );
     } else {
       await reply(
@@ -244,11 +244,11 @@ registerCommand({
   },
 });
 
-// ── /refresh-token ───────────────────────────────────────────────────────
+// ── /refreshtoken ────────────────────────────────────────────────────────
 
 registerCommand({
-  name: "refresh-token",
-  usage: "/refresh-token",
+  name: "refreshtoken",
+  usage: "/refreshtoken",
   description: "Force a Pinnacle Bearer-token refresh.",
   explanation:
     "Pinnacle requires a Bearer token captured via betjili that expires after ~1h. Sync auto-refreshes when TTL drops below 20 minutes, " +

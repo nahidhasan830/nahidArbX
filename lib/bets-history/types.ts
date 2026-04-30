@@ -96,7 +96,7 @@ export type ValueBetRow = {
   sharpProvider: "pinnacle" | string;
   sharpOdds: number;
   sharpTrueProb: number;
-  sharpOddsAgeMs: number | null;
+
 
   softProvider: SoftProvider | string;
   softCommissionPct: number;
@@ -107,18 +107,30 @@ export type ValueBetRow = {
   tickCount: number;
 
   closingSharpOdds: number | null;
-  closingSoftOdds: number | null;
+
 
   outcome: Outcome | string;
-  outcomeMarkedAt: string | null;
   /** Pipeline tier/source that produced the outcome — null while pending. */
   settledBySource: string | null;
+  /** When the outcome was resolved — null while pending. */
+  settledAt: string | null;
   /** Count of settlement-pipeline ticks that touched this row. */
   settleAttempts: number;
   lastSettleAttemptAt: string | null;
 
-  createdAt: string;
-  updatedAt: string;
+  /** Odds movement snapshot from detection time (persisted JSONB).
+   *  Typed shape when parsed, `unknown` when fresh from Drizzle. */
+  oddsMovement?: OddsMovementData | unknown | null;
+};
+
+/** Parsed shape of the odds_movement JSONB blob. */
+export type OddsMovementData = {
+  provider: string;
+  openingOdds: number | null;
+  peakOdds: number;
+  troughOdds: number;
+  totalTicks: number;
+  sparkline: [number, number][];
 };
 
 export type BetFilters = {

@@ -59,7 +59,7 @@ export const bets = pgTable(
       scale: 5,
       mode: "number",
     }).notNull(),
-    sharpOddsAgeMs: integer(),
+
 
     // Soft side (the book we detected the opportunity on)
     softProvider: text().notNull(),
@@ -72,7 +72,7 @@ export const bets = pgTable(
 
     // Closing lines (for CLV calculation)
     closingSharpOdds: nz4(),
-    closingSoftOdds: nz4(),
+
 
     // Detection lifecycle
     firstSeenAt: ts().notNull(),
@@ -88,14 +88,10 @@ export const bets = pgTable(
     providerTicketId: text(),
     mode: text(), // 'auto' | 'manual'
 
-    // API interaction metadata
-    requestPayload: jsonb(),
-    responsePayload: jsonb(),
-    error: text(),
+
 
     // Outcome & settlement
     outcome: text().notNull().default("pending"),
-    outcomeMarkedAt: ts(),
     settledBySource: text(),
     settledAt: ts(),
     pnl: numeric({ precision: 10, scale: 2, mode: "number" }),
@@ -105,15 +101,13 @@ export const bets = pgTable(
     settleAttempts: integer().notNull().default(0),
     lastSettleAttemptAt: ts(),
 
-    // Timestamps
-    createdAt: tsNow(),
-    updatedAt: tsNow(),
+    // Odds movement history — JSONB snapshot of the Pinnacle line movement
+    // at the time the value bet was detected/updated. Shape: OddsMovementSnapshot
+    // from lib/atoms/odds-history.ts (openingOdds, peakOdds, troughOdds, sparkline).
+    oddsMovement: jsonb(),
   },
   (t) => [
     index("bets_first_seen_idx").on(t.firstSeenAt.desc()),
-    index("bets_market_idx").on(t.marketType, t.timeScope),
-    index("bets_soft_provider_idx").on(t.softProvider),
-    index("bets_event_start_idx").on(t.eventStartTime),
     // Settled non-pending rows (backtest queries)
     index("bets_outcome_idx")
       .on(t.outcome)
@@ -270,8 +264,8 @@ export type NewSettlementDisputeRow = typeof settlementDisputes.$inferInsert;
 
 /**
  * Global betting settings — singleton row (id=1). Drives auto-placement
- * sizing and safety rails. Editable from the dashboard via GET/PUT
- * /api/betting-settings. Defaults seeded on first read if no row exists yet.
+ * sizing. Editable from the dashboard via GET/PUT
+ * /api/settings. Defaults seeded on first read if no row exists yet.
  *
  * Bankroll semantics:
  *   - `use_live_balance=true` → placer uses the provider's live account
@@ -313,18 +307,7 @@ export const bettingSettings = pgTable("betting_settings", {
   minEvPct: numeric({ precision: 5, scale: 2, mode: "number" })
     .notNull()
     .default(2),
-  maxOddsAgeSec: integer().notNull().default(90),
 
-  // Safety rails. All nullable = "no limit".
-  dailyMaxLossBdt: numeric({ precision: 12, scale: 2, mode: "number" }),
-  dailyMaxStakeBdt: numeric({ precision: 12, scale: 2, mode: "number" }),
-  maxConcurrentExposureBdt: numeric({
-    precision: 12,
-    scale: 2,
-    mode: "number",
-  }),
-  maxBetsPerDay: integer(),
-  cooldownAfterLossSec: integer(),
 
   // Active strategies that gate auto-placement. Empty = global EV cutoff
   // applies to everything. Non-empty = bets must match at least one of
@@ -484,7 +467,7 @@ export type NewOptimizationTrialRow = typeof optimizationTrials.$inferInsert;
  * trial config can be promoted directly:
  *   {
  *     min_ev_pct?: number,
- *     max_odds_age_sec?: number,
+
  *     min_sharp_prob?: number,
  *     odds_lo?: number, odds_hi?: number,
  *     min_tick_count?: number,
@@ -876,86 +859,7 @@ export const matcherRuns = pgTable(
 
 export type MatcherRunRow = typeof matcherRuns.$inferSelect;
 
-/**
- * Unmapped Markets — telemetry for provider markets that failed atom mapping.
- *
- * Every time a provider returns a market/selection that our mapping functions
- * can't resolve to an atom, the sync pipeline upserts a row here. The
- * operator reviews the highest-frequency entries in /lab/market-matcher and
- * uses the Google AI link to generate the mapping code.
- *
- * Keyed on (provider, raw_market_key) so repeated encounters just bump the
- * counter — no unbounded growth.
- */
-export const unmappedMarkets = pgTable(
-  "unmapped_markets",
-  {
-    id: bigserial({ mode: "bigint" }).primaryKey(),
-    provider: text().notNull(),
-    rawMarketKey: text().notNull(),
-    rawMarketName: text(),
-    samplePayload: jsonb(),
-    occurrenceCount: integer().notNull().default(1),
-    firstSeenAt: tsNow(),
-    lastSeenAt: tsNow(),
-  },
-  (t) => [
-    uniqueIndex("unmapped_markets_provider_key_idx").on(
-      t.provider,
-      t.rawMarketKey,
-    ),
-    index("unmapped_markets_occurrence_idx").on(t.occurrenceCount.desc()),
-    index("unmapped_markets_last_seen_idx").on(t.lastSeenAt.desc()),
-  ],
-);
 
-export type UnmappedMarketRow = typeof unmappedMarkets.$inferSelect;
-export type NewUnmappedMarketRow = typeof unmappedMarkets.$inferInsert;
-
-/**
- * Market Anomalies — implied-probability deviations flagged by the value
- * detector's math check.
- *
- * When the absolute difference between a soft book's implied probability
- * and the sharp benchmark's vig-removed true probability exceeds
- * ANOMALY_IP_DEVIATION_THRESHOLD (default 15%), the bet is FLAGGED (not
- * blocked) and an anomaly row is written here for operator investigation.
- *
- * High deviations (>30%) are classified as 'participant_reversal' (likely
- * home/away swap); moderate deviations as 'extreme_deviation'.
- */
-export const marketAnomalies = pgTable(
-  "market_anomalies",
-  {
-    id: bigserial({ mode: "bigint" }).primaryKey(),
-    eventId: text().notNull(),
-    familyId: text().notNull(),
-    atomId: text().notNull(),
-    softProvider: text().notNull(),
-    sharpProvider: text().notNull(),
-
-    ipSoft: numeric({ precision: 6, scale: 5, mode: "number" }).notNull(),
-    ipSharp: numeric({ precision: 6, scale: 5, mode: "number" }).notNull(),
-    deviationPct: numeric({
-      precision: 5,
-      scale: 2,
-      mode: "number",
-    }).notNull(),
-    anomalyType: text().notNull(), // 'participant_reversal' | 'extreme_deviation'
-    softOdds: nz4(),
-    sharpOdds: nz4(),
-    dropped: boolean().notNull().default(false),
-    createdAt: tsNow(),
-  },
-  (t) => [
-    index("market_anomalies_event_atom_idx").on(t.eventId, t.atomId),
-    index("market_anomalies_created_idx").on(t.createdAt.desc()),
-    index("market_anomalies_type_idx").on(t.anomalyType),
-  ],
-);
-
-export type MarketAnomalyRow = typeof marketAnomalies.$inferSelect;
-export type NewMarketAnomalyRow = typeof marketAnomalies.$inferInsert;
 
 /**
  * Persistent Telegram command history
@@ -1000,7 +904,5 @@ export const schema = {
   matchPairs,
   matcherConfig,
   matcherRuns,
-  unmappedMarkets,
-  marketAnomalies,
   telegramCommandHistory,
 };

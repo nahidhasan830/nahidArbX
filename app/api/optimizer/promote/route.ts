@@ -26,7 +26,7 @@ const body = z.object({
 
 const KNOWN_FILTER_KEYS: Array<keyof StrategyFilters> = [
   "min_ev_pct",
-  "max_odds_age_sec",
+
   "min_sharp_prob",
   "odds_lo",
   "odds_hi",

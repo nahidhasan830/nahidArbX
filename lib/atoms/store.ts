@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { getFamily } from "./registry";
 import { singleton } from "@/lib/util/singleton";
+import { recordOddsTick } from "./odds-history";
 
 // Type definitions for nested maps
 // ProviderKey directly encodes source (e.g., "ninewickets-exchange")
@@ -32,13 +33,27 @@ const dirtyFamilies = singleton(
 );
 
 const state = singleton("atoms:state", () => ({
-  fetchCycleWritten: null as Set<string> | null,
   storeVersion: 0,
   _totalFamilies: 0,
   _totalAtoms: 0,
   _totalOddsRecords: 0,
   _matchedMarkets: 0,
 }));
+
+// ============================================
+// Reactive dirty callback — fires when odds change
+// ============================================
+
+let onDirtyCallback: (() => void) | null = null;
+
+/**
+ * Register a callback to fire whenever dirtyFamilies gains entries.
+ * The reactive detector uses this to trigger debounced value detection.
+ * Pass null to unregister.
+ */
+export function setOnDirtyCallback(cb: (() => void) | null): void {
+  onDirtyCallback = cb;
+}
 
 /** Get current store version (for ETag / cache invalidation) */
 export function getStoreVersion(): number {
@@ -111,6 +126,7 @@ export function setOdds(entry: NormalizedOddsEntry): void {
   if (valueChanged) {
     dirtyFamilies.add(`${entry.event_id}|${entry.family_id}`);
     state.storeVersion++;
+    onDirtyCallback?.();
   }
 
   // Track matched markets counter
@@ -130,11 +146,11 @@ export function setOdds(entry: NormalizedOddsEntry): void {
     if (prevSize === 1) state._matchedMarkets++;
   }
 
-  // Track write during fetch cycle
-  if (state.fetchCycleWritten) {
-    state.fetchCycleWritten.add(
-      `${entry.event_id}|${entry.family_id}|${entry.atom_id}|${entry.provider}`,
-    );
+  // Record tick for movement history — only when odds actually changed.
+  // Unchanged writes (e.g. Pinnacle full-snapshot repeats) would inflate
+  // totalTicks and create duplicate sparkline entries.
+  if (valueChanged) {
+    recordOddsTick(entry);
   }
 }
 
@@ -177,60 +193,19 @@ export function clearAllOdds(): void {
 }
 
 /**
- * Begin a fetch cycle. All setOdds() calls after this will be tracked.
- * Call endFetchCycleCleanup() after fetching to remove stale entries.
+ * Prune odds data for events no longer in the active roster.
+ * Called periodically (every 5 min) by the heartbeat to prevent memory leaks.
+ * Returns the number of events pruned.
  */
-export function beginFetchCycle(): void {
-  state.fetchCycleWritten = new Set();
-}
-
-/**
- * End fetch cycle and remove stale entries for the given events.
- * Any odds entry not written via setOdds() during this cycle is deleted.
- */
-export function endFetchCycleCleanup(eventIds: string[]): void {
-  if (!state.fetchCycleWritten) return;
-  const written = state.fetchCycleWritten;
-  state.fetchCycleWritten = null;
-
-  for (const eventId of eventIds) {
-    const familyMap = oddsStore.get(eventId);
-    if (!familyMap) continue;
-
-    for (const [familyId, atomMap] of familyMap) {
-      let familyDirty = false;
-
-      for (const [atomId, providerMap] of atomMap) {
-        const sizeBefore = providerMap.size;
-        for (const [provider] of providerMap) {
-          const key = `${eventId}|${familyId}|${atomId}|${provider}`;
-          if (!written.has(key)) {
-            providerMap.delete(provider);
-            state._totalOddsRecords--;
-            familyDirty = true; // Deletion is a value change
-          }
-        }
-        // Update matched markets counter if crossed below threshold
-        if (sizeBefore >= 2 && providerMap.size < 2) state._matchedMarkets--;
-
-        if (providerMap.size === 0) {
-          atomMap.delete(atomId);
-          state._totalAtoms--;
-        }
-      }
-      if (atomMap.size === 0) {
-        familyMap.delete(familyId);
-        state._totalFamilies--;
-      }
-
-      // Mark family dirty if any stale entries were removed
-      if (familyDirty) {
-        dirtyFamilies.add(`${eventId}|${familyId}`);
-        state.storeVersion++;
-      }
+export function pruneOddsForStaleEvents(activeEventIds: Set<string>): number {
+  let pruned = 0;
+  for (const eventId of oddsStore.keys()) {
+    if (!activeEventIds.has(eventId)) {
+      clearOddsForEvent(eventId);
+      pruned++;
     }
-    if (familyMap.size === 0) oddsStore.delete(eventId);
   }
+  return pruned;
 }
 
 // ============================================

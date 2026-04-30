@@ -11,6 +11,7 @@ export type NotificationEvent =
   | BetSettledEvent
   | BetErrorEvent
   | SystemEvent
+  | SystemBootEvent
   | OptimizerRunStartedEvent
   | OptimizerRunCompletedEvent
   | MlRunCompletedEvent;
@@ -54,6 +55,8 @@ export interface BetPlacedEvent {
   gradeUrl?: string;
   /** Deep-link back to this bet in the app dashboard. */
   dashboardUrl?: string;
+  /** Remaining provider balance after placement. */
+  balance?: number;
 }
 
 export type BetOutcome = "won" | "lost" | "void" | "half_won" | "half_lost";
@@ -107,6 +110,8 @@ export interface BetSettledEvent {
   gradeUrl?: string;
   /** Deep-link back to this bet in the app dashboard. */
   dashboardUrl?: string;
+  /** Remaining provider balance after settlement payout. */
+  balance?: number;
 }
 
 export interface BetErrorEvent {
@@ -169,6 +174,36 @@ export interface SystemEvent {
   at: string;
   severity: "info" | "warn" | "error";
   message: string;
+}
+
+/**
+ * Fired once on server boot. Carries structured context so the
+ * formatter can render a clean one-fact-per-line card instead of
+ * cramming everything into a single SystemEvent message string.
+ */
+export interface SystemBootEvent {
+  type: "system:boot";
+  at: string;
+  /** Node.js runtime version. */
+  nodeVersion: string;
+  /** Environment label — "development" or "production". */
+  env: string;
+  /** Sync scheduler running? */
+  syncScheduler: boolean;
+  /** Auto-settle running? */
+  autoSettle: boolean;
+  /** Auto-settle interval (seconds). */
+  autoSettleIntervalSec: number;
+  /** Per-provider auto-place state. */
+  autoPlace: { provider: string; displayName: string; enabled: boolean }[];
+  /** Real-time data sources (Pinnacle WS, Genius polling, BetConstruct WS). */
+  dataSources: string[];
+  /** Reactive detector debounce (ms). */
+  detectorDebounceMs: number;
+  /** Optimizer Cloud Run Job name (if set). */
+  optimizerJob: string | null;
+  /** GCP region (if set). */
+  gcpRegion: string | null;
 }
 
 /**

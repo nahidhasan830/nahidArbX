@@ -21,6 +21,8 @@ function summarizeEvent(e: NotificationEvent): string {
       return `Placement failed · ${e.eventName} · ${e.error.slice(0, 80)}`;
     case "system":
       return `System ${e.severity}: ${e.message.slice(0, 100)}`;
+    case "system:boot":
+      return `Server started · ${e.env}`;
     case "optimizer:run_started":
       return `Run started · ${e.name}`;
     case "optimizer:run_completed":

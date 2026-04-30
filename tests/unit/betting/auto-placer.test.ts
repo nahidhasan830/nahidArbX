@@ -47,7 +47,6 @@ function makeValueBet(overrides: Record<string, unknown> = {}) {
     kellyStake: 250,
     detectedAt: new Date(),
     timestamp: Date.now(),
-    sharpOddsAgeMs: null,
     ...overrides,
   };
 }

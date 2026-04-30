@@ -1,5 +1,5 @@
 /**
- * Next.js Middleware
+ * Next.js Proxy
  *
  * Handles authentication and route protection.
  * Runs on Edge Runtime (using jose for JWT).
@@ -45,7 +45,7 @@ const ADMIN_ROUTES = ["/api/auth/invite", "/api/auth/admin"];
 // Middleware
 // ============================================
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   // Allow static files and Next.js internals

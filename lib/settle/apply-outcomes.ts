@@ -32,6 +32,18 @@ async function notifyPlacedSettlement(
   score: string | null | undefined,
 ): Promise<void> {
   const adapter = getBettingProvider(row.provider ?? "");
+
+  // Best-effort balance fetch — don't let it block the notification.
+  let balance: number | undefined;
+  if (adapter) {
+    try {
+      const info = await adapter.getAccountInfo();
+      balance = info.balance;
+    } catch {
+      // Swallow — balance is a nice-to-have, not critical.
+    }
+  }
+
   await notify({
     type: "bet:settled",
     at: row.settledAt ?? new Date().toISOString(),
@@ -43,7 +55,7 @@ async function notifyPlacedSettlement(
     selectionName: row.atomLabel ?? row.atomId,
     stake: Number(row.stake ?? 0),
     odds: Number(row.odds ?? 0),
-    closingOdds: row.closingSoftOdds ? Number(row.closingSoftOdds) : null,
+
     placedAt: row.placedAt ?? null,
     currency: row.currency ?? "BDT",
     outcome: row.outcome as BetOutcome,
@@ -52,6 +64,7 @@ async function notifyPlacedSettlement(
     matchScore: parseProposalScore(score) ?? undefined,
     timeScope: row.timeScope ?? null,
     familyLine: row.familyLine != null ? String(row.familyLine) : null,
+    balance,
   });
 }
 

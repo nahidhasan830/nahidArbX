@@ -7,7 +7,7 @@
 
 export interface StrategyFilters {
   min_ev_pct?: number;
-  max_odds_age_sec?: number;
+
   min_sharp_prob?: number;
   odds_lo?: number;
   odds_hi?: number;
@@ -25,7 +25,7 @@ export interface StrategySizing {
 
 export interface MatchableBet {
   evPct: number;
-  sharpOddsAgeMs: number | null;
+
   sharpTrueProb: number;
   softOdds: number;
   softProvider: string;
@@ -40,12 +40,7 @@ export function matchesStrategy(
 ): boolean {
   if (typeof filters.min_ev_pct === "number" && bet.evPct < filters.min_ev_pct)
     return false;
-  if (
-    typeof filters.max_odds_age_sec === "number" &&
-    bet.sharpOddsAgeMs !== null &&
-    bet.sharpOddsAgeMs > filters.max_odds_age_sec * 1000
-  )
-    return false;
+
   if (
     typeof filters.min_sharp_prob === "number" &&
     bet.sharpTrueProb < filters.min_sharp_prob

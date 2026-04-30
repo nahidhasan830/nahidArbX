@@ -66,13 +66,6 @@ def _apply_filters(df: pl.DataFrame, config: dict[str, Any]) -> pl.DataFrame:
     if (v := config.get("min_ev_pct")) is not None:
         expr = expr & (pl.col("ev_pct") >= v)
 
-    # Staleness gate (only applied to rows that have an age recorded).
-    if (v := config.get("max_odds_age_sec")) is not None:
-        max_ms = float(v) * 1000.0
-        expr = expr & (
-            pl.col("sharp_odds_age_ms").is_null() | (pl.col("sharp_odds_age_ms") <= max_ms)
-        )
-
     # Sharp-probability filter.
     if (v := config.get("min_sharp_prob")) is not None:
         expr = expr & (pl.col("sharp_true_prob") >= v)

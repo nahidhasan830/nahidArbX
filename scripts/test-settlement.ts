@@ -89,7 +89,6 @@ async function sampleDiverseBets(
       sharpProvider: r.sharp_provider,
       sharpOdds: Number(r.sharp_odds),
       sharpTrueProb: Number(r.sharp_true_prob),
-      sharpOddsAgeMs: r.sharp_odds_age_ms,
       softProvider: r.soft_provider,
       softCommissionPct: Number(r.soft_commission_pct),
       softOdds: Number(r.soft_odds),
@@ -104,27 +103,17 @@ async function sampleDiverseBets(
       tickCount: r.tick_count,
       closingSharpOdds:
         r.closing_sharp_odds == null ? null : Number(r.closing_sharp_odds),
-      closingSoftOdds:
-        r.closing_soft_odds == null ? null : Number(r.closing_soft_odds),
       outcome: r.outcome,
-      outcomeMarkedAt:
-        r.outcome_marked_at instanceof Date
-          ? r.outcome_marked_at.toISOString()
-          : r.outcome_marked_at,
       settledBySource: r.settled_by_source ?? null,
+      settledAt:
+        r.settled_at instanceof Date
+          ? r.settled_at.toISOString()
+          : (r.settled_at ?? null),
       settleAttempts: r.settle_attempts ?? 0,
       lastSettleAttemptAt:
         r.last_settle_attempt_at instanceof Date
           ? r.last_settle_attempt_at.toISOString()
           : (r.last_settle_attempt_at ?? null),
-      createdAt:
-        r.created_at instanceof Date
-          ? r.created_at.toISOString()
-          : r.created_at,
-      updatedAt:
-        r.updated_at instanceof Date
-          ? r.updated_at.toISOString()
-          : r.updated_at,
     }),
   );
 }

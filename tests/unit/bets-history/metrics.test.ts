@@ -28,7 +28,6 @@ function makeRow(overrides: Partial<ValueBetRow> = {}): ValueBetRow {
     sharpProvider: "pinnacle",
     sharpOdds: 2.0,
     sharpTrueProb: 0.5,
-    sharpOddsAgeMs: null,
     softProvider: "ninewickets-sportsbook",
     softCommissionPct: 0,
     softOdds: 2.1,
@@ -36,14 +35,11 @@ function makeRow(overrides: Partial<ValueBetRow> = {}): ValueBetRow {
     lastSeenAt: "2026-01-01T12:00:00Z",
     tickCount: 1,
     closingSharpOdds: null,
-    closingSoftOdds: null,
     outcome: "pending",
-    outcomeMarkedAt: null,
     settledBySource: null,
+    settledAt: null,
     settleAttempts: 0,
     lastSettleAttemptAt: null,
-    createdAt: "2026-01-01T12:00:00Z",
-    updatedAt: "2026-01-01T12:00:00Z",
     ...overrides,
   };
 }

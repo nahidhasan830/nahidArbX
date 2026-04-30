@@ -33,7 +33,6 @@
 
 import { getFamilyIdByAtom } from "../registry";
 import { formatLine } from "../../formatting/lines";
-import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import type { BCMarket, BCEvent } from "../../adapters/betconstruct/client";
 
@@ -530,23 +529,7 @@ export function extractBetConstructOdds(
       market.display_key,
     );
 
-    if (!atomId) {
-      // Harvest unmapped market for diagnostics
-      bufferUnmappedMarket({
-        provider: "betconstruct",
-        rawMarketKey: `${market.type}:${event.type_1}:${market.display_key ?? ""}`,
-        rawMarketName: `${market.type} / ${event.name}`,
-        samplePayload: {
-          marketType: market.type,
-          displayKey: market.display_key,
-          selectionType: event.type_1,
-          selectionName: event.name,
-          base: event.base ?? market.base,
-          price: event.price,
-        },
-      });
-      continue;
-    }
+    if (!atomId) continue;
 
     const familyId = getFamilyIdByAtom(atomId);
     if (!familyId) continue;

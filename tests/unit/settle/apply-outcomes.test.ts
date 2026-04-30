@@ -57,7 +57,6 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     odds: null,
     currency: "BDT",
     outcome: "pending",
-    closingSoftOdds: null,
     settledAt: null,
     pnl: null,
     ...overrides,

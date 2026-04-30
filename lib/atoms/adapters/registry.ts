@@ -9,16 +9,14 @@ import type { ProviderKey } from "../../providers/registry";
 import {
   getAtomsAdapter as getAdapterFromUnified,
   getEnabledAtomsAdapters as getEnabledFromUnified,
-  getAtomsDebugAdapter as getDebugAdapterFromUnified,
   type AtomsProviderAdapter,
-  type AtomsProviderDebugAdapter,
 } from "../../adapters/unified-registry";
 
 // ============================================
 // Re-export Types
 // ============================================
 
-export type { AtomsProviderAdapter, AtomsProviderDebugAdapter };
+export type { AtomsProviderAdapter };
 
 // ============================================
 // Re-export Functions (Backward Compatibility)
@@ -40,11 +38,4 @@ export function getEnabledAtomsAdapters(): AtomsProviderAdapter[] {
   return getEnabledFromUnified();
 }
 
-/**
- * Get a debug adapter for a specific provider
- */
-export function getAtomsDebugAdapter(
-  providerId: ProviderKey,
-): AtomsProviderDebugAdapter | undefined {
-  return getDebugAdapterFromUnified(providerId);
-}
+

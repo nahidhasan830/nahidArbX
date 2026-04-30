@@ -19,9 +19,7 @@
 
 import { setOddsBatch } from "../store";
 import { formatError } from "../../shared/errors";
-import { DebugFetcher } from "../../shared/debug-fetcher";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
-import type { DebugFetchResult } from "./debug-fetch";
 import type { AtomsFetchOptions } from "../../adapters/unified-registry";
 import { logger } from "../../shared/logger";
 
@@ -106,80 +104,26 @@ export abstract class BaseAtomsAdapter {
   }
 
   /**
-   * Capture debug request info before fetching.
-   * Override to customize request capture (e.g., add label, body, headers).
-   *
-   * @param debug - DebugFetcher instance to add request to
+   * Process and store raw odds data (used by continuous polling sync services).
+   * 
+   * @param rawData - Raw data from the provider
    * @param ctx - Fetch context
+   * @returns Number of odds entries extracted and stored
    */
-  // Subclasses override this; params intentionally unused in base
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected captureDebugRequest(debug: DebugFetcher, ctx: FetchContext): void {
-    // Default: no request capture (subclass should override)
-  }
-
-  /**
-   * Fetch raw data in debug mode.
-   * Override to use DebugFetcher's executeWithCapture for response capture.
-   *
-   * Default implementation calls fetchRawData (no response capture).
-   */
-  protected async debugFetchRawData(
-    debug: DebugFetcher,
-    ctx: FetchContext,
-  ): Promise<unknown> {
-    // Default: just call regular fetchRawData
-    // Subclass should override to use debug.executeWithCapture()
-    return this.fetchRawData(ctx);
-  }
-
-  /**
-   * Debug version of fetchAndStoreOdds.
-   * Captures request/response data for debugging UI.
-   */
-  async debugFetchAndStoreOdds(
-    providerEventId: string,
-    normalizedEventId: string,
-    homeTeam: string,
-    awayTeam: string,
-  ): Promise<DebugFetchResult> {
-    const ctx: FetchContext = {
-      providerEventId,
-      normalizedEventId,
-      homeTeam,
-      awayTeam,
-      options: {},
-    };
-
-    const debug = new DebugFetcher(
-      this.providerId,
-      providerEventId,
-      normalizedEventId,
-    );
-
+  public processRawOdds(rawData: unknown, ctx: FetchContext): number {
     try {
-      // Capture request
-      this.captureDebugRequest(debug, ctx);
-
-      // Fetch with capture
-      const rawData = await this.debugFetchRawData(debug, ctx);
-      if (!rawData) return debug.getResult();
-
-      // Extract odds
       const entries = this.extractOdds(rawData, ctx);
-
-      // Store odds
       if (entries.length > 0) {
         setOddsBatch(entries);
       }
-
-      return debug.finalize(entries);
+      return entries.length;
     } catch (error) {
-      logger.warn(
+      logger.error(
         "AtomsBase",
-        `[${this.providerId} Debug] Error for event ${providerEventId}: ${formatError(error)}`,
+        `[${this.providerId}] Error processing raw odds for event ${ctx.providerEventId}: ${formatError(error)}`,
       );
-      return debug.getResult();
+      return 0;
     }
   }
+
 }

@@ -32,11 +32,9 @@ import {
   KELLY_FRACTION,
   VALUE_TOTAL_STAKE,
   MAX_VALUE_ODDS_AGE_MS,
-  ANOMALY_IP_DEVIATION_THRESHOLD,
-  ANOMALY_PARTICIPANT_REVERSAL_THRESHOLD,
 } from "../shared/constants";
 import { adjustOddsForCommission } from "../shared/commission";
-import { recordAnomalyAsync } from "../db/repositories/market-diagnostics";
+
 
 // ============================================
 // Incremental Detection Cache
@@ -177,11 +175,8 @@ export interface ValueBet {
   // Metadata
   detectedAt: Date;
   timestamp: number; // Soft odds timestamp (for staleness)
-  sharpOddsAgeMs: number | null; // Sharp odds age at detection (ms) — latency diagnostic
-
-  // Diagnostics — set when IP deviation between soft and sharp exceeds threshold
-  anomalyFlag: 'participant_reversal' | 'extreme_deviation' | null;
 }
+
 
 export interface ValueDetectionOptions {
   minEvPct?: number; // Minimum EV% to report (default 2%)
@@ -287,33 +282,7 @@ export function detectValueForAtom(
     // Only report positive EV above threshold
     if (evPct < minEvPct) continue;
 
-    // ── Math Check: Implied Probability deviation flag ────────────────
-    // If the soft book's IP deviates too far from the sharp benchmark,
-    // the mapping is likely wrong (participant reversal, time-context
-    // bleed, or line syntax mismatch). Flag it but still emit the bet
-    // so the operator can investigate.
-    const ipDeviation = Math.abs(impliedProb - trueOdds.trueProb);
-    let anomalyFlag: 'participant_reversal' | 'extreme_deviation' | null = null;
-    if (ipDeviation > ANOMALY_IP_DEVIATION_THRESHOLD) {
-      anomalyFlag =
-        ipDeviation > ANOMALY_PARTICIPANT_REVERSAL_THRESHOLD
-          ? "participant_reversal"
-          : "extreme_deviation";
-      void recordAnomalyAsync({
-        eventId,
-        familyId,
-        atomId,
-        softProvider,
-        sharpProvider,
-        ipSoft: impliedProb,
-        ipSharp: trueOdds.trueProb,
-        deviationPct: Math.round(ipDeviation * 10000) / 100,
-        anomalyType: anomalyFlag,
-        softOdds: rawSoftOdds,
-        sharpOdds: trueOdds.rawOdds,
-        dropped: false, // Flag only — bet still emitted
-      });
-    }
+
 
     // Calculate Kelly criterion using adjusted odds
     // kelly = edge / (adjustedOdds - 1)
@@ -347,8 +316,6 @@ export function detectValueForAtom(
       kellyStake: Math.round(kellyStake * 100) / 100, // Round to cents
       detectedAt: new Date(),
       timestamp: softRecord.timestamp,
-      sharpOddsAgeMs,
-      anomalyFlag,
     });
   }
 

@@ -13,11 +13,10 @@
  * Optional: Create event adapter (lib/adapters/<provider>.ts) if events come from
  * a different source than existing providers.
  */
-
+import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import type { ProviderAdapter } from "../types";
 import { PROVIDER_REGISTRY, type ProviderKey } from "../providers/registry";
-import { isProviderRuntimeEnabled } from "../providers/runtime-state";
-import type { DebugFetchResult } from "../atoms/adapters/debug-fetch";
+
 
 // ============================================
 // Types
@@ -54,16 +53,6 @@ export interface AtomsProviderAdapter {
   onDisable?(): void;
 }
 
-export interface AtomsProviderDebugAdapter {
-  providerId: ProviderKey;
-  debugFetchAndStoreOdds(
-    providerEventId: string,
-    normalizedEventId: string,
-    homeTeam: string,
-    awayTeam: string,
-  ): Promise<DebugFetchResult>;
-}
-
 // ============================================
 // Import Adapters (Direct imports, no lazy loading)
 // ============================================
@@ -96,7 +85,7 @@ const velkiSportsbookAtomsAdapter = new VelkiSportsbookAtomsAdapter();
 
 interface ProviderAdapters {
   events?: ProviderAdapter;
-  atoms?: AtomsProviderAdapter & AtomsProviderDebugAdapter;
+  atoms?: AtomsProviderAdapter;
 }
 
 const ADAPTERS: Record<ProviderKey, ProviderAdapters> = {
@@ -166,11 +155,3 @@ export function getAtomsAdapter(
   return ADAPTERS[provider]?.atoms;
 }
 
-/**
- * Get a debug atoms adapter by provider ID
- */
-export function getAtomsDebugAdapter(
-  provider: ProviderKey,
-): AtomsProviderDebugAdapter | undefined {
-  return ADAPTERS[provider]?.atoms;
-}

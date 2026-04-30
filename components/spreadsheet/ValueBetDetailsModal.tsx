@@ -16,7 +16,6 @@ import {
   Clock,
   ArrowRight,
   TrendingUp,
-  RefreshCw,
   Settings2,
 } from "lucide-react";
 import {
@@ -146,13 +145,6 @@ interface ValueBetDetailsModalProps {
   atomOdds?: Partial<Record<ProviderKey, AtomOddsData>>;
   eventId?: string;
   providerEventIds?: Record<string, string>;
-  onRefresh?: (
-    eventId: string,
-    providerEventIds?: Record<string, string>,
-    eventLabel?: string,
-  ) => void;
-  isRefreshing?: boolean;
-  isSyncing?: boolean;
   liveScore?: LiveMatchInfo;
   placementContext?: PlacementContext;
 }
@@ -375,9 +367,6 @@ export function ValueBetDetailsModal({
   atomOdds,
   eventId,
   providerEventIds,
-  onRefresh,
-  isRefreshing = false,
-  isSyncing = false,
   liveScore,
   placementContext,
 }: ValueBetDetailsModalProps) {
@@ -603,17 +592,6 @@ export function ValueBetDetailsModal({
     return null;
   }, [selected, details, providerValues, customMetrics]);
 
-  const handleRefresh = () => {
-    if (!eventId || !onRefresh) return;
-    onRefresh(eventId, providerEventIds, eventLabel);
-  };
-
-  const canRefresh = !!eventId && !!onRefresh && !isRefreshing && !isSyncing;
-  const refreshTitle = isSyncing
-    ? "Sync in progress"
-    : isRefreshing
-      ? "Refreshing..."
-      : "Refresh odds";
   const liveStatusLine = liveScore
     ? `Live: ${liveScore.home}-${liveScore.away} ${liveScore.minute}' ${liveScore.period}${
         liveScore.homeRedCards > 0 || liveScore.awayRedCards > 0
@@ -793,27 +771,6 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground border-l pl-3">
                 <Clock className="size-3" />
                 <span>{oddsAge?.display}</span>
-                <Badge
-                  variant="outline"
-                  className={`text-[10px] px-1 py-0 ${
-                    oddsAge?.isFresh
-                      ? "text-green-600 border-green-500"
-                      : "text-orange-600 border-orange-500"
-                  }`}
-                >
-                  {oddsAge?.isFresh ? "Fresh" : "Stale"}
-                </Badge>
-                <LoadingButton
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 ml-1"
-                  onClick={handleRefresh}
-                  disabled={!canRefresh}
-                  loading={isRefreshing}
-                  icon={RefreshCw}
-                  iconClassName={`size-3.5 ${isSyncing && !isRefreshing ? "text-muted-foreground/50" : ""}`}
-                  title={refreshTitle}
-                />
               </div>
             </div>
           </div>

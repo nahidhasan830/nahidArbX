@@ -18,12 +18,6 @@ export interface BettingSettingsClient {
   minStakeBdt: number;
   stakeBucketBdt: number;
   minEvPct: number;
-  maxOddsAgeSec: number;
-  dailyMaxLossBdt: number | null;
-  dailyMaxStakeBdt: number | null;
-  maxConcurrentExposureBdt: number | null;
-  maxBetsPerDay: number | null;
-  cooldownAfterLossSec: number | null;
   updatedAt: string;
 }
 

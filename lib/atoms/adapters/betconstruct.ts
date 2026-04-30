@@ -1,8 +1,11 @@
 /**
  * BetConstruct Atoms Adapter
  *
- * Fetches market odds from BetConstruct Swarm WebSocket API and stores them in the atoms store.
- * BetConstruct offers extensive market coverage (up to 399 markets for big matches).
+ * Extracts normalized odds entries from BetConstruct Swarm market data
+ * and stores them in the atoms store via `processRawOdds()`.
+ *
+ * Odds ingestion is driven by `BetConstructSyncService` which subscribes
+ * to Swarm WebSocket push updates and feeds raw BCGame data here.
  *
  * Supported markets:
  * - P1XP2 (Match Result)
@@ -14,10 +17,8 @@
  */
 
 import { BaseAtomsAdapter, type FetchContext } from "./base";
-import { DebugFetcher } from "../../shared/debug-fetcher";
+
 import {
-  fetchGameMarkets,
-  BetConstructError,
   disconnect as disconnectBC,
   reconnect as reconnectBC,
   type BCGame,
@@ -26,7 +27,6 @@ import {
   extractBetConstructOdds,
   isSupportedMarketType,
 } from "../mappings/betconstruct";
-import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import { stopBCScorePolling } from "../../scores/bc-poller";
 import { logger } from "../../shared/logger";
@@ -65,35 +65,18 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
     stopBCScorePolling();
   }
 
-  protected async fetchRawData(ctx: FetchContext): Promise<BCGame | null> {
-    // Extract numeric game ID from provider event ID
-    const gameId = parseInt(ctx.providerEventId, 10);
-    if (isNaN(gameId)) {
-      logger.warn("BetConstruct", `Invalid game ID: ${ctx.providerEventId}`);
-      return null;
-    }
+  async fetchAndStoreOdds(): Promise<number> {
+    // Odds ingestion is handled by BetConstructSyncService (Swarm WS
+    // subscriptions → processRawOdds → setOddsBatch). This legacy
+    // entry point is no longer used.
+    return 0;
+  }
 
-    try {
-      const game = await fetchGameMarkets(gameId);
-
-      if (!game) {
-        // No game data but no error - just return null silently
-        return null;
-      }
-
-      return game;
-    } catch (error) {
-      // Handle BetConstruct-specific errors
-      if (error instanceof BetConstructError) {
-        // Silent errors (e.g., code 40 = game not found) don't need logging
-        if (!error.silent) {
-          logger.warn("BetConstruct", `${error.message} (game ${gameId})`);
-        }
-        return null;
-      }
-      // Re-throw other errors to be handled by base adapter
-      throw error;
-    }
+  // fetchRawData is required by the abstract base class but never called
+  // since fetchAndStoreOdds is neutralized. processRawOdds (used by the
+  // sync service) calls extractOdds directly, bypassing fetchRawData.
+  protected async fetchRawData(): Promise<BCGame | null> {
+    return null;
   }
 
   protected extractOdds(
@@ -109,32 +92,7 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
 
     // Extract odds from each supported market
     for (const market of Object.values(game.market)) {
-      // Harvest unsupported market types (Drop Point 1)
       if (!isSupportedMarketType(market.type)) {
-        // Grab one sample selection for the raw data viewer
-        const sampleEvent = market.event
-          ? (Object.values(market.event)[0] as { type_1?: string; name?: string; base?: number; price?: number } | undefined)
-          : undefined;
-        bufferUnmappedMarket({
-          provider: "betconstruct",
-          rawMarketKey: `UNSUPPORTED_TYPE:${market.type}`,
-          rawMarketName: market.name,
-          samplePayload: {
-            marketType: market.type,
-            marketName: market.name,
-            displayKey: market.display_key,
-            base: market.base,
-            sampleSelection: sampleEvent
-              ? {
-                  type_1: sampleEvent.type_1,
-                  name: sampleEvent.name,
-                  base: sampleEvent.base,
-                  price: sampleEvent.price,
-                }
-              : null,
-            selectionsCount: Object.keys(market.event ?? {}).length,
-          },
-        });
         continue;
       }
 
@@ -152,91 +110,6 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
     return entries;
   }
 
-  protected captureDebugRequest(debug: DebugFetcher, ctx: FetchContext): void {
-    const gameId = parseInt(ctx.providerEventId, 10);
-
-    debug.captureRequest({
-      url: "wss://eu-swarm-newm.betconstruct.com/",
-      method: "WebSocket",
-      headers: { Origin: "https://bc.cc2ps.cc" },
-      body: JSON.stringify({
-        command: "get",
-        params: {
-          source: "betting",
-          what: {
-            game: [
-              "id",
-              "stats",
-              "info",
-              "markets_count",
-              "type",
-              "start_ts",
-              "team1_id",
-              "team1_name",
-              "team2_id",
-              "team2_name",
-              "is_blocked",
-            ],
-            market: ["id", "type", "name", "base", "display_key", "express_id"],
-            event: ["id", "type_1", "price", "name", "base", "order"],
-          },
-          where: {
-            game: { id: gameId },
-            sport: { alias: "Soccer" },
-          },
-          subscribe: false,
-        },
-      }),
-    });
-  }
-
-  protected async debugFetchRawData(
-    debug: DebugFetcher,
-    ctx: FetchContext,
-  ): Promise<BCGame | null> {
-    const gameId = parseInt(ctx.providerEventId, 10);
-    if (isNaN(gameId)) return null;
-
-    const startTime = Date.now();
-    try {
-      const game = await fetchGameMarkets(gameId);
-      const durationMs = Date.now() - startTime;
-
-      // Manually add response for WebSocket call
-      debug.addResponse({
-        status: game ? 200 : 404,
-        data: game ?? { error: "No game data returned" },
-        durationMs,
-      });
-
-      return game;
-    } catch (error) {
-      const durationMs = Date.now() - startTime;
-
-      // Handle BetConstruct-specific errors with proper status codes
-      if (error instanceof BetConstructError) {
-        debug.addResponse({
-          status: error.code === 40 ? 404 : 500,
-          data: {
-            error: error.message,
-            code: error.code,
-            silent: error.silent,
-          },
-          durationMs,
-        });
-        return null;
-      }
-
-      debug.addResponse({
-        status: 500,
-        data: {
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-        durationMs,
-      });
-      return null;
-    }
-  }
 }
 
 // ============================================
@@ -244,38 +117,6 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
 // ============================================
 
 const adapterInstance = new BetConstructAtomsAdapter();
-
-// ============================================
-// Legacy Function Exports (Backward Compatibility)
-// ============================================
-
-export async function fetchAndStoreBetConstructOdds(
-  providerEventId: string,
-  normalizedEventId: string,
-  homeTeam: string,
-  awayTeam: string,
-): Promise<number> {
-  return adapterInstance.fetchAndStoreOdds(
-    providerEventId,
-    normalizedEventId,
-    homeTeam,
-    awayTeam,
-  );
-}
-
-export async function debugFetchAndStoreBetConstructOdds(
-  providerEventId: string,
-  normalizedEventId: string,
-  homeTeam: string,
-  awayTeam: string,
-) {
-  return adapterInstance.debugFetchAndStoreOdds(
-    providerEventId,
-    normalizedEventId,
-    homeTeam,
-    awayTeam,
-  );
-}
 
 // ============================================
 // Export adapter instance

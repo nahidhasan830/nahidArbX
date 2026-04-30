@@ -467,8 +467,6 @@ async function placeBetForValueBetImpl(
     stake,
     odds,
     providerTicketId: attempt.ticketId ?? null,
-    requestPayload: attempt.request,
-    responsePayload: attempt.response,
   };
 
   // 7. Persist + notify — DB write ONLY when the book accepts the bet.
@@ -523,8 +521,6 @@ async function placeBetForValueBetImpl(
           atomLabel: valueBet.atomLabel,
         }),
         dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
-        requestPayload: attempt.request,
-        responsePayload: attempt.response,
         ticketIdHint: attempt.ticketId ?? null,
         balanceAtSubmit: accountInfo.balance,
       } as const;
@@ -566,15 +562,14 @@ async function placeBetForValueBetImpl(
         softProvider: valueBet.softProvider,
         softCommissionPct: Number(valueBet.softCommissionPct),
         softOdds: Number(valueBet.softOdds),
-        sharpOddsAgeMs: null,
+
         provider: baseInsert.provider,
         stake,
         odds: attempt.bookedOdds ?? odds,
         currency: baseInsert.currency,
         providerTicketId: attempt.ticketId ?? null,
         mode,
-        requestPayload: attempt.request,
-        responsePayload: attempt.response,
+
       });
     } catch (err) {
       // UNIQUE-index collision on (event_id, family_id, atom_id): another
@@ -639,6 +634,7 @@ async function placeBetForValueBetImpl(
             ? String(valueBet.familyLine)
             : null,
         ticketId: row.providerTicketId ?? undefined,
+        balance: accountInfo.balance - Number(row.stake),
         gradeUrl: buildBetGradeUrl({
           homeTeam: valueBet.homeTeam,
           awayTeam: valueBet.awayTeam,

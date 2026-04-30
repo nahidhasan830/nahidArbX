@@ -18,6 +18,10 @@ export async function register() {
     { startOptimizerScheduler, isOptimizerSchedulerActive },
     { startTelegramBot, isTelegramBotRunning },
     { startResolverCacheListener, isResolverCacheListenerActive },
+    { pinnacleSyncService },
+    { geniusSportsSyncService },
+    { betconstructSyncService },
+    { startReactiveDetector },
   ] = await Promise.all([
     import("./lib/background/fetcher"),
     import("./lib/settle/scheduler"),
@@ -27,6 +31,10 @@ export async function register() {
     import("./lib/optimizer/scheduler"),
     import("./lib/telegram/bot"),
     import("./lib/matching/entities/resolver"),
+    import("./lib/services/pinnacle-sync-service"),
+    import("./lib/services/genius-sports-sync-service"),
+    import("./lib/services/betconstruct-sync-service"),
+    import("./lib/background/reactive-detector"),
   ]);
 
   // ── Startup diagnostics ──────────────────────────────────────────────
@@ -102,6 +110,20 @@ export async function register() {
     logger.info("Boot", "Entity-resolver cache listener already running");
   }
 
+  pinnacleSyncService.start();
+  logger.info("Boot", "Pinnacle WebSocket sync service started");
+  
+  geniusSportsSyncService.start();
+  logger.info("Boot", "Genius Sports continuous polling sync service started");
+
+  betconstructSyncService.start();
+  logger.info("Boot", "BetConstruct WebSocket subscription sync service started");
+
+  // Reactive detector MUST start after the real-time sync services
+  // so the dirty callback receives signals from all sources.
+  startReactiveDetector();
+  logger.info("Boot", "Reactive value detector started (event-driven, 500ms debounce)");
+
   if (!isTelegramBotRunning()) {
     const started = startTelegramBot();
     logger.info(
@@ -115,13 +137,32 @@ export async function register() {
   if (hasTelegramCreds) {
     const settleStatus = getAutoSettleStatus();
     notify({
-      type: "system",
+      type: "system:boot",
       at: new Date().toISOString(),
-      severity: "info",
-      message:
-        `NahidArbX server started. Sync scheduler: ${isSchedulerRunning() ? "running" : "stopped"}. ` +
-        `Auto-settle: ${settleStatus.active ? "running" : "stopped"}. ` +
-        `Auto-place providers: ${autoPlaceStates.map((p) => `${p.provider}=${p.enabled ? "ON" : "OFF"}`).join(", ")}.`,
+      nodeVersion: (globalThis as Record<string, unknown>).process
+        ? (
+            (globalThis as Record<string, unknown>).process as {
+              version: string;
+            }
+          ).version
+        : "unknown",
+      env: process.env.NODE_ENV ?? "development",
+      syncScheduler: isSchedulerRunning(),
+      autoSettle: settleStatus.active,
+      autoSettleIntervalSec: Math.round(settleStatus.intervalMs / 1000),
+      autoPlace: autoPlaceStates.map((p) => ({
+        provider: p.provider,
+        displayName: p.providerDisplayName,
+        enabled: p.enabled,
+      })),
+      dataSources: [
+        "Pinnacle WebSocket",
+        "Genius Sports Polling (9W + Velki)",
+        "BetConstruct WebSocket",
+      ],
+      detectorDebounceMs: 500,
+      optimizerJob: process.env.OPTIMIZER_JOB_NAME ?? null,
+      gcpRegion: process.env.GCP_REGION ?? null,
     }).catch((err: unknown) => {
       logger.warn(
         "Boot",

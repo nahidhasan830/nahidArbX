@@ -14,7 +14,6 @@
  */
 
 import { getFamilyIdByAtom } from "../registry";
-import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
 
@@ -221,22 +220,7 @@ export function extractExchangeOdds(
       awayTeam,
     );
 
-    if (!atomId) {
-      // Harvest unmapped market for diagnostics
-      bufferUnmappedMarket({
-        provider: "ninewickets-exchange",
-        rawMarketKey: `${market.marketType}:${selection.runnerName}`,
-        rawMarketName: `${market.marketName} / ${selection.runnerName}`,
-        samplePayload: {
-          marketType: market.marketType,
-          marketName: market.marketName,
-          runnerName: selection.runnerName,
-          selectionId: selection.selectionId,
-          odds,
-        },
-      });
-      continue;
-    }
+    if (!atomId) continue;
 
     const familyId = getFamilyIdByAtom(atomId);
     if (!familyId) continue;

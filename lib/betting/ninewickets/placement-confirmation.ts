@@ -98,9 +98,7 @@ export interface PendingConfirmation {
   gradeUrl?: string;
   dashboardUrl?: string;
 
-  // Book response snapshots (audit trail)
-  requestPayload: unknown;
-  responsePayload: unknown;
+
   /** Ticket id returned synchronously, if any. Used as a match short-circuit. */
   ticketIdHint: string | null;
 
@@ -454,7 +452,6 @@ async function finaliseConfirmed(
     sharpProvider: "pinnacle",
     sharpOdds: attempt.bookedOdds,
     sharpTrueProb: 0.5,
-    sharpOddsAgeMs: null,
     softProvider: attempt.provider,
     softCommissionPct: 0,
     softOdds: authoritativeOdds,
@@ -464,20 +461,7 @@ async function finaliseConfirmed(
     currency: attempt.currency,
     providerTicketId: ticketId,
     mode: attempt.mode,
-    // Keep the request payload verbatim for audit, but annotate the
-    // stored response payload with the drift signal so the row itself
-    // carries the evidence when we later diff stored vs live.
-    requestPayload: attempt.requestPayload,
-    responsePayload: driftAlert
-      ? {
-          placementResponse: attempt.responsePayload,
-          confirmedFromFeedTicket: ticket,
-          oddsDrift: driftAlert,
-        }
-      : {
-          placementResponse: attempt.responsePayload,
-          confirmedFromFeedTicket: ticket,
-        },
+
   };
 
   try {
@@ -532,6 +516,10 @@ async function finaliseConfirmed(
       timeScope: attempt.timeScope,
       familyLine: attempt.familyLine,
       ticketId,
+      balance:
+        attempt.balanceAtSubmit != null
+          ? attempt.balanceAtSubmit - authoritativeStake
+          : undefined,
       gradeUrl: attempt.gradeUrl,
       dashboardUrl: attempt.dashboardUrl,
     });

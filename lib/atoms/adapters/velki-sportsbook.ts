@@ -41,6 +41,19 @@ interface VelkiSportsbookRawData {
 export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
 
+  async fetchAndStoreOdds(
+    providerEventId: string,
+    normalizedEventId: string,
+    homeTeam: string,
+    awayTeam: string,
+  ): Promise<number> {
+    // LEGACY: The 15-second polling loop calls this. 
+    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not 
+    // fetch odds via REST here anymore to avoid duplicate work.
+    // The X-Ray diagnostics UI still uses `debugFetchRawData` below.
+    return 0;
+  }
+
   protected async fetchRawData(
     ctx: FetchContext,
   ): Promise<VelkiSportsbookRawData | null> {
@@ -135,22 +148,3 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
   }
 }
 
-// ============================================================
-// Legacy function exports (for /api/value-bets/raw-data debug route)
-// ============================================================
-
-const adapterInstance = new VelkiSportsbookAtomsAdapter();
-
-export async function debugFetchAndStoreVelkiSportsbookOdds(
-  providerEventId: string,
-  normalizedEventId: string,
-  homeTeam: string,
-  awayTeam: string,
-) {
-  return adapterInstance.debugFetchAndStoreOdds(
-    providerEventId,
-    normalizedEventId,
-    homeTeam,
-    awayTeam,
-  );
-}

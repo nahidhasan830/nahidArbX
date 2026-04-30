@@ -22,6 +22,20 @@ export interface AtomOddsData {
   timestamp: number;
   isBest: boolean;
   suspended?: boolean; // Market is suspended (show but mark as unavailable)
+  movement?: {
+    direction: "up" | "down" | "stable";
+    changePct: number;
+    openingOdds: number | null;
+    peakOdds: number;
+    troughOdds: number;
+    totalTicks: number;
+    sparkline: [number, number][];
+    steamMove: {
+      direction: "up" | "down";
+      magnitudePct: number;
+      significance: "weak" | "moderate" | "strong";
+    } | null;
+  };
 }
 
 export interface SpreadsheetRow {
@@ -87,7 +101,7 @@ export interface BulkAtomResult {
   oddsByProvider: Partial<
     Record<
       ProviderKey,
-      { odds: number; timestamp: number; isBest: boolean; suspended?: boolean }
+      { odds: number; timestamp: number; isBest: boolean; suspended?: boolean; movement?: AtomOddsData["movement"] }
     >
   >;
   bestOdds: number | null;
@@ -274,6 +288,7 @@ export function transformToSpreadsheetRows(
               timestamp: providerOdds.timestamp,
               isBest: providerOdds.isBest,
               suspended: providerOdds.suspended,
+              movement: providerOdds.movement as AtomOddsData["movement"],
             };
             if (
               providerOdds.isBest ||

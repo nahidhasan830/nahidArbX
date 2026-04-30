@@ -52,11 +52,7 @@ export function formatStrategyDetails(
       label: "Sharp prob ≥",
       value: fmtNum(filters.min_sharp_prob),
     });
-  if (typeof filters.max_odds_age_sec === "number")
-    filterRows.push({
-      label: "Max age",
-      value: `${filters.max_odds_age_sec}s`,
-    });
+
   if (typeof filters.min_tick_count === "number")
     filterRows.push({
       label: "Min ticks",

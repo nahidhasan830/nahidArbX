@@ -35,7 +35,6 @@ export const MARKET_TYPE_LABELS: Record<string, string> = {
   CORNERS_EUROPEAN_HANDICAP: "Corners European Handicap",
   HOME_CORNERS_TOTAL: "Home Corners",
   AWAY_CORNERS_TOTAL: "Away Corners",
-  CARDS: "Cards",
   BOOKINGS: "Bookings",
   BOOKINGS_HANDICAP: "Bookings Handicap",
   ODD_EVEN_GOALS: "Odd/Even Goals",
@@ -215,14 +214,6 @@ export function formatFamilyLabel(familyId: string): string {
     const lineParts = meaningful.slice(1);
     const line = extractLineFromParts(lineParts);
     const label = line ? `Corners ${line}` : "Corners";
-    return timeScopeLabel ? `${timeScopeLabel} ${label}` : label;
-  }
-
-  // Cards: ft_cards_3_5
-  if (meaningful[0] === "cards") {
-    const lineParts = meaningful.slice(1);
-    const line = extractLineFromParts(lineParts);
-    const label = line ? `Cards ${line}` : "Cards";
     return timeScopeLabel ? `${timeScopeLabel} ${label}` : label;
   }
 

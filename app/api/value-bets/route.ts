@@ -25,6 +25,7 @@ import {
 import { type ProviderKey, PROVIDER_IDS } from "@/lib/providers/registry";
 import { getFamiliesForEvent, getAllOddsForAtom } from "@/lib/atoms/store";
 import { getFamily } from "@/lib/atoms/registry";
+import { getMovementSummary, type OddsMovementSummary } from "@/lib/atoms/odds-history";
 import { getCachedVigData } from "@/lib/atoms/value-detector";
 import { formatFamilyLabel, formatAtomLabel } from "@/lib/formatting/labels";
 import type { ValueBet } from "@/lib/atoms/types";
@@ -40,6 +41,9 @@ import { getConnectionHealth as getBCConnectionHealth } from "@/lib/adapters/bet
 import { isScoreWebSocketConnected } from "@/lib/scores/websocket";
 import { isBCPollingActive, getBCPollingCount } from "@/lib/scores/bc-poller";
 import { getTokenTTL } from "@/lib/auth/token-manager";
+import { pinnacleWsClient } from "@/lib/adapters/pinnacle/ws-client";
+import { geniusSportsSyncService } from "@/lib/services/genius-sports-sync-service";
+import { getReactiveDetectorStats } from "@/lib/background/reactive-detector";
 
 // ============================================
 // Serialization Helpers
@@ -84,6 +88,32 @@ function buildConnectionHealth(): Record<string, unknown> {
     };
   }
 
+  // Reactive engine diagnostics
+  const wsStatus = pinnacleWsClient.getConnectionStatus();
+  const loopCounts = geniusSportsSyncService.getActiveLoopCounts();
+  const detectorStats = getReactiveDetectorStats();
+
+  const currentSyncStatus = getSyncStatus();
+
+  health.engine = {
+    pinnacleWs: {
+      connected: wsStatus.connected,
+      subscribedEvents: wsStatus.subscribedEvents,
+    },
+    pollingLoops: {
+      ninewickets: loopCounts.ninewickets,
+      velki: loopCounts.velki,
+    },
+    detector: {
+      running: detectorStats.running,
+      totalPasses: detectorStats.totalPasses,
+      avgPassDurationMs: detectorStats.avgPassDurationMs,
+      lastPassAt: detectorStats.lastPassAt,
+    },
+    firstSyncComplete: currentSyncStatus.lastSyncEnd !== null,
+    isSyncing: currentSyncStatus.isSyncing,
+  };
+
   return health;
 }
 
@@ -104,6 +134,7 @@ interface AtomOddsByProvider {
   timestamp: number;
   isBest: boolean;
   suspended?: boolean;
+  movement?: OddsMovementSummary;
 }
 
 interface BulkAtomResult {
@@ -271,6 +302,12 @@ function analyzeEvents(
             timestamp: record.timestamp,
             isBest: false, // Will be set below
             suspended: record.suspended,
+            movement: getMovementSummary(
+              event.id,
+              familyId,
+              atomId,
+              provider,
+            ) ?? undefined,
           };
         }
 

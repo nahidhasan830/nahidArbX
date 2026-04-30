@@ -34,6 +34,7 @@ export type PersistResult = {
   skippedNoEvent: number;
   skippedNoFamily: number;
   errors: number;
+  lastError: string | null;
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -52,11 +53,12 @@ export const persistValueBets = async (
     sharpProvider: string;
     sharpOdds: number;
     trueProb: number;
-    sharpOddsAgeMs: number | null;
+
     softProvider: string;
     commissionPct: number;
     softOdds: number;
     detectedAt: Date | string | number;
+    oddsMovement?: import("@/lib/atoms/odds-history").OddsMovementSnapshot;
   }>,
 ): Promise<PersistResult> => {
   const result: PersistResult = {
@@ -66,6 +68,7 @@ export const persistValueBets = async (
     skippedNoEvent: 0,
     skippedNoFamily: 0,
     errors: 0,
+    lastError: null as string | null,
   };
 
   for (const vb of betsToPersist) {
@@ -99,7 +102,6 @@ export const persistValueBets = async (
       );
     }
 
-    const detectedIso = toIso(vb.detectedAt ?? new Date());
     const payload = {
       id: deterministicId,
       eventId: vb.eventId,
@@ -116,37 +118,52 @@ export const persistValueBets = async (
       sharpProvider: vb.sharpProvider,
       sharpOdds: vb.sharpOdds,
       sharpTrueProb: vb.trueProb,
-      sharpOddsAgeMs: vb.sharpOddsAgeMs,
       softProvider: vb.softProvider,
       softCommissionPct: vb.commissionPct,
       softOdds: vb.softOdds,
-      firstSeenAt: detectedIso,
-      lastSeenAt: detectedIso,
+      firstSeenAt: toIso(vb.detectedAt),
+      lastSeenAt: toIso(vb.detectedAt),
       tickCount: 1,
+      oddsMovement: (vb.oddsMovement ?? null) as never,
       // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
     };
 
     try {
-      const newPayout = sql`(1 + (${vb.softOdds} - 1) * (1 - ${vb.commissionPct} / 100.0))`;
-      const oldPayout = sql`(1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0))`;
+      // "Best Soft Odds Wins" (see §7.2 of reactive-odds-engine-architecture.md)
+      // Only update the soft side if the new effective payout beats the existing.
+      //
+      // Effective payout = 1 + (odds - 1) * (1 - commission/100)
+      //
+      // ⚠ IMPORTANT: each CASE WHEN inlines its own payout expression.
+      // Do NOT extract into a shared `sql` variable — Drizzle duplicates
+      // bound params on every embed, causing parameter-position drift
+      // that makes Postgres misinterpret softOdds as an integer.
       const rows = await db
         .insert(bets)
         .values(payload)
         .onConflictDoUpdate({
           target: bets.id,
           set: {
-            lastSeenAt: detectedIso,
-            // Track the best soft odds seen so far (by effective payout after commission)
-            softOdds: sql`CASE WHEN ${newPayout} > ${oldPayout} THEN ${vb.softOdds} ELSE ${bets.softOdds} END`,
-            softProvider: sql`CASE WHEN ${newPayout} > ${oldPayout} THEN ${vb.softProvider} ELSE ${bets.softProvider} END`,
-            softCommissionPct: sql`CASE WHEN ${newPayout} > ${oldPayout} THEN ${vb.commissionPct} ELSE ${bets.softCommissionPct} END`,
-            // Sharp side tracks current Pinnacle read
+            lastSeenAt: toIso(vb.detectedAt),
+            // Sharp side — always update to current Pinnacle read
             sharpOdds: vb.sharpOdds,
             sharpTrueProb: vb.trueProb,
-            sharpOddsAgeMs: vb.sharpOddsAgeMs,
-            tickCount: sql`${bets.tickCount} + 1`,
-            updatedAt: sql`now()`,
+            // Soft side — only update if new effective payout > existing
+            softProvider: sql`CASE WHEN (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${vb.softProvider} ELSE ${bets.softProvider} END`,
+            softCommissionPct: sql`CASE WHEN (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${vb.commissionPct}::numeric ELSE ${bets.softCommissionPct} END`,
+            softOdds: sql`CASE WHEN (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${vb.softOdds}::numeric ELSE ${bets.softOdds} END`,
+            // tick_count — only bump when the bet's own terms changed:
+            //   1. Sharp odds differ from stored value, OR
+            //   2. Soft side is being upgraded (new payout > existing)
+            // This prevents inflated counts from sibling-atom dirty signals
+            // within the same family.
+            tickCount: sql`CASE WHEN ${bets.sharpOdds} IS DISTINCT FROM ${vb.sharpOdds}::numeric OR (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${bets.tickCount} + 1 ELSE ${bets.tickCount} END`,
+            // Update movement snapshot — preserve existing if new snapshot is null
+            // (can happen when ring buffer hasn't accumulated data yet)
+            oddsMovement: vb.oddsMovement
+              ? (vb.oddsMovement as never)
+              : sql`${bets.oddsMovement}`,
           },
         })
         .returning({ tick: bets.tickCount });
@@ -176,6 +193,7 @@ export const persistValueBets = async (
         "BetPersist",
         `Upsert failed for ${vb.id}: ${e.message}${meta ? ` | ${meta}` : ""}`,
       );
+      result.lastError = `${e.message}${meta ? ` | ${meta}` : ""}`;
     }
   }
 
@@ -216,8 +234,7 @@ export type ListFilters = {
   oddsMax?: number;
   /** Strategy `min_sharp_prob` — sharp true probability ≥ this value. */
   minSharpProb?: number;
-  /** Strategy `max_odds_age_sec` (in ms here) — sharp odds age ≤ this. NULL ages pass. */
-  maxOddsAgeMs?: number;
+
   /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
   minTickCount?: number;
   limit?: number;
@@ -293,11 +310,7 @@ const buildFilterClauses = (filters: ListFilters) => {
   if (filters.minSharpProb !== undefined) {
     clauses.push(sql`${bets.sharpTrueProb} >= ${filters.minSharpProb}`);
   }
-  if (filters.maxOddsAgeMs !== undefined) {
-    clauses.push(
-      sql`(${bets.sharpOddsAgeMs} IS NULL OR ${bets.sharpOddsAgeMs} <= ${filters.maxOddsAgeMs})`,
-    );
-  }
+
   if (filters.minTickCount !== undefined) {
     clauses.push(sql`${bets.tickCount} >= ${filters.minTickCount}`);
   }
@@ -538,9 +551,8 @@ export const markOutcome = async (
     .update(bets)
     .set({
       outcome: normalized,
-      outcomeMarkedAt: normalized === "pending" ? null : now,
+      settledAt: normalized === "pending" ? null : now,
       settledBySource: normalized === "pending" ? null : source,
-      updatedAt: now,
     })
     .where(eq(bets.id, id))
     .returning();
@@ -570,9 +582,8 @@ export const markOutcomesBulk = async (
   const result = await db.execute(sql`
     UPDATE ${bets}
        SET outcome           = v.outcome,
-           outcome_marked_at = CASE WHEN v.outcome = 'pending' THEN NULL ELSE NOW() END,
-           settled_by_source = CASE WHEN v.outcome = 'pending' THEN NULL ELSE v.source END,
-           updated_at        = NOW()
+           settled_at        = CASE WHEN v.outcome = 'pending' THEN NULL ELSE NOW() END,
+           settled_by_source = CASE WHEN v.outcome = 'pending' THEN NULL ELSE v.source END
        FROM (VALUES ${tuples}) AS v(id, outcome, source)
       WHERE ${bets.id} = v.id
   `);
@@ -597,7 +608,6 @@ export const recordSettleAttempts = async (ids: string[]): Promise<void> => {
     .set({
       settleAttempts: sql`${bets.settleAttempts} + 1`,
       lastSettleAttemptAt: sql`NOW()`,
-      updatedAt: sql`NOW()`,
     })
     .where(inArray(bets.id, ids));
 };
@@ -629,7 +639,7 @@ export interface NewPlacedBetInput {
   sharpProvider: string;
   sharpOdds: number;
   sharpTrueProb: number;
-  sharpOddsAgeMs: number | null;
+
   softProvider: string;
   softCommissionPct: number;
   softOdds: number;
@@ -639,8 +649,7 @@ export interface NewPlacedBetInput {
   currency: string;
   providerTicketId: string | null;
   mode: "auto" | "manual";
-  requestPayload: unknown;
-  responsePayload: unknown;
+
 }
 
 /**
@@ -693,9 +702,7 @@ export async function insertPlacedBet(
       currency: input.currency,
       providerTicketId: input.providerTicketId,
       mode: input.mode,
-      requestPayload: input.requestPayload as never,
-      responsePayload: input.responsePayload as never,
-      updatedAt: now,
+
     })
     .where(and(eq(bets.id, input.id), sql`${bets.placedAt} IS NOT NULL`))
     .returning();
@@ -803,7 +810,7 @@ export async function reservePlacement(args: {
       sharpProvider: args.shell.sharpProvider,
       sharpOdds: args.shell.sharpOdds,
       sharpTrueProb: args.shell.sharpTrueProb,
-      sharpOddsAgeMs: null,
+
       softProvider: args.shell.softProvider,
       softCommissionPct: args.shell.softCommissionPct,
       softOdds: args.shell.softOdds,
@@ -819,8 +826,6 @@ export async function reservePlacement(args: {
       firstSeenAt: now,
       lastSeenAt: now,
       tickCount: 1,
-      createdAt: now,
-      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: bets.id,
@@ -829,7 +834,6 @@ export async function reservePlacement(args: {
         provider: args.provider,
         mode: args.mode,
         currency: args.currency,
-        updatedAt: sql`NOW()`,
       },
       // Only reserve if the existing row hasn't been placed yet, OR if
       // a prior placement was cancelled (matches the legacy
@@ -860,9 +864,6 @@ export async function releaseReservation(id: string): Promise<void> {
       stake: null,
       odds: null,
       providerTicketId: null,
-      requestPayload: null,
-      responsePayload: null,
-      updatedAt: sql`NOW()`,
     })
     .where(and(eq(bets.id, id), sql`${bets.providerTicketId} IS NULL`));
 }
@@ -914,7 +915,6 @@ export async function attachTicketId(
     .update(bets)
     .set({
       providerTicketId: ticketId,
-      updatedAt: new Date().toISOString(),
     })
     .where(eq(bets.id, betId))
     .returning();
@@ -939,26 +939,25 @@ export async function deleteBet(betId: string): Promise<boolean> {
  */
 export async function recordClosingOdds(args: {
   betId: string;
-  closingSoftOdds: number;
   closingSharpOdds: number;
 }): Promise<BetRow | null> {
   const current = await getBetById(args.betId);
   if (!current) return null;
 
+  // CLV: how much better were the placed odds vs Pinnacle's closing line?
+  // Industry standard: measure against sharp (Pinnacle) closing odds.
   const clvPct =
-    current.odds && args.closingSoftOdds
+    current.odds && args.closingSharpOdds
       ? Number(
-          ((Number(current.odds) / args.closingSoftOdds - 1) * 100).toFixed(2),
+          ((Number(current.odds) / args.closingSharpOdds - 1) * 100).toFixed(2),
         )
       : null;
 
   const [updated] = await db
     .update(bets)
     .set({
-      closingSoftOdds: args.closingSoftOdds,
       closingSharpOdds: args.closingSharpOdds,
       clvPct: clvPct !== null ? Number(clvPct) : null,
-      updatedAt: new Date().toISOString(),
     })
     .where(eq(bets.id, args.betId))
     .returning();
@@ -989,7 +988,6 @@ export async function applySettlement(args: {
       settledAt: new Date().toISOString(),
       settledBySource: args.settledBySource,
       pnl: pnl !== null ? Number(pnl.toFixed(2)) : null,
-      updatedAt: new Date().toISOString(),
     })
     .where(eq(bets.id, args.betId))
     .returning();

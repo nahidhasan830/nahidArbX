@@ -6,7 +6,7 @@
  */
 
 import { BaseAtomsAdapter, type FetchContext } from "./base";
-import { DebugFetcher } from "../../shared/debug-fetcher";
+
 import { validateAndParse } from "../../shared/validation";
 import { formatError } from "../../shared/errors";
 import { logger } from "../../shared/logger";
@@ -196,88 +196,13 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     awayTeam: string,
     options: AtomsFetchOptions = {},
   ): Promise<number> {
-    const ctx: FetchContext = {
-      providerEventId,
-      normalizedEventId,
-      homeTeam,
-      awayTeam,
-      options,
-    };
-
-    try {
-      const rawData = await this.fetchRawData(ctx);
-      if (!rawData) return 0;
-
-      const entries = this.extractOdds(rawData, ctx);
-
-      if (entries.length > 0) {
-        const { setOddsBatch } = await import("../store");
-        setOddsBatch(entries);
-      }
-
-      return entries.length;
-    } catch (error) {
-      const isExpectedFastModeMiss =
-        options.fastMode &&
-        error instanceof Error &&
-        error.message.includes("fast mode");
-      if (!isExpectedFastModeMiss) {
-        logger.error(
-          "PinnacleAtoms",
-          `Error for event ${providerEventId}: ${formatError(error)}`,
-        );
-      }
-      return 0;
-    }
+    // LEGACY: The 15-second polling loop calls this. 
+    // We now use real-time STOMP WebSockets (`ws-client.ts`), so we do not 
+    // fetch odds via REST anymore to avoid duplicate work and API rate limits.
+    // The X-Ray diagnostics UI still uses `debugFetchAndStoreOdds` below.
+    return 0;
   }
 
-  protected captureDebugRequest(debug: DebugFetcher, ctx: FetchContext): void {
-    const urlPath = buildEventMarketsUrl(ctx.providerEventId);
-    const fullUrl = `${config.providers.pinnacle.baseUrl}${urlPath}`;
-
-    debug.captureRequest({
-      url: fullUrl,
-      method: "GET",
-      headers: { Authorization: "Bearer [REDACTED]" },
-    });
-  }
-
-  protected async debugFetchRawData(
-    debug: DebugFetcher,
-    ctx: FetchContext,
-  ): Promise<PinnacleRawData | null> {
-    const urlPath = buildEventMarketsUrl(ctx.providerEventId);
-
-    const startTime = Date.now();
-    try {
-      const { data } = await fetchWithTokenRefresh(urlPath, { timeout: 10000 });
-      const durationMs = Date.now() - startTime;
-
-      debug.addResponse({
-        status: 200,
-        data,
-        durationMs,
-      });
-
-      const parsed = validateAndParse(
-        data,
-        PinnacleEventMarketsResponseSchema,
-        `[Pinnacle Debug] event ${ctx.providerEventId}`,
-      );
-
-      if (!parsed || parsed.code !== 200) return null;
-
-      return { parsed, providerEventId: ctx.providerEventId };
-    } catch (error) {
-      const durationMs = Date.now() - startTime;
-      debug.addResponse({
-        status: 500,
-        data: { error: formatError(error) },
-        durationMs,
-      });
-      return null;
-    }
-  }
 }
 
 // ============================================
@@ -306,16 +231,3 @@ export async function fetchAndStorePinnacleOdds(
   );
 }
 
-export async function debugFetchAndStorePinnacleOdds(
-  providerEventId: string,
-  normalizedEventId: string,
-  homeTeam: string,
-  awayTeam: string,
-) {
-  return adapterInstance.debugFetchAndStoreOdds(
-    providerEventId,
-    normalizedEventId,
-    homeTeam,
-    awayTeam,
-  );
-}

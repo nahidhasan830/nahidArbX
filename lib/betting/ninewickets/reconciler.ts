@@ -133,57 +133,6 @@ export interface ReconcileReport {
   at: string;
 }
 
-interface PendingBetLike {
-  id: string;
-  eventId: string;
-  atomId: string;
-  stake: number | string;
-  odds: number | string;
-  providerTicketId: string | null;
-  requestPayload: unknown;
-  placedAt: string | Date;
-}
-
-/**
- * Extract the provider-native ids (marketId, selectionId, betfair
- * event id) from a `placed_bets.requestPayload`. The placer stored
- * whatever the adapter received. If the shape doesn't match, we
- * return a partial match key and rely on eventId + stake + odds.
- */
-function extractRefs(row: PendingBetLike): {
-  marketId: string | null;
-  selectionId: number | null;
-  betfairEventId: number | null;
-} {
-  try {
-    const p = row.requestPayload as
-      | { payloadItem?: Record<string, unknown> }
-      | null
-      | undefined;
-    const item = p?.payloadItem ?? {};
-    return {
-      marketId:
-        typeof item.marketId === "string" || typeof item.marketId === "number"
-          ? String(item.marketId)
-          : null,
-      selectionId:
-        typeof item.selectionId === "number"
-          ? item.selectionId
-          : typeof item.selectionId === "string"
-            ? Number(item.selectionId)
-            : null,
-      betfairEventId:
-        typeof item.betfairEventId === "number"
-          ? item.betfairEventId
-          : typeof item.betfairEventId === "string"
-            ? Number(item.betfairEventId)
-            : null,
-    };
-  } catch {
-    return { marketId: null, selectionId: null, betfairEventId: null };
-  }
-}
-
 /**
  * Walk all pending rows for `ninewickets-sportsbook`, fetch the live
  * unmatched feed, and attach newly-visible ticket ids to rows that
@@ -244,7 +193,13 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
   }
 
   for (const row of pending) {
-    const refs = extractRefs(row as PendingBetLike);
+    // If the row already has a ticket id, the reconciler's job is done.
+    // It may have moved to the matched (transactions) feed or been voided,
+    // which is handled by the settlement pipeline.
+    if (row.providerTicketId) {
+      continue;
+    }
+
     const stake = Number(row.stake);
     const odds = Number(row.odds);
     const placedMs = Date.parse(
@@ -258,9 +213,6 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
     const match = findTicketForRow(
       tickets,
       {
-        betfairEventId: refs.betfairEventId,
-        marketId: refs.marketId,
-        selectionId: refs.selectionId,
         stake,
         odds,
         placedAt:
@@ -285,8 +237,8 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
           logger.warn(
             "Reconciler",
             `purged orphaned pending placed_bet ${row.id} ` +
-              `(event ${row.eventId}, stake ${stake}@${odds}, ` +
-              `age ${Math.round((nowMs - placedMs) / 1000)}s) — never surfaced in myBets feed`,
+            `(event ${row.eventId}, stake ${stake}@${odds}, ` +
+            `age ${Math.round((nowMs - placedMs) / 1000)}s) — never surfaced in myBets feed`,
           );
         }
       }
@@ -308,7 +260,7 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
       logger.info(
         "Reconciler",
         `attached ticket ${ticketId} to placed_bet ${row.id} ` +
-          `(event ${row.eventId}, stake ${stake}@${odds})`,
+        `(event ${row.eventId}, stake ${stake}@${odds})`,
       );
       // Intentionally NO Telegram here. The placement-confirmation path
       // (lib/betting/ninewickets/placement-confirmation.ts) is the
@@ -328,21 +280,9 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
   };
 }
 
-/**
- * Find the live unmatched ticket matching a given pending row.
- * Matches on (betfairEventId, marketId, selectionId, stake, odds),
- * falling back to a looser 3-field match when the payload didn't
- * preserve all refs.
- *
- * Odds comparison uses a tiny epsilon because the feed rounds to 2 dp
- * but the request may carry more.
- */
 function findTicketForRow(
   tickets: GeniusSportsUnMatchTicket[],
   row: {
-    betfairEventId: number | null;
-    marketId: string | null;
-    selectionId: number | null;
     stake: number;
     odds: number;
     placedAt: string;
@@ -354,31 +294,16 @@ function findTicketForRow(
   const isClaimed = (t: GeniusSportsUnMatchTicket) =>
     claimedTicketIds.has(String(t.id));
 
-  // Strict: all refs + stake + odds
+  // Since payload refs (marketId, selectionId) are no longer stored in DB,
+  // we strictly match on stake, odds, and time.
   for (const t of tickets) {
     if (isClaimed(t)) continue;
-    if (row.selectionId !== null && t.selectionId !== row.selectionId) continue;
-    if (row.marketId !== null && String(t.marketId) !== row.marketId) continue;
     if (t.initPrice !== row.stake) continue;
     if (!oddsEq(t.odds, row.odds)) continue;
     // Guard: the ticket must have been created at-or-after the row
     // was placed (plus a 5s clock-skew buffer).
     if (t.createDate < rowPlacedMs - 5000) continue;
     return t;
-  }
-
-  // Loose: event + stake + odds (used when payload refs weren't saved)
-  if (row.betfairEventId !== null) {
-    for (const t of tickets) {
-      if (isClaimed(t)) continue;
-      const sameEvent =
-        (t as { mappingEventId?: number }).mappingEventId ===
-          row.betfairEventId || t.eventId === row.betfairEventId;
-      if (!sameEvent) continue;
-      if (t.initPrice !== row.stake) continue;
-      if (!oddsEq(t.odds, row.odds)) continue;
-      return t;
-    }
   }
 
   return null;

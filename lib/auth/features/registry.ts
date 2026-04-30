@@ -149,38 +149,6 @@ export const FEATURE_REGISTRY = {
   // ============================================
   // Action Features
   // ============================================
-  "sync-fixtures": {
-    id: "sync-fixtures",
-    displayName: "Sync Fixtures",
-    description: "Trigger fixtures synchronization",
-    category: "action" as const,
-    defaultEnabled: false,
-    implemented: false, // Coming soon
-  },
-  "sync-odds": {
-    id: "sync-odds",
-    displayName: "Sync Odds",
-    description: "Trigger odds synchronization",
-    category: "action" as const,
-    defaultEnabled: false,
-    implemented: false, // Coming soon
-  },
-  "sync-all": {
-    id: "sync-all",
-    displayName: "Full Sync",
-    description: "Trigger full data sync",
-    category: "action" as const,
-    defaultEnabled: false,
-    implemented: true,
-  },
-  "refresh-event": {
-    id: "refresh-event",
-    displayName: "Refresh Event",
-    description: "Refresh individual event odds",
-    category: "action" as const,
-    defaultEnabled: true,
-    implemented: true,
-  },
   "copy-odds": {
     id: "copy-odds",
     displayName: "Copy Odds",
@@ -198,69 +166,7 @@ export const FEATURE_REGISTRY = {
     implemented: false, // Coming soon
   },
 
-  // ============================================
-  // Data Access Features
-  // ============================================
-  "raw-data-view": {
-    id: "raw-data-view",
-    displayName: "Raw Data View",
-    description: "View raw API responses",
-    category: "data" as const,
-    defaultEnabled: false,
-    implemented: true,
-  },
-  "raw-data-pinnacle": {
-    id: "raw-data-pinnacle",
-    displayName: "Pinnacle Raw Data",
-    description: "Access Pinnacle API data",
-    category: "data" as const,
-    defaultEnabled: false,
-    implemented: false, // Coming soon
-  },
-  "raw-data-nw-exchange": {
-    id: "raw-data-nw-exchange",
-    displayName: "NW Exchange Raw Data",
-    description: "Access NW Exchange API data",
-    category: "data" as const,
-    defaultEnabled: false,
-    implemented: false, // Coming soon
-  },
-  "raw-data-nw-sportsbook": {
-    id: "raw-data-nw-sportsbook",
-    displayName: "NW Sportsbook Raw Data",
-    description: "Access NW Sportsbook API data",
-    category: "data" as const,
-    defaultEnabled: false,
-    implemented: false, // Coming soon
-  },
-  "raw-data-betconstruct": {
-    id: "raw-data-betconstruct",
-    displayName: "BetConstruct Raw Data",
-    description: "Access BetConstruct API data",
-    category: "data" as const,
-    defaultEnabled: false,
-    implemented: false, // Coming soon
-  },
-  "score-data": {
-    id: "score-data",
-    displayName: "Score Data",
-    description: "View live score information",
-    category: "data" as const,
-    defaultEnabled: true,
-    implemented: true,
-  },
 
-  // ============================================
-  // AI & Diagnostics Features
-  // ============================================
-  diagnostics: {
-    id: "diagnostics",
-    displayName: "Match Diagnostics",
-    description: "View and manage match diagnostics",
-    category: "view" as const,
-    defaultEnabled: false,
-    implemented: true,
-  },
 
   // ============================================
   // Admin Features

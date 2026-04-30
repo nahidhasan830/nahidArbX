@@ -13,7 +13,6 @@
  */
 
 import { getFamilyIdByAtom } from "../registry";
-import { bufferUnmappedMarket } from "../unmapped-buffer";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 
 // ============================================
@@ -680,7 +679,12 @@ export function extractPinnacleOdds(
   const handicap = market[13];
   const marketSide = market[15]; // For TEAM_TOTAL_POINTS
   const status = market[16];
-  const timestamp = market[18];
+  // NOTE: market[18] is Pinnacle's "last price change" timestamp, NOT "when
+  // this data was sent". For illiquid markets (corners, team totals), the
+  // server timestamp can be 20-40 minutes old even though our WS just received
+  // it. We stamp Date.now() so the UI freshness label and staleness guards
+  // reflect when *we* actually received the data.
+  const timestamp = Date.now();
 
   // Skip non-open markets
   if (status !== "OPEN") {
@@ -734,25 +738,7 @@ export function extractPinnacleOdds(
       halfIndicator,
     );
 
-    if (!atomId) {
-      // Harvest unmapped market for diagnostics
-      bufferUnmappedMarket({
-        provider: "pinnacle",
-        rawMarketKey: `${marketType}:${periodType}:${adjustedHandicap}:${side}:${direction}`,
-        rawMarketName: `${marketType} / ${periodType} / ${side || direction}`,
-        samplePayload: {
-          marketType,
-          periodType,
-          handicap: adjustedHandicap,
-          side,
-          direction,
-          marketSide,
-          halfIndicator,
-          odds,
-        },
-      });
-      continue;
-    }
+    if (!atomId) continue;
 
     const familyId = getFamilyIdByAtom(atomId);
     if (!familyId) {

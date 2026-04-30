@@ -143,51 +143,6 @@ export interface ReconcileReport {
   at: string;
 }
 
-interface PendingBetLike {
-  id: string;
-  eventId: string;
-  atomId: string;
-  stake: number | string;
-  odds: number | string;
-  providerTicketId: string | null;
-  requestPayload: unknown;
-  placedAt: string | Date;
-}
-
-function extractRefs(row: PendingBetLike): {
-  marketId: string | null;
-  selectionId: number | null;
-  betfairEventId: number | null;
-} {
-  try {
-    const p = row.requestPayload as
-      | { payloadItem?: Record<string, unknown> }
-      | null
-      | undefined;
-    const item = p?.payloadItem ?? {};
-    return {
-      marketId:
-        typeof item.marketId === "string" || typeof item.marketId === "number"
-          ? String(item.marketId)
-          : null,
-      selectionId:
-        typeof item.selectionId === "number"
-          ? item.selectionId
-          : typeof item.selectionId === "string"
-            ? Number(item.selectionId)
-            : null,
-      betfairEventId:
-        typeof item.betfairEventId === "number"
-          ? item.betfairEventId
-          : typeof item.betfairEventId === "string"
-            ? Number(item.betfairEventId)
-            : null,
-    };
-  } catch {
-    return { marketId: null, selectionId: null, betfairEventId: null };
-  }
-}
-
 export async function reconcilePendingBets(): Promise<ReconcileReport> {
   const provider = "velki-sportsbook";
   const pending = await listPendingBetsForProvider(provider);
@@ -234,7 +189,24 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
   }
 
   for (const row of pending) {
-    const refs = extractRefs(row as PendingBetLike);
+    // If the row already has a ticket id, verify it's still in the live feed.
+    // The provider's bet history is the ultimate source of truth.
+    if (row.providerTicketId) {
+      const stillInFeed = tickets.some(t => String(t.id) === row.providerTicketId);
+      if (!stillInFeed) {
+        const placedMs = Date.parse(row.placedAt as string);
+        if (nowMs - placedMs > ORPHAN_PENDING_TTL_MS) {
+          logger.warn(
+            "VelkiReconciler",
+            `Pending bet ${row.id} (ticket ${row.providerTicketId}) vanished from open feed after 5m. Assumed rejected/void. Deleting to allow retry.`,
+          );
+          await deleteBet(row.id);
+          orphansPurged++;
+        }
+      }
+      continue;
+    }
+
     const stake = Number(row.stake);
     const odds = Number(row.odds);
     const placedMs = Date.parse(
@@ -248,9 +220,6 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
     const match = findTicketForRow(
       tickets,
       {
-        betfairEventId: refs.betfairEventId,
-        marketId: refs.marketId,
-        selectionId: refs.selectionId,
         stake,
         odds,
         placedAt:
@@ -308,9 +277,6 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
 function findTicketForRow(
   tickets: GeniusSportsUnMatchTicket[],
   row: {
-    betfairEventId: number | null;
-    marketId: string | null;
-    selectionId: number | null;
     stake: number;
     odds: number;
     placedAt: string;
@@ -324,25 +290,10 @@ function findTicketForRow(
 
   for (const t of tickets) {
     if (isClaimed(t)) continue;
-    if (row.selectionId !== null && t.selectionId !== row.selectionId) continue;
-    if (row.marketId !== null && String(t.marketId) !== row.marketId) continue;
     if (t.initPrice !== row.stake) continue;
     if (!oddsEq(t.odds, row.odds)) continue;
     if (t.createDate < rowPlacedMs - 5000) continue;
     return t;
-  }
-
-  if (row.betfairEventId !== null) {
-    for (const t of tickets) {
-      if (isClaimed(t)) continue;
-      const sameEvent =
-        (t as { mappingEventId?: number }).mappingEventId ===
-          row.betfairEventId || t.eventId === row.betfairEventId;
-      if (!sameEvent) continue;
-      if (t.initPrice !== row.stake) continue;
-      if (!oddsEq(t.odds, row.odds)) continue;
-      return t;
-    }
   }
 
   return null;

@@ -259,7 +259,6 @@ function synthesizeRow(r: RuntimeDescriptor): ValueBetRow {
     sharpProvider,
     sharpOdds,
     sharpTrueProb,
-    sharpOddsAgeMs: null,
     softProvider: r.softProvider,
     softCommissionPct: r.commissionPct,
     softOdds: r.softOdds,
@@ -267,13 +266,10 @@ function synthesizeRow(r: RuntimeDescriptor): ValueBetRow {
     lastSeenAt: nowIso,
     tickCount: 1,
     closingSharpOdds: null,
-    closingSoftOdds: null,
     outcome: "pending",
-    outcomeMarkedAt: null,
     settledBySource: null,
+    settledAt: null,
     settleAttempts: 0,
     lastSettleAttemptAt: null,
-    createdAt: nowIso,
-    updatedAt: nowIso,
   } as ValueBetRow;
 }

@@ -7,7 +7,7 @@ import { getProviderShortName } from "@/lib/providers/registry";
 
 const LABELS: Record<string, string> = {
   min_ev_pct: "Min EV %",
-  max_odds_age_sec: "Max odds age (s)",
+
   min_sharp_prob: "Min sharp prob",
   odds_lo: "Odds lower bound",
   odds_hi: "Odds upper bound",
