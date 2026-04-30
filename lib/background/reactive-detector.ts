@@ -30,6 +30,7 @@ import {
   setOnDirtyCallback,
   getStoreStats,
   pruneOddsForStaleEvents,
+  getAllOddsForAtom,
 } from "@/lib/atoms/store";
 import { pruneHistoryForEvents } from "@/lib/atoms/odds-history";
 import { detectAllValueBetsIncremental } from "@/lib/atoms/value-detector";
@@ -157,15 +158,43 @@ async function runDetectionPass(): Promise<void> {
 
       if (changedBets.length > 0) {
         try {
-          // Enrich only changed bets with movement snapshots
+          // Enrich only changed bets with movement snapshots from all active providers
           const enrichedBets = changedBets.map((vb) => {
-            const snapshot = buildMovementSnapshot(
-              vb.eventId,
-              vb.familyId,
-              vb.atomId,
-              vb.sharpProvider,
-            );
-            return { ...vb, oddsMovement: snapshot ?? undefined };
+            const allOdds = getAllOddsForAtom(vb.eventId, vb.familyId, vb.atomId);
+            const snapshots: Record<string, import("@/lib/bets-history/types").OddsMovementData> = {};
+            
+            // For every provider that has odds for this atom, try to build a movement snapshot
+            if (allOdds) {
+              for (const provider of allOdds.keys()) {
+                const snapshot = buildMovementSnapshot(
+                  vb.eventId,
+                  vb.familyId,
+                  vb.atomId,
+                  provider,
+                );
+                if (snapshot) {
+                  snapshots[provider] = snapshot;
+                }
+              }
+            }
+
+            // Fallback: If no providers were matched (should be rare), try at least the sharp provider
+            if (Object.keys(snapshots).length === 0) {
+              const sharpSnapshot = buildMovementSnapshot(
+                vb.eventId,
+                vb.familyId,
+                vb.atomId,
+                vb.sharpProvider,
+              );
+              if (sharpSnapshot) {
+                snapshots[vb.sharpProvider] = sharpSnapshot;
+              }
+            }
+
+            return { 
+              ...vb, 
+              oddsMovement: Object.keys(snapshots).length > 0 ? snapshots : undefined 
+            };
           });
 
           const result = await persistValueBets(enrichedBets);

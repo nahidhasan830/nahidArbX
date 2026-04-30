@@ -45,6 +45,7 @@ export interface ProviderMetadata {
     chartStroke: string; // SVG stroke class for charts
     chartDot: string; // Bg class for chart legend dots
     textInline: string; // Text color for dark-mode-friendly inline labels
+    chartHex: string; // Hex color for canvas charting
   };
   requiresAuth: boolean;
   enabled: boolean;
@@ -78,6 +79,7 @@ export const PROVIDER_REGISTRY = {
       chartStroke: "stroke-cyan-400",
       chartDot: "bg-cyan-400",
       textInline: "text-cyan-400 dark:text-cyan-300",
+      chartHex: "#22d3ee", // cyan-400
     },
     requiresAuth: true,
     enabled: true,
@@ -101,6 +103,7 @@ export const PROVIDER_REGISTRY = {
       chartStroke: "stroke-purple-400",
       chartDot: "bg-purple-400",
       textInline: "text-purple-400 dark:text-purple-300",
+      chartHex: "#c084fc", // purple-400
     },
     requiresAuth: false,
     enabled: true,
@@ -124,6 +127,7 @@ export const PROVIDER_REGISTRY = {
       chartStroke: "stroke-amber-400",
       chartDot: "bg-amber-400",
       textInline: "text-amber-400 dark:text-amber-300",
+      chartHex: "#fbbf24", // amber-400
     },
     requiresAuth: false,
     enabled: true,
@@ -147,6 +151,7 @@ export const PROVIDER_REGISTRY = {
       chartStroke: "stroke-sky-400",
       chartDot: "bg-sky-400",
       textInline: "text-sky-400 dark:text-sky-300",
+      chartHex: "#38bdf8", // sky-400
     },
     requiresAuth: false,
     enabled: false,
@@ -170,6 +175,7 @@ export const PROVIDER_REGISTRY = {
       chartStroke: "stroke-rose-400",
       chartDot: "bg-rose-400",
       textInline: "text-rose-400 dark:text-rose-300",
+      chartHex: "#fb7185", // rose-400
     },
     requiresAuth: true, // Needs DRF token + JSESSIONID handshake
     enabled: true,
@@ -347,4 +353,11 @@ export function getProviderTextInline(id: string): string {
     PROVIDER_REGISTRY[id as ProviderKey]?.color.textInline ??
     "text-muted-foreground"
   );
+}
+
+/**
+ * Raw hex color string for canvas-based charts like lightweight-charts.
+ */
+export function getProviderChartHex(id: string): string {
+  return PROVIDER_REGISTRY[id as ProviderKey]?.color.chartHex ?? "#94a3b8"; // slate-400 fallback
 }

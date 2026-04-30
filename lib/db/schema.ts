@@ -101,10 +101,15 @@ export const bets = pgTable(
     settleAttempts: integer().notNull().default(0),
     lastSettleAttemptAt: ts(),
 
-    // Odds movement history — JSONB snapshot of the Pinnacle line movement
-    // at the time the value bet was detected/updated. Shape: OddsMovementSnapshot
-    // from lib/atoms/odds-history.ts (openingOdds, peakOdds, troughOdds, sparkline).
-    oddsMovement: jsonb(),
+    // Odds movement history — JSONB snapshot of per-provider line movement
+    // at the time the value bet was detected/updated. New format is
+    // Record<string, OddsMovementData> keyed by provider ID; legacy rows
+    // may contain a single OddsMovementData object directly.
+    oddsMovement: jsonb().$type<
+      Record<string, import("@/lib/bets-history/types").OddsMovementData>
+      | import("@/lib/bets-history/types").OddsMovementData
+      | null
+    >(),
   },
   (t) => [
     index("bets_first_seen_idx").on(t.firstSeenAt.desc()),

@@ -62,7 +62,7 @@ import { SpreadsheetRow } from "./SpreadsheetRow";
 import { useSpreadsheetColumnWidths } from "./useSpreadsheetColumnWidths";
 import { MovementDetailModal } from "@/components/bets-history/MovementDetailModal";
 import type { OddsMovementData } from "@/lib/bets-history/types";
-import type { AtomOddsData } from "@/lib/formatting/spreadsheet";
+
 
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   event: 320,
@@ -125,27 +125,34 @@ export function ValueBetSpreadsheet({
 
   // Movement chart modal state
   const [movementModal, setMovementModal] = useState<{
-    data: OddsMovementData;
+    data: Record<string, OddsMovementData>;
     eventLabel: string;
     marketLabel: string;
   } | null>(null);
 
   const handleMovementClick = useCallback(
     (
-      movement: NonNullable<AtomOddsData["movement"]>,
-      context: { eventLabel: string; marketLabel: string; providerLabel: string },
+      oddsRow: SpreadsheetRowData["odds"],
+      context: { eventLabel: string; marketLabel: string },
     ) => {
+      const data: Record<string, OddsMovementData> = {};
+      for (const [providerKey, od] of Object.entries(oddsRow)) {
+        if (od?.movement) {
+          data[providerKey] = {
+            provider: providerKey,
+            openingOdds: od.movement.openingOdds,
+            peakOdds: od.movement.peakOdds,
+            troughOdds: od.movement.troughOdds,
+            totalTicks: od.movement.totalTicks,
+            sparkline: od.movement.sparkline,
+          };
+        }
+      }
+
       setMovementModal({
-        data: {
-          provider: context.providerLabel,
-          openingOdds: movement.openingOdds,
-          peakOdds: movement.peakOdds,
-          troughOdds: movement.troughOdds,
-          totalTicks: movement.totalTicks,
-          sparkline: movement.sparkline,
-        },
+        data,
         eventLabel: context.eventLabel,
-        marketLabel: `${context.marketLabel} · ${context.providerLabel}`,
+        marketLabel: context.marketLabel,
       });
     },
     [],
@@ -489,7 +496,7 @@ export function ValueBetSpreadsheet({
     const providerEventIdsChanged =
       nextProviderEventIds !== undefined &&
       JSON.stringify(nextProviderEventIds) !==
-        JSON.stringify(selectedValueBet.providerEventIds);
+      JSON.stringify(selectedValueBet.providerEventIds);
 
     if (matchingRow && matchingRow.valueBetDetails) {
       const nextDetails = matchingRow.valueBetDetails;
@@ -500,14 +507,14 @@ export function ValueBetSpreadsheet({
         setSelectedValueBet((prev) =>
           prev
             ? {
-                ...prev,
-                details: detailsChanged ? nextDetails : prev.details,
-                outcomeLabel: matchingRow.outcomeLabel,
-                marketLabel: matchingRow.marketLabel,
-                atomOdds: detailsChanged ? matchingRow.odds : prev.atomOdds,
-                providerEventIds: nextProviderEventIds ?? prev.providerEventIds,
-                liveScore: nextLiveScore,
-              }
+              ...prev,
+              details: detailsChanged ? nextDetails : prev.details,
+              outcomeLabel: matchingRow.outcomeLabel,
+              marketLabel: matchingRow.marketLabel,
+              atomOdds: detailsChanged ? matchingRow.odds : prev.atomOdds,
+              providerEventIds: nextProviderEventIds ?? prev.providerEventIds,
+              liveScore: nextLiveScore,
+            }
             : null,
         );
       }
@@ -779,7 +786,7 @@ export function ValueBetSpreadsheet({
                         Syncing provider data
                       </span>
                       <span className="text-xs text-muted-foreground/70">
-                        Pulling fixtures from all sportsbooks and matching across providers — this usually takes 1–2 minutes after a cold start.
+                        Pulling fixtures from all sportsbooks and matching across providers — this usually takes 4–5 minutes after a cold start.
                       </span>
                     </div>
                   ) : searchTerm ? (

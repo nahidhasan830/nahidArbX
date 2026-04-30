@@ -25,7 +25,7 @@ import { Copy, X } from "lucide-react";
 import { Feature } from "@/components/auth/AuthProvider";
 import { getProviderColorClasses as getProviderBadgeClasses } from "@/lib/providers/registry";
 import { OddsCell } from "./OddsCell";
-import type { AtomOddsData } from "@/lib/formatting/spreadsheet";
+
 import {
   getProviderShortName,
   getSharpProviders,
@@ -143,7 +143,7 @@ export interface SpreadsheetRowProps {
   ) => void;
   onHide: (eventId: string, familyId: string) => void;
   /** Opens the movement detail modal for this provider's odds. */
-  onMovementClick?: (movement: NonNullable<AtomOddsData["movement"]>, context: { eventLabel: string; marketLabel: string; providerLabel: string }) => void;
+  onMovementClick?: (oddsRow: SpreadsheetRow["odds"], context: { eventLabel: string; marketLabel: string }) => void;
   liveScore?: LiveScoreData;
   /** Event-level suspension (all markets blocked) */
   suspended?: boolean;
@@ -369,7 +369,15 @@ export function SpreadsheetRow({
       {/* Provider-odds cells — placeable cells open the placement modal with
           the specific provider's price pre-selected. Non-placeable providers
           remain static. */}
-      {visibleProviders.map((providerId) => {
+      {(() => {
+        // Compute sharp reference sparkline once — passed to soft provider tooltips
+        const sharpId = getSharpProviders()[0];
+        const sharpMov = sharpId ? row.odds[sharpId]?.movement : undefined;
+        const sharpRefData = sharpId && sharpMov && sharpMov.totalTicks >= 2 && sharpMov.sparkline.length >= 2
+          ? { sparkline: sharpMov.sparkline, label: getProviderShortName(sharpId) }
+          : undefined;
+
+        return visibleProviders.map((providerId) => {
         const od = row.odds[providerId];
         const placeable =
           CONFIGURED_BETTING_PROVIDER_IDS.includes(providerId as string) &&
@@ -435,23 +443,35 @@ export function SpreadsheetRow({
               });
             }
           : undefined;
+
+        // Only pass sharp reference to non-sharp providers
+        const isThisSharp = providerId === sharpId;
+
         return (
           <OddsCell
             key={providerId}
             odds={od}
             onClick={onClick}
             providerLabel={getProviderShortName(providerId)}
-            onMovementClick={onMovementClick
-              ? (movement) => onMovementClick(movement, {
+            onMovementClick={!placeable && onMovementClick && od?.movement && od.movement.totalTicks >= 2
+              ? () => onMovementClick(row.odds, {
                   eventLabel: row.eventLabel,
                   marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
-                  providerLabel: getProviderShortName(providerId),
                 })
               : undefined
             }
+            onOpenMovementModal={onMovementClick && od?.movement && od.movement.totalTicks >= 2
+              ? () => onMovementClick(row.odds, {
+                  eventLabel: row.eventLabel,
+                  marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
+                })
+              : undefined
+            }
+            sharpRef={!isThisSharp ? sharpRefData : undefined}
           />
         );
-      })}
+      });
+      })()}
 
 
 

@@ -20,6 +20,7 @@ import {
   STEAM_MOVE_STRONG_PCT,
 } from "@/lib/shared/constants";
 import type { NormalizedOddsEntry } from "./types";
+import type { OddsMovementData } from "@/lib/bets-history/types";
 
 // ============================================
 // Types
@@ -57,21 +58,8 @@ export interface SteamMoveSignal {
   significance: "weak" | "moderate" | "strong";
 }
 
-/** Compact snapshot for DB persistence (attached to value bets). */
-export interface OddsMovementSnapshot {
-  /** Provider that sourced this history. */
-  provider: string;
-  /** Opening odds (first seen). */
-  openingOdds: number | null;
-  /** Peak (highest) odds seen. */
-  peakOdds: number;
-  /** Trough (lowest) odds seen. */
-  troughOdds: number;
-  /** Total price ticks recorded. */
-  totalTicks: number;
-  /** Last N ticks for sparkline (compact: [timestamp, odds] tuples). */
-  sparkline: [number, number][];
-}
+/** @deprecated Use `OddsMovementData` from `@/lib/bets-history/types` directly. */
+export type OddsMovementSnapshot = OddsMovementData;
 
 // ============================================
 // Storage — singleton for HMR safety
@@ -221,7 +209,7 @@ export function buildMovementSnapshot(
   familyId: string,
   atomId: string,
   provider: string,
-): OddsMovementSnapshot | null {
+): OddsMovementData | null {
   const hist = store.get(makeKey(eventId, familyId, atomId, provider));
   if (!hist || hist.totalTicks === 0) return null;
 

@@ -119,11 +119,13 @@ export type ValueBetRow = {
   lastSettleAttemptAt: string | null;
 
   /** Odds movement snapshot from detection time (persisted JSONB).
+   *  New format: Record<string, OddsMovementData> mapping provider ID to movement.
+   *  Legacy format: OddsMovementData (single sharp snapshot).
    *  Typed shape when parsed, `unknown` when fresh from Drizzle. */
-  oddsMovement?: OddsMovementData | unknown | null;
+  oddsMovement?: Record<string, OddsMovementData> | OddsMovementData | null;
 };
 
-/** Parsed shape of the odds_movement JSONB blob. */
+/** Parsed shape of a single provider's odds movement JSONB blob. */
 export type OddsMovementData = {
   provider: string;
   openingOdds: number | null;

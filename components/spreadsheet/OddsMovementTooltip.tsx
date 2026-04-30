@@ -30,6 +30,13 @@ interface OddsMovementTooltipContentProps {
   label?: string;
   /** Current odds value (used to compute total change when changePct isn't pre-computed) */
   currentOdds?: number;
+  /** Fires when the user clicks "Click for full chart" — opens the detail modal. */
+  onClickFullChart?: () => void;
+  /** Sharp provider sparkline as a reference overlay (soft provider tooltips only). */
+  sharpRef?: {
+    sparkline: [number, number][];
+    label: string;
+  };
 }
 
 /**
@@ -47,6 +54,8 @@ export function OddsMovementTooltipContent({
   movement: m,
   label = "Price Movement",
   currentOdds,
+  onClickFullChart,
+  sharpRef,
 }: OddsMovementTooltipContentProps) {
   // We can't call Date.now() during render (impure), so we track a stable
   // "now" timestamp via ref/effect. The tooltip only shows while hovering,
@@ -118,6 +127,7 @@ export function OddsMovementTooltipContent({
           width={200}
           height={36}
           className="w-full"
+          referenceData={sharpRef?.sparkline}
         />
       </div>
 
@@ -137,6 +147,20 @@ export function OddsMovementTooltipContent({
             <span className="text-red-400">{m.troughOdds.toFixed(2)}</span>
           </span>
         </div>
+
+        {/* Sharp reference context line */}
+        {sharpRef && sharpRef.sparkline.length >= 2 && (() => {
+          const sFirst = sharpRef.sparkline[0][1];
+          const sLast = sharpRef.sparkline[sharpRef.sparkline.length - 1][1];
+          return (
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-muted-foreground">{sharpRef.label} ref</span>
+              <span className="font-mono tabular-nums text-muted-foreground/80">
+                {sFirst.toFixed(2)} → {sLast.toFixed(2)}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* Ticks + freshness (live) */}
         {(m.totalTicks > 0 || ageLabel) && (
@@ -166,9 +190,18 @@ export function OddsMovementTooltipContent({
           </div>
         )}
 
-        <div className="flex items-center justify-center pt-1 text-[10px] text-muted-foreground/70">
+        <button
+          type="button"
+          className="flex items-center justify-center pt-1 text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors w-full cursor-pointer"
+          onClick={(e) => {
+            if (onClickFullChart) {
+              e.stopPropagation();
+              onClickFullChart();
+            }
+          }}
+        >
           Click for full chart
-        </div>
+        </button>
       </div>
     </div>
   );

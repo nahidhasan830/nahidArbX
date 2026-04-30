@@ -13,6 +13,10 @@ interface SparklineProps {
   color?: string;
   /** Show a subtle gradient fill under the line. */
   fill?: boolean;
+  /** Optional reference line data (e.g. sharp provider baseline). Rendered as a faded dashed line. */
+  referenceData?: [number, number][];
+  /** Reference line color. Defaults to a faded slate. */
+  referenceColor?: string;
   /** Additional CSS classes. */
   className?: string;
 }
@@ -22,6 +26,7 @@ interface SparklineProps {
  *
  * Renders a compact price-movement chart suitable for embedding in table cells.
  * Uses `<polyline>` for the line and an optional `<linearGradient>` fill.
+ * Optionally overlays a reference line (e.g. sharp provider) as a faded dashed trace.
  * Wrapped in `React.memo` so virtualized tables only re-render on data change.
  */
 function SparklineInner({
@@ -30,13 +35,21 @@ function SparklineInner({
   height = 20,
   color,
   fill = true,
+  referenceData,
+  referenceColor = "rgba(148, 163, 184, 0.4)",
   className,
 }: SparklineProps) {
   if (data.length < 2) return null;
 
   const values = data.map((d) => d[1]);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const refValues = referenceData && referenceData.length >= 2
+    ? referenceData.map((d) => d[1])
+    : null;
+
+  // Compute global min/max across both series so they share the same Y-axis
+  const allValues = refValues ? [...values, ...refValues] : values;
+  const min = Math.min(...allValues);
+  const max = Math.max(...allValues);
   const range = max - min || 1; // Avoid division by zero for flat lines
 
   // Auto-color: green if trending up, red if down
@@ -60,6 +73,17 @@ function SparklineInner({
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(" ");
+
+  // Reference line points (mapped to same scale)
+  const refPoints = refValues
+    ? refValues
+        .map((v, i) => {
+          const x = padX + (i / (refValues.length - 1)) * plotW;
+          const y = padY + plotH - ((v - min) / range) * plotH;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ")
+    : null;
 
   // Closed polygon for gradient fill (line + bottom edge)
   const fillPoints = fill
@@ -91,6 +115,18 @@ function SparklineInner({
           points={fillPoints}
           fill={`url(#${gradientId})`}
           stroke="none"
+        />
+      )}
+      {/* Reference line — dashed, faded, drawn behind the main line */}
+      {refPoints && (
+        <polyline
+          points={refPoints}
+          fill="none"
+          stroke={referenceColor}
+          strokeWidth={1}
+          strokeDasharray="3 2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       )}
       <polyline

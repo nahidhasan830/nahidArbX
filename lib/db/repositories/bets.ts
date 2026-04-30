@@ -58,7 +58,7 @@ export const persistValueBets = async (
     commissionPct: number;
     softOdds: number;
     detectedAt: Date | string | number;
-    oddsMovement?: import("@/lib/atoms/odds-history").OddsMovementSnapshot;
+    oddsMovement?: Record<string, import("@/lib/bets-history/types").OddsMovementData>;
   }>,
 ): Promise<PersistResult> => {
   const result: PersistResult = {
@@ -124,7 +124,7 @@ export const persistValueBets = async (
       firstSeenAt: toIso(vb.detectedAt),
       lastSeenAt: toIso(vb.detectedAt),
       tickCount: 1,
-      oddsMovement: (vb.oddsMovement ?? null) as never,
+      oddsMovement: vb.oddsMovement ?? null,
       // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
     };
@@ -162,7 +162,7 @@ export const persistValueBets = async (
             // Update movement snapshot — preserve existing if new snapshot is null
             // (can happen when ring buffer hasn't accumulated data yet)
             oddsMovement: vb.oddsMovement
-              ? (vb.oddsMovement as never)
+              ? vb.oddsMovement
               : sql`${bets.oddsMovement}`,
           },
         })

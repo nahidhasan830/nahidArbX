@@ -32,11 +32,27 @@ import { cn } from "@/lib/utils";
 import { formatMarketType, formatAtomLabel } from "@/lib/formatting/labels";
 import { fmtDateTime, fmtSeen } from "@/lib/formatting/helpers";
 
-/** Runtime type guard for the odds_movement JSONB blob. */
-function isOddsMovement(v: unknown): v is OddsMovementData {
+/** Runtime type guard for a single provider's movement snapshot. */
+function isOddsMovementData(v: unknown): v is OddsMovementData {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
   return Array.isArray(o.sparkline) && typeof o.totalTicks === "number";
+}
+
+/** Extracts the sharp provider's movement from either the legacy or new JSON format. */
+function getSharpOddsMovement(v: unknown, sharpProvider: string): OddsMovementData | null {
+  if (isOddsMovementData(v)) return v; // Legacy single-object format
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  
+  const map = v as Record<string, unknown>;
+  if (map[sharpProvider] && isOddsMovementData(map[sharpProvider])) {
+    return map[sharpProvider] as OddsMovementData;
+  }
+  // Fallback to the first available movement if sharp provider isn't found
+  for (const val of Object.values(map)) {
+    if (isOddsMovementData(val)) return val;
+  }
+  return null;
 }
 
 type SortKey =
@@ -452,12 +468,12 @@ export function BetsHistoryTable({
         ),
         cell: ({ row }) => {
           const raw = row.original.oddsMovement;
-          if (!isOddsMovement(raw) || raw.sparkline.length < 2) {
+          const m = getSharpOddsMovement(raw, row.original.sharpProvider);
+          if (!m || m.sparkline.length < 2) {
             return (
               <span className="text-muted-foreground/40 text-[10px]">—</span>
             );
           }
-          const m = raw;
 
           const first = m.sparkline[0][1];
           const last = m.sparkline[m.sparkline.length - 1][1];
@@ -495,6 +511,7 @@ export function BetsHistoryTable({
                 <OddsMovementTooltipContent
                   movement={m}
                   currentOdds={last}
+                  onClickFullChart={() => openMovement(row.original)}
                 />
               </TooltipContent>
             </Tooltip>
@@ -773,7 +790,7 @@ export function BetsHistoryTable({
 
   // Derive modal labels from the selected row
   const movementData = movementRow
-    ? (isOddsMovement(movementRow.oddsMovement) ? movementRow.oddsMovement : null)
+    ? (movementRow.oddsMovement as Record<string, OddsMovementData> | OddsMovementData | null)
     : null;
   const movementEventLabel = movementRow
     ? `${movementRow.homeTeam} vs ${movementRow.awayTeam}`

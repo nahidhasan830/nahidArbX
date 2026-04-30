@@ -27,7 +27,11 @@ interface OddsCellProps {
   onClick?: () => void;
   providerLabel?: string;
   /** Fires when user clicks a cell with movement data — opens the full chart modal. */
-  onMovementClick?: (movement: NonNullable<AtomOddsData["movement"]>) => void;
+  onMovementClick?: () => void;
+  /** Fires from the tooltip’s “Click for full chart” link — opens movement modal for this specific provider. */
+  onOpenMovementModal?: () => void;
+  /** Sharp provider sparkline reference for overlay in the tooltip. */
+  sharpRef?: { sparkline: [number, number][]; label: string };
 }
 
 /** Threshold (%) below which we don't show direction arrow / flash. */
@@ -35,7 +39,7 @@ const DIRECTION_THRESHOLD = 0.5;
 /** Flash animation duration in ms. */
 const FLASH_DURATION_MS = 600;
 
-function OddsCellInner({ odds, onClick, providerLabel, onMovementClick }: OddsCellProps) {
+function OddsCellInner({ odds, onClick, providerLabel, onMovementClick, onOpenMovementModal, sharpRef }: OddsCellProps) {
   // Flash state: briefly highlight cell on significant price change
   const prevValueRef = useRef(odds?.value ?? 0);
   const [flashDir, setFlashDir] = useState<"up" | "down" | null>(null);
@@ -89,14 +93,14 @@ function OddsCellInner({ odds, onClick, providerLabel, onMovementClick }: OddsCe
 
   const cell = (
     <td
-      onClick={clickable ? onClick : onMovementClick && movement && movement.totalTicks >= 2 ? () => onMovementClick(movement) : undefined}
+      onClick={clickable ? onClick : onMovementClick ? () => onMovementClick() : undefined}
       className={`text-center px-2 font-mono text-[11px] tabular-nums relative transition-colors ${
         isSuspended
           ? "text-muted-foreground/60"
           : isBest
             ? "font-bold text-green-400 bg-green-900/10"
             : "text-foreground"
-      } ${clickable ? "cursor-pointer hover:bg-emerald-500/15 hover:ring-1 hover:ring-emerald-500/40" : onMovementClick && movement && movement.totalTicks >= 2 ? "cursor-pointer hover:bg-muted/60" : ""} ${flashClass}`}
+      } ${clickable ? "cursor-pointer hover:bg-emerald-500/15 hover:ring-1 hover:ring-emerald-500/40" : onMovementClick ? "cursor-pointer hover:bg-muted/60" : ""} ${flashClass}`}
     >
       <div className="flex items-center justify-center gap-0.5">
         {/* Direction arrow */}
@@ -167,6 +171,8 @@ function OddsCellInner({ odds, onClick, providerLabel, onMovementClick }: OddsCe
             movement={movement}
             label={providerLabel ?? "Provider"}
             currentOdds={odds.value}
+            onClickFullChart={onOpenMovementModal}
+            sharpRef={sharpRef}
           />
         </TooltipContent>
       </Tooltip>
