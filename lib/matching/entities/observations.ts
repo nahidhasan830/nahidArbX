@@ -136,6 +136,19 @@ export async function recordObservation(
       status: "candidate",
     });
 
+    // Detect entity binding conflict: existing row points to a different
+    // entity than what this observation paired with. This happens when the
+    // same surface was first seen in a different context (e.g. men's vs
+    // women's). Log and skip — don't pollute the wrong entity's counters.
+    if (candidate.entityId !== input.pairedWithEntityId) {
+      logger.info(
+        tag,
+        `Binding conflict: "${input.surface}" (${input.provider}) already bound to ` +
+          `${candidate.entityId}, observation paired with ${input.pairedWithEntityId} — skipping`,
+      );
+      return;
+    }
+
     const isPositive =
       input.outcome === "matched" || input.outcome === "manual-confirm";
     const isNegative =

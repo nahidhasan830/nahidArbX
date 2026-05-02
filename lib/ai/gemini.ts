@@ -11,6 +11,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { logger } from "../shared/logger";
 import { eventPromptLine } from "../formatting/event-label";
 import type { ModelTier } from "./models";
+import { recordAiActivity } from "../db/repositories/ai-activity-log";
 
 export type { ModelTier } from "./models";
 export type Verdict = "SAME" | "DIFFERENT" | "UNCERTAIN";
@@ -100,42 +101,79 @@ export async function analyzeMatchWithGemini(
   eventB: EventLike,
   options?: { model?: ModelTier | string },
 ): Promise<GeminiResult> {
+  const t0 = Date.now();
   const modelName = resolveModel(options?.model);
-  const prompt = `A: ${eventPromptLine(eventA)}\nB: ${eventPromptLine(eventB)}`;
+  const pairLabel = `${eventA.homeTeam} v ${eventA.awayTeam} vs ${eventB.homeTeam} v ${eventB.awayTeam}`;
 
-  const res = await getClient().models.generateContent({
-    model: modelName,
-    contents: prompt,
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      responseMimeType: "application/json",
-      responseJsonSchema: RESPONSE_SCHEMA,
-      temperature: 0.1,
-    },
-  });
-
-  const text = res.text;
-  if (!text) {
-    throw new Error("Gemini returned an empty response");
-  }
-
-  let parsed: { decision: string; confidence: number };
   try {
-    parsed = JSON.parse(text);
+    const prompt = `A: ${eventPromptLine(eventA)}\nB: ${eventPromptLine(eventB)}`;
+
+    const res = await getClient().models.generateContent({
+      model: modelName,
+      contents: prompt,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
+        responseJsonSchema: RESPONSE_SCHEMA,
+        temperature: 0.1,
+      },
+    });
+
+    const text = res.text;
+    if (!text) {
+      throw new Error("Gemini returned an empty response");
+    }
+
+    let parsed: { decision: string; confidence: number };
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      logger.error("Gemini", `Failed to parse JSON: ${text.slice(0, 200)}`);
+      throw new Error(`Gemini returned non-JSON: ${(err as Error).message}`);
+    }
+
+    const decision = ["SAME", "DIFFERENT", "UNCERTAIN"].includes(parsed.decision)
+      ? (parsed.decision as Verdict)
+      : "UNCERTAIN";
+
+    const result: GeminiResult = {
+      decision,
+      confidence: Math.max(0, Math.min(100, Math.round(parsed.confidence))),
+      model: modelName,
+    };
+
+    const durationMs = Date.now() - t0;
+    recordAiActivity({
+      system: "entity-match",
+      trigger: "manual",
+      status: "success",
+      model: modelName,
+      itemCount: 1,
+      durationMs,
+      costUsd: null,
+      summary: `Gemini verify: ${result.decision} ${result.confidence}% \u2014 ${pairLabel}`,
+      error: null,
+      metadata: { decision: result.decision, confidence: result.confidence },
+    }).catch(() => {});
+
+    return result;
   } catch (err) {
-    logger.error("Gemini", `Failed to parse JSON: ${text.slice(0, 200)}`);
-    throw new Error(`Gemini returned non-JSON: ${(err as Error).message}`);
+    const durationMs = Date.now() - t0;
+    recordAiActivity({
+      system: "entity-match",
+      trigger: "manual",
+      status: "error",
+      model: modelName,
+      itemCount: 1,
+      durationMs,
+      costUsd: null,
+      summary: `Gemini verify failed \u2014 ${pairLabel}`,
+      error: (err as Error).message,
+      metadata: null,
+    }).catch(() => {});
+
+    throw err;
   }
-
-  const decision = ["SAME", "DIFFERENT", "UNCERTAIN"].includes(parsed.decision)
-    ? (parsed.decision as Verdict)
-    : "UNCERTAIN";
-
-  return {
-    decision,
-    confidence: Math.max(0, Math.min(100, Math.round(parsed.confidence))),
-    model: modelName,
-  };
 }
 
 /**

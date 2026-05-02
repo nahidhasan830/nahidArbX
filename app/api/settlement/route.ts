@@ -1,3 +1,13 @@
+/**
+ * Settlement API — Hybrid route.
+ *
+ * GET  → scheduler status (proxied from engine) + recent runs (DB) +
+ *        queued count (DB) + activity log (from engine).
+ *
+ * POST → scheduler controls (proxied to engine).
+ *        Actions: run, start, stop, restart, pause, resume.
+ */
+
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
@@ -5,39 +15,11 @@ import {
   apiServerError,
   apiSuccess,
 } from "@/lib/shared/api-response";
-import {
-  getAutoSettleStatus,
-  pauseAutoSettleScheduler,
-  restartAutoSettleScheduler,
-  resumeAutoSettleScheduler,
-  startAutoSettleScheduler,
-  stopAutoSettleScheduler,
-  triggerAutoSettleNow,
-} from "@/lib/settle/scheduler";
 import { listRecentSettlementRuns } from "@/lib/db/repositories/settlement-runs";
-import { getActivityLog } from "@/lib/settle/activity-log";
 import { db } from "@/lib/db/client";
 import { bets } from "@/lib/db/schema";
 import { and, eq, sql as dsql } from "drizzle-orm";
-
-/**
- * GET  → current scheduler status + recent settlement_runs (query
- *        `?runs=50`) + in-memory activity log (query `?log=100`).
- *
- * POST → body { action, intervalMs? }.
- *        Actions:
- *          - run      — single tick synchronously, return result.
- *                       (default when body is missing)
- *          - start    — start the scheduler.
- *          - stop     — stop the scheduler (timer torn down).
- *          - restart  — stop + start, optionally with new `intervalMs`.
- *          - pause    — keep timer running, skip ticks.
- *          - resume   — un-pause.
- *
- * The `disable` / `enable` kill-switch actions were removed in 2026
- * along with all automatic Gemini AI usage. Settlement is now
- * deterministic Tier 0/1/2 only — no runaway-cost surface to gate.
- */
+import { engineGet, enginePost } from "@/lib/engine-proxy";
 
 const BodySchema = z
   .object({
@@ -54,29 +36,53 @@ export async function GET(request: NextRequest) {
   const logParam = url.searchParams.get("log");
   const runsLimit = Math.min(Math.max(Number(runsParam ?? 20), 0), 200);
   const logLimit = Math.min(Math.max(Number(logParam ?? 100), 0), 200);
-  const recentRuns =
-    runsLimit > 0 ? await listRecentSettlementRuns(runsLimit) : [];
-  const activity = logLimit > 0 ? getActivityLog(logLimit) : [];
 
-  // Count of bets the next tick will sweep — mirrors the "Ready to settle"
-  // tab filter (outcome='pending' AND kickoff < NOW - 2h15m). Cheap
-  // indexed count query, runs in a couple of ms.
-  const queuedRow = await db
-    .select({ n: dsql<number>`count(*)::int` })
-    .from(bets)
-    .where(
-      and(
-        eq(bets.outcome, "pending"),
-        dsql`${bets.eventStartTime} <= NOW() - INTERVAL '2 hours 15 minutes'`,
+  // DB queries (run in this process — DB is available)
+  const [recentRuns, queuedRow] = await Promise.all([
+    runsLimit > 0 ? listRecentSettlementRuns(runsLimit) : [],
+    db
+      .select({ n: dsql<number>`count(*)::int` })
+      .from(bets)
+      .where(
+        and(
+          eq(bets.outcome, "pending"),
+          dsql`${bets.eventStartTime} <= NOW() - INTERVAL '2 hours 15 minutes'`,
+        ),
       ),
-    );
+  ]);
   const queuedCount = queuedRow[0]?.n ?? 0;
 
+  // Engine scheduler status (proxied from engine process)
+  const engineStatus = await engineGet<Record<string, unknown>>(
+    `/engine/settlement?log=${logLimit}`,
+  );
+
+  if (engineStatus) {
+    return apiSuccess({
+      ...engineStatus,
+      queuedCount,
+      recentRuns,
+    });
+  }
+
+  // Engine unreachable — return what we can from DB
   return apiSuccess({
-    ...getAutoSettleStatus(),
+    active: false,
+    paused: false,
+    intervalMs: null,
+    tickInFlight: false,
+    lastStartedAt: null,
+    lastFinishedAt: null,
+    lastDurationMs: null,
+    lastResult: null,
+    lastError: null,
+    totalTicks: 0,
+    totalApplied: 0,
+    skippedTicks: 0,
     queuedCount,
     recentRuns,
-    activity,
+    activity: [],
+    _engineOffline: true,
   });
 }
 
@@ -92,33 +98,21 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return apiBadRequest(parsed.error.issues[0]?.message ?? "Invalid body");
   }
+
   const action = parsed.data?.action ?? "run";
   const intervalMs = parsed.data?.intervalMs;
 
   try {
-    switch (action) {
-      case "start":
-        startAutoSettleScheduler(intervalMs);
-        return apiSuccess(getAutoSettleStatus());
-      case "stop":
-        stopAutoSettleScheduler();
-        return apiSuccess(getAutoSettleStatus());
-      case "restart":
-        restartAutoSettleScheduler(intervalMs);
-        return apiSuccess(getAutoSettleStatus());
-      case "pause":
-        pauseAutoSettleScheduler();
-        return apiSuccess(getAutoSettleStatus());
-      case "resume":
-        resumeAutoSettleScheduler();
-        return apiSuccess(getAutoSettleStatus());
-      case "run":
-      default: {
-        const result = await triggerAutoSettleNow();
-        return apiSuccess({ result, status: getAutoSettleStatus() });
-      }
+    // Forward all actions to engine where the scheduler lives
+    const result = await enginePost("/engine/settlement", { action, intervalMs });
+    if (result === null) {
+      return apiServerError(
+        new Error("Engine unreachable — cannot control settlement scheduler"),
+        "Settlement:proxy",
+      );
     }
+    return apiSuccess(result);
   } catch (err) {
-    return apiServerError(err, "Backtest:autoSettle");
+    return apiServerError(err, "Settlement:autoSettle");
   }
 }

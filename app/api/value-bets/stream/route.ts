@@ -1,89 +1,57 @@
 /**
- * Dashboard SSE Streaming Endpoint
+ * Dashboard SSE Streaming Endpoint — Proxy to Engine
  *
- * Pushes real-time updates to connected browsers via Server-Sent Events.
- * Replaces polling — browsers only fetch data when something actually changes.
- *
- * Events emitted:
- * - connected: Initial handshake with server version
- * - sync:phase: Pipeline phase changes (fixtures, matching, markets, value detection)
- * - sync:complete: Odds sync finished (browser should refresh data)
- * - fixtures:complete: Fixture sync finished
- * - value:change: Value bets changed
- * - heartbeat: Keep-alive (every 30s)
+ * Proxies the SSE stream from the engine process (port 3001)
+ * where the syncBus event emitter lives.
  */
 
-import { syncBus, type BusEvent } from "@/lib/events/event-bus";
+import { engineSSEProxy } from "@/lib/engine-proxy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const encoder = new TextEncoder();
+  const stream = engineSSEProxy();
 
-  const stream = new ReadableStream({
-    start(controller) {
-      const connectionId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-      function send(event: string, data: unknown, id?: number) {
-        try {
-          let msg = "";
-          if (id !== undefined) msg += `id: ${id}\n`;
-          msg += `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-          controller.enqueue(encoder.encode(msg));
-        } catch {
-          // Controller closed
-        }
-      }
-
-      // Set retry interval for auto-reconnect (5 seconds)
-      controller.enqueue(encoder.encode("retry: 5000\n\n"));
-
-      // Send initial handshake
-      send(
-        "connected",
-        {
-          connectionId,
-          version: syncBus.version,
-          serverTime: Date.now(),
-        },
-        syncBus.version,
-      );
-
-      // Subscribe to the global event bus
-      const unsubscribe = syncBus.subscribeWithId(
-        connectionId,
-        (event: BusEvent) => {
-          if (event.type === "data:delta") {
-            // Send delta/full-refresh as a dedicated event type
-            send("data:delta", event.delta, syncBus.version);
-          } else {
-            send(event.type, event, syncBus.version);
+  if (!stream) {
+    // Engine unreachable — return a minimal SSE with error
+    const encoder = new TextEncoder();
+    const fallback = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `event: error\ndata: ${JSON.stringify({ error: "Engine unreachable" })}\n\n`,
+          ),
+        );
+        // Keep alive with periodic pings until client disconnects
+        const interval = setInterval(() => {
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `event: heartbeat\ndata: ${JSON.stringify({ time: Date.now(), version: 0, clients: 0, engineConnected: false })}\n\n`,
+              ),
+            );
+          } catch {
+            clearInterval(interval);
           }
-        },
-      );
+        }, 30_000);
 
-      // Heartbeat every 30s to keep connection alive
-      const heartbeat = setInterval(() => {
-        send("heartbeat", {
-          time: Date.now(),
-          version: syncBus.version,
-          clients: syncBus.clientCount,
+        request.signal.addEventListener("abort", () => {
+          clearInterval(interval);
+          try { controller.close(); } catch { /* already closed */ }
         });
-      }, 30_000);
+      },
+    });
 
-      // Cleanup on client disconnect
-      request.signal.addEventListener("abort", () => {
-        unsubscribe();
-        clearInterval(heartbeat);
-        try {
-          controller.close();
-        } catch {
-          // Already closed
-        }
-      });
-    },
-  });
+    return new Response(fallback, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
 
   return new Response(stream, {
     headers: {

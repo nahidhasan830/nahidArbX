@@ -2,6 +2,7 @@ import { logger } from "../shared/logger";
 import { getMatchedEvents } from "../store";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import { singleton } from "@/lib/util/singleton";
+import { syncBus } from "../events/event-bus";
 import { getAtomsAdapter } from "../adapters/unified-registry";
 import {
   queryGeniusSportsCatalog as queryVelkiCatalog,
@@ -69,11 +70,13 @@ interface SyncState {
   selectionTsList: number[];
   isRunning: boolean;
   lastLimitsOverlayTs: number;
+  resolvedSelections?: Record<string, string>;
 }
 
 export class GeniusSportsSyncService {
   private isRunning = false;
   private intervalId?: NodeJS.Timeout;
+  private busUnsubscribe?: () => void;
 
   // Track state per normalizedEventId
   private nwStates = new Map<string, SyncState>();
@@ -91,11 +94,19 @@ export class GeniusSportsSyncService {
     this.intervalId = setInterval(() => {
       this.syncTrackedEntities();
     }, 60 * 1000); // Re-evaluate active fixtures every minute
+
+    // React immediately when fixtures finish matching (eliminates 60s boot lag)
+    this.busUnsubscribe = syncBus.subscribe((event) => {
+      if (event.type === "fixtures:complete") {
+        this.syncTrackedEntities();
+      }
+    });
   }
 
   public stop() {
     this.isRunning = false;
     if (this.intervalId) clearInterval(this.intervalId);
+    if (this.busUnsubscribe) { this.busUnsubscribe(); this.busUnsubscribe = undefined; }
 
     for (const state of this.nwStates.values()) state.isRunning = false;
     for (const state of this.velkiStates.values()) state.isRunning = false;
@@ -228,6 +239,37 @@ export class GeniusSportsSyncService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         state.selectionTsList = allMarkets.map((m: any) => m.selectionTs ?? -1);
       }
+
+      // Pre-resolve aliases for the soft provider's own team names (if available) so that downstream 
+      // sync extraction can deterministically match them against Pinnacle's names.
+      if (!state.resolvedSelections && catalog.eventName) {
+        const { parseTeamsFromEventName } = await import("../shared/team-matching");
+        const { resolveTeamSurface, resolveCompetitionSurface } = await import("../matching/entities/resolver");
+        
+        const teams = parseTeamsFromEventName(catalog.eventName);
+        if (teams) {
+          const resolvedSelections: Record<string, string> = {};
+          
+          let competitionId: string | null = null;
+          try {
+            const compRes = await resolveCompetitionSurface({ provider: providerId, surface: entity.competition });
+            if (compRes) competitionId = compRes.entity.id;
+          } catch {}
+
+          try {
+            const homeRes = await resolveTeamSurface({ provider: providerId, surface: teams.home, competitionId });
+            if (homeRes) resolvedSelections[teams.home] = homeRes.entity.canonicalName;
+          } catch {}
+          
+          try {
+            const awayRes = await resolveTeamSurface({ provider: providerId, surface: teams.away, competitionId });
+            if (awayRes) resolvedSelections[teams.away] = awayRes.entity.canonicalName;
+          } catch {}
+          
+          state.resolvedSelections = resolvedSelections;
+        }
+      }
+
     } catch (err) {
       logger.error(
         "GeniusSync",
@@ -312,6 +354,7 @@ export class GeniusSportsSyncService {
                 homeTeam: entity.homeTeam,
                 awayTeam: entity.awayTeam,
                 options: {},
+                resolvedSelections: state.resolvedSelections,
               },
             );
           }

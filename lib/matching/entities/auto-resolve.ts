@@ -137,7 +137,14 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
   }
 
   // Stage 0 — deterministic gates
-  if (gendersDiffer(c.surfaceRaw, entity.canonicalName)) {
+  //
+  // Skip gender gate when the entity belongs to a women's competition.
+  // Providers like NineWickets omit (W) markers — "Manchester United"
+  // in the WSL context is women's, not men's.
+  const skipGenderGate = c.competitionId
+    ? await isWomensCompetitionById(c.competitionId)
+    : false;
+  if (!skipGenderGate && gendersDiffer(c.surfaceRaw, entity.canonicalName)) {
     return {
       decision: "auto-reject",
       stage: "gates",
@@ -264,7 +271,12 @@ function bayesianVerdict(c: EntityNameRow): AutoResolveResult | null {
   const firstSeen = new Date(c.firstSeenAt).getTime();
   const lastSeen = new Date(c.lastSeenAt).getTime();
   const hoursSpread = (lastSeen - firstSeen) / 3_600_000;
-  if (hoursSpread < BAYES_MIN_HOURS_BETWEEN_OBS) return null;
+  // High-trust bypass: operator-sourced observations carry weight ≥ 8
+  // (provider_weight × match-review multiplier of 4). A single human
+  // approval should promote without waiting for temporal spread — the
+  // 1h requirement is anti-spam, not anti-human.
+  const isHighTrust = c.weight >= 6;
+  if (hoursSpread < BAYES_MIN_HOURS_BETWEEN_OBS && !isHighTrust) return null;
 
   const evidence =
     Math.log(c.weight + 1) -
@@ -336,4 +348,35 @@ async function applyVerdict(
   } catch (err) {
     logger.warn(tag, `applyVerdict failed: ${(err as Error).message}`);
   }
+}
+
+// ─── Helpers ───────────────────────────────────────────────────────────
+
+const WOMEN_COMP_RE = [
+  /\bwsl\b/i,
+  /\bwomen/i,
+  /\bfeminin/i,
+  /\bfrauen/i,
+  /\bdames\b/i,
+  /\bvrouwen\b/i,
+  /\bfemenin/i,
+  /\(w\)/i,
+  /\bladies\b/i,
+  /\bnwsl\b/i,
+  /\bliga\s*f\b/i,
+  /\bshe\s*believes/i,
+  /\bw[\s-]?league/i,
+];
+
+/**
+ * Check if a competition entity represents a women's league. Uses the
+ * entity's canonical name against a set of known patterns. This is
+ * cheap (single PK lookup + in-memory regex) and can't fail silently
+ * — unknown competitions return false, which preserves the gender
+ * gate's default behaviour.
+ */
+async function isWomensCompetitionById(compId: string): Promise<boolean> {
+  const ent = await getEntityById(compId);
+  if (!ent) return false;
+  return WOMEN_COMP_RE.some((re) => re.test(ent.canonicalName));
 }

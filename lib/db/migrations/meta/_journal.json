@@ -29,6 +29,20 @@
       "when": 1777481506452,
       "tag": "0003_drop_market_diagnostics",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777586888000,
+      "tag": "0040_ml_pipeline",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777714247395,
+      "tag": "0005_ai_search_logs",
+      "breakpoints": true
     }
   ]
 }

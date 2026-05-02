@@ -87,6 +87,20 @@ Key: `"eventId|familyId|atomId|provider"` → `RingBuffer<{ timestamp, odds }>` 
 
 **File:** [odds-history.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/odds-history.ts)
 
+### Odds Movement Visualization
+
+Progressive disclosure: hover tooltip → full chart modal.
+
+**Tooltip** (`OddsMovementTooltipContent`): Inline sparkline (SVG, 200×36px) with Open→Last, Peak/Trough, steam alerts, "Click for full chart" button. Soft provider tooltips overlay the **sharp provider's sparkline as a dashed reference line** for instant divergence visibility — the divergence IS the edge.
+
+**Full Chart Modal** (`MovementDetailModal`, 680px): Interactive multi-provider chart via `lightweight-charts`. Clickable legend toggles per-provider visibility. Footer stats table shows per-provider Opening/Latest/Change%/Peak/Trough.
+
+**Data flow:** `odds-history.ts` ring buffer → `AtomOddsData.movement` (per-provider) → `SpreadsheetRow.odds[provider].movement` → `OddsCell` → `Sparkline` + `OddsMovementTooltipContent`. Sharp ref computed once per row in `SpreadsheetRow`, passed only to non-sharp cells.
+
+**Persistence:** Multi-provider movement snapshots stored as JSONB in `bets.odds_movement` keyed by provider ID. Legacy single-provider format auto-normalized on read.
+
+**Files:** [sparkline.tsx](file:///Users/nahidhasan/nahidArbX/components/ui/sparkline.tsx), [OddsMovementTooltip.tsx](file:///Users/nahidhasan/nahidArbX/components/spreadsheet/OddsMovementTooltip.tsx), [OddsCell.tsx](file:///Users/nahidhasan/nahidArbX/components/spreadsheet/OddsCell.tsx), [MovementDetailModal.tsx](file:///Users/nahidhasan/nahidArbX/components/bets-history/MovementDetailModal.tsx)
+
 ---
 
 ## 5. Reactive Detector

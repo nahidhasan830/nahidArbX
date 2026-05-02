@@ -1,13 +1,3 @@
-/**
- * Shared Team Matching Utilities
- *
- * Centralized logic for matching selection names to team names.
- * Used by NineWickets adapters to correctly identify home/away outcomes.
- *
- * Key principle: Compare BOTH teams and pick the better match to avoid
- * false positives (e.g., "Asociacion Deportiva" matching "Deportivo Saprissa").
- */
-
 import { bestSim } from "@/lib/matching/string-sim";
 
 // Drop-in shim so the legacy `stringSimilarity.compareTwoStrings(...)`

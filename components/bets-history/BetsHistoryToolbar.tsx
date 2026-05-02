@@ -54,7 +54,6 @@ import { OddsRangeDropdown } from "@/components/filters/OddsRangeDropdown";
 import { MarketsFilter } from "@/components/filters/MarketsFilter";
 import { ProvidersFilter } from "@/components/filters/ProvidersFilter";
 import { EvRangeFilter } from "@/components/filters/EvRangeFilter";
-import { StrategyPickerPill } from "@/components/optimizer/StrategyPickerPill";
 
 // ============================================
 // Option data
@@ -679,15 +678,6 @@ type Props = {
   onClearSavedDefaults: () => void;
   isAtDefaults: boolean;
   hasSavedDefaults: boolean;
-
-  /**
-   * Strategies whose filter values populate the toolbar as a template.
-   * Empty = no template applied. The picker drops its "applied" badge once
-   * `strategyTemplateModified` is true (toolbar diverged from template).
-   */
-  appliedStrategyIds: string[];
-  onAppliedStrategiesChange: (ids: string[]) => void;
-  strategyTemplateModified: boolean;
 };
 
 // ============================================
@@ -711,9 +701,6 @@ export function BetsHistoryToolbar({
   onRefresh,
   onClearSelection,
   onSelectAllLoaded,
-  appliedStrategyIds,
-  onAppliedStrategiesChange,
-  strategyTemplateModified,
   onBulkSettle,
   settleRunning,
   resettleEligibleCount,
@@ -1190,14 +1177,6 @@ export function BetsHistoryToolbar({
           ================================ */}
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/50">
         <div className="flex-1 flex items-center gap-1.5 overflow-x-auto min-w-0">
-          {/* Strategy template — populates toolbar from a saved /lab/optimisation strategy */}
-          <StrategyPickerPill
-            appliedStrategyIds={appliedStrategyIds}
-            onApply={onAppliedStrategiesChange}
-            isModified={strategyTemplateModified}
-          />
-          <Separator />
-
           {/* Markets */}
           <MarketsFilter
             selected={filters.marketTypes ?? []}

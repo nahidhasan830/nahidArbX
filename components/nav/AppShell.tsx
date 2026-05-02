@@ -22,11 +22,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Brain,
-  FlaskConical,
+
   History,
   LayoutDashboard,
   LineChart,
   MessageCircleMore,
+  ScrollText,
   Settings,
   TrendingUp,
   KeySquare,
@@ -106,9 +107,29 @@ const NAV_SECTIONS: NavSection[] = [
         feature: "matcher-lab",
       },
       {
-        href: "/lab/optimisation",
-        label: "Optimisation",
-        icon: FlaskConical,
+        href: "/lab/ml",
+        label: "Bet Optimizer",
+        icon: Sparkles,
+      },
+      {
+        href: "/ai-search",
+        label: "AI Search",
+        icon: Search,
+      },
+    ],
+  },
+  {
+    label: "Logs",
+    items: [
+      {
+        href: "/logs/auto-placer",
+        label: "Auto Placer",
+        icon: ScrollText,
+      },
+      {
+        href: "/logs/ai-activity",
+        label: "AI Activity",
+        icon: Sparkles,
       },
     ],
   },
@@ -248,9 +269,9 @@ export function AppShell({
                           className={cn(
                             "relative transition-colors",
                             active &&
-                              "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-3/5 before:rounded-r-[3px] before:bg-gradient-to-b before:from-cyan-400 before:to-blue-500 before:shadow-[0_0_8px_rgba(34,211,238,0.5),0_0_16px_rgba(34,211,238,0.2)]",
+                            "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-3/5 before:rounded-r-[3px] before:bg-gradient-to-b before:from-cyan-400 before:to-blue-500 before:shadow-[0_0_8px_rgba(34,211,238,0.5),0_0_16px_rgba(34,211,238,0.2)]",
                             !active &&
-                              "hover:before:absolute hover:before:left-0 hover:before:top-1/2 hover:before:-translate-y-1/2 hover:before:w-[3px] hover:before:h-3/5 hover:before:rounded-r-[3px] hover:before:bg-cyan-400/40",
+                            "hover:before:absolute hover:before:left-0 hover:before:top-1/2 hover:before:-translate-y-1/2 hover:before:w-[3px] hover:before:h-3/5 hover:before:rounded-r-[3px] hover:before:bg-cyan-400/40",
                           )}
                         >
                           <Link href={item.href}>

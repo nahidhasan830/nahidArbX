@@ -29,6 +29,7 @@ import { getMatchedEvents } from "../store";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import { getAtomsAdapter } from "../adapters/unified-registry";
 import { singleton } from "@/lib/util/singleton";
+import { syncBus } from "../events/event-bus";
 import {
   subscribeToGame,
   unsubscribeFromGame,
@@ -39,6 +40,7 @@ import {
 export class BetConstructSyncService {
   private isRunning = false;
   private intervalId?: NodeJS.Timeout;
+  private busUnsubscribe?: () => void;
 
   /**
    * Maps normalizedEventId → { gameId, providerEventId } for lifecycle tracking.
@@ -62,11 +64,19 @@ export class BetConstructSyncService {
     this.intervalId = setInterval(() => {
       this.syncTrackedEntities();
     }, 60 * 1000); // Re-evaluate active fixtures every minute
+
+    // React immediately when fixtures finish matching (eliminates 60s boot lag)
+    this.busUnsubscribe = syncBus.subscribe((event) => {
+      if (event.type === "fixtures:complete") {
+        this.syncTrackedEntities();
+      }
+    });
   }
 
   public stop() {
     this.isRunning = false;
     if (this.intervalId) clearInterval(this.intervalId);
+    if (this.busUnsubscribe) { this.busUnsubscribe(); this.busUnsubscribe = undefined; }
 
     // Unsubscribe all
     for (const [, { gameId }] of this.trackedEvents) {

@@ -31,7 +31,7 @@ const DEFAULTS: BettingSettingsRow = {
   stakeBucketBdt: 100,
   minEvPct: 2,
 
-  activeStrategyIds: [],
+  mlMinScore: 0.4,
   updatedAt: new Date().toISOString(),
 };
 

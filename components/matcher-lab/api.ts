@@ -73,6 +73,9 @@ export async function runMlNow(): Promise<MlBatchResult> {
 export async function updateScheduler(opts: {
   enabled?: boolean;
   intervalMs?: number;
+  aiSearchEnabled?: boolean;
+  aiSearchConfidenceThreshold?: number;
+  aiSearchMaxBatchSize?: number;
 }): Promise<{ success: boolean }> {
   const res = await fetch("/api/matcher-lab", {
     method: "POST",
@@ -126,16 +129,44 @@ export async function runMlStream(
 
 export async function verifyAiMatch(
   id: string,
-  model?: "lite" | "flash" | "pro",
-): Promise<{ decision: string; confidence: number; model: string }> {
+  opts?: { engine?: "gemini" | "ai-search"; model?: "lite" | "flash" | "pro" },
+): Promise<{
+  decision: string;
+  confidence: number;
+  model: string;
+  engine: string;
+  reasoning?: string;
+  sources?: { url: string; title: string; snippet: string }[];
+  searchQueriesUsed?: string[];
+}> {
   const res = await fetch("/api/matcher-lab/verify-ai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, model }),
+    body: JSON.stringify({ id, model: opts?.model, engine: opts?.engine }),
   });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error || "Failed to verify match");
   }
   return data.result;
+}
+
+export async function checkAiSearchHealth(): Promise<{
+  ok: boolean;
+  model?: string;
+} | null> {
+  try {
+    const res = await fetch("/api/ai-search/healthz", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return { ok: false };
+    const data = await res.json();
+    return {
+      ok: data.status === "ok",
+      model: data.llm_engine?.model,
+    };
+  } catch {
+    return null;
+  }
 }

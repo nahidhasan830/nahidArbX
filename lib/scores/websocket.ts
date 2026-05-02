@@ -285,10 +285,18 @@ function connect(): void {
   if (s.socket) {
     try {
       s.socket.removeAllListeners();
+      // Re-attach a no-op error handler — removeAllListeners() strips it,
+      // and if the socket emits 'error' during close() Node.js crashes
+      // with an unhandled error event.
+      s.socket.on("error", () => {});
     } catch {
       // already detached — ignore
     }
-    s.socket.close();
+    try {
+      s.socket.close();
+    } catch {
+      // close can throw if socket is in a bad state
+    }
     s.socket = null;
   }
 

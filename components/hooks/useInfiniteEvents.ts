@@ -119,9 +119,12 @@ async function fetchEvents(
     params.set("search", search);
   }
 
-  // Value filters (only sent when showOnlyValue is true)
-  if (valueFilters?.showOnlyValue) {
-    params.set("showOnlyValue", "true");
+  // Value filters — always sent so the server computes an accurate filtered
+  // value bet count for the badge. showOnlyValue controls event-level filtering.
+  if (valueFilters) {
+    if (valueFilters.showOnlyValue) {
+      params.set("showOnlyValue", "true");
+    }
     if (valueFilters.evRangeMin !== undefined) {
       params.set("evMin", String(valueFilters.evRangeMin));
     }

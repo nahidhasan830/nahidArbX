@@ -21,6 +21,7 @@ import {
   type CircuitBreakerStats,
 } from "./circuit-breaker";
 import { logger } from "./logger";
+import { singleton } from "@/lib/util/singleton";
 
 // ============================================
 // Types
@@ -48,24 +49,23 @@ type HealthProvider = () => ComponentHealth;
 type HealingAction = () => Promise<boolean>;
 
 // ============================================
-// Health Manager State
+// Health Manager State — singleton for HMR safety
 // ============================================
 
-const startTime = Date.now();
-const healthProviders = new Map<string, HealthProvider>();
-const healingActions = new Map<string, HealingAction>();
-const componentFailures = new Map<string, number>();
+const hmState = singleton("health-manager:state", () => ({
+  startTime: Date.now(),
+  healthProviders: new Map<string, HealthProvider>(),
+  healingActions: new Map<string, HealingAction>(),
+  componentFailures: new Map<string, number>(),
+  onFatalCallback: null as (() => void) | null,
+  healthCheckInterval: null as NodeJS.Timeout | null,
+}));
 
 // Thresholds for healing actions
 const DEGRADED_THRESHOLD = 3; // Failures before marking as degraded
 const UNHEALTHY_THRESHOLD = 5; // Failures before marking as unhealthy
 const FATAL_THRESHOLD = 10; // Failures before triggering process restart
 
-// Fatal failure callback (set by background fetcher)
-let onFatalCallback: (() => void) | null = null;
-
-// Health check interval
-let healthCheckInterval: NodeJS.Timeout | null = null;
 const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
 
 // ============================================
@@ -79,8 +79,8 @@ export function registerHealthProvider(
   componentId: string,
   provider: HealthProvider,
 ): void {
-  healthProviders.set(componentId, provider);
-  componentFailures.set(componentId, 0);
+  hmState.healthProviders.set(componentId, provider);
+  hmState.componentFailures.set(componentId, 0);
 }
 
 /**
@@ -90,14 +90,14 @@ export function registerHealingAction(
   componentId: string,
   action: HealingAction,
 ): void {
-  healingActions.set(componentId, action);
+  hmState.healingActions.set(componentId, action);
 }
 
 /**
  * Set callback for fatal failures (process restart)
  */
 export function onFatalFailure(callback: () => void): void {
-  onFatalCallback = callback;
+  hmState.onFatalCallback = callback;
 }
 
 // ============================================
@@ -108,7 +108,7 @@ export function onFatalFailure(callback: () => void): void {
  * Get health status for a specific component
  */
 export function getComponentHealth(componentId: string): ComponentHealth {
-  const provider = healthProviders.get(componentId);
+  const provider = hmState.healthProviders.get(componentId);
   if (!provider) {
     return {
       status: "unknown",
@@ -124,7 +124,7 @@ export function getComponentHealth(componentId: string): ComponentHealth {
     return {
       status: "unhealthy",
       lastCheck: Date.now(),
-      consecutiveFailures: componentFailures.get(componentId) || 0,
+      consecutiveFailures: hmState.componentFailures.get(componentId) || 0,
       details: {
         error: error instanceof Error ? error.message : "Unknown error",
       },
@@ -157,7 +157,7 @@ export function getSystemHealth(): SystemHealth {
     "ninewickets-sportsbook",
   ];
 
-  for (const [id] of healthProviders) {
+  for (const [id] of hmState.healthProviders) {
     const health = getComponentHealth(id);
     components[id] = health;
 
@@ -192,7 +192,7 @@ export function getSystemHealth(): SystemHealth {
 
   return {
     status,
-    uptime: Date.now() - startTime,
+    uptime: Date.now() - hmState.startTime,
     components,
     circuitBreakers: getAllCircuitBreakerStats(),
     lastHealthCheck: Date.now(),
@@ -203,9 +203,9 @@ export function getSystemHealth(): SystemHealth {
  * Record a failure for a component
  */
 export function recordFailure(componentId: string): number {
-  const current = componentFailures.get(componentId) || 0;
+  const current = hmState.componentFailures.get(componentId) || 0;
   const newCount = current + 1;
-  componentFailures.set(componentId, newCount);
+  hmState.componentFailures.set(componentId, newCount);
 
   // Check if we need to trigger healing
   if (newCount >= UNHEALTHY_THRESHOLD) {
@@ -219,14 +219,14 @@ export function recordFailure(componentId: string): number {
  * Record a success for a component (resets failure count)
  */
 export function recordSuccess(componentId: string): void {
-  componentFailures.set(componentId, 0);
+  hmState.componentFailures.set(componentId, 0);
 }
 
 /**
  * Get failure count for a component
  */
 export function getFailureCount(componentId: string): number {
-  return componentFailures.get(componentId) || 0;
+  return hmState.componentFailures.get(componentId) || 0;
 }
 
 // ============================================
@@ -251,20 +251,20 @@ async function triggerHealing(
       "HealthManager",
       `FATAL: ${componentId} exceeded ${FATAL_THRESHOLD} failures - triggering restart`,
     );
-    if (onFatalCallback) {
-      onFatalCallback();
+    if (hmState.onFatalCallback) {
+      hmState.onFatalCallback();
     }
     return;
   }
 
   // Try component-specific healing
-  const healAction = healingActions.get(componentId);
+  const healAction = hmState.healingActions.get(componentId);
   if (healAction) {
     try {
       const success = await healAction();
       if (success) {
         logger.info("HealthManager", `Healing successful for ${componentId}`);
-        componentFailures.set(componentId, 0);
+        hmState.componentFailures.set(componentId, 0);
       } else {
         logger.warn("HealthManager", `Healing failed for ${componentId}`);
       }
@@ -278,7 +278,7 @@ async function triggerHealing(
  * Manually trigger healing for a component
  */
 export async function healComponent(componentId: string): Promise<boolean> {
-  const healAction = healingActions.get(componentId);
+  const healAction = hmState.healingActions.get(componentId);
   if (!healAction) {
     logger.warn(
       "HealthManager",
@@ -290,7 +290,7 @@ export async function healComponent(componentId: string): Promise<boolean> {
   try {
     const success = await healAction();
     if (success) {
-      componentFailures.set(componentId, 0);
+      hmState.componentFailures.set(componentId, 0);
     }
     return success;
   } catch (error) {
@@ -309,7 +309,7 @@ export async function healComponent(componentId: string): Promise<boolean> {
 export async function healAll(): Promise<Record<string, boolean>> {
   const results: Record<string, boolean> = {};
 
-  for (const [id] of healingActions) {
+  for (const [id] of hmState.healingActions) {
     const health = getComponentHealth(id);
     if (health.status === "unhealthy" || health.status === "degraded") {
       results[id] = await healComponent(id);
@@ -327,10 +327,10 @@ export async function healAll(): Promise<Record<string, boolean>> {
  * Start background health monitoring
  */
 export function startHealthMonitoring(): void {
-  if (healthCheckInterval) return;
+  if (hmState.healthCheckInterval) return;
 
   // Register memory health provider on first start
-  if (!healthProviders.has("memory")) {
+  if (!hmState.healthProviders.has("memory")) {
     registerMemoryHealthProvider();
   }
 
@@ -338,7 +338,7 @@ export function startHealthMonitoring(): void {
 
   let lastLoggedStatus: string | null = null;
 
-  healthCheckInterval = setInterval(() => {
+  hmState.healthCheckInterval = setInterval(() => {
     const health = getSystemHealth();
 
     // Only log when status changes (avoid spam)
@@ -387,9 +387,9 @@ export function startHealthMonitoring(): void {
  * Stop background health monitoring
  */
 export function stopHealthMonitoring(): void {
-  if (healthCheckInterval) {
-    clearInterval(healthCheckInterval);
-    healthCheckInterval = null;
+  if (hmState.healthCheckInterval) {
+    clearInterval(hmState.healthCheckInterval);
+    hmState.healthCheckInterval = null;
     logger.info("HealthManager", "Stopped background health monitoring");
   }
 }
@@ -475,7 +475,7 @@ export function failureCountToStatus(count: number): ComponentStatus {
  * Get uptime in human-readable format
  */
 export function getUptimeString(): string {
-  const uptime = Date.now() - startTime;
+  const uptime = Date.now() - hmState.startTime;
   const hours = Math.floor(uptime / 3600000);
   const minutes = Math.floor((uptime % 3600000) / 60000);
   const seconds = Math.floor((uptime % 60000) / 1000);

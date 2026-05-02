@@ -7,7 +7,6 @@ import {
   getBettingSettings,
   updateBettingSettings,
 } from "@/lib/db/repositories/betting-settings";
-import { invalidateActiveStrategiesCache } from "@/lib/optimizer/active-strategies";
 import { registerCommand } from "../registry";
 import { b, code, esc, header, kvList, money, pct } from "../format";
 
@@ -120,9 +119,6 @@ registerCommand({
     }
     try {
       await updateBettingSettings(patch);
-      // Mirror the API route's behaviour: re-evaluate active strategies
-      // cache when settings might affect strategy gating.
-      invalidateActiveStrategiesCache();
       const summary = Object.entries(patch)
         .map(([k, v]) => `${k}=${v === null ? "off" : v}`)
         .join(", ");

@@ -1,0 +1,24 @@
+[project]
+name = "ai-search"
+version = "0.1.0"
+description = "Search-grounded AI inference module. Combines multiple web search APIs with Gemma 4 (local via Ollama) for entity resolution, settlement verification, and ad-hoc queries."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.9",
+  "httpx>=0.28",
+  "tavily-python>=0.5",
+  "duckduckgo-search>=7",
+  "openai>=1.50",
+  "cachetools>=5.5",
+  "tenacity>=9.0",
+  "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

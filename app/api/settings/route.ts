@@ -8,7 +8,6 @@ import {
   getBettingSettings,
   updateBettingSettings,
 } from "@/lib/db/repositories/betting-settings";
-import { invalidateActiveStrategiesCache } from "@/lib/optimizer/active-strategies";
 import { logger } from "@/lib/shared/logger";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +26,6 @@ const PatchSchema = z
     minStakeBdt: nonNegativeNumber,
     stakeBucketBdt: positiveNumber,
     minEvPct: nonNegativeNumber,
-
-    activeStrategyIds: z.array(z.string()),
   })
   .partial();
 
@@ -81,11 +78,6 @@ export async function PUT(request: Request) {
   }
 
   const updated = await updateBettingSettings(parsed.data);
-  // Invalidate the auto-placer's active-strategies cache so a fresh pick
-  // takes effect on the next detection tick (rather than waiting up to 60s).
-  if ("activeStrategyIds" in parsed.data) {
-    invalidateActiveStrategiesCache();
-  }
   logger.info(
     "BettingSettings",
     `updated fields: ${Object.keys(parsed.data).join(", ")}`,

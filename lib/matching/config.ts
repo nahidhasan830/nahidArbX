@@ -27,6 +27,16 @@ export interface MatchingConfig {
     /** Max Dice distance — reject if names are TOO different (0-1, default 0.5) */
     maxDiceDistance: number;
   };
+
+  /** Escalate uncertain ML pairs to local AI Search (Groq + web grounding)
+   *  before routing to human_review. Tier 2.5 in the matching pipeline. */
+  aiSearchEscalation: {
+    enabled: boolean;
+    /** Minimum AI Search confidence to auto-decide (0-100, default 70) */
+    confidenceThreshold: number;
+    /** Max pairs per AI Search batch request (hard max 20) */
+    maxBatchSize: number;
+  };
 }
 
 // ============================================
@@ -37,6 +47,7 @@ export type MatchSource =
   | "tier1-auto" // Tier 1 auto-match (score >= threshold)
   | "tier1-alias" // Tier 1 match that benefited from a learned alias
   | "ai-confirmed" // Gemini confirmed a near-match
+  | "ai-search-confirmed" // AI Search (Groq + web) confirmed a near-match
   | "manual"; // Human manually approved
 
 // ============================================
@@ -60,6 +71,12 @@ const DEFAULT_CONFIG: MatchingConfig = {
     enabled: true,
     minOccurrences: 3,
     maxDiceDistance: 0.5,
+  },
+
+  aiSearchEscalation: {
+    enabled: true,
+    confidenceThreshold: 70,
+    maxBatchSize: 20,
   },
 };
 
@@ -87,6 +104,10 @@ export function updateMatchingConfig(
     aliasHarvesting: {
       ...currentConfig.aliasHarvesting,
       ...partial.aliasHarvesting,
+    },
+    aiSearchEscalation: {
+      ...currentConfig.aiSearchEscalation,
+      ...partial.aiSearchEscalation,
     },
   };
   return currentConfig;

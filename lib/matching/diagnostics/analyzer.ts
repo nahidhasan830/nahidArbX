@@ -8,8 +8,17 @@
 import { cachedCompareTwoStrings as compareTwoStrings } from "../similarity-cache";
 import type { NormalizedEvent } from "../../types";
 import type { ProviderKey } from "../../providers/registry";
-import type { MatchScoreBreakdown, NearMatch, FailureReason } from "./types";
-import { NEAR_MATCH_MIN_SCORE, NEAR_MATCH_MAX_SCORE } from "./types";
+import type {
+  MatchScoreBreakdown,
+  NearMatch,
+  FailureReason,
+} from "./types";
+import {
+  NEAR_MATCH_MIN_SCORE,
+  NEAR_MATCH_MAX_SCORE,
+  NEAR_MATCH_MIN_TEAM_SCORE,
+  NEAR_MATCH_MIN_BEST_SINGLE_TEAM,
+} from "./types";
 import { MATCH_THRESHOLD } from "../../shared/constants";
 import {
   applyTeamAlias,
@@ -181,6 +190,23 @@ export async function detectAndStoreNearMatch(
     breakdown.finalScore < NEAR_MATCH_MIN_SCORE ||
     breakdown.finalScore > NEAR_MATCH_MAX_SCORE
   ) {
+    return null;
+  }
+
+  // Team-score floor: reject pairs where the combined score is boosted
+  // mainly by competition similarity (same league, same kickoff minute).
+  // Team names are the only reliable signal when start times overlap.
+  if (breakdown.teamScore < NEAR_MATCH_MIN_TEAM_SCORE) {
+    return null;
+  }
+
+  // Best single-team gate: at least one team pair in the best orientation
+  // must have meaningful similarity — catches "FC X" vs "FC Y" noise.
+  const bestSingleTeam =
+    breakdown.bestOrientation === "normal"
+      ? Math.max(breakdown.homeHomeSimilarity, breakdown.awayAwaySimilarity)
+      : Math.max(breakdown.homeAwaySimilarity, breakdown.awayHomeSimilarity);
+  if (bestSingleTeam < NEAR_MATCH_MIN_BEST_SINGLE_TEAM) {
     return null;
   }
 

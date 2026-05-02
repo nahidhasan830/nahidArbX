@@ -66,3 +66,4 @@ services/optimizer/.venv/
 .pytest_cache/
 .coverage
 htmlcov/
+.quota_state.json

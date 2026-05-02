@@ -35,6 +35,7 @@ import { getMarketLimits as getCachedMarketLimits } from "@/lib/atoms/market-lim
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { computeStake, deriveEdge } from "./sizing";
 import { MIN_EV_PCT } from "@/lib/shared/constants";
+import { recordDecision } from "@/lib/db/repositories/auto-placer-log";
 import {
   newPlacementId,
   registerPendingConfirmation as nwRegisterPendingConfirmation,
@@ -81,16 +82,24 @@ export type PlacementOutcome =
   | {
       status: "skipped";
       reason: string;
+      /** Internal: computed stake for logging (not part of public contract). */
+      _logStake?: number;
+      /** Internal: provider balance at decision time for logging. */
+      _logBalance?: number;
     }
   | {
       /** Book rejected on a business rule. Not persisted to DB. */
       status: "rejected";
       reason: string;
+      _logStake?: number;
+      _logBalance?: number;
     }
   | {
       /** Transport / auth / parse failure. Not persisted to DB. */
       status: "error";
       reason: string;
+      _logStake?: number;
+      _logBalance?: number;
     };
 
 export interface PlaceForValueBetArgs {
@@ -136,16 +145,106 @@ export function placeBetForValueBet(
     // original — it's important that *this* caller not report a
     // successful placement (the notify for the real placement fires
     // once, from whichever caller owns the original promise).
-    return Promise.resolve({
+    const result: PlacementOutcome = {
       status: "skipped",
       reason: "Placement already in flight for this selection",
-    });
+    };
+    if (args.mode === "auto") {
+      logAutoPlacerOutcome(args, result, "inflight");
+    }
+    return Promise.resolve(result);
   }
-  const promise = placeBetForValueBetImpl(args).finally(() => {
-    inflightPlacements.delete(key);
-  });
+  const promise = placeBetForValueBetImpl(args)
+    .then((outcome) => {
+      // Log for auto-mode placements. Manual placements don't go to the log.
+      if (args.mode === "auto") {
+        logAutoPlacerOutcome(args, outcome);
+      }
+      return outcome;
+    })
+    .finally(() => {
+      inflightPlacements.delete(key);
+    });
   inflightPlacements.set(key, promise);
   return promise;
+}
+
+/**
+ * Map PlacementOutcome to an auto_placer_log row (fire-and-forget).
+ * The gate is inferred from the outcome's reason string when not
+ * explicitly provided.
+ */
+function logAutoPlacerOutcome(
+  args: PlaceForValueBetArgs,
+  outcome: PlacementOutcome,
+  gateOverride?: string,
+): void {
+  const vb = args.valueBet;
+  const betId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
+  const gate = gateOverride ?? inferGate(outcome);
+
+  // Compute EV% from the value bet's own fields — the reactor already
+  // calculated this, but the bets row stores the raw inputs, not evPct
+  // directly. Use computeEvPctSafe which handles commission.
+  const evPct = computeEvPctSafe(vb, Number(vb.softOdds));
+
+  // Stake/balance from outcome metadata (set by placeBetForValueBetImpl
+  // for gates that fire after sizing/balance checks).
+  const logStake =
+    "stake" in outcome
+      ? outcome.stake
+      : "_logStake" in outcome
+        ? (outcome._logStake ?? null)
+        : null;
+  const logBalance =
+    "_logBalance" in outcome ? (outcome._logBalance ?? null) : null;
+
+  recordDecision({
+    betId,
+    gate,
+    status: outcome.status,
+    reason: "reason" in outcome ? outcome.reason : null,
+    softProvider: vb.softProvider,
+    homeTeam: vb.homeTeam ?? null,
+    awayTeam: vb.awayTeam ?? null,
+    competition: vb.competition ?? null,
+    eventStartTime: vb.eventStartTime ?? null,
+    marketType: vb.marketType ?? null,
+    atomLabel: vb.atomLabel ?? null,
+    softOdds: Number(vb.softOdds) || null,
+    sharpOdds: Number(vb.sharpOdds) || null,
+    evPct,
+    mlScore: null,
+    stake: logStake,
+    balance: logBalance,
+    bookedOdds: "bookedOdds" in outcome ? outcome.bookedOdds : null,
+    ticketId: "ticketId" in outcome ? (outcome.ticketId ?? null) : null,
+  });
+}
+
+function inferGate(outcome: PlacementOutcome): string {
+  if (outcome.status === "placed") return "placed";
+  if (outcome.status === "pending") return "pending";
+  if (outcome.status === "rejected") return "book_reject";
+  if (outcome.status === "error") return "book_error";
+  const r = ("reason" in outcome ? outcome.reason : "") ?? "";
+  const rl = r.toLowerCase();
+  if (rl.includes("auto-place disabled")) return "toggle";
+  if (rl.includes("no adapter")) return "adapter";
+  if (rl.includes("resolve") || rl.includes("market may have closed"))
+    return "refs";
+  if (rl.includes("account") || rl.includes("suspended")) return "account";
+  if (rl.includes("ev decayed") || rl.includes("ev ")) return "ev_floor";
+  if (rl.includes("balance") || rl.includes("exceeds balance"))
+    return "balance";
+  if (rl.includes("market max") || rl.includes("below auto-place bucket"))
+    return "market_max";
+  if (rl.includes("already reserved") || rl.includes("duplicate"))
+    return "dedup";
+  if (rl.includes("in flight")) return "inflight";
+  if (rl.includes("kelly stake") || rl.includes("below book minimum"))
+    return "stake_min";
+  return "unknown";
 }
 
 async function placeBetForValueBetImpl(
@@ -191,7 +290,7 @@ async function placeBetForValueBetImpl(
     return {
       status: "skipped",
       reason: `Auto-place disabled for ${adapter.providerDisplayName}`,
-    };
+    } as PlacementOutcome;
   }
 
   // 3. Resolve book-native refs (marketId, selectionId, etc.) unless
@@ -211,7 +310,7 @@ async function placeBetForValueBetImpl(
       status: "skipped",
       reason:
         "Couldn't resolve book-native market/selection for this atom (market may have closed or selection no longer listed)",
-    };
+    } as PlacementOutcome;
   }
 
   // 4. Account state.
@@ -222,10 +321,14 @@ async function placeBetForValueBetImpl(
     return {
       status: "error",
       reason: `Account info fetch failed: ${msg(err)}`,
-    };
+    } as PlacementOutcome;
   }
   if (accountInfo.suspended) {
-    return { status: "skipped", reason: "Account suspended by book" };
+    return {
+      status: "skipped",
+      reason: "Account suspended by book",
+      _logBalance: accountInfo.balance,
+    } as PlacementOutcome;
   }
 
   // 4. Market limits — three-tier lookup:
@@ -288,6 +391,7 @@ async function placeBetForValueBetImpl(
       return {
         status: "skipped",
         reason: `EV decayed to ${evPct.toFixed(2)}% (< ${MIN_EV_PCT}% floor): softOdds=${valueBet.softOdds}, sharpTrueProb=${Number(valueBet.sharpTrueProb).toFixed(4)}, comm=${valueBet.softCommissionPct}%`,
+        _logBalance: accountInfo.balance,
       };
     }
     const rawStake = computeStake({
@@ -302,6 +406,8 @@ async function placeBetForValueBetImpl(
       return {
         status: "skipped",
         reason: `Auto-place floor ${autoMinStake} exceeds balance ${accountInfo.balance}`,
+        _logStake: autoMinStake,
+        _logBalance: accountInfo.balance,
       };
     }
     let snapped = snapDown(rawStake, bucket);
@@ -319,6 +425,8 @@ async function placeBetForValueBetImpl(
       return {
         status: "skipped",
         reason: `Kelly stake ${targetStake} below book minimum ${minBet}`,
+        _logStake: targetStake,
+        _logBalance: accountInfo.balance,
       };
     }
   }
@@ -326,6 +434,8 @@ async function placeBetForValueBetImpl(
     return {
       status: "skipped",
       reason: `Insufficient balance: need ${targetStake}, have ${accountInfo.balance}`,
+      _logStake: targetStake,
+      _logBalance: accountInfo.balance,
     };
   }
   // If maxBet < target we take the cap — but in auto-mode keep the
@@ -338,6 +448,8 @@ async function placeBetForValueBetImpl(
       return {
         status: "skipped",
         reason: `Market max ${maxBet} below auto-place bucket ${bucket}`,
+        _logStake: stake,
+        _logBalance: accountInfo.balance,
       };
     }
   }
@@ -381,6 +493,8 @@ async function placeBetForValueBetImpl(
       status: "skipped",
       reason:
         "Already reserved/placed — another tick beat us to this (event, market, selection)",
+      _logStake: stake,
+      _logBalance: accountInfo.balance,
     };
   }
   const reservedBetId = reservation.id;

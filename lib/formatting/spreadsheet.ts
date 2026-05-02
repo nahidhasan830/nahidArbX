@@ -10,8 +10,19 @@ import {
   getProviderShortName,
   type ProviderKey,
 } from "@/lib/providers/registry";
-import { getPriorityScore } from "@/lib/atoms/priority-score";
 import { eventLabel } from "@/lib/formatting/event-label";
+
+/**
+ * Inline priority score — ranks value bets by quality.
+ * No EV cap, no suspicious penalty. Just a simple quality ranking.
+ */
+function computePriority(evPct: number | null, timestamp: number): number | null {
+  if (evPct === null || evPct <= 0) return null;
+  const normalizedEv = Math.min(evPct / 100, 1); // normalize to 0-1, uncapped
+  const ageMs = Date.now() - timestamp;
+  const freshness = Math.max(0, 1 - ageMs / 180_000); // 3min window
+  return normalizedEv * 0.6 + freshness * 0.4;
+}
 
 // ============================================
 // Types
@@ -91,7 +102,6 @@ export interface SpreadsheetRow {
   isFirstAtomInFamily: boolean;
   isFirstFamilyInEvent: boolean;
   isLastAtomInEvent: boolean; // Last row in event (for showing actions at bottom)
-  isSuspicious: boolean; // True if odds differ > 30% between providers (possible mapping error)
 }
 
 // Matches the API response shape from bulk-analyze
@@ -185,7 +195,6 @@ export interface TransformOptions {
   searchTerm?: string;
   selectedMarketTypes?: Set<string>; // Empty set means "all"
   timeFilter?: TimeFilter;
-  suspiciousThresholdPct?: number; // Default 30 (ratio > 1.3)
 }
 
 // ============================================
@@ -206,7 +215,6 @@ export function transformToSpreadsheetRows(
     searchTerm = "",
     selectedMarketTypes = new Set<string>(), // Empty set means "all"
     timeFilter = "all",
-    suspiciousThresholdPct = 30,
   } = options;
 
   const rows: SpreadsheetRow[] = [];
@@ -306,19 +314,6 @@ export function transformToSpreadsheetRows(
           }
         }
 
-        // Detect suspicious odds difference (configurable threshold).
-        // Wide provider-to-provider spreads usually indicate a mapping error
-        // rather than a genuine value edge — flag them for review.
-        const activeOdds = Object.values(odds)
-          .filter((o): o is AtomOddsData => o !== undefined && !o.suspended)
-          .map((o) => o.value);
-        let isSuspicious = false;
-        if (activeOdds.length >= 2) {
-          const ratio = Math.max(...activeOdds) / Math.min(...activeOdds);
-          const thresholdRatio = 1 + suspiciousThresholdPct / 100;
-          isSuspicious = ratio > thresholdRatio;
-        }
-
         const row: SpreadsheetRow = {
           rowId: `${event.eventId}|${family.familyId}|${atom.atomId}`,
           eventId: event.eventId,
@@ -344,12 +339,10 @@ export function transformToSpreadsheetRows(
             (atom.valueBet?.softProvider as ProviderKey) ?? null,
           hasValue,
           priorityScore: hasValue
-            ? getPriorityScore({
-                evPct: atom.valueBet?.evPct ?? null,
-                kellyStake: atom.valueBet?.kellyStake ?? null,
-                timestamp: Object.values(odds).find((o) => o)?.timestamp ?? now,
-                isSuspicious,
-              })
+            ? computePriority(
+                atom.valueBet?.evPct ?? null,
+                Object.values(odds).find((o) => o)?.timestamp ?? now,
+              )
             : null,
           valueBetDetails: atom.valueBet
             ? {
@@ -370,7 +363,6 @@ export function transformToSpreadsheetRows(
           isFirstAtomInFamily,
           isFirstFamilyInEvent,
           isLastAtomInEvent: false, // Will be recalculated after filtering
-          isSuspicious,
         };
 
         rows.push(row);

@@ -13,6 +13,7 @@ import {
   aiProposeRules,
   betsHistoryRule,
   bulkMarkOutcomes,
+  deleteBet,
   fetchBetsStats,
   listValueBets,
   markOutcome,
@@ -83,6 +84,17 @@ export const useMarkOutcome = () => {
       markOutcome(id, outcome),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["bets-history", "value-bets"] });
+    },
+  });
+};
+
+export const useDeleteBet = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteBet(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bets-history", "value-bets"] });
+      qc.invalidateQueries({ queryKey: ["bets-history", "stats"] });
     },
   });
 };

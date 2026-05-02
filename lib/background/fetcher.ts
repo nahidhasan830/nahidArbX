@@ -50,6 +50,7 @@ import { reconcilePendingBets } from "../betting/ninewickets/reconciler";
 import { singleton } from "../util/singleton";
 import { getIdToken } from "../matching/entities/matcher-client";
 import { notify } from "../notifier";
+import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 // ML scheduler now runs on the entity-matcher Cloud Run Service (reads
 // config from matcher_config table). No more in-process setTimeout loop.
 
@@ -189,6 +190,26 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
 
     logger.info("Sync", `Total raw events: ${allEvents.length}`);
 
+    // Guard: if ALL adapters returned 0 events but we previously had data,
+    // this is almost certainly a transient failure (timeouts, circuit breakers,
+    // network issues). Preserve the existing events store to avoid wiping the
+    // table while the badge still shows stale value bet counts.
+    const existingEventCount = getMatchedEvents().length;
+    if (allEvents.length === 0 && existingEventCount > 0) {
+      logger.warn(
+        "Sync",
+        `All fixture adapters returned 0 events (had ${existingEventCount}) — skipping setEvents to preserve existing data`,
+      );
+      setSyncStatus({
+        isSyncing: false,
+        currentPhase: "idle",
+        phaseProgress: null,
+        lastSyncEnd: new Date(),
+        lastSyncDuration: Date.now() - startTime,
+      });
+      return getMatchedEvents();
+    }
+
     // Phase 2: Matching
     setSyncStatus({ currentPhase: "matching", phaseProgress: null });
 
@@ -218,6 +239,13 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
 
     // Store matched events with raw count for stats
     setEvents(matchedEvents, allEvents.length);
+
+    // If the events store is now legitimately empty (all events expired or
+    // genuinely removed), clear stale value bets to prevent the badge from
+    // showing a count while the table is empty.
+    if (matchedEvents.length === 0) {
+      setValueBets([]);
+    }
 
     // NOTE: we intentionally do NOT call resetValueCache() here.
     // The incremental detector already prunes events that leave the
@@ -320,25 +348,27 @@ export function startScheduler(): void {
   // Register Health Providers
   // ==========================================
 
-  // BetConstruct WebSocket health
-  registerHealthProvider("betconstruct", () => {
-    const health = getBCConnectionHealth();
-    const failures = health.consecutiveTimeouts;
-    return {
-      status:
-        health.connected && failures < 5
-          ? failureCountToStatus(failures)
-          : "unhealthy",
-      lastCheck: Date.now(),
-      consecutiveFailures: failures,
-      details: {
-        connected: health.connected,
-        sessionId: health.sessionId,
-        isReconnecting: health.isReconnecting,
-        pendingRequests: health.pendingRequests,
-      },
-    };
-  });
+  // BetConstruct WebSocket health — only register when BC is enabled
+  if (isProviderRuntimeEnabled("betconstruct")) {
+    registerHealthProvider("betconstruct", () => {
+      const health = getBCConnectionHealth();
+      const failures = health.consecutiveTimeouts;
+      return {
+        status:
+          health.connected && failures < 5
+            ? failureCountToStatus(failures)
+            : "unhealthy",
+        lastCheck: Date.now(),
+        consecutiveFailures: failures,
+        details: {
+          connected: health.connected,
+          sessionId: health.sessionId,
+          isReconnecting: health.isReconnecting,
+          pendingRequests: health.pendingRequests,
+        },
+      };
+    });
+  }
 
   // Scores WebSocket health
   registerHealthProvider("scores", () => {
@@ -497,15 +527,28 @@ export function startScheduler(): void {
 
   // When BetConstruct reconnects after failure, re-subscribe all events
   // (Swarm subscriptions are lost when the session reconnects) and trigger detection
-  onBCReconnect(() => {
-    logger.info("Sync", "BetConstruct reconnected - re-subscribing all events");
-    invalidateResponseCache();
-    // Lazy import to avoid circular dependency
-    import("../services/betconstruct-sync-service").then(({ betconstructSyncService }) => {
-      betconstructSyncService.resubscribeAll();
+  if (isProviderRuntimeEnabled("betconstruct")) {
+    onBCReconnect(() => {
+      logger.info("Sync", "BetConstruct reconnected - re-subscribing all events");
+      invalidateResponseCache();
+      // Lazy import to avoid circular dependency
+      import("../services/betconstruct-sync-service").then(({ betconstructSyncService }) => {
+        betconstructSyncService.resubscribeAll();
+      });
+      triggerDetection();
     });
-    triggerDetection();
-  });
+
+    // When BetConstruct fails catastrophically (5+ consecutive reconnect failures),
+    // restart the entire server process
+    onBCFatalFailure(() => {
+      logger.error(
+        "Sync",
+        "FATAL: BetConstruct connection unrecoverable after 5 attempts - restarting server",
+      );
+      // Exit with code 1 - process manager (pm2, docker, systemd) will restart us
+      process.exit(1);
+    });
+  }
 
   // When Scores WebSocket reconnects, log it (subscriptions auto-restore)
   onScoresReconnect(() => {
@@ -513,17 +556,6 @@ export function startScheduler(): void {
       "Sync",
       "Scores WebSocket reconnected - subscriptions restored",
     );
-  });
-
-  // When BetConstruct fails catastrophically (5+ consecutive reconnect failures),
-  // restart the entire server process
-  onBCFatalFailure(() => {
-    logger.error(
-      "Sync",
-      "FATAL: BetConstruct connection unrecoverable after 5 attempts - restarting server",
-    );
-    // Exit with code 1 - process manager (pm2, docker, systemd) will restart us
-    process.exit(1);
   });
 
   // ML scheduler now runs on the entity-matcher Cloud Run Service.

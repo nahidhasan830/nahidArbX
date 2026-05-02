@@ -23,6 +23,8 @@
  * Reference: https://core.telegram.org/bots/api#formatting-options
  */
 import type {
+  AiEngineStateEvent,
+  AiModelStateEvent,
   BetPlacedEvent,
   BetSettledEvent,
   BetErrorEvent,
@@ -34,6 +36,7 @@ import type {
   OptimizerRunStartedEvent,
   SystemEvent,
   SystemBootEvent,
+  UnifiedBootEvent,
 } from "./types";
 import { logger } from "@/lib/shared/logger";
 import { formatMarketType as formatMarketTypeBase } from "@/lib/formatting/labels";
@@ -144,6 +147,12 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatSystem(event);
     case "system:boot":
       return formatBoot(event);
+    case "system:unified_boot":
+      return formatUnifiedBoot(event);
+    case "ai:engine_state":
+      return formatAiEngineState(event);
+    case "ai:model_state":
+      return formatAiModelState(event);
     case "optimizer:run_started":
       return formatOptimizerRunStarted(event);
     case "optimizer:run_completed":
@@ -534,6 +543,72 @@ function formatAlgorithm(algo: string): string {
 }
 
 // --------------------------------------------------------------------
+// ai engine/model lifecycle
+// --------------------------------------------------------------------
+
+function formatAiEngineState(e: AiEngineStateEvent): FormattedMessage {
+  const icon =
+    e.state === "started" ? "🟢" : e.state === "failed" ? "🚨" : "🔴";
+  const title =
+    e.state === "started"
+      ? "AI Engine Started"
+      : e.state === "failed"
+        ? "AI Engine Failed"
+        : "AI Engine Stopped";
+  const lines: string[] = [];
+
+  lines.push(`${icon} <b>${title}</b>`);
+  lines.push(`🔗 <code>${esc(e.serviceUrl)}</code>`);
+  lines.push(`🧠 Model <code>${esc(e.configuredModel)}</code>`);
+  lines.push(`☁️ Engine <code>${esc(e.llmEngine)}</code>`);
+
+  if (typeof e.llmHealthy === "boolean") {
+    lines.push(
+      `${e.llmHealthy ? "✅" : "❌"} LLM: <b>${e.llmHealthy ? "healthy" : "unhealthy"}</b>`,
+    );
+  }
+  if (
+    typeof e.providersHealthy === "number" &&
+    typeof e.providersTotal === "number"
+  ) {
+    lines.push(
+      `🌐 Providers: <b>${e.providersHealthy}</b>/${e.providersTotal} healthy`,
+    );
+  }
+  if (e.pid) lines.push(`🔧 PID <code>${e.pid}</code>`);
+  if (e.uptimeMs != null) {
+    lines.push(`⏱ Uptime <b>${esc(durationLabel(e.uptimeMs))}</b>`);
+  }
+  if (e.exitCode != null || e.signal) {
+    const exitParts = [
+      e.exitCode != null ? `code ${e.exitCode}` : null,
+      e.signal ? `signal ${e.signal}` : null,
+    ].filter(Boolean);
+    lines.push(
+      `🧾 Exit <code>${esc(exitParts.join(" · ") || "unknown")}</code>`,
+    );
+  }
+  if (e.reason) lines.push(`📝 ${esc(truncate(e.reason, 280))}`);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
+}
+
+function formatAiModelState(e: AiModelStateEvent): FormattedMessage {
+  const isOn = e.state === "on";
+  const lines: string[] = [];
+
+  lines.push(`${isOn ? "⚡" : "💤"} <b>AI Model ${isOn ? "ON" : "OFF"}</b>`);
+  lines.push(`🧠 Model <code>${esc(e.model)}</code>`);
+  lines.push(`🎯 Configured <code>${esc(e.configuredModel)}</code>`);
+  lines.push(`☁️ Engine <code>${esc(e.llmEngine)}</code>`);
+  if (e.reason) lines.push(`📝 ${esc(truncate(e.reason, 280))}`);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
+}
+
+// --------------------------------------------------------------------
 // system
 // --------------------------------------------------------------------
 
@@ -559,15 +634,23 @@ function formatSystem(e: SystemEvent): FormattedMessage {
 // --------------------------------------------------------------------
 
 function formatBoot(e: SystemBootEvent): FormattedMessage {
+  return e.process === "engine" ? formatEngineBoot(e) : formatFrontendBoot(e);
+}
+
+function formatEngineBoot(e: SystemBootEvent): FormattedMessage {
   const lines: string[] = [];
 
   // Title
-  lines.push(`🚀 <b>Server Started</b>`);
+  lines.push(`⚙️ <b>Engine Started</b>`);
   lines.push(``);
 
-  // Environment
+  // Environment + PID
   const envEmoji = e.env === "production" ? "🟢" : "🟡";
   lines.push(`${envEmoji} <b>${esc(e.env)}</b> · Node ${esc(e.nodeVersion)}`);
+  if (e.pid)
+    lines.push(
+      `🔧 PID <code>${e.pid}</code> · HTTP API on <b>:${e.enginePort ?? 3001}</b>`,
+    );
 
   // ── Schedulers ────────────────────────────────────────────────────
   lines.push(``);
@@ -575,22 +658,26 @@ function formatBoot(e: SystemBootEvent): FormattedMessage {
   lines.push(
     `${e.syncScheduler ? "✅" : "❌"} Sync: <b>${e.syncScheduler ? "running" : "stopped"}</b>`,
   );
-  lines.push(
-    `${e.autoSettle ? "✅" : "❌"} Auto-settle: <b>${e.autoSettle ? "running" : "stopped"}</b> · every ${esc(durationLabel(e.autoSettleIntervalSec * 1000))}`,
-  );
+  if (e.autoSettleIntervalSec) {
+    lines.push(
+      `${e.autoSettle ? "✅" : "❌"} Auto-settle: <b>${e.autoSettle ? "running" : "stopped"}</b> · every ${esc(durationLabel(e.autoSettleIntervalSec * 1000))}`,
+    );
+  }
 
   // ── Auto-Place ────────────────────────────────────────────────────
-  if (e.autoPlace.length > 0) {
+  if (e.autoPlace && e.autoPlace.length > 0) {
     lines.push(``);
     lines.push(`<b>Auto-Place</b>`);
     for (const ap of e.autoPlace) {
       const icon = ap.enabled ? "✅" : "⏸";
-      lines.push(`${icon} ${esc(ap.displayName)}: <b>${ap.enabled ? "ON" : "OFF"}</b>`);
+      lines.push(
+        `${icon} ${esc(ap.displayName)}: <b>${ap.enabled ? "ON" : "OFF"}</b>`,
+      );
     }
   }
 
   // ── Data Sources ──────────────────────────────────────────────────
-  if (e.dataSources.length > 0) {
+  if (e.dataSources && e.dataSources.length > 0) {
     lines.push(``);
     lines.push(`<b>Data Sources</b>`);
     for (const ds of e.dataSources) {
@@ -599,19 +686,127 @@ function formatBoot(e: SystemBootEvent): FormattedMessage {
   }
 
   // ── Detection ─────────────────────────────────────────────────────
-  lines.push(``);
-  lines.push(`<b>Detection</b>`);
-  lines.push(`⚡ Reactive detector: <b>${e.detectorDebounceMs}ms</b> debounce`);
+  if (e.detectorDebounceMs) {
+    lines.push(``);
+    lines.push(`<b>Detection</b>`);
+    lines.push(
+      `⚡ Reactive detector: <b>${e.detectorDebounceMs}ms</b> debounce`,
+    );
+  }
 
   // ── Infrastructure ────────────────────────────────────────────────
-  if (e.optimizerJob || e.gcpRegion) {
+  if (e.mlRetrainJob || e.mlRetrainRegion) {
     lines.push(``);
     lines.push(`<b>Infrastructure</b>`);
-    if (e.optimizerJob) {
-      lines.push(`☁️ Job: <code>${esc(e.optimizerJob)}</code>`);
+    if (e.mlRetrainJob) {
+      lines.push(`☁️ Job: <code>${esc(e.mlRetrainJob)}</code>`);
     }
-    if (e.gcpRegion) {
-      lines.push(`🌏 Region: <code>${esc(e.gcpRegion)}</code>`);
+    if (e.mlRetrainRegion) {
+      lines.push(`🌏 Region: <code>${esc(e.mlRetrainRegion)}</code>`);
+    }
+  }
+
+  // Timestamp
+  lines.push(``);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
+}
+
+function formatFrontendBoot(e: SystemBootEvent): FormattedMessage {
+  const lines: string[] = [];
+
+  // Title
+  lines.push(`🌐 <b>Frontend Started</b>`);
+  lines.push(``);
+
+  // Environment
+  const envEmoji = e.env === "production" ? "🟢" : "🟡";
+  lines.push(`${envEmoji} <b>${esc(e.env)}</b> · Node ${esc(e.nodeVersion)}`);
+  if (e.pid) lines.push(`🔧 PID <code>${e.pid}</code>`);
+
+  // Engine connectivity
+  lines.push(``);
+  lines.push(`<b>Engine Connection</b>`);
+  const reachIcon = e.engineReachable ? "✅" : "❌";
+  const reachLabel = e.engineReachable ? "connected" : "unreachable";
+  lines.push(`${reachIcon} Engine: <b>${reachLabel}</b>`);
+  if (e.engineUrl) lines.push(`🔗 <code>${esc(e.engineUrl)}</code>`);
+
+  // Timestamp
+  lines.push(``);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
+}
+
+// --------------------------------------------------------------------
+// system:unified_boot  (dev:all combined notification)
+// --------------------------------------------------------------------
+
+function formatUnifiedBoot(e: UnifiedBootEvent): FormattedMessage {
+  const lines: string[] = [];
+
+  lines.push(`🚀 <b>All Services Started</b>`);
+
+  // ── Engine: only auto-place/settle status (the things that matter) ──
+  if (e.engine) {
+    const eng = e.engine;
+    lines.push(``);
+    lines.push(`⚙️ <b>Engine</b>`);
+    if (eng.autoPlace && eng.autoPlace.length > 0) {
+      for (const ap of eng.autoPlace) {
+        const icon = ap.enabled ? "✅" : "⏸";
+        lines.push(
+          `${icon} ${esc(ap.displayName)}: <b>${ap.enabled ? "ON" : "OFF"}</b>`,
+        );
+      }
+    }
+    if (eng.autoSettleIntervalSec) {
+      lines.push(
+        `${eng.autoSettle ? "✅" : "❌"} Auto-settle: <b>${eng.autoSettle ? "ON" : "OFF"}</b> · ${esc(durationLabel(eng.autoSettleIntervalSec * 1000))}`,
+      );
+    }
+  }
+
+  // ── AI Search: only surface problems, otherwise one-liner ──────────
+  if (e.aiSearch) {
+    const ai = e.aiSearch;
+    lines.push(``);
+    lines.push(`🤖 <b>AI Search</b> · <code>${esc(ai.configuredModel)}</code>`);
+
+    // Only show problems — if everything is fine, silence is golden
+    const problems: string[] = [];
+    if (ai.llmHealthy === false) problems.push("LLM unhealthy");
+    if (
+      typeof ai.providersHealthy === "number" &&
+      typeof ai.providersTotal === "number" &&
+      ai.providersHealthy < ai.providersTotal
+    ) {
+      problems.push(
+        `${ai.providersHealthy}/${ai.providersTotal} search providers`,
+      );
+    }
+    if (problems.length > 0) {
+      lines.push(`⚠️ ${esc(problems.join(" · "))}`);
+    } else {
+      const provLabel =
+        typeof ai.providersTotal === "number"
+          ? ` · ${ai.providersTotal} providers`
+          : "";
+      lines.push(`✅ Groq OK · ${esc(ai.configuredModel)}${provLabel}`);
+    }
+  }
+
+  // ── Frontend: only flag if engine is unreachable ──────────────────
+  if (e.frontend) {
+    const fe = e.frontend;
+    lines.push(``);
+    if (fe.engineReachable) {
+      lines.push(`🌐 <b>Frontend</b> · engine connected`);
+    } else {
+      lines.push(`🌐 <b>Frontend</b>`);
+      lines.push(`❌ Engine: <b>unreachable</b>`);
     }
   }
 

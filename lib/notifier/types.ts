@@ -12,6 +12,9 @@ export type NotificationEvent =
   | BetErrorEvent
   | SystemEvent
   | SystemBootEvent
+  | UnifiedBootEvent
+  | AiEngineStateEvent
+  | AiModelStateEvent
   | OptimizerRunStartedEvent
   | OptimizerRunCompletedEvent
   | MlRunCompletedEvent;
@@ -24,6 +27,33 @@ export interface MlRunCompletedEvent {
   rejected: number;
   escalated: number;
   durationMs: number;
+}
+
+export interface AiEngineStateEvent {
+  type: "ai:engine_state";
+  at: string;
+  state: "started" | "stopped" | "failed";
+  serviceUrl: string;
+  pid?: number;
+  exitCode?: number | null;
+  signal?: string | null;
+  uptimeMs?: number | null;
+  configuredModel: string;
+  llmEngine: string;
+  llmHealthy?: boolean;
+  providersHealthy?: number;
+  providersTotal?: number;
+  reason?: string | null;
+}
+
+export interface AiModelStateEvent {
+  type: "ai:model_state";
+  at: string;
+  state: "on" | "off";
+  model: string;
+  configuredModel: string;
+  llmEngine: string;
+  reason?: string | null;
 }
 
 export interface BetPlacedEvent {
@@ -184,26 +214,49 @@ export interface SystemEvent {
 export interface SystemBootEvent {
   type: "system:boot";
   at: string;
+  /** Which process is booting — "engine" or "frontend". */
+  process: "engine" | "frontend";
   /** Node.js runtime version. */
   nodeVersion: string;
   /** Environment label — "development" or "production". */
   env: string;
-  /** Sync scheduler running? */
-  syncScheduler: boolean;
-  /** Auto-settle running? */
-  autoSettle: boolean;
-  /** Auto-settle interval (seconds). */
-  autoSettleIntervalSec: number;
-  /** Per-provider auto-place state. */
-  autoPlace: { provider: string; displayName: string; enabled: boolean }[];
-  /** Real-time data sources (Pinnacle WS, Genius polling, BetConstruct WS). */
-  dataSources: string[];
-  /** Reactive detector debounce (ms). */
-  detectorDebounceMs: number;
-  /** Optimizer Cloud Run Job name (if set). */
-  optimizerJob: string | null;
-  /** GCP region (if set). */
-  gcpRegion: string | null;
+  /** PID of the process. */
+  pid?: number;
+  /** Engine HTTP API port (engine only). */
+  enginePort?: number;
+  /** Sync scheduler running? (engine only). */
+  syncScheduler?: boolean;
+  /** Auto-settle running? (engine only). */
+  autoSettle?: boolean;
+  /** Auto-settle interval (seconds). (engine only). */
+  autoSettleIntervalSec?: number;
+  /** Per-provider auto-place state. (engine only). */
+  autoPlace?: { provider: string; displayName: string; enabled: boolean }[];
+  /** Real-time data sources (engine only). */
+  dataSources?: string[];
+  /** Reactive detector debounce (ms). (engine only). */
+  detectorDebounceMs?: number;
+  /** ML retraining Cloud Run Job name (if set). (engine only). */
+  mlRetrainJob?: string | null;
+  /** GCP region (if set). (engine only). */
+  mlRetrainRegion?: string | null;
+  /** Engine URL that frontend connects to (frontend only). */
+  engineUrl?: string;
+  /** Whether the frontend can reach the engine (frontend only). */
+  engineReachable?: boolean;
+}
+
+/**
+ * Fired when `dev:all` (unified boot) gathers all process boot payloads
+ * into a single consolidated notification. Contains optional sub-sections
+ * for each service that successfully wrote its boot payload.
+ */
+export interface UnifiedBootEvent {
+  type: "system:unified_boot";
+  at: string;
+  engine?: SystemBootEvent;
+  aiSearch?: AiEngineStateEvent;
+  frontend?: SystemBootEvent;
 }
 
 /**

@@ -214,7 +214,22 @@ export const NearMatchSchema = z.object({
 // Constants
 // ============================================
 
-export const NEAR_MATCH_MIN_SCORE = 0.7;
+export const NEAR_MATCH_MIN_SCORE = 0.75;
 export const NEAR_MATCH_MAX_SCORE = 0.849; // Just below threshold
+/**
+ * Team-score floor for near-match inbox admission. Same-league matches
+ * often kick off at the same minute; competition similarity alone can push
+ * the combined score into the near-match band even when teams are completely
+ * unrelated. This gate requires meaningful team-name overlap before we
+ * bother creating a pair and burning ML credits on it.
+ */
+export const NEAR_MATCH_MIN_TEAM_SCORE = 0.55;
+/**
+ * Best single-team similarity floor. At least one team pair (in the best
+ * orientation) must have ≥ this similarity. Catches cases where the
+ * average team score passes but both individual similarities are mediocre
+ * (e.g., two teams that share "FC" and little else).
+ */
+export const NEAR_MATCH_MIN_BEST_SINGLE_TEAM = 0.4;
 export const MAX_NEAR_MATCHES = 500;
 export const NEAR_MATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours

@@ -55,6 +55,9 @@ export async function GET(request: NextRequest) {
       merged: r.merged,
       rejected: r.rejected,
       escalated: r.escalated,
+      aiSearchAttempted: r.aiSearchAttempted ?? 0,
+      aiSearchMerged: r.aiSearchMerged ?? 0,
+      aiSearchRejected: r.aiSearchRejected ?? 0,
       status: r.status as
         | "success"
         | "empty"
@@ -80,6 +83,10 @@ export async function GET(request: NextRequest) {
             xeEscalationEnabled: config.xeEscalationEnabled,
             xeMergeThreshold: config.xeMergeThreshold,
             xePvalueThreshold: config.xePvalueThreshold,
+            aiSearchEnabled: config.aiSearchEnabled ?? true,
+            aiSearchConfidenceThreshold:
+              config.aiSearchConfidenceThreshold ?? 70,
+            aiSearchMaxBatchSize: config.aiSearchMaxBatchSize ?? 20,
           }
         : null,
     });

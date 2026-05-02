@@ -123,6 +123,11 @@ export type ValueBetRow = {
    *  Legacy format: OddsMovementData (single sharp snapshot).
    *  Typed shape when parsed, `unknown` when fresh from Drizzle. */
   oddsMovement?: Record<string, OddsMovementData> | OddsMovementData | null;
+
+  // ML pipeline columns
+  mlFeatures?: number[] | null;
+  mlScore?: number | null;
+  mlKellyAdjusted?: number | null;
 };
 
 /** Parsed shape of a single provider's odds movement JSONB blob. */

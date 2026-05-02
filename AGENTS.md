@@ -10,23 +10,21 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - `npx vitest run` — Vitest (`tests/unit/`)
 - `npm run test:settle` — Node runner for `lib/settle/*.test.ts`
 - `npm run db:generate` then `npm run db:migrate` — Drizzle (snake_case casing)
-- UI verification is manual — do not run Playwright E2E suites.
+- UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.**
 
 ## Architecture & Data
 
-- **Backend Autonomy:** Server runs autonomously (sync, WebSockets, settlement). Frontend is strictly read-only. Never rely on frontend for background logic.
+- **Dual-process:** `engine.ts` (background) + Next.js (web-only). `NAHIDARBX_ENGINE=1` env var. Engine runs 13 subsystems; Next.js is read-only UI.
+- **Dev workflow:** `npm run engine` → `npm run dev`. Or `npm run dev:all`. Stop: `npm run engine:stop` / `npm run kill`.
+- **DB init is async** — `ensureDbReady()` in `lib/db/client.ts`. Called by `instrumentation.ts` (Next.js) and `engine.ts` before any DB access. Uses Cloud SQL Connector when `CLOUD_SQL_INSTANCE` is set.
 - **`singleton()`** (`lib/util/singleton.ts`) for HMR-safe state. Module-level `let` breaks under Turbopack.
-- **`instrumentation.ts`** boots sync + auto-settlement schedulers headlessly.
 - **`bets` is the only settlement table.** `value_bets`/`placed_bets` are dropped legacy.
 - **Settlement pipeline is shared** — auto/manual/re-settle all use `settleBatch`/`applySettlementOutcomes`.
 - **Bet IDs are deterministic:** `${eventId}|${familyId}|${atomId}` (not UUIDs).
-- **`better-sqlite3` is auth-only.** App DB is Postgres via Drizzle.
-- **Drizzle casing:** DB snake_case, TS camelCase via casing transform.
+- **`better-sqlite3` is auth-only.** App DB is Postgres via Drizzle (snake_case casing).
 - **`lib/shared/constants.ts`** = single source for magic numbers (not `lib/config.ts`).
-- **`lib/betting/settlement-cascade.ts`** is deprecated (empty re-export).
 - **Single `.env` file** at repo root. No `.env.local`/`.env.example`.
 - **Middleware uses `jose`** (Edge Runtime), not `jsonwebtoken`.
-- **Don't assume local DB is authoritative** — prefer cloud path via SDK/connector.
 
 ## Settlement & AI
 
@@ -35,25 +33,24 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - **Automatic scheduler MUST never set `forceAi: true`.** See CLAUDE.md §Settlement & AI.
 - **Telegram notifications only for placed bets** — null `placedAt` → settle silently.
 - **Auto-place stakes:** multiples of 100 BDT (`AUTO_PLACE_STAKE_BUCKET`), min 200 BDT.
-- **Prefilled AI prompts** preferred over automated Gemini calls for discovery tasks.
 
 ## UI Rules
 
-- **Tailwind only — no custom CSS.** No component-scoped classes, no app keyframes. Extract React components, not CSS classes. See CLAUDE.md §Styling.
-- **Every table uses `<DataTable>`** (`components/ui/data-table.tsx`). Don't write plain `<table>`. Pass `getRowId` for polled queries. Exception: `ValueBetSpreadsheet.tsx`.
-- **Reuse toolbar/filter components.** Standard: `h-7`/`px-3 py-1.5`/`bg-muted/40`/`text-[11px]` buttons.
-- **Typography:** Prose (sentences) → `text-sm` (14px min). Chrome (labels/controls) → `text-[11px]`/`text-xs`. Never full sentences at `text-[11px]`.
-- **Tooltips on every control.** Use `<Tooltip>`/`<TooltipTrigger>`/`<TooltipContent>` — never plain `title=""`. State-aware. AI controls warn about cost.
-- **Explanatory copy:** plain English headline + body with concrete betting example. No jargon. Glossary: `lib/lab/glossary.ts`. See CLAUDE.md §Explanatory copy.
+- **Tailwind only — no custom CSS.** Extract React components, not CSS classes. See CLAUDE.md §Styling.
+- **Every table uses `<DataTable>`** (`components/ui/data-table.tsx`). Pass `getRowId` for polled queries. Exception: `ValueBetSpreadsheet.tsx`.
+- **Typography:** Prose → `text-sm` (14px min). Chrome → `text-[11px]`/`text-xs`. Never full sentences at `text-[11px]`.
+- **Tooltips on every control.** `<Tooltip>`/`<TooltipTrigger>`/`<TooltipContent>` — never plain `title=""`.
 
 ## Workflow & Infrastructure
 
-- **Solo-developer — no branches.** Commit everything relevant, few commits, no branch politics.
-- **Runtime is localhost.** `npm run dev` → `http://localhost:3000`. Cloud SQL Postgres via proxy.
-- **Cloud Run: Jobs for batch work, Services for HTTP only.** `--no-cpu-throttling` doesn't prevent idle reaping.
-- **Fix scripts: agent runs them, not the operator.** Execute directly with `.env` + ADC. Verify outcome. See CLAUDE.md §Fix scripts.
-- **Scrape.do proxy: SofaScore fallback only, never pre-emptive.** Direct first, proxy on 403 only. Free tier 1k credits/mo. Don't route other sources through it.
+- **Solo-developer — no branches.** Few commits, no branch politics.
+- **Dev machine:** MacBook Pro 14″ (Nov 2024), Apple M4 Pro, 24 GB unified memory. Supports local Gemma 4 26B (MoE) via Ollama.
+- **Runtime is localhost.** Engine + Next.js locally. Cloud SQL Postgres via Cloud SQL Connector.
+- **Bangladesh geo-restriction.** NineWickets/Velki require Bangladesh IP. Engine MUST run from Bangladesh network.
+- **Cloud Run: Jobs for batch work, Services for HTTP only.**
+- **Scrape.do proxy: SofaScore fallback only.** Direct first, proxy on 403 only. Free tier 1k credits/mo.
 - **Post-change:** always `npm run build` + `npm run lint`.
+- **Always clean dead code and artifacts** (unused scripts, stale imports, temp files) after completing a task.
 
 ## Entity Resolution
 

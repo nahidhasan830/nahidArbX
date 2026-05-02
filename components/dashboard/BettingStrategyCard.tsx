@@ -38,15 +38,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
-import {
-  formatFilterChips,
-  formatStrategyDetails,
-} from "@/lib/optimizer/format-strategy";
-import type {
-  StrategyFilters,
-  StrategySizing,
-} from "@/lib/optimizer/strategy-filters";
 import { cn } from "@/lib/utils";
 
 interface Settings {
@@ -59,11 +50,6 @@ interface Settings {
   minStakeBdt: number;
   stakeBucketBdt: number;
   minEvPct: number;
-  /**
-   * Strategies the auto-placer must match before placing a bet. Empty =
-   * the global EV cutoff applies to everything (pre-strategy behaviour).
-   */
-  activeStrategyIds: string[];
   updatedAt: string;
 }
 
@@ -198,12 +184,11 @@ export function BettingStrategyForm() {
   const bankrollLabel = draft.useLiveBalance
     ? "live balance"
     : `${draft.manualBankrollBdt.toLocaleString()} BDT`;
-  const activeStrategiesCount = draft.activeStrategyIds?.length ?? 0;
 
   return (
     <TooltipProvider>
       <div className="flex flex-col max-h-[80vh]">
-        {/* ── Header: title + live strategy summary ───────────────── */}
+        {/* ── Header: title + live settings summary ────────────────── */}
         <div className="px-3 pt-3 pb-2 border-b border-border/60 bg-muted/30">
           <div className="flex items-center gap-2">
             <Settings2 className="size-4 shrink-0 text-muted-foreground" />
@@ -213,12 +198,6 @@ export function BettingStrategyForm() {
             <StrategyPill label={kellyLabel} />
             <StrategyPill label={`cap ${draft.kellyCapPct}%`} />
             <StrategyPill label={bankrollLabel} />
-            {activeStrategiesCount > 0 && (
-              <StrategyPill
-                label={`${activeStrategiesCount} active strateg${activeStrategiesCount === 1 ? "y" : "ies"}`}
-                tone="accent"
-              />
-            )}
           </div>
         </div>
 
@@ -323,11 +302,6 @@ export function BettingStrategyForm() {
             </Row>
           </Section>
 
-          {/* ACTIVE STRATEGIES — gate auto-placement by saved strategies. */}
-          <ActiveStrategiesSection
-            value={draft.activeStrategyIds}
-            onChange={(ids) => setField("activeStrategyIds", ids)}
-          />
 
           {/* ROUNDING — stake shaping applied after Kelly. */}
           <Section
@@ -420,258 +394,6 @@ function formatKellyFractionLabel(v: number): string {
   return `${v.toFixed(3).replace(/\.?0+$/, "")}× Kelly`;
 }
 
-// ------------------------------------------------------------------
-// Active strategies — multi-select gate for auto-placement.
-//
-// When non-empty, the auto-placer only places bets that match at least
-// one of the selected strategies' filters. Empty = global EV cutoff
-// applies to everything.
-// ------------------------------------------------------------------
-function ActiveStrategiesSection({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const { data: strategies, isLoading } = useApplicableStrategies();
-  const list = strategies ?? [];
-  const selected = new Set(value);
-  // Surface stale selections (strategy retired or hard-deleted) so the
-  // user can clean them out — silently dropping would mask the issue.
-  const knownIds = new Set(list.map((s) => s.id));
-  const staleIds = value.filter((id) => !knownIds.has(id));
-
-  const toggle = (id: string) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    onChange([...next]);
-  };
-
-  const trailing =
-    list.length > 1 ? (
-      selected.size === list.length ? (
-        <button
-          type="button"
-          onClick={() => onChange([])}
-          className="text-[10px] text-muted-foreground hover:text-foreground tracking-normal normal-case"
-        >
-          Clear
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => onChange(list.map((s) => s.id))}
-          className="text-[10px] text-muted-foreground hover:text-foreground tracking-normal normal-case"
-        >
-          Select all
-        </button>
-      )
-    ) : null;
-
-  return (
-    <Section
-      title="Active strategies"
-      hint="Auto-place only bets that match at least one selected strategy. Leave empty to fall back on the global Min EV cutoff."
-      trailing={trailing}
-    >
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-2">
-          <Loader2 className="size-3 animate-spin" /> Loading strategies…
-        </div>
-      ) : list.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-2.5 py-3 text-[11px] text-muted-foreground leading-relaxed">
-          No strategies yet. Promote a trial from{" "}
-          <span className="font-medium text-foreground">/lab/optimisation</span>{" "}
-          to gate auto-placement on it here.
-        </div>
-      ) : (
-        <div className="rounded-md border border-border/60 bg-muted/30 divide-y divide-border/40 max-h-56 overflow-y-auto">
-          {list.map((s) => (
-            <StrategyRow
-              key={s.id}
-              name={s.name}
-              description={s.description}
-              filters={s.filters as StrategyFilters}
-              sizing={s.sizing as StrategySizing | null}
-              checked={selected.has(s.id)}
-              onToggle={() => toggle(s.id)}
-            />
-          ))}
-        </div>
-      )}
-      {staleIds.length > 0 && (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10.5px] text-amber-700 dark:text-amber-300 leading-tight flex items-center justify-between gap-2">
-          <span>
-            {staleIds.length} selected strateg
-            {staleIds.length === 1 ? "y" : "ies"} no longer exist
-          </span>
-          <button
-            type="button"
-            onClick={() => onChange(value.filter((id) => knownIds.has(id)))}
-            className="text-amber-700 dark:text-amber-300 hover:underline font-medium"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-    </Section>
-  );
-}
-
-// ------------------------------------------------------------------
-// One strategy entry. Click anywhere on the row to toggle. The info
-// icon hover reveals a structured tooltip with the full filter +
-// sizing config in human-readable form, so the user doesn't have to
-// open /lab/optimisation to confirm what they're enabling.
-// ------------------------------------------------------------------
-function StrategyRow({
-  name,
-  description,
-  filters,
-  sizing,
-  checked,
-  onToggle,
-}: {
-  name: string;
-  description: string | null;
-  filters: StrategyFilters;
-  sizing: StrategySizing | null;
-  checked: boolean;
-  onToggle: () => void;
-}) {
-  const chips = formatFilterChips(filters);
-  const details = formatStrategyDetails(filters, sizing);
-  return (
-    <label
-      className={cn(
-        "flex items-start gap-2 px-2 py-1.5 cursor-pointer hover:bg-muted/50 transition-colors",
-        checked && "bg-cyan-500/10",
-      )}
-    >
-      <Checkbox
-        checked={checked}
-        onCheckedChange={onToggle}
-        className="mt-0.5"
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-medium truncate">{name}</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={(e) => e.preventDefault()}
-                className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
-                aria-label={`${name} configuration`}
-              >
-                <Info className="size-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="left"
-              align="start"
-              className="max-w-[280px] p-0 overflow-hidden"
-            >
-              <StrategyConfigTooltip
-                name={name}
-                description={description}
-                details={details}
-              />
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        {chips.length > 0 ? (
-          <div className="mt-0.5 flex flex-wrap items-center gap-1">
-            {chips.map((c, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center rounded-sm bg-background/80 border border-border/60 px-1 py-px text-[9.5px] font-medium tabular-nums text-muted-foreground"
-              >
-                {c}
-              </span>
-            ))}
-          </div>
-        ) : (
-          description && (
-            <div className="mt-0.5 text-[10px] text-muted-foreground truncate">
-              {description}
-            </div>
-          )
-        )}
-      </div>
-    </label>
-  );
-}
-
-// ------------------------------------------------------------------
-// Tooltip body for a strategy. Uses two stacked sections (filters,
-// sizing) with right-aligned values — same visual rhythm as the
-// optimisation report, so the user's eye recognises it instantly.
-// ------------------------------------------------------------------
-function StrategyConfigTooltip({
-  name,
-  description,
-  details,
-}: {
-  name: string;
-  description: string | null;
-  details: ReturnType<typeof formatStrategyDetails>;
-}) {
-  return (
-    <div className="text-[11px] leading-snug">
-      <div className="px-2.5 py-2 border-b border-border/60 bg-muted/40">
-        <div className="font-semibold text-foreground">{name}</div>
-        {description && (
-          <div className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">
-            {description}
-          </div>
-        )}
-      </div>
-      <div className="px-2.5 py-2 space-y-2">
-        <div>
-          <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/80 font-medium mb-1">
-            Filters
-          </div>
-          <dl className="space-y-0.5">
-            {details.filters.map((row) => (
-              <div
-                key={row.label}
-                className="grid grid-cols-[auto_1fr] gap-2 items-baseline"
-              >
-                <dt className="text-muted-foreground">{row.label}</dt>
-                <dd className="text-foreground text-right tabular-nums break-words">
-                  {row.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-        {details.sizing.length > 0 && (
-          <div>
-            <div className="text-[9.5px] uppercase tracking-wider text-muted-foreground/80 font-medium mb-1">
-              Sizing
-            </div>
-            <dl className="space-y-0.5">
-              {details.sizing.map((row) => (
-                <div
-                  key={row.label}
-                  className="grid grid-cols-[auto_1fr] gap-2 items-baseline"
-                >
-                  <dt className="text-muted-foreground">{row.label}</dt>
-                  <dd className="text-foreground text-right tabular-nums break-words">
-                    {row.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ------------------------------------------------------------------
 // Strategy summary pill in the header. Compact neutral chip — the

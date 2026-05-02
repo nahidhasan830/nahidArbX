@@ -44,7 +44,13 @@ const state = singleton("atoms:state", () => ({
 // Reactive dirty callback — fires when odds change
 // ============================================
 
-let onDirtyCallback: (() => void) | null = null;
+// Singleton so both Turbopack module graphs share the same callback ref.
+// Without this, the reactive detector registers in one graph while
+// setOdds fires in another, causing orphaned dirty families.
+const dirtyCallbackHolder = singleton(
+  "atoms:dirtyCallback",
+  () => ({ fn: null as (() => void) | null }),
+);
 
 /**
  * Register a callback to fire whenever dirtyFamilies gains entries.
@@ -52,7 +58,7 @@ let onDirtyCallback: (() => void) | null = null;
  * Pass null to unregister.
  */
 export function setOnDirtyCallback(cb: (() => void) | null): void {
-  onDirtyCallback = cb;
+  dirtyCallbackHolder.fn = cb;
 }
 
 /** Get current store version (for ETag / cache invalidation) */
@@ -126,7 +132,7 @@ export function setOdds(entry: NormalizedOddsEntry): void {
   if (valueChanged) {
     dirtyFamilies.add(`${entry.event_id}|${entry.family_id}`);
     state.storeVersion++;
-    onDirtyCallback?.();
+    dirtyCallbackHolder.fn?.();
   }
 
   // Track matched markets counter

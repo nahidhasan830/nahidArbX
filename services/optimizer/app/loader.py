@@ -1,267 +1,195 @@
-"""Load settled bets into a Polars DataFrame.
+"""Load settled bets with ML features for LightGBM training.
 
-Hot path of the trial loop reads from this DataFrame thousands of times,
-so we load once per run and keep it in memory.
-
-Schema mirrors `lib/db/schema.ts::bets` — columns we actually use are
-projected; everything else is dropped to keep memory tight.
-
-Pre-search data-scope filters (the `data_filters` JSONB column on
-`optimization_runs`) are applied here in the SQL WHERE clause so excluded
-rows never enter memory at all.
+Queries the bets table for all settled rows that have ml_features populated,
+derives binary labels and CLV%, and returns a Polars DataFrame ready for
+CPCV splitting and LightGBM training.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+import numpy as np
 import polars as pl
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-# Outcomes considered "settled" — used for sizing-aware ROI calculation.
+from .feature_names import FEATURE_COUNT, FEATURE_NAMES
+
+log = logging.getLogger(__name__)
+
+# Outcomes that indicate the bet was settled (not still pending).
 SETTLED_OUTCOMES = ("won", "half_won", "lost", "half_lost", "void")
+
+# Outcomes counted as positive label for the binary classifier.
+POSITIVE_OUTCOMES = ("won", "half_won")
+
+# Outcomes excluded from training — voids are market cancellations (push/refund)
+# that carry no predictive signal. Including them as label=0 adds noise.
+EXCLUDED_OUTCOMES = ("void",)
 
 
 @dataclass(frozen=True)
-class DataFilters:
-    """Mirror of TS `DataFiltersJson`.
+class TrainingData:
+    """Container for training data passed to the trainer."""
 
-    Empty filter object = include every settled bet (the default).
-    Include* takes precedence over exclude* on the same field (whitelist
-    semantics — same as the TS API).
+    features: np.ndarray       # shape (n, 23), float32
+    labels: np.ndarray         # shape (n,), int {0, 1}
+    feature_names: list[str]   # parallel to columns
+    metadata: pl.DataFrame     # full rows for metric computation
+    n_samples: int
+
+
+def load_training_data(session: Session) -> TrainingData:
+    """Load all settled bets with ML features from the database.
+
+    Returns a TrainingData container with numpy arrays for features/labels
+    and a Polars DataFrame for metadata needed during metric computation.
     """
-
-    exclude_soft_providers: tuple[str, ...] = ()
-    include_soft_providers: tuple[str, ...] = ()
-    exclude_market_types: tuple[str, ...] = ()
-    include_market_types: tuple[str, ...] = ()
-    event_start_from: str | None = None  # ISO 8601
-    event_start_to: str | None = None
-    placed_only: bool = False
-
-    @classmethod
-    def from_json(cls, payload: dict[str, Any] | None) -> DataFilters:
-        p = payload or {}
-        return cls(
-            exclude_soft_providers=tuple(p.get("excludeSoftProviders") or ()),
-            include_soft_providers=tuple(p.get("includeSoftProviders") or ()),
-            exclude_market_types=tuple(p.get("excludeMarketTypes") or ()),
-            include_market_types=tuple(p.get("includeMarketTypes") or ()),
-            event_start_from=p.get("eventStartFrom"),
-            event_start_to=p.get("eventStartTo"),
-            placed_only=bool(p.get("placedOnly", False)),
-        )
-
-
-def _build_query(filters: DataFilters):
-    """Build a parameterized SELECT respecting the supplied data filters.
-
-    Returns (sql_text, params_dict). Always orders by (event_start_time, id)
-    for deterministic CV splits and the determinism contract.
-    """
-    conds: list[str] = ["outcome IN :outcomes"]
-    params: dict[str, Any] = {"outcomes": SETTLED_OUTCOMES}
-
-    if filters.placed_only:
-        conds.append("placed_at IS NOT NULL")
-
-    # Soft-provider scope — include* wins if both set.
-    if filters.include_soft_providers:
-        conds.append("soft_provider IN :include_softs")
-        params["include_softs"] = filters.include_soft_providers
-    elif filters.exclude_soft_providers:
-        conds.append("soft_provider NOT IN :exclude_softs")
-        params["exclude_softs"] = filters.exclude_soft_providers
-
-    # Market-type scope.
-    if filters.include_market_types:
-        conds.append("market_type IN :include_markets")
-        params["include_markets"] = filters.include_market_types
-    elif filters.exclude_market_types:
-        conds.append("market_type NOT IN :exclude_markets")
-        params["exclude_markets"] = filters.exclude_market_types
-
-    # Event-time window.
-    if filters.event_start_from:
-        conds.append("event_start_time >= :event_from")
-        params["event_from"] = filters.event_start_from
-    if filters.event_start_to:
-        conds.append("event_start_time < :event_to")
-        params["event_to"] = filters.event_start_to
-
-    where = " AND ".join(conds)
-    sql_text = (
-        f"""
+    stmt = text("""
         SELECT
             id,
-            event_id            AS event_id,
-            family_id           AS family_id,
-            atom_id             AS atom_id,
-            market_type         AS market_type,
-            time_scope          AS time_scope,
-            competition         AS competition,
-            event_start_time    AS event_start_time,
-            first_seen_at       AS first_seen_at,
-            sharp_provider      AS sharp_provider,
-            sharp_odds          AS sharp_odds,
-            sharp_true_prob     AS sharp_true_prob,
-            soft_provider       AS soft_provider,
-            soft_odds           AS soft_odds,
-            soft_commission_pct AS soft_commission_pct,
-            closing_sharp_odds  AS closing_sharp_odds,
-            tick_count          AS tick_count,
-            outcome             AS outcome,
-            pnl                 AS pnl,
-            clv_pct             AS clv_pct,
-            placed_at           AS placed_at,
-            stake               AS stake,
-            odds                AS odds
+            ml_features,
+            outcome,
+            pnl,
+            soft_odds,
+            sharp_true_prob,
+            soft_commission_pct,
+            closing_sharp_odds,
+            first_seen_at,
+            event_start_time,
+            event_id
         FROM bets
-        WHERE {where}
-        ORDER BY event_start_time ASC, id ASC
-        """
-    )
+        WHERE outcome <> 'pending'
+          AND outcome <> 'void'
+          AND ml_features IS NOT NULL
+        ORDER BY first_seen_at ASC
+    """)
 
-    stmt = text(sql_text).bindparams(
-        bindparam("outcomes", expanding=True),
-        *(
-            [bindparam("include_softs", expanding=True)]
-            if "include_softs" in params
-            else []
-        ),
-        *(
-            [bindparam("exclude_softs", expanding=True)]
-            if "exclude_softs" in params
-            else []
-        ),
-        *(
-            [bindparam("include_markets", expanding=True)]
-            if "include_markets" in params
-            else []
-        ),
-        *(
-            [bindparam("exclude_markets", expanding=True)]
-            if "exclude_markets" in params
-            else []
-        ),
-    )
-    return stmt, params
-
-
-def load_settled_bets(
-    session: Session,
-    filters: DataFilters | None = None,
-) -> pl.DataFrame:
-    """Returns a Polars DataFrame of all settled bets matching the filters.
-
-    Sort order is stable + deterministic for the CV splitter (which assumes
-    rows are time-ordered) and for the determinism contract (same input,
-    same output).
-    """
-    f = filters or DataFilters()
-    stmt, params = _build_query(f)
-    result = session.execute(stmt, params)
+    result = session.execute(stmt)
     rows = result.mappings().all()
-    if not rows:
-        return _empty_frame()
 
-    # Coerce every row dict to stable Python scalar types BEFORE handing
-    # the list to Polars. We hit two distinct schema-inference failures
-    # in production against real bets (2026-04-24):
-    #
-    #   1. Postgres NUMERIC(38,4) arrives as `decimal.Decimal`. Polars
-    #      infers Decimal(38,4) from the first ~100 rows, then later rows
-    #      with a different Decimal shape get rejected:
-    #        "could not append value: 2.0100 of type: decimal[38,4] …"
-    #
-    #   2. A column whose first ~100 rows are all `None` (e.g. the
-    #      optional `closing_soft_odds`, `clv_pct`) is inferred as Null /
-    #      Int64, then fails when a real float appears later:
-    #        "could not append value: 2.01 of type: f64 …"
-    #
-    # Two-part fix:
-    #   a) Convert every `Decimal` to `float` (and use `None` for NaN-like
-    #      values). We'd cast these to Float64 on the very next `.cast()`
-    #      call anyway, so this is free.
-    #   b) Pass `infer_schema_length=None` so Polars scans every row
-    #      before picking a type per column. Slower (O(n) scan) but
-    #      bulletproof against all-None prefixes in optional columns.
-    def _row(r: Any) -> dict[str, Any]:
+    if not rows:
+        log.warning("No settled bets with ML features found")
+        return TrainingData(
+            features=np.empty((0, FEATURE_COUNT), dtype=np.float32),
+            labels=np.empty(0, dtype=np.int32),
+            feature_names=list(FEATURE_NAMES),
+            metadata=_empty_metadata(),
+            n_samples=0,
+        )
+
+    # Coerce Decimal → float for Polars compatibility
+    def _coerce(r: Any) -> dict[str, Any]:
         d = dict(r)
         for k, v in d.items():
             if isinstance(v, Decimal):
                 d[k] = float(v)
         return d
 
-    df = pl.DataFrame(
-        [_row(r) for r in rows],
-        infer_schema_length=None,
-        strict=False,
+    coerced = [_coerce(r) for r in rows]
+
+    # Extract feature vectors → numpy array
+    raw_features = []
+    valid_indices = []
+    for i, row in enumerate(coerced):
+        fv = row.get("ml_features")
+        if fv is not None and len(fv) == FEATURE_COUNT:
+            raw_features.append(fv)
+            valid_indices.append(i)
+        else:
+            log.debug("Skipping row %s: ml_features has wrong length %s",
+                      row.get("id"), len(fv) if fv else None)
+
+    if not raw_features:
+        log.warning("No valid feature vectors found")
+        return TrainingData(
+            features=np.empty((0, FEATURE_COUNT), dtype=np.float32),
+            labels=np.empty(0, dtype=np.int32),
+            feature_names=list(FEATURE_NAMES),
+            metadata=_empty_metadata(),
+            n_samples=0,
+        )
+
+    # Keep only rows with valid features
+    valid_rows = [coerced[i] for i in valid_indices]
+
+    features = np.array(raw_features, dtype=np.float32)
+
+    # Binary label: won/half_won → 1, else → 0
+    labels = np.array(
+        [1 if r["outcome"] in POSITIVE_OUTCOMES else 0 for r in valid_rows],
+        dtype=np.int32,
     )
 
-    # Coerce types — DECIMAL -> Float64, timestamp strings -> Datetime.
-    numeric_cols = [
-        "sharp_odds",
-        "sharp_true_prob",
-        "soft_odds",
-        "soft_commission_pct",
-        "closing_sharp_odds",
-        "pnl",
-        "clv_pct",
-        "stake",
-        "odds",
-    ]
-    df = df.with_columns(
-        [pl.col(c).cast(pl.Float64, strict=False) for c in numeric_cols if c in df.columns]
-    )
+    # Build metadata DataFrame for metric computation
+    meta_records = []
+    for r in valid_rows:
+        # Derive CLV%: (closing_fair_odds / detection_fair_odds - 1) * 100
+        # detection_fair_odds = 1 / sharp_true_prob
+        # closing_fair_odds = closing_sharp_odds (already vig-removed at detection time)
+        clv_pct = None
+        closing = r.get("closing_sharp_odds")
+        true_prob = r.get("sharp_true_prob")
+        if closing and true_prob and closing > 0 and true_prob > 0:
+            detection_fair = 1.0 / true_prob
+            clv_pct = (detection_fair / closing - 1.0) * 100.0
 
-    # Compute EV% inline (matches `aggregateBets` formula in TS exactly):
-    # ((1 + (softOdds - 1) * (1 - commissionPct/100)) * sharpTrueProb - 1) * 100
-    df = df.with_columns(
-        (
-            (
-                (1.0 + (pl.col("soft_odds") - 1.0) * (1.0 - pl.col("soft_commission_pct") / 100.0))
-                * pl.col("sharp_true_prob")
-                - 1.0
+        meta_records.append({
+            "id": r["id"],
+            "outcome": r["outcome"],
+            "pnl": float(r.get("pnl") or 0),
+            "soft_odds": float(r.get("soft_odds") or 0),
+            "sharp_true_prob": float(r.get("sharp_true_prob") or 0),
+            "soft_commission_pct": float(r.get("soft_commission_pct") or 0),
+            "closing_sharp_odds": float(closing) if closing else None,
+            "clv_pct": clv_pct,
+            "first_seen_at": r.get("first_seen_at"),
+            "event_start_time": r.get("event_start_time"),
+            "event_id": r.get("event_id"),
+        })
+
+    metadata = pl.DataFrame(meta_records, infer_schema_length=None, strict=False)
+
+    # Coerce numeric columns
+    for col in ("pnl", "soft_odds", "sharp_true_prob", "soft_commission_pct",
+                "closing_sharp_odds", "clv_pct"):
+        if col in metadata.columns:
+            metadata = metadata.with_columns(
+                pl.col(col).cast(pl.Float64, strict=False)
             )
-            * 100.0
-        ).alias("ev_pct")
+
+    log.info(
+        "Loaded %d training samples (%d positive, %d negative)",
+        len(labels), int(labels.sum()), int((labels == 0).sum()),
     )
 
-    return df
+    return TrainingData(
+        features=features,
+        labels=labels,
+        feature_names=list(FEATURE_NAMES),
+        metadata=metadata,
+        n_samples=len(labels),
+    )
 
 
-def _empty_frame() -> pl.DataFrame:
-    """Schema-correct empty frame so downstream code doesn't crash on
-    edge-case 'no settled bets yet' deployments."""
+def _empty_metadata() -> pl.DataFrame:
+    """Schema-correct empty DataFrame for edge cases."""
     return pl.DataFrame(
         schema={
             "id": pl.Utf8,
-            "event_id": pl.Utf8,
-            "family_id": pl.Utf8,
-            "atom_id": pl.Utf8,
-            "market_type": pl.Utf8,
-            "time_scope": pl.Utf8,
-            "competition": pl.Utf8,
-            "event_start_time": pl.Datetime,
-            "first_seen_at": pl.Datetime,
-            "sharp_provider": pl.Utf8,
-            "sharp_odds": pl.Float64,
-            "sharp_true_prob": pl.Float64,
-            "soft_provider": pl.Utf8,
-            "soft_odds": pl.Float64,
-            "soft_commission_pct": pl.Float64,
-            "closing_sharp_odds": pl.Float64,
-            "tick_count": pl.Int64,
             "outcome": pl.Utf8,
             "pnl": pl.Float64,
+            "soft_odds": pl.Float64,
+            "sharp_true_prob": pl.Float64,
+            "soft_commission_pct": pl.Float64,
+            "closing_sharp_odds": pl.Float64,
             "clv_pct": pl.Float64,
-            "placed_at": pl.Datetime,
-            "stake": pl.Float64,
-            "odds": pl.Float64,
-            "ev_pct": pl.Float64,
+            "first_seen_at": pl.Utf8,
+            "event_start_time": pl.Utf8,
+            "event_id": pl.Utf8,
         }
     )

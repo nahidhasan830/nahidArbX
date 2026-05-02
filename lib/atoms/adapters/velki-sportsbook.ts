@@ -29,6 +29,7 @@ import {
   queryGeniusSportsOdds,
   type VelkiSportsbookMarket,
 } from "../../betting/velki/events-client";
+import { logger } from "../../shared/logger";
 
 const PROVIDER: ProviderKey = "velki-sportsbook";
 
@@ -101,6 +102,11 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
       const isSuspended =
         market.apiSiteStatus !== undefined && market.apiSiteStatus !== "OPEN";
 
+      // Collect entries per market to detect atom collisions before storing
+      const marketEntries: NormalizedOddsEntry[] = [];
+      const seenAtoms = new Set<string>();
+      let hasCollision = false;
+
       for (const selection of selections) {
         if (!selection.isActive) continue;
 
@@ -110,7 +116,23 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
           market.marketName,
           data.homeTeam,
           data.awayTeam,
+          undefined, // handicap
+          ctx.resolvedSelections,
         );
+
+        if (!atomId) continue;
+
+        // Collision detection: two selections mapping to the same atom
+        // is always a mapping bug (e.g. fuzzy matching failure)
+        if (seenAtoms.has(atomId)) {
+          hasCollision = true;
+          logger.warn(
+            "VelkiSportsbook",
+            `Atom collision in "${market.marketName}": ${atomId} mapped by "${selection.selectionName}" (already seen) — skipping market`,
+          );
+          break;
+        }
+        seenAtoms.add(atomId);
 
         const entry = buildOddsEntry(
           this.providerId,
@@ -121,25 +143,32 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
           isSuspended || undefined,
         );
         if (entry) {
-          entries.push(entry);
-          // Stash min/max stake limits keyed by atom — placement modal
-          // reads these directly without a second round-trip.
-          if (
-            typeof market.min === "number" &&
-            typeof market.max === "number"
-          ) {
-            setMarketLimits(
-              this.providerId,
-              ctx.normalizedEventId,
-              entry.atom_id,
-              {
-                minBet: market.min,
-                maxBet: market.max,
-                marketId: market.id,
-                timestamp,
-              },
-            );
-          }
+          marketEntries.push(entry);
+        }
+      }
+
+      // Skip entire market on collision — all entries are suspect
+      if (hasCollision) continue;
+
+      for (const entry of marketEntries) {
+        entries.push(entry);
+        // Stash min/max stake limits keyed by atom — placement modal
+        // reads these directly without a second round-trip.
+        if (
+          typeof market.min === "number" &&
+          typeof market.max === "number"
+        ) {
+          setMarketLimits(
+            this.providerId,
+            ctx.normalizedEventId,
+            entry.atom_id,
+            {
+              minBet: market.min,
+              maxBet: market.max,
+              marketId: market.id,
+              timestamp,
+            },
+          );
         }
       }
     }

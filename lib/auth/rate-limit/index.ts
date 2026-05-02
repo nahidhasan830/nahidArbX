@@ -5,6 +5,8 @@
  * Protects against brute-force attacks.
  */
 
+import { singleton } from "@/lib/util/singleton";
+
 // ============================================
 // Types
 // ============================================
@@ -25,7 +27,10 @@ interface RateLimitConfig {
 // Storage
 // ============================================
 
-const rateLimitStore = new Map<string, RateLimitEntry>();
+const rateLimitStore = singleton(
+  "rate-limit:store",
+  () => new Map<string, RateLimitEntry>(),
+);
 
 // ============================================
 // Default Configurations
@@ -195,10 +200,14 @@ export function cleanupRateLimitStore(): number {
   return cleaned;
 }
 
-// Cleanup every 10 minutes
-if (typeof setInterval !== "undefined") {
-  setInterval(cleanupRateLimitStore, 10 * 60 * 1000);
-}
+// Cleanup every 10 minutes — singleton to prevent HMR timer duplication
+const _cleanupTimer = singleton("rate-limit:cleanup-timer", () => {
+  if (typeof setInterval !== "undefined") {
+    return setInterval(cleanupRateLimitStore, 10 * 60 * 1000);
+  }
+  return null;
+});
+void _cleanupTimer; // suppress unused warning
 
 // ============================================
 // Middleware Helper

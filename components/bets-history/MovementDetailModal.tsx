@@ -8,6 +8,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { format } from "date-fns";
 import type { OddsMovementData } from "@/lib/bets-history/types";
 import { getProviderShortName, getProviderChartHex, isSharpProvider } from "@/lib/providers/registry";
 
@@ -185,13 +186,17 @@ function ModalInner({
           borderVisible: false,
           scaleMargins: { top: 0.12, bottom: 0.12 },
         },
+        localization: {
+          timeFormatter: (time: number) => {
+            return format(new Date(time * 1000), "d MMM HH:mm:ss");
+          },
+        },
         timeScale: {
           borderVisible: false,
           timeVisible: true,
-          secondsVisible: false,
+          secondsVisible: true,
           tickMarkFormatter: (time: number) => {
-            const d = new Date(time * 1000);
-            return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+            return format(new Date(time * 1000), "HH:mm");
           },
         },
         handleScroll: false,

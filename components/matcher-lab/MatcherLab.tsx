@@ -10,12 +10,14 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  Search,
   XCircle,
   Timer,
   Zap,
   CheckCheck,
   Ban,
   ArrowUpRight,
+  Brain,
 } from "lucide-react";
 
 import {
@@ -43,6 +45,8 @@ import type {
   MlRunHistoryEntry,
   MlProgressEvent,
   PairProcessingStatus,
+  MatcherConfigResponse,
+  MatchPairDecidedBy,
 } from "./types";
 import {
   STAGE_META,
@@ -144,6 +148,11 @@ const STATUS_CONFIG: Record<
     className: "text-amber-400 animate-spin",
     label: "Scoring",
   },
+  "ai-searching": {
+    icon: Search,
+    className: "text-cyan-400 animate-pulse",
+    label: "AI Search",
+  },
   merged: {
     icon: CheckCheck,
     className: "text-emerald-400",
@@ -184,7 +193,10 @@ function AiVerifyDropdown({
   disabled: boolean;
   running: boolean;
   selectedCount?: number;
-  onVerify: (model: "lite" | "flash" | "pro") => void;
+  onVerify: (
+    engine: "gemini" | "ai-search",
+    model?: "lite" | "flash" | "pro",
+  ) => void;
   inline?: boolean;
 }) {
   return (
@@ -198,17 +210,17 @@ function AiVerifyDropdown({
             inline && "text-muted-foreground hover:text-foreground",
           )}
           disabled={disabled || running}
-          title="Verify match using Gemini"
+          title="Verify match using AI — AI Search (Groq + web) or Gemini (paid cloud)"
         >
           {running ? (
             <Loader2
               className={cn("animate-spin", inline ? "size-3.5" : "size-3")}
             />
           ) : inline ? (
-            <Bot className="size-3.5" />
+            <Brain className="size-3.5" />
           ) : (
             <>
-              <Bot className="size-3" />
+              <Brain className="size-3" />
               Verify with AI
               {selectedCount != null && selectedCount > 0 && (
                 <span className="tabular-nums">({selectedCount})</span>
@@ -217,30 +229,42 @@ function AiVerifyDropdown({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[160px] p-1">
+      <DropdownMenuContent align="end" className="w-[210px] p-1">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          Select Model
+          🔍 AI Search (Groq)
         </DropdownMenuLabel>
         <DropdownMenuItem
-          onSelect={() => onVerify("lite")}
+          onSelect={() => onVerify("ai-search")}
           className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Cheapest AI — default model"
+          title="Groq + web search grounding — free cloud LLM with web evidence"
+        >
+          <Search className="size-3.5 text-cyan-400" />
+          <span className="text-[11px]">Search + Groq</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+          ☁️ Gemini (paid)
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={() => onVerify("gemini", "lite")}
+          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
+          title="Cheapest Gemini — default model"
         >
           <Zap className="size-3.5 text-blue-400" />
           <span className="text-[11px]">Lite</span>
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={() => onVerify("flash")}
+          onSelect={() => onVerify("gemini", "flash")}
           className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Balanced"
+          title="Balanced Gemini"
         >
           <Sparkles className="size-3.5 text-violet-400" />
           <span className="text-[11px]">Flash</span>
         </DropdownMenuItem>
         <DropdownMenuItem
-          onSelect={() => onVerify("pro")}
+          onSelect={() => onVerify("gemini", "pro")}
           className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Most capable — use for stuck rows"
+          title="Most capable Gemini — use for stuck rows"
         >
           <Crown className="size-3.5 text-amber-400" />
           <span className="text-[11px]">Pro</span>
@@ -258,7 +282,6 @@ export function MatcherLab() {
   const [counts, setCounts] = useState<StageCounts>({
     inbox: 0,
     ml_queued: 0,
-    ml_resolved: 0,
     human_review: 0,
     history: 0,
   });
@@ -266,6 +289,7 @@ export function MatcherLab() {
   const [mlHistory, setMlHistory] = useState<MlRunHistoryEntry[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
+  const [config, setConfig] = useState<MatcherConfigResponse | null>(null);
   const [actingOn, setActingOn] = useState<Set<string>>(new Set());
   const [mlRunning, setMlRunning] = useState(false);
   const [pairStatuses, setPairStatuses] = useState<
@@ -358,6 +382,7 @@ export function MatcherLab() {
       setMlHistory(data.history ?? []);
       setHasMoreHistory(data.hasMoreHistory ?? false);
       setHistoryTotal(data.historyTotal ?? 0);
+      setConfig(data.config ?? null);
 
       if (!initialTabPicked.current) {
         initialTabPicked.current = true;
@@ -429,7 +454,11 @@ export function MatcherLab() {
   const [isBulkVerifying, setIsBulkVerifying] = useState(false);
 
   const handleVerifyAi = useCallback(
-    async (model: "lite" | "flash" | "pro", singleId?: string) => {
+    async (
+      engine: "gemini" | "ai-search",
+      model?: "lite" | "flash" | "pro",
+      singleId?: string,
+    ) => {
       const idsToRun = singleId ? [singleId] : [...selectedPairIds];
       if (idsToRun.length === 0) return;
 
@@ -450,23 +479,30 @@ export function MatcherLab() {
 
       for (const id of idsToRun) {
         try {
-          const result = await verifyAiMatch(id, model);
+          const result = await verifyAiMatch(id, { engine, model });
           if (result.decision === "UNCERTAIN") {
-            toast.warning("AI Uncertain", {
-              description: `Confidence: ${result.confidence}%`,
-            });
+            toast.warning(
+              `AI ${engine === "ai-search" ? "Search" : "Gemini"} Uncertain`,
+              {
+                description: `Confidence: ${result.confidence}%`,
+              },
+            );
             continue;
           }
+          const decidedBy = engine === "ai-search" ? "ai-search" : "human";
           const decision =
             result.decision === "SAME" ? "human-merge" : "human-reject";
-          await decidePair(id, decision, "human");
+          await decidePair(id, decision, decidedBy as MatchPairDecidedBy);
           if (result.decision === "SAME") merged++;
           else rejected++;
 
+          const label = engine === "ai-search" ? "AI Search" : "Gemini";
           toast.success(
-            `AI ${result.decision === "SAME" ? "Merged" : "Rejected"}`,
+            `${label} ${result.decision === "SAME" ? "Merged" : "Rejected"}`,
             {
-              description: `Confidence: ${result.confidence}%`,
+              description: result.reasoning
+                ? `${result.reasoning.slice(0, 200)} (${result.confidence}%)`
+                : `Confidence: ${result.confidence}%`,
             },
           );
         } catch (err) {
@@ -758,7 +794,7 @@ export function MatcherLab() {
               disabled={selectedCount === 0}
               running={isBulkVerifying}
               selectedCount={selectedCount}
-              onVerify={(model) => handleVerifyAi(model)}
+              onVerify={(engine, model) => handleVerifyAi(engine, model)}
             />
           )}
 
@@ -767,6 +803,7 @@ export function MatcherLab() {
             history={mlHistory}
             hasMoreHistory={hasMoreHistory}
             historyTotal={historyTotal}
+            config={config}
             onConfigSaved={loadStats}
           />
 
@@ -898,7 +935,11 @@ function buildColumns(
   pairStatuses: Map<string, PairProcessingStatus>,
   onDecide: (id: string, decision: "human-merge" | "human-reject") => void,
   aiVerifyingIds: Set<string>,
-  onVerifyAi: (model: "lite" | "flash" | "pro", id?: string) => void,
+  onVerifyAi: (
+    engine: "gemini" | "ai-search",
+    model?: "lite" | "flash" | "pro",
+    id?: string,
+  ) => void,
 ): ColumnDef<MatchPairRow, unknown>[] {
   const cols: ColumnDef<MatchPairRow, unknown>[] = [];
 
@@ -1120,16 +1161,20 @@ function buildColumns(
         id: "decision",
         header: "Decision",
         size: 100,
-        meta: { hint: "The final verdict — auto/human/AI merge or reject." },
+        meta: {
+          hint: "The final verdict — auto/human/AI merge or reject. Hover for reasoning.",
+        },
         cell: ({ row }) => {
           const d = row.original.decision;
           if (!d) return <span className="text-zinc-600">—</span>;
+          const reason = row.original.decisionReason?.slice(0, 200);
           return (
             <span
               className={cn(
-                "inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                "inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium border cursor-default",
                 DECISION_COLORS[d] ?? "bg-zinc-800 text-zinc-400",
               )}
+              title={reason ?? undefined}
             >
               {d}
             </span>
@@ -1139,12 +1184,37 @@ function buildColumns(
       {
         id: "decidedBy",
         header: "By",
-        size: 90,
+        size: 100,
         meta: { hint: "Who or what made the decision." },
         accessorFn: (row) => row.decidedBy,
-        cell: ({ row }) => (
-          <span className="text-zinc-400">{row.original.decidedBy ?? "—"}</span>
-        ),
+        cell: ({ row }) => {
+          const by = row.original.decidedBy;
+          if (!by) return <span className="text-zinc-600">—</span>;
+          const isAiSearch = by === "ai-search";
+          const isGemini = by.startsWith("gemini-");
+          const isMl = by.startsWith("ml-");
+          return (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 text-[10px]",
+                isAiSearch
+                  ? "text-cyan-400"
+                  : isGemini
+                    ? "text-sky-400"
+                    : isMl
+                      ? "text-emerald-400"
+                      : "text-zinc-400",
+              )}
+            >
+              {isAiSearch ? (
+                <Search className="size-2.5" />
+              ) : isGemini ? (
+                <Brain className="size-2.5" />
+              ) : null}
+              {by}
+            </span>
+          );
+        },
       },
       {
         id: "decidedAt",
@@ -1218,7 +1288,7 @@ function buildColumns(
               inline
               disabled={busy}
               running={aiVerifyingIds.has(id)}
-              onVerify={(model) => onVerifyAi(model, id)}
+              onVerify={(engine, model) => onVerifyAi(engine, model, id)}
             />
             <a
               href={buildSearchUrl(row.original)}

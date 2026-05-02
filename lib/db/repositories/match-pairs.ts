@@ -2,7 +2,7 @@
  * Repository for the `match_pairs` table — the ML-augmented matcher
  * pipeline's persistence layer.
  *
- * Pairs flow: inbox → ml_queued → (ml_resolved | human_review) → history.
+ * Pairs flow: inbox → ml_queued → human_review → history.
  * Every mutation uses atomic stage transitions to prevent races between
  * the background ML scheduler and operator actions.
  */
@@ -17,12 +17,7 @@ const tag = "MatchPairsRepo";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
-export type MatchPairStage =
-  | "inbox"
-  | "ml_queued"
-  | "ml_resolved"
-  | "human_review"
-  | "history";
+export type MatchPairStage = "inbox" | "ml_queued" | "human_review" | "history";
 
 export type MatchPairDecision =
   | "auto-merge"
@@ -35,6 +30,7 @@ export type MatchPairDecision =
 export type MatchPairDecidedBy =
   | "ml-bi-encoder"
   | "ml-cross-encoder"
+  | "ai-search"
   | "human"
   | "gemini-lite"
   | "gemini-flash"
@@ -332,7 +328,6 @@ export async function getStageCounts(): Promise<
   const counts: Record<MatchPairStage, number> = {
     inbox: 0,
     ml_queued: 0,
-    ml_resolved: 0,
     human_review: 0,
     history: 0,
   };

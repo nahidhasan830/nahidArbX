@@ -145,7 +145,8 @@ export function getCornersScoreCount(): number {
 
 /**
  * Cleanup old scores (older than specified age in ms)
- * Useful for cleaning up scores from ended matches
+ * Useful for cleaning up scores from ended matches.
+ * Also prunes the corners store for the same events.
  */
 export function cleanupOldScores(
   maxAgeMs: number = 3 * 60 * 60 * 1000,
@@ -156,6 +157,15 @@ export function cleanupOldScores(
   for (const [eventId, score] of scoreStore) {
     if (now - score.updatedAt > maxAgeMs) {
       scoreStore.delete(eventId);
+      cornersStore.delete(eventId); // Prune matching corners entry
+      removed++;
+    }
+  }
+
+  // Also prune orphaned corners entries (no matching score entry)
+  for (const [eventId, cs] of cornersStore) {
+    if (now - cs.updatedAt > maxAgeMs) {
+      cornersStore.delete(eventId);
       removed++;
     }
   }

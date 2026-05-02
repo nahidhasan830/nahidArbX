@@ -4,11 +4,13 @@ import { logger } from "../shared/logger";
 import { getMatchedEvents } from "../store";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import { singleton } from "@/lib/util/singleton";
+import { syncBus } from "../events/event-bus";
 
 export class PinnacleSyncService {
   private isRunning = false;
   private intervalId?: NodeJS.Timeout;
   private tokenCheckIntervalId?: NodeJS.Timeout;
+  private busUnsubscribe?: () => void;
 
   public async start() {
     if (this.isRunning) return;
@@ -28,12 +30,20 @@ export class PinnacleSyncService {
     this.intervalId = setInterval(() => {
       this.syncTrackedEntities();
     }, 60 * 1000); // Re-sync entity list every minute
+
+    // 4. React immediately when fixtures finish matching (eliminates 60s boot lag)
+    this.busUnsubscribe = syncBus.subscribe((event) => {
+      if (event.type === "fixtures:complete") {
+        this.syncTrackedEntities();
+      }
+    });
   }
 
   public stop() {
     this.isRunning = false;
     if (this.intervalId) clearInterval(this.intervalId);
     if (this.tokenCheckIntervalId) clearInterval(this.tokenCheckIntervalId);
+    if (this.busUnsubscribe) { this.busUnsubscribe(); this.busUnsubscribe = undefined; }
     pinnacleWsClient.deactivate();
     logger.info("PinnacleSync", "Stopped real-time WebSocket sync service");
   }

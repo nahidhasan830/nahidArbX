@@ -1,9 +1,4 @@
-export type MatchPairStage =
-  | "inbox"
-  | "ml_queued"
-  | "ml_resolved"
-  | "human_review"
-  | "history";
+export type MatchPairStage = "inbox" | "ml_queued" | "human_review" | "history";
 
 export type MatchPairDecision =
   | "auto-merge"
@@ -16,6 +11,7 @@ export type MatchPairDecision =
 export type MatchPairDecidedBy =
   | "ml-bi-encoder"
   | "ml-cross-encoder"
+  | "ai-search"
   | "human"
   | "gemini-lite"
   | "gemini-flash"
@@ -60,7 +56,6 @@ export interface MatchPairRow {
 export interface StageCounts {
   inbox: number;
   ml_queued: number;
-  ml_resolved: number;
   human_review: number;
   history: number;
 }
@@ -81,6 +76,9 @@ export interface MlRunHistoryEntry {
   merged: number;
   rejected: number;
   escalated: number;
+  aiSearchAttempted: number;
+  aiSearchMerged: number;
+  aiSearchRejected: number;
   status: "success" | "empty" | "service_unreachable" | "already_running";
   trigger: "scheduler" | "manual";
 }
@@ -95,6 +93,9 @@ export interface MatcherConfigResponse {
   xeEscalationEnabled: boolean;
   xeMergeThreshold: number;
   xePvalueThreshold: number;
+  aiSearchEnabled: boolean;
+  aiSearchConfidenceThreshold: number;
+  aiSearchMaxBatchSize: number;
 }
 
 export interface StatsResponse {
@@ -135,16 +136,9 @@ export const STAGE_META: Record<
   ml_queued: {
     label: "ML Queue",
     tooltip:
-      "The background scheduler moved these pairs from Inbox and is sending them through the bi-encoder (BGE-M3). Takes about 50ms per pair. If the matcher service is down, pairs bounce back to Inbox on the next tick.",
+      "Pairs being processed through the ML pipeline: bi-encoder → cross-encoder → AI Search. When the matcher service is down, pairs bounce back to Inbox on the next tick.",
     color: "text-sky-300",
     bgActive: "bg-sky-500/15 border-sky-500/30",
-  },
-  ml_resolved: {
-    label: "ML Resolved",
-    tooltip:
-      "Pairs the ML system auto-merged or auto-rejected with high confidence. These went straight to History after scoring — this stage is transient.",
-    color: "text-emerald-300",
-    bgActive: "bg-emerald-500/15 border-emerald-500/30",
   },
   human_review: {
     label: "Human Review",
@@ -191,6 +185,7 @@ export type PairProcessingStatus =
   | "queued"
   | "embedding"
   | "scoring"
+  | "ai-searching"
   | "merged"
   | "rejected"
   | "escalated"

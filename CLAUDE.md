@@ -8,18 +8,25 @@ No branches. Everything lands on the working branch (treat as `master`). Commit 
 
 ## Runtime
 
-The app runs on **localhost** (`nahidarbx.store` is inactive).
+Dual-process on **localhost** (`nahidarbx.store` is inactive). Bangladesh IP required for NineWickets/Velki providers.
+
+**Dev machine:** MacBook Pro 14″ (Nov 2024), Apple M4 Pro, 24 GB unified memory. Supports local Gemma 4 26B (MoE) via Ollama.
 
 | Component | Where | Notes |
 |-----------|-------|-------|
-| Next.js | `http://localhost:3000` | `npm run dev` |
-| Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job` | Project `nahidarbx-6e73`, region `asia-south1`. Redeploy: `bash services/optimizer/redeploy.sh` |
-| Database | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | Local: `cloud-sql-proxy --port 5432 nahidarbx-6e73:asia-south1:nahidarbx-db` |
+| Engine | `npm run engine` (tsx) | 13 background subsystems. `NAHIDARBX_ENGINE=1` |
+| Next.js | `http://localhost:3000` | `npm run dev` — web-only, read-only UI + API |
+| Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job` | Project `nahidarbx-6e73`, region `asia-south1` |
+| Database | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | Via Cloud SQL Connector (no local proxy needed) |
 
 ## Commands
 
 ```bash
-npm run dev          # Dev server (http://localhost:3000)
+npm run engine       # Start background engine (tsx engine.ts)
+npm run dev          # Start Next.js web-only (Turbopack)
+npm run dev:all      # Start both in one terminal
+npm run engine:stop  # Stop engine gracefully
+npm run kill         # Force-kill port 3000
 npm run build        # Production build — always run after changes
 npm run lint         # ESLint
 npm run test:unit    # Node built-in runner: node --import tsx --test lib/**/*.test.ts
@@ -29,15 +36,17 @@ npm run db:generate  # Drizzle codegen
 npm run db:migrate   # Drizzle migrations
 ```
 
-Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites.
+Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.**
 
 ## Architecture
 
 NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWickets Exchange/Sportsbook, BetConstruct) against Pinnacle (sharp) and flags positive-EV opportunities. Detected bets persist to Postgres for review + settlement on `/bets`.
 
-**Backend Autonomy:** The server must run autonomously and be completely sufficient to run everything smoothly (syncing, WebSocket STOMP listening, value bet detection, settlement). The frontend is strictly a read-only viewer for what is happening; do not rely on the frontend for any scheduled or background logic.
+**Dual-process architecture:** `engine.ts` runs all background subsystems (sync, WebSockets, detection, auto-place, auto-settle, Telegram). Next.js (`npm run dev`) is a thin read-only web server. `NAHIDARBX_ENGINE=1` env var signals both processes. `instrumentation.ts` calls `ensureDbReady()` first, then skips background tasks when engine flag is set.
 
-**4-phase pipeline:** Fixtures → Matching → Markets (atoms) → Value-bet detection. Background sync every 60s. Frontend polls `/api/admin` every 30s (2s when sync active).
+**DB initialization:** `ensureDbReady()` in `lib/db/client.ts` creates the Pool asynchronously via Cloud SQL Connector. Called by `instrumentation.ts` (Next.js) and `engine.ts` (standalone) before any DB access. The `db` export is a transparent Proxy that forwards to the initialized Drizzle instance.
+
+**4-phase pipeline:** Fixtures → Matching → Markets (atoms) → Value-bet detection. Event-driven reactive detection (500ms debounce).
 
 **Key terms:** `Family` = market with mutually exclusive outcomes (e.g. 1X2). `Atom` = single outcome (e.g. Home Win). Bet IDs are deterministic: `${eventId}|${familyId}|${atomId}`.
 
@@ -56,16 +65,13 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 ### Architecture & data
 
-- **`bets` is the only settlement table.** `value_bets` and `placed_bets` are dropped legacy. New code uses `bets` everywhere.
-- **Settlement pipeline is shared.** Auto-settle, manual re-settle, manual outcome application all converge on `settleBatch` / `applySettlementOutcomes`.
+- **`engine.ts`** is the standalone background process. **`instrumentation.ts`** is the Next.js boot hook — inits DB, skips background tasks when `NAHIDARBX_ENGINE=1`.
+- **`bets` is the only settlement table.** `value_bets` and `placed_bets` are dropped legacy.
+- **Settlement pipeline is shared.** All paths converge on `settleBatch` / `applySettlementOutcomes`.
 - **`singleton()` from `lib/util/singleton.ts`** for HMR-safe state. Module-level `let` breaks under Turbopack.
-- **`instrumentation.ts`** is the server-boot hook — starts sync + auto-settlement schedulers headlessly.
-- **`better-sqlite3` is auth-only.** App DB is Postgres via Drizzle.
-- **Drizzle casing is `snake_case`** — DB columns snake_case, TS camelCase via casing transform.
+- **`better-sqlite3` is auth-only.** App DB is Postgres via Drizzle (`snake_case` casing).
 - **`lib/shared/constants.ts`** is the single source for magic numbers (not `lib/config.ts`).
-- **`lib/betting/settlement-cascade.ts`** is deprecated (empty re-export).
 - **Single `.env` file** at repo root. No `.env.local` or `.env.example`.
-- **Don't assume local `DATABASE_URL` is authoritative** — prefer the real cloud path via configured SDK/connector.
 - **Middleware uses `jose`** (Edge Runtime), not `jsonwebtoken`.
 - **All external data validated with Zod.**
 
@@ -103,10 +109,12 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 ### Workflow & infrastructure
 
-- **Fix scripts: agent runs them, not the operator.** Execute directly using `.env` + ADC. Announce briefly, run, verify outcome, report. If it fails, surface error and ask for the unblocker. Extend existing `scripts/` runners. Cloud SQL DDL: `scripts/apply-pending-migrations.ts`. Destructive actions (DROP TABLE, force push) still need explicit say-so.
-- **Cloud Run: Jobs for batch work, Services for HTTP only.** `--no-cpu-throttling` does NOT prevent idle instance reaping — only `--min-instances=1` does (~$80-100/mo). The optimizer was migrated Service→Job after a sweep died mid-flight.
-- **Scrape.do proxy is SofaScore-fallback only.** Direct request first, proxy only on 403. Never route other sources (ESPN, Pinnacle, Gemini) through it. Free tier: 1,000 credits/month. `lib/settle/sources/scrapedo-proxy.ts` manages usage tracking.
-- **Post-change: always run `npm run build` + `npm run lint`** (unless trivial CSS/text). Don't run Playwright E2E.
+- **Fix scripts: agent runs them, not the operator.** Execute directly using `.env` + ADC. Verify outcome. Destructive actions need explicit say-so.
+- **Bangladesh geo-restriction.** Engine MUST run from Bangladesh network for NineWickets/Velki. Cloud Run asia-south1 will NOT work.
+- **Cloud Run: Jobs for batch work, Services for HTTP only.** `--no-cpu-throttling` does NOT prevent idle reaping.
+- **Scrape.do proxy is SofaScore-fallback only.** Direct first, proxy on 403 only. Free tier 1k credits/mo.
+- **Post-change: always run `npm run build` + `npm run lint`**. Don't run Playwright E2E.
+- **Always clean dead code and artifacts** (unused scripts, stale imports, temp files) after completing a task.
 
 ## Entity Resolution
 
@@ -152,16 +160,18 @@ Competition names normalized (country adjectives → nouns).
 
 | Path | Purpose |
 |------|---------|
+| `engine.ts` | Standalone background engine entry point |
+| `instrumentation.ts` | Next.js boot hook — DB init + conditional background tasks |
+| `lib/db/client.ts` | Async DB pool init (`ensureDbReady()`) + Proxy `db` export |
 | `lib/types.ts` | Core types (Provider, NormalizedEvent) |
 | `lib/providers/registry.ts` | Single source of truth for provider metadata |
 | `lib/store.ts` | Events store + SyncStatus |
-| `lib/config.ts` | App config (intervals, pagination) |
 | `lib/adapters/*.ts` | Provider event adapters |
 | `lib/atoms/` | Family/atom types, registry, store, fetcher, value-detector, vig-removal |
 | `lib/db/schema.ts` | Postgres `bets` + settlement tables |
 | `lib/db/repositories/bets.ts` | Upsert/list/place/settle repository |
 | `lib/auth/token-manager.ts` | Pinnacle token capture (via cloudflare-bridge) |
-| `lib/shared/cloudflare-bridge.ts` | Shared CF-solve + in-page-fetch pipeline (Pinnacle, 9W, future providers) |
+| `lib/shared/cloudflare-bridge.ts` | Shared CF-solve + in-page-fetch pipeline |
 | `lib/matching/matcher.ts` | Event matching with string-similarity |
 | `lib/background/fetcher.ts` | Sync scheduler |
 
@@ -207,7 +217,7 @@ GCP_PROJECT_ID=nahidarbx-6e73  GCP_REGION=asia-south1  OPTIMIZER_JOB_NAME=nahida
 
 ## Database
 
-Cloud SQL Postgres 16 — project `nahidarbx-6e73`, instance `nahidarbx-db` (db-f1-micro), database `nahidarbx`, user `nahidarbx_app`. Local: start `cloud-sql-proxy --port 5432 nahidarbx-6e73:asia-south1:nahidarbx-db`, then `127.0.0.1:5432` works transparently.
+Cloud SQL Postgres 16 — project `nahidarbx-6e73`, instance `nahidarbx-db` (db-f1-micro), database `nahidarbx`, user `nahidarbx_app`. Connection via `@google-cloud/cloud-sql-connector` (async init in `lib/db/client.ts`). No local cloud-sql-proxy needed.
 
 ## Cloudflare Bridge (Shared Auth Pipeline)
 

@@ -3,8 +3,9 @@
  *
  * Runs every 60 seconds (independent of the fixture/odds sync cycle).
  * Picks up all match_pairs in the `inbox` stage, batch-scores them via
- * the bi-encoder (+ optional cross-encoder escalation), and routes each
- * pair to auto-merge, auto-reject, or human_review.
+ * the bi-encoder (+ optional cross-encoder escalation), then escalates
+ * uncertain pairs to AI Search (Tier 2.5: Groq + web grounding)
+ * before routing to human_review.
  *
  * Auto-merges learn aliases through harvestMatchPair(), closing the
  * flywheel: ML merge → alias learned → string score improves →
@@ -24,8 +25,15 @@ import {
 } from "../db/repositories/match-pairs";
 import { scorePairsBatch } from "./ml-pair-scorer";
 import { harvestMatchPair } from "./entities/match-harvester";
+import {
+  normalize,
+  normalizeCompetition,
+} from "./entities/normalize";
 import type { NormalizedEvent } from "../types";
 import type { PreNormalizedNames } from "./normalize";
+import { matchBatch, type AiSearchEventInfo } from "./ai-search-client";
+import { getMatchingConfig } from "./config";
+import { recordAiActivity } from "../db/repositories/ai-activity-log";
 
 const tag = "MlScheduler";
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -305,9 +313,8 @@ async function processBatchWithProgress(
           break;
         }
         case "uncertain": {
-          await transitionStage(result.pairId, "ml_queued", "human_review");
-          escalated++;
-          verdict = "escalated";
+          // Collected below for AI Search batch escalation
+          verdict = "uncertain-pending";
           break;
         }
         default:
@@ -327,14 +334,53 @@ async function processBatchWithProgress(
       });
     }
 
+    // ── Tier 2.5: AI Search escalation for uncertain pairs ──
+    const uncertainResultsP = batchResult.results.filter(
+      (r) => r.verdict === "uncertain",
+    );
+    if (uncertainResultsP.length > 0) {
+      onProgress({
+        type: "pair_scoring",
+        pairId: `ai-search-batch`,
+        index: batchResult.results.length,
+        total: batchResult.results.length + 1,
+        score: 0,
+      });
+    }
+    const aiSearchResultP = await escalateToAiSearch(
+      uncertainResultsP.map((r) => r.pairId),
+      pairs,
+    );
+    merged += aiSearchResultP.merged;
+    rejected += aiSearchResultP.rejected;
+    escalated += aiSearchResultP.escalated;
+
+    if (aiSearchResultP.attempted > 0) {
+      onProgress({
+        type: "pair_decided",
+        pairId: `ai-search-batch`,
+        index: batchResult.results.length,
+        total: batchResult.results.length + 1,
+        verdict: `ai-search: ${aiSearchResultP.merged}m/${aiSearchResultP.rejected}r/${aiSearchResultP.escalated}h`,
+        score: 0,
+        merged,
+        rejected,
+        escalated,
+      });
+    }
+
     state.lastRunAt = new Date();
     state.lastBatchSize = pairs.length;
     state.totalProcessed += pairs.length;
 
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const durationMs = Date.now() - t0;
+    const elapsed = (durationMs / 1000).toFixed(1);
+    const aiMsgP = aiSearchResultP.attempted > 0
+      ? `, AI Search: ${aiSearchResultP.merged}m/${aiSearchResultP.rejected}r/${aiSearchResultP.escalated}h of ${aiSearchResultP.attempted}`
+      : "";
     logger.info(
       tag,
-      `Batch complete in ${elapsed}s: ${merged} merged, ${rejected} rejected, ${escalated} → human_review`,
+      `Batch complete in ${elapsed}s: ${merged} merged, ${rejected} rejected, ${escalated} → human_review${aiMsgP}`,
     );
 
     const finalResult: MlBatchResult = {
@@ -346,13 +392,34 @@ async function processBatchWithProgress(
     };
     recordHistory(finalResult);
 
+    // ── AI Activity log for ML batch ──
+    recordAiActivity({
+      system: "entity-match",
+      trigger: trigger === "manual" ? "manual" : "auto-scheduler",
+      status: "success",
+      model: batchResult.results[0]?.modelVersion ?? "bi-encoder",
+      itemCount: pairs.length,
+      durationMs,
+      costUsd: null,
+      summary: `ML batch: ${merged} merged, ${rejected} rejected, ${escalated} → review${aiMsgP}`,
+      error: null,
+      metadata: {
+        merged,
+        rejected,
+        escalated,
+        aiSearchAttempted: aiSearchResultP.attempted,
+        aiSearchMerged: aiSearchResultP.merged,
+        aiSearchRejected: aiSearchResultP.rejected,
+      },
+    }).catch(() => {});
+
     onProgress({
       type: "batch_complete",
       processed: pairs.length,
       merged,
       rejected,
       escalated,
-      durationMs: Date.now() - t0,
+      durationMs,
     });
 
     return finalResult;
@@ -512,22 +579,58 @@ async function processBatch(
         }
 
         case "uncertain": {
-          await transitionStage(result.pairId, "ml_queued", "human_review");
-          escalated++;
+          // Collected below for AI Search batch escalation
           break;
         }
       }
     }
 
+    // ── Tier 2.5: AI Search escalation for uncertain pairs ──
+    const uncertainResults = batchResult.results.filter(
+      (r) => r.verdict === "uncertain",
+    );
+    const aiSearchResult = await escalateToAiSearch(
+      uncertainResults.map((r) => r.pairId),
+      pairs,
+    );
+    merged += aiSearchResult.merged;
+    rejected += aiSearchResult.rejected;
+    escalated += aiSearchResult.escalated;
+
     state.lastRunAt = new Date();
     state.lastBatchSize = pairs.length;
     state.totalProcessed += pairs.length;
 
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const durationMs = Date.now() - t0;
+    const elapsed = (durationMs / 1000).toFixed(1);
+    const aiMsg = aiSearchResult.attempted > 0
+      ? `, AI Search: ${aiSearchResult.merged}m/${aiSearchResult.rejected}r/${aiSearchResult.escalated}h of ${aiSearchResult.attempted}`
+      : "";
     logger.info(
       tag,
-      `Batch complete in ${elapsed}s: ${merged} merged, ${rejected} rejected, ${escalated} → human_review`,
+      `Batch complete in ${elapsed}s: ${merged} merged, ${rejected} rejected, ${escalated} → human_review${aiMsg}`,
     );
+
+    // ── AI Activity log for scheduled ML batch ──
+    recordAiActivity({
+      system: "entity-match",
+      trigger: trigger === "manual" ? "manual" : "auto-scheduler",
+      status: "success",
+      model: batchResult.results[0]?.modelVersion ?? "bi-encoder",
+      itemCount: pairs.length,
+      durationMs,
+      costUsd: null,
+      summary: `ML batch: ${merged} merged, ${rejected} rejected, ${escalated} → review${aiMsg}`,
+      error: null,
+      metadata: {
+        merged,
+        rejected,
+        escalated,
+        aiSearchAttempted: aiSearchResult.attempted,
+        aiSearchMerged: aiSearchResult.merged,
+        aiSearchRejected: aiSearchResult.rejected,
+      },
+    }).catch(() => {});
 
     const result: MlBatchResult = {
       status: "success",
@@ -552,6 +655,151 @@ async function processBatch(
   } finally {
     state.running = false;
   }
+}
+
+/**
+ * Escalate uncertain pairs to the local AI Search service (Tier 2.5).
+ *
+ * Batches pairs to the `/entity-match-batch` endpoint (Groq + web
+ * search grounding). Routes based on verdict + confidence threshold:
+ *   - SAME at ≥ threshold  → auto-merge + learn aliases
+ *   - DIFFERENT at ≥ threshold → auto-reject
+ *   - Otherwise            → human_review
+ *
+ * Returns counts for the caller to aggregate. If AI Search is disabled
+ * or unreachable, all pairs go to human_review.
+ */
+async function escalateToAiSearch(
+  pairIds: string[],
+  allPairs: Awaited<ReturnType<typeof getByIds>>,
+): Promise<{
+  attempted: number;
+  merged: number;
+  rejected: number;
+  escalated: number;
+}> {
+  const result = { attempted: 0, merged: 0, rejected: 0, escalated: 0 };
+
+  if (pairIds.length === 0) return result;
+
+  const config = getMatchingConfig();
+  if (!config.aiSearchEscalation.enabled) {
+    // AI Search disabled — send all to human_review
+    for (const id of pairIds) {
+      await transitionStage(id, "ml_queued", "human_review");
+      result.escalated++;
+    }
+    return result;
+  }
+
+  result.attempted = pairIds.length;
+  const threshold = config.aiSearchEscalation.confidenceThreshold;
+
+  // Build AI Search request payloads
+  const pairMap = new Map(allPairs.map((p) => [p.id, p]));
+  const aiPairs: Array<{
+    id: string;
+    event_a: AiSearchEventInfo;
+    event_b: AiSearchEventInfo;
+  }> = [];
+
+  for (const id of pairIds) {
+    const pair = pairMap.get(id);
+    if (!pair) {
+      await transitionStage(id, "ml_queued", "human_review");
+      result.escalated++;
+      continue;
+    }
+
+    aiPairs.push({
+      id,
+      event_a: {
+        home_team: pair.eventAHomeTeam,
+        away_team: pair.eventAAwayTeam,
+        competition: pair.eventACompetition,
+        start_time: pair.eventAStartTime,
+        provider: pair.eventAProvider,
+      },
+      event_b: {
+        home_team: pair.eventBHomeTeam,
+        away_team: pair.eventBAwayTeam,
+        competition: pair.eventBCompetition,
+        start_time: pair.eventBStartTime,
+        provider: pair.eventBProvider,
+      },
+    });
+  }
+
+  if (aiPairs.length === 0) return result;
+
+  logger.info(
+    tag,
+    `Escalating ${aiPairs.length} uncertain pairs to AI Search`,
+  );
+
+  // Call AI Search batch
+  const batchResult = await matchBatch(
+    aiPairs.map((p) => ({ event_a: p.event_a, event_b: p.event_b })),
+  );
+
+  if (!batchResult) {
+    // AI Search unreachable — send all to human_review
+    logger.warn(tag, "AI Search unreachable, routing uncertain pairs to human_review");
+    for (const p of aiPairs) {
+      await transitionStage(p.id, "ml_queued", "human_review");
+      result.escalated++;
+    }
+    return result;
+  }
+
+  // Route each pair based on AI Search verdict
+  for (const verdict of batchResult.verdicts) {
+    const pair = aiPairs[verdict.pair_index];
+    if (!pair) continue;
+
+    const decision = verdict.decision;
+    const confidence = verdict.confidence;
+
+    if (decision === "SAME" && confidence >= threshold) {
+      await markDecided(
+        pair.id,
+        "ai-merge",
+        "ai-search",
+        `ai-search: ${decision} ${confidence}% — ${verdict.reasoning.slice(0, 200)}`,
+      );
+      const dbPair = pairMap.get(pair.id);
+      if (dbPair) await learnAliasesFromPair(dbPair);
+      result.merged++;
+    } else if (decision === "DIFFERENT" && confidence >= threshold) {
+      await markDecided(
+        pair.id,
+        "ai-reject",
+        "ai-search",
+        `ai-search: ${decision} ${confidence}% — ${verdict.reasoning.slice(0, 200)}`,
+      );
+      result.rejected++;
+    } else {
+      // Low confidence or UNCERTAIN → human_review
+      await transitionStage(pair.id, "ml_queued", "human_review");
+      result.escalated++;
+    }
+  }
+
+  // Handle any pairs not covered by verdicts (LLM returned fewer items)
+  const verdictIndices = new Set(batchResult.verdicts.map((v) => v.pair_index));
+  for (let i = 0; i < aiPairs.length; i++) {
+    if (!verdictIndices.has(i)) {
+      await transitionStage(aiPairs[i].id, "ml_queued", "human_review");
+      result.escalated++;
+    }
+  }
+
+  logger.info(
+    tag,
+    `AI Search resolved: ${result.merged} merged, ${result.rejected} rejected, ${result.escalated} → human_review (model: ${batchResult.model})`,
+  );
+
+  return result;
 }
 
 /**
@@ -588,15 +836,15 @@ async function learnAliasesFromPair(
     };
 
     const preNormA: PreNormalizedNames = {
-      home: pair.eventAHomeTeam.toLowerCase().trim(),
-      away: pair.eventAAwayTeam.toLowerCase().trim(),
-      competition: pair.eventACompetition.toLowerCase().trim(),
+      home: normalize(pair.eventAHomeTeam),
+      away: normalize(pair.eventAAwayTeam),
+      competition: normalizeCompetition(pair.eventACompetition),
     };
 
     const preNormB: PreNormalizedNames = {
-      home: pair.eventBHomeTeam.toLowerCase().trim(),
-      away: pair.eventBAwayTeam.toLowerCase().trim(),
-      competition: pair.eventBCompetition.toLowerCase().trim(),
+      home: normalize(pair.eventBHomeTeam),
+      away: normalize(pair.eventBAwayTeam),
+      competition: normalizeCompetition(pair.eventBCompetition),
     };
 
     await harvestMatchPair(

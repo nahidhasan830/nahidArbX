@@ -44,12 +44,6 @@ import {
 import { useBulkAnalysisPreferences } from "@/components/hooks/useBulkAnalysisPreferences";
 import { useLocalStorage } from "@/components/hooks/useLocalStorage";
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
-import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
-import {
-  strategyToValueBetPrefs,
-  valueBetPrefsMatchTemplate,
-} from "@/lib/optimizer/apply-strategy-to-prefs";
-import type { StrategyFilters } from "@/lib/optimizer/strategy-filters";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SpreadsheetToolbar } from "./SpreadsheetToolbar";
@@ -85,6 +79,8 @@ interface ValueBetSpreadsheetProps {
   isFetchingNextPage?: boolean;
   onLoadMore?: () => void;
   totalCount?: number;
+  /** Server-side authoritative value bet count (across all pages). */
+  totalValueBetCount?: number;
   searchTerm?: string;
   onSearchChange?: (value: string) => void;
 }
@@ -114,6 +110,7 @@ export function ValueBetSpreadsheet({
   isFetchingNextPage = false,
   onLoadMore,
   totalCount,
+  totalValueBetCount,
   searchTerm: controlledSearchTerm,
   onSearchChange: controlledOnSearchChange,
 }: ValueBetSpreadsheetProps) {
@@ -186,7 +183,6 @@ export function ValueBetSpreadsheet({
     searchTerm,
     selectedMarketTypes: prefs.selectedMarketTypes,
     timeFilter: prefs.timeFilter,
-    suspiciousThresholdPct: prefs.suspiciousThresholdPct,
     minEvPct: prefs.minEvPct,
   });
 
@@ -299,63 +295,6 @@ export function ValueBetSpreadsheet({
     [runtimeEnabledProviders, prefs.selectedProviders],
   );
 
-  // Strategy = filter template. Picking a strategy populates the toolbar's
-  // strategy-mapped prefs (EV cutoff, soft-odds range, providers, markets)
-  // so the user can see exactly what's being filtered and adjust further.
-  // Multi-select uses the loosest merge across selected strategies.
-  const [appliedStrategyIds, setAppliedStrategyIds] = useLocalStorage<string[]>(
-    "value-bets:applied-strategies",
-    [],
-  );
-  const { data: strategies } = useApplicableStrategies();
-  const appliedStrategyFilters = useMemo<StrategyFilters[]>(() => {
-    if (appliedStrategyIds.length === 0 || !strategies) return [];
-    return appliedStrategyIds
-      .map((id) => strategies.find((s) => s.id === id))
-      .filter((s): s is NonNullable<typeof s> => s != null)
-      .map((s) => s.filters as StrategyFilters);
-  }, [appliedStrategyIds, strategies]);
-
-  const isStrategyModified = useMemo(() => {
-    if (appliedStrategyFilters.length === 0) return false;
-    return !valueBetPrefsMatchTemplate(
-      {
-        evRangeMin: prefs.evRangeMin,
-        softOddsRangeMin: prefs.softOddsRangeMin,
-        softOddsRangeMax: prefs.softOddsRangeMax,
-        selectedSoftProviders: new Set(prefs.selectedSoftProviders),
-        selectedMarketTypes: prefs.selectedMarketTypes,
-      },
-      appliedStrategyFilters,
-    );
-  }, [
-    prefs.evRangeMin,
-    prefs.softOddsRangeMin,
-    prefs.softOddsRangeMax,
-    prefs.selectedSoftProviders,
-    prefs.selectedMarketTypes,
-    appliedStrategyFilters,
-  ]);
-
-  const handleAppliedStrategiesChange = useCallback(
-    (ids: string[]) => {
-      setAppliedStrategyIds(ids);
-      const list = strategies ?? [];
-      const picked = ids
-        .map((id) => list.find((s) => s.id === id))
-        .filter((s): s is NonNullable<typeof s> => s != null)
-        .map((s) => s.filters as StrategyFilters);
-      const patch = strategyToValueBetPrefs(picked);
-      prefs.setEvRangeMin(patch.evRangeMin);
-      prefs.setSoftOddsRangeMin(patch.softOddsRangeMin);
-      prefs.setSoftOddsRangeMax(patch.softOddsRangeMax);
-      prefs.setSelectedSoftProviders(
-        patch.selectedSoftProviders as Set<ProviderKey>,
-      );
-      prefs.setSelectedMarketTypes(patch.selectedMarketTypes);
-    },
-    [setAppliedStrategyIds, strategies, prefs],
-  );
 
   const allRows = useMemo(
     () => transformToSpreadsheetRows(events, transformFilters),
@@ -373,9 +312,6 @@ export function ValueBetSpreadsheet({
       );
     }
 
-    if (prefs.showOnlySuspicious) {
-      filtered = filtered.filter((row) => row.isSuspicious);
-    }
 
     // Event-group sort: click-to-sort reorders events without splitting
     // family groups. Each event's score is derived from its atoms.
@@ -458,7 +394,7 @@ export function ValueBetSpreadsheet({
       }
       return row;
     });
-  }, [allRows, hiddenFamilies, prefs.showOnlySuspicious, prefs.tableSort]);
+  }, [allRows, hiddenFamilies, prefs.tableSort]);
 
   const valueRowCount = useMemo(() => {
     const unique = new Set<string>();
@@ -468,13 +404,6 @@ export function ValueBetSpreadsheet({
     return unique.size;
   }, [rows]);
 
-  const suspiciousCount = useMemo(() => {
-    const unique = new Set<string>();
-    for (const row of allRows) {
-      if (row.isSuspicious) unique.add(`${row.eventId}|${row.familyId}`);
-    }
-    return unique.size;
-  }, [allRows]);
 
   // Keep the open modal's details in sync when the underlying row data
   // refreshes (e.g. after the reactive engine pushes new odds).
@@ -599,7 +528,7 @@ export function ValueBetSpreadsheet({
     <SpreadsheetToolbar
       showOnlyValue={prefs.showOnlyValue}
       onToggleShowOnlyValue={() => prefs.setShowOnlyValue(!prefs.showOnlyValue)}
-      valueRowCount={valueRowCount}
+      valueRowCount={totalValueBetCount ?? valueRowCount}
       selectedMarketTypes={prefs.selectedMarketTypes}
       onMarketsChange={(markets) =>
         prefs.setSelectedMarketTypes(new Set(markets))
@@ -626,20 +555,12 @@ export function ValueBetSpreadsheet({
       }}
       timeFilter={prefs.timeFilter}
       onTimeFilterChange={prefs.setTimeFilter}
-      showOnlySuspicious={prefs.showOnlySuspicious}
-      onToggleShowOnlySuspicious={() =>
-        prefs.setShowOnlySuspicious(!prefs.showOnlySuspicious)
-      }
-      suspiciousCount={suspiciousCount}
-      suspiciousThresholdPct={prefs.suspiciousThresholdPct}
-      onSuspiciousThresholdChange={prefs.setSuspiciousThresholdPct}
       searchTerm={searchTerm}
       onSearchChange={onSearchChange}
       totalRows={rows.length}
       onReset={() => {
         prefs.resetFilters();
         onSearchChange("");
-        setAppliedStrategyIds([]);
       }}
       hasActiveFilters={prefs.hasActiveFilters || searchTerm.length > 0}
       onSaveAsDefault={() => {
@@ -657,9 +578,6 @@ export function ValueBetSpreadsheet({
         });
       }}
       hasSavedDefaults={prefs.hasSavedDefaults}
-      appliedStrategyIds={appliedStrategyIds}
-      onAppliedStrategiesChange={handleAppliedStrategiesChange}
-      strategyTemplateModified={isStrategyModified}
     />
   );
 

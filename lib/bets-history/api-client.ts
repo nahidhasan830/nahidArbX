@@ -45,6 +45,8 @@ export type ListFilters = {
 
   /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
   minTickCount?: number;
+  /** Placement mode filter — 'auto' or 'manual'. */
+  mode?: "auto" | "manual";
   limit?: number;
   offset?: number;
 };
@@ -209,6 +211,14 @@ export const markOutcome = async (
   });
   const data = await unwrap<{ row: ValueBetRow }>(res);
   return data.row;
+};
+
+export const deleteBet = async (id: string): Promise<void> => {
+  const res = await fetch(`/api/bets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  await unwrap<{ deleted: boolean }>(res);
 };
 
 export type BulkUpdate = {

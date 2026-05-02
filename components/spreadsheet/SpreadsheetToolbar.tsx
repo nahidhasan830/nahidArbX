@@ -1,19 +1,14 @@
 "use client";
 
 import {
-  useState,
   useRef,
-  useEffect,
   useLayoutEffect,
-  useCallback,
 } from "react";
 import { ChevronDown, X, Save, RotateCcw } from "lucide-react";
 import { OddsRangeDropdown } from "@/components/filters/OddsRangeDropdown";
 import { MarketsFilter } from "@/components/filters/MarketsFilter";
 import { ProvidersFilter } from "@/components/filters/ProvidersFilter";
 import { EvRangeFilter } from "@/components/filters/EvRangeFilter";
-import { TriggerBadge } from "@/components/filters/TriggerBadge";
-import { StrategyPickerPill } from "@/components/optimizer/StrategyPickerPill";
 import type { ProviderKey } from "@/lib/providers/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +21,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { Slider } from "@/components/ui/slider";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
@@ -66,12 +60,6 @@ export interface SpreadsheetToolbarProps {
   timeFilter: TimeFilter;
   onTimeFilterChange: (value: TimeFilter) => void;
 
-  showOnlySuspicious: boolean;
-  onToggleShowOnlySuspicious: () => void;
-  suspiciousCount: number;
-  suspiciousThresholdPct: number;
-  onSuspiciousThresholdChange: (value: number) => void;
-
   searchTerm: string;
   onSearchChange: (value: string) => void;
 
@@ -82,15 +70,6 @@ export interface SpreadsheetToolbarProps {
   onSaveAsDefault: () => void;
   onClearDefaults: () => void;
   hasSavedDefaults: boolean;
-
-  /**
-   * Strategies whose filter values populate the toolbar as a template.
-   * Empty = no template applied. The picker drops its "applied" badge once
-   * `strategyTemplateModified` is true (toolbar diverged from template).
-   */
-  appliedStrategyIds: string[];
-  onAppliedStrategiesChange: (ids: string[]) => void;
-  strategyTemplateModified: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -110,11 +89,6 @@ export function SpreadsheetToolbar({
   onSoftOddsRangeChange,
   timeFilter,
   onTimeFilterChange,
-  showOnlySuspicious,
-  onToggleShowOnlySuspicious,
-  suspiciousCount,
-  suspiciousThresholdPct,
-  onSuspiciousThresholdChange,
   searchTerm,
   onSearchChange,
   totalRows,
@@ -123,9 +97,6 @@ export function SpreadsheetToolbar({
   onSaveAsDefault,
   onClearDefaults,
   hasSavedDefaults,
-  appliedStrategyIds,
-  onAppliedStrategiesChange,
-  strategyTemplateModified,
 }: SpreadsheetToolbarProps) {
   // Main search input — keep focus across re-renders
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -140,36 +111,6 @@ export function SpreadsheetToolbar({
     }
   }, [searchTerm]);
 
-  // Suspicious threshold debounce
-  const [localSuspiciousThreshold, setLocalSuspiciousThreshold] = useState(
-    suspiciousThresholdPct,
-  );
-  const suspiciousDebounceRef = useRef<
-    ReturnType<typeof setTimeout> | undefined
-  >(undefined);
-
-  useEffect(() => {
-    setLocalSuspiciousThreshold(suspiciousThresholdPct);
-  }, [suspiciousThresholdPct]);
-
-  const handleSuspiciousThresholdChange = useCallback(
-    (value: number) => {
-      setLocalSuspiciousThreshold(value);
-      if (suspiciousDebounceRef.current)
-        clearTimeout(suspiciousDebounceRef.current);
-      suspiciousDebounceRef.current = setTimeout(() => {
-        onSuspiciousThresholdChange(value);
-      }, 150);
-    },
-    [onSuspiciousThresholdChange],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (suspiciousDebounceRef.current)
-        clearTimeout(suspiciousDebounceRef.current);
-    };
-  }, []);
 
   // Prefs store 0/100 as "no constraint"; shared EvRangeFilter uses undefined
   const evMin = evRangeMin === 0 ? undefined : evRangeMin;
@@ -178,14 +119,6 @@ export function SpreadsheetToolbar({
   return (
     <div className="px-3 py-1.5 border-b border-border bg-muted/50 overflow-x-auto">
       <div className="flex items-center gap-1.5 min-w-max">
-        {/* Strategy template — populates toolbar from a saved /lab/optimisation strategy */}
-        <StrategyPickerPill
-          appliedStrategyIds={appliedStrategyIds}
-          onApply={onAppliedStrategiesChange}
-          isModified={strategyTemplateModified}
-        />
-        <Separator />
-
         {/* ── Strategy-shared filters (same as BetsHistoryToolbar) ── */}
         <MarketsFilter
           selected={Array.from(selectedMarketTypes)}
@@ -267,47 +200,6 @@ export function SpreadsheetToolbar({
           </span>
         </div>
 
-        {/* Suspicious filter */}
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <div
-              className="flex items-center gap-1.5 cursor-pointer h-7 px-1"
-              title="Show markets with suspicious odds difference"
-            >
-              <div
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Checkbox
-                  checked={showOnlySuspicious}
-                  onCheckedChange={onToggleShowOnlySuspicious}
-                />
-              </div>
-              <span className="text-[11px] font-medium">Suspicious</span>
-              <TriggerBadge active={suspiciousCount > 0}>
-                {suspiciousCount} (&gt;{localSuspiciousThreshold}%)
-              </TriggerBadge>
-            </div>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="p-3 min-w-[220px]">
-            <DropdownMenuLabel className="text-xs text-muted-foreground px-0">
-              Odds Difference Threshold
-            </DropdownMenuLabel>
-            <div className="flex items-center gap-3 pt-2">
-              <Slider
-                value={[localSuspiciousThreshold]}
-                onValueChange={([val]) => handleSuspiciousThresholdChange(val)}
-                min={10}
-                max={100}
-                step={5}
-                className="w-32"
-              />
-              <span className="text-sm tabular-nums w-10 text-right">
-                {localSuspiciousThreshold}%
-              </span>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
 
         <Separator />
 

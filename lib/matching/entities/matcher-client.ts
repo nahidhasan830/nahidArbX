@@ -114,11 +114,78 @@ async function postJson<T>(
   }
 }
 
+// ── HF Serverless Inference API (primary embedding provider) ────────
+
+const HF_INFERENCE_URL = "https://router.huggingface.co/hf-inference/models";
+
+/**
+ * Embed texts via HF Serverless Inference API (hf-inference provider).
+ * Free tier: ~300 req/hour, rate-based (no credits consumed).
+ * Returns null on any failure — caller falls through to Cloud Run.
+ */
+async function embedViaHF(
+  texts: string[],
+): Promise<number[][] | null> {
+  const token = process.env.HF_API_KEY;
+  const model = process.env.HF_EMBED_MODEL || "BAAI/bge-m3";
+  if (!token) return null;
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30_000); // 30s for cold starts
+    try {
+      const res = await fetch(`${HF_INFERENCE_URL}/${model}/pipeline/feature-extraction`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ inputs: texts }),
+        signal: ctrl.signal,
+      });
+
+      if (res.status === 429 || res.status === 503) {
+        logger.debug(tag, `HF embed ${res.status} — falling back to Cloud Run`);
+        return null;
+      }
+      if (!res.ok) {
+        logger.warn(tag, `HF embed returned ${res.status}`);
+        return null;
+      }
+
+      const vectors = (await res.json()) as number[][];
+      if (!Array.isArray(vectors) || vectors.length !== texts.length) {
+        logger.warn(tag, `HF embed returned wrong shape: ${vectors?.length} vs ${texts.length}`);
+        return null;
+      }
+      // Validate first vector dimension
+      if (vectors[0] && vectors[0].length !== EMBEDDING_DIM) {
+        logger.warn(tag, `HF embed dim mismatch: ${vectors[0].length} vs ${EMBEDDING_DIM}`);
+        return null;
+      }
+      return vectors;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    if ((err as Error).name !== "AbortError") {
+      logger.debug(tag, `HF embed failed: ${(err as Error).message}`);
+    }
+    return null;
+  }
+}
+
 /**
  * Embed a single surface form. Returns a 1024-dim vector or null if the
  * matcher service is unreachable or returns the wrong shape.
  */
 export async function embed(text: string): Promise<number[] | null> {
+  // Try HF Serverless first
+  const hfResult = await embedViaHF([text]);
+  if (hfResult?.[0] && hfResult[0].length === EMBEDDING_DIM) {
+    return hfResult[0];
+  }
+  // Fallback: Cloud Run
   const out = await postJson<{ embedding?: number[] }>("/embed", { text });
   if (!out?.embedding || out.embedding.length !== EMBEDDING_DIM) return null;
   return out.embedding;
@@ -185,6 +252,22 @@ export async function embedBatch(
   if (texts.length === 0) return new Map();
 
   const deduped = [...new Set(texts)];
+
+  // ── Primary: HF Serverless Inference API (free, ~300 RPH) ──
+  const hfVectors = await embedViaHF(deduped);
+  if (hfVectors && hfVectors.length === deduped.length) {
+    const map = new Map<string, number[]>();
+    for (let i = 0; i < deduped.length; i++) {
+      const vec = hfVectors[i];
+      if (vec && vec.length === EMBEDDING_DIM) {
+        map.set(deduped[i], vec);
+      }
+    }
+    if (map.size === deduped.length) return map;
+    // Some vectors had wrong dim — fall through to Cloud Run
+  }
+
+  // ── Fallback: Cloud Run entity-matcher (self-hosted BGE-M3) ──
   const out = await postJson<{ embeddings?: number[][] }>(
     "/embed-batch",
     { texts: deduped },

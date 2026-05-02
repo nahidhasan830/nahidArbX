@@ -450,6 +450,7 @@ export function cleanupOldMultiScores(
   for (const [eventId, entry] of multiScoreStore) {
     if (now - entry.lastUpdated > maxAgeMs) {
       multiScoreStore.delete(eventId);
+      persistedTerminalIds.delete(eventId); // Don't let this set grow forever
       removed++;
     }
   }

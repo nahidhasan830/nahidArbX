@@ -216,6 +216,11 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
       const isSuspended =
         market.apiSiteStatus && market.apiSiteStatus !== "OPEN";
 
+      // Collect entries per market to detect atom collisions before storing
+      const marketEntries: NormalizedOddsEntry[] = [];
+      const seenAtoms = new Set<string>();
+      let hasCollision = false;
+
       for (const selection of selections) {
         if (!selection.isActive) continue;
 
@@ -225,7 +230,23 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
           market.marketName,
           data.homeTeam,
           data.awayTeam,
+          selection.handicap,
+          ctx.resolvedSelections,
         );
+
+        if (!atomId) continue;
+
+        // Collision detection: two selections mapping to the same atom
+        // is always a mapping bug (e.g. fuzzy matching failure)
+        if (seenAtoms.has(atomId)) {
+          hasCollision = true;
+          logger.warn(
+            "NWSportsbook",
+            `Atom collision in "${market.marketName}": ${atomId} mapped by "${selection.selectionName}" (already seen) — skipping market`,
+          );
+          break;
+        }
+        seenAtoms.add(atomId);
 
         const entry = buildOddsEntry(
           this.providerId,
@@ -236,26 +257,33 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
           isSuspended || undefined, // Pass suspended flag
         );
         if (entry) {
-          entries.push(entry);
-          // Piggyback: record the containing market's stake limits keyed
-          // by (provider, event, atom). The UI uses this directly — no
-          // second call to the book.
-          if (
-            typeof market.min === "number" &&
-            typeof market.max === "number"
-          ) {
-            setMarketLimits(
-              this.providerId,
-              ctx.normalizedEventId,
-              entry.atom_id,
-              {
-                minBet: market.min,
-                maxBet: market.max,
-                marketId: market.id,
-                timestamp,
-              },
-            );
-          }
+          marketEntries.push(entry);
+        }
+      }
+
+      // Skip entire market on collision — all entries are suspect
+      if (hasCollision) continue;
+
+      for (const entry of marketEntries) {
+        entries.push(entry);
+        // Piggyback: record the containing market's stake limits keyed
+        // by (provider, event, atom). The UI uses this directly — no
+        // second call to the book.
+        if (
+          typeof market.min === "number" &&
+          typeof market.max === "number"
+        ) {
+          setMarketLimits(
+            this.providerId,
+            ctx.normalizedEventId,
+            entry.atom_id,
+            {
+              minBet: market.min,
+              maxBet: market.max,
+              marketId: market.id,
+              timestamp,
+            },
+          );
         }
       }
     }

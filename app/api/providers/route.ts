@@ -1,33 +1,21 @@
 /**
  * Providers API
  *
- * GET  → { providers: [{ id, displayName, enabled, runtimeEnabled, ... }] }
- *        Lists metadata + current enabled state (static + runtime).
- *
- * POST { action: "setEnabled", provider: <id>, enabled: boolean }
- *      → toggles a single provider. Also purges that provider's data from the
- *        in-memory event store so the UI updates immediately instead of waiting
- *        for the next sync.
- *
- * POST { action: "setDisabled", disabled: string[] }
- *      → replace the disabled set in one call (used for bulk sync).
+ * GET  → lists provider metadata + enabled state (from file config).
+ * POST → forwards toggle actions to engine (which owns in-memory state).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import {
   PROVIDER_REGISTRY,
   PROVIDER_IDS,
-  type ProviderKey,
 } from "@/lib/providers/registry";
 import {
   getRuntimeDisabledProviders,
   isProviderRuntimeEnabled,
 } from "@/lib/providers/runtime-state";
 import { logger } from "@/lib/shared/logger";
-import {
-  toggleProviderAction,
-  setDisabledProvidersAction,
-} from "@/lib/providers/actions";
+import { enginePost } from "@/lib/engine-proxy";
 
 export async function GET() {
   const disabled = getRuntimeDisabledProviders();
@@ -52,57 +40,36 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action } = body;
 
-    if (action === "setEnabled") {
-      const { provider, enabled } = body as {
-        provider: ProviderKey;
-        enabled: boolean;
-      };
-      if (!PROVIDER_REGISTRY[provider]) {
-        return NextResponse.json(
-          { error: `Unknown provider: ${provider}` },
-          { status: 400 },
-        );
-      }
-      const purged = toggleProviderAction(provider, enabled);
-      return NextResponse.json({
-        success: true,
-        provider,
-        enabled,
-        purgedEvents: purged,
-      });
-    }
+    // Forward to engine for in-memory purge + file config update
+    const result = await enginePost("/engine/providers", body);
+    if (result === null) {
+      // Engine unreachable — still apply file-config locally
+      const { toggleProviderAction, setDisabledProvidersAction } = await import("@/lib/providers/actions");
+      const { action } = body;
 
-    if (action === "setDisabled") {
-      const { disabled } = body as { disabled: ProviderKey[] };
-      if (!Array.isArray(disabled)) {
-        return NextResponse.json(
-          { error: "disabled must be an array" },
-          { status: 400 },
-        );
-      }
-      // Validate IDs before applying so a typo can't wedge the state
-      for (const id of disabled) {
-        if (!PROVIDER_REGISTRY[id]) {
-          return NextResponse.json(
-            { error: `Unknown provider: ${id}` },
-            { status: 400 },
-          );
+      if (action === "setEnabled") {
+        const { provider, enabled } = body;
+        if (!PROVIDER_REGISTRY[provider as keyof typeof PROVIDER_REGISTRY]) {
+          return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
         }
+        const purged = toggleProviderAction(provider, enabled);
+        return NextResponse.json({ success: true, provider, enabled, purgedEvents: purged, _engineOffline: true });
       }
-      const totalPurged = setDisabledProvidersAction(disabled);
-      return NextResponse.json({
-        success: true,
-        disabled,
-        purgedEvents: totalPurged,
-      });
+
+      if (action === "setDisabled") {
+        const { disabled } = body;
+        if (!Array.isArray(disabled)) {
+          return NextResponse.json({ error: "disabled must be an array" }, { status: 400 });
+        }
+        const totalPurged = setDisabledProvidersAction(disabled);
+        return NextResponse.json({ success: true, disabled, purgedEvents: totalPurged, _engineOffline: true });
+      }
+
+      return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 });
     }
 
-    return NextResponse.json(
-      { error: `Unknown action: ${action}` },
-      { status: 400 },
-    );
+    return NextResponse.json(result);
   } catch (err) {
     logger.error("ProvidersAPI", `POST failed: ${(err as Error).message}`);
     return NextResponse.json(

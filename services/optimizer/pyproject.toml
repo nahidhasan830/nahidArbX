@@ -1,10 +1,10 @@
 [project]
 name = "nahidarbx-optimizer"
-version = "0.2.0"
-description = "Optimisation sidecar — one Cloud Run Job execution per sweep, for nahidArbX"
+version = "0.3.0"
+description = "ML training sidecar — LightGBM + ONNX pipeline, runs as Cloud Run Job"
 requires-python = ">=3.12"
 dependencies = [
-    # Config (no longer a web framework — runs as a Cloud Run Job).
+    # Config.
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
 
@@ -13,8 +13,13 @@ dependencies = [
     "cloud-sql-python-connector[pg8000]>=1.20.0",
     "pg8000>=1.31.2",
 
-    # Optimization
-    "optuna>=4.1.0",
+    # ML — LightGBM binary classifier + ONNX export
+    "lightgbm>=4.5.0",
+    "onnx>=1.17.0",
+    "onnxmltools>=1.12.0",
+    "skl2onnx>=1.17.0",
+    "scikit-learn>=1.5.0",
+    "shap>=0.46.0",
 
     # Numerics
     "numpy>=2.1.0",
@@ -23,11 +28,8 @@ dependencies = [
     "polars>=1.15.0",
     "pyarrow>=18.0.0",
 
-    # ML — gradient boosting + calibration. Lazy-imported in app/ml/model.py
-    # so the sidecar can boot even if these fail to install in some
-    # environments. Required for runs with searchAlgorithm='ml-xgboost'.
-    "xgboost>=2.1.0",
-    "scikit-learn>=1.5.0",
+    # Cloud storage — ONNX model upload to GCS
+    "google-cloud-storage>=2.18.0",
 
     # Utilities
     "ulid-py>=1.1.0",

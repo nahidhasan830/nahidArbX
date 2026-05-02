@@ -1,4 +1,4 @@
-"""Environment-driven configuration. Read once at import time."""
+"""Environment-driven configuration for the ML training sidecar."""
 
 from __future__ import annotations
 
@@ -24,16 +24,15 @@ class Settings(BaseSettings):
     database_url: str = Field(default="", alias="DATABASE_URL")
     cloud_sql_instance: str | None = Field(default=None, alias="CLOUD_SQL_INSTANCE")
 
-    # Auth (HMAC). Empty string in dev = unauthenticated localhost.
-    optimizer_shared_secret: str = Field(default="", alias="OPTIMIZER_SHARED_SECRET")
+    # GCS bucket for ONNX model storage.
+    ml_model_bucket: str = Field(default="nahidarbx-ml-models", alias="ML_MODEL_BUCKET")
 
-    # Trial loop tunables.
-    max_concurrent_trials: int = Field(default=4, alias="OPTIMIZER_MAX_CONCURRENCY")
-    trial_persist_batch_size: int = Field(default=10, alias="OPTIMIZER_PERSIST_BATCH")
+    # ML pipeline thresholds.
+    ml_cold_start_threshold: int = Field(default=100, alias="ML_COLD_START_THRESHOLD")
 
-    # Defaults if a run row leaves them blank.
-    default_n_trials: int = Field(default=2000, alias="OPTIMIZER_DEFAULT_N_TRIALS")
-    default_rng_seed: int = Field(default=42, alias="OPTIMIZER_DEFAULT_SEED")
+    # Quality gates — model must pass both to be deployed.
+    ml_min_dsr: float = Field(default=0.8, alias="ML_MIN_DSR")
+    ml_max_pbo: float = Field(default=0.5, alias="ML_MAX_PBO")
 
     # Logging.
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

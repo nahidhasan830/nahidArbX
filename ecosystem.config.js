@@ -94,6 +94,7 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 4747,
         FETCH_INTERVAL_MS: 30000, // 30 seconds sync interval
+        NAHIDARBX_ENGINE: "1", // Web-only mode when engine runs separately
       },
 
       // ==========================================
@@ -132,6 +133,54 @@ module.exports = {
 
       // Custom health check endpoint
       // PM2 Plus feature - monitors /api/health endpoint
+    },
+
+    // ==========================================
+    // Standalone Engine Process
+    // Runs all background subsystems (sync, detection,
+    // settlement, WebSockets, Telegram) separately from
+    // the Next.js web server.
+    // ==========================================
+    {
+      name: "nahidarbx-engine",
+
+      script: "node",
+      args: "--import tsx/esm engine.ts",
+
+      cwd: __dirname,
+
+      // Auto-Healing
+      autorestart: true,
+      exp_backoff_restart_delay: 100,
+      max_restarts: 50,
+      min_uptime: "10s",
+      max_memory_restart: "2G", // Engine gets generous 2GB limit
+
+      instances: 1,
+      exec_mode: "fork",
+
+      // Logging
+      out_file: "./logs/pm2-engine-out.log",
+      error_file: "./logs/pm2-engine-error.log",
+      merge_logs: true,
+      time: true,
+
+      env: {
+        NODE_ENV: "development",
+        NAHIDARBX_ENGINE: "1",
+      },
+
+      env_production: {
+        NODE_ENV: "production",
+        NAHIDARBX_ENGINE: "1",
+      },
+
+      watch: false,
+
+      // Graceful Shutdown
+      kill_timeout: 5000,
+      wait_ready: true,
+      shutdown_with_message: true,
     },
 
     // ==========================================

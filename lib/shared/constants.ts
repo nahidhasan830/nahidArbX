@@ -32,21 +32,10 @@ export const MAX_VALUE_ODDS_AGE_MS = 180_000; // Max age of sharp odds snapshot 
 export const AUTO_PLACE_STAKE_BUCKET = 100;
 export const MIN_AUTO_PLACE_STAKE = 200;
 
-// Priority Scoring (for value bet sorting)
-export const PRIORITY_EV_CAP = 15; // Cap EV% at 15% (higher = palpable error)
-export const PRIORITY_WEIGHT_EV = 0.5; // EV weight in priority score
-export const PRIORITY_WEIGHT_KELLY = 0.3; // Kelly stake weight
-export const PRIORITY_WEIGHT_FRESHNESS = 0.2; // Odds freshness weight
-export const PRIORITY_SUSPICIOUS_PENALTY = 0.5; // Penalty for suspicious bets
-export const PRIORITY_MAX_KELLY_PCT = 10; // Max Kelly as % of bankroll for normalization
 
 // API
 export const DEFAULT_PAGE_SIZE = 1000;
 export const PINNACLE_DAYS_AHEAD = 1;
-
-// Market Diagnostics
-export const ANOMALY_IP_DEVIATION_THRESHOLD = 0.15; // 15% — suppress value bets with IP deviation above this
-export const ANOMALY_PARTICIPANT_REVERSAL_THRESHOLD = 0.30; // 30% — classify as likely participant reversal
 
 // Reactive detection
 export const DETECTION_DEBOUNCE_MS = 500; // Coalesce WS bursts before running value detection
@@ -57,3 +46,8 @@ export const ODDS_HISTORY_MAX_TICKS = 200; // Ring buffer capacity per atom/prov
 export const STEAM_MOVE_WINDOW_MS = 60_000; // Lookback window for steam detection
 export const STEAM_MOVE_MODERATE_PCT = 3; // ≥3% move in window = moderate
 export const STEAM_MOVE_STRONG_PCT = 5; // ≥5% move in ≤30s = strong
+
+// ML pipeline
+export const ML_MIN_SCORE = 0.4;           // Below this, don't auto-place
+export const ML_COLD_START_THRESHOLD = 100; // Need this many settled bets for first ML model (retrain as data grows)
+export const ML_FEATURE_COUNT = 23;        // Dimensionality of feature vector

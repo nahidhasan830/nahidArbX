@@ -32,7 +32,9 @@ import {
   pruneOddsForStaleEvents,
   getAllOddsForAtom,
 } from "@/lib/atoms/store";
-import { pruneHistoryForEvents } from "@/lib/atoms/odds-history";
+import { pruneHistoryForEvents, getHistoryStats } from "@/lib/atoms/odds-history";
+import { cleanupOldScores, getScoreCount, getCornersScoreCount } from "@/lib/scores/store";
+import { cleanupOldMultiScores, getMultiScoreCount } from "@/lib/scores/multi-source-store";
 import { detectAllValueBetsIncremental } from "@/lib/atoms/value-detector";
 import { persistValueBets } from "@/lib/db/repositories/bets";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
@@ -47,16 +49,27 @@ import { invalidateResponseCache } from "@/lib/cache/response-cache";
 import { computeDelta } from "@/lib/cache/delta";
 import { syncBus } from "@/lib/events/event-bus";
 import { buildMovementSnapshot } from "@/lib/atoms/odds-history";
+import { extractFeatures } from "@/lib/ml/features";
+import { scoreBatch } from "@/lib/ml/scorer";
+import { computeAdjustedKelly } from "@/lib/ml/staker";
 
 // ============================================
 // State — singleton for HMR safety
 // ============================================
+
+/** How often to emit heap + store-size telemetry (ms). */
+const MEMORY_TELEMETRY_INTERVAL_MS = 60_000; // 1 min
+
+/** Heap-usage fractions that trigger WARN / ERROR log levels. */
+const HEAP_WARN_RATIO = 0.70;
+const HEAP_ERROR_RATIO = 0.85;
 
 const state = singleton("reactive-detector:state", () => ({
   running: false,
   debounceTimer: null as ReturnType<typeof setTimeout> | null,
   heartbeatTimer: null as ReturnType<typeof setInterval> | null,
   cleanupTimer: null as ReturnType<typeof setInterval> | null,
+  memoryTimer: null as ReturnType<typeof setInterval> | null,
   /** True when a detection pass is currently executing. */
   passInProgress: false,
   /** True when more dirty families arrived during the current pass. */
@@ -157,6 +170,58 @@ async function runDetectionPass(): Promise<void> {
       });
 
       if (changedBets.length > 0) {
+        // ── ML feature extraction ──────────────────────────────────
+        // Compute 23-dim feature vectors for each changed bet.
+        // Feature extraction failure must never block detection.
+        const featuresMap = new Map<string, number[]>();
+        const featureStart = Date.now();
+        for (const vb of changedBets) {
+          try {
+            featuresMap.set(vb.id, extractFeatures(vb));
+          } catch {
+            // Feature extraction failure must never block detection
+          }
+        }
+        const featureMs = Date.now() - featureStart;
+        if (featureMs > 10) logger.warn("ReactiveDetector", `Feature extraction slow: ${featureMs}ms`);
+
+        // ── ML scoring ────────────────────────────────────────────
+        // Batch-score all bets with available features through the
+        // ONNX model. Without a model, scoreBatch returns 1.0 for
+        // all (pass-through). Score ALL bets — low-score bets are
+        // still valuable training data. Filtering happens at the
+        // auto-placer gate only.
+        const scoresMap = new Map<string, number>();
+        const kellyMap = new Map<string, number>();
+        try {
+          const featureArrays: number[][] = [];
+          const betIds: string[] = [];
+          for (const vb of changedBets) {
+            const features = featuresMap.get(vb.id);
+            if (features) {
+              featureArrays.push(features);
+              betIds.push(vb.id);
+            }
+          }
+          if (featureArrays.length > 0) {
+            const scores = await scoreBatch(featureArrays);
+            for (let i = 0; i < betIds.length; i++) {
+              const betId = betIds[i];
+              const score = scores[i];
+              scoresMap.set(betId, score);
+              // Compute adjusted Kelly for this bet
+              const vb = changedBets.find((b) => b.id === betId);
+              if (vb) {
+                const features = featuresMap.get(betId)!;
+                kellyMap.set(betId, computeAdjustedKelly(vb.kellyFraction, score, features));
+              }
+            }
+          }
+        } catch (err) {
+          // Scoring failure must never block detection
+          logger.warn("ReactiveDetector", `ML scoring failed: ${(err as Error).message}`);
+        }
+
         try {
           // Enrich only changed bets with movement snapshots from all active providers
           const enrichedBets = changedBets.map((vb) => {
@@ -193,7 +258,10 @@ async function runDetectionPass(): Promise<void> {
 
             return { 
               ...vb, 
-              oddsMovement: Object.keys(snapshots).length > 0 ? snapshots : undefined 
+              oddsMovement: Object.keys(snapshots).length > 0 ? snapshots : undefined,
+              mlFeatures: featuresMap.get(vb.id) ?? null,
+              mlScore: scoresMap.get(vb.id) ?? null,
+              mlKellyAdjusted: kellyMap.get(vb.id) ?? null,
             };
           });
 
@@ -225,8 +293,11 @@ async function runDetectionPass(): Promise<void> {
         }
 
         // Auto-place only changed bets (fire-and-forget per bet)
+        // Pass ML score + adjusted Kelly so the placer can use them
         for (const vb of changedBets) {
-          maybeAutoPlace(vb).catch((err) =>
+          const mlScore = scoresMap.get(vb.id);
+          const mlKellyAdjusted = kellyMap.get(vb.id);
+          maybeAutoPlace(vb, mlScore ?? undefined, mlKellyAdjusted ?? undefined).catch((err) =>
             logger.error(
               "ReactiveDetector",
               `AutoPlace failed for ${vb.id}: ${(err as Error).message}`,
@@ -336,6 +407,50 @@ async function heartbeat(): Promise<void> {
 }
 
 // ============================================
+// Memory telemetry — periodic heap + store watchdog
+// ============================================
+
+/**
+ * Logs heap usage and all in-memory store cardinalities every minute.
+ * Emits WARN at 70% heap and ERROR at 85% so we catch leaks long
+ * before they snowball into an OOM crash.
+ */
+function logMemoryTelemetry(): void {
+  const mem = process.memoryUsage();
+  const heapUsedMB = mem.heapUsed / 1024 / 1024;
+  const heapTotalMB = mem.heapTotal / 1024 / 1024;
+  const rssMB = mem.rss / 1024 / 1024;
+  const externalMB = mem.external / 1024 / 1024;
+  const heapRatio = mem.heapUsed / mem.heapTotal;
+
+  // Gather store cardinalities
+  const storeStats = getStoreStats();
+  const histStats = getHistoryStats();
+  const valueBetCount = storeGetValueBets().length;
+  const scoreCount = getScoreCount();
+  const cornersCount = getCornersScoreCount();
+  const multiScoreCount = getMultiScoreCount();
+  const dedupCacheSize = lastPersisted.size;
+
+  const line =
+    `heap=${heapUsedMB.toFixed(0)}/${heapTotalMB.toFixed(0)}MB (${(heapRatio * 100).toFixed(0)}%) ` +
+    `rss=${rssMB.toFixed(0)}MB ext=${externalMB.toFixed(0)}MB | ` +
+    `odds: ${storeStats.totalOddsRecords} atoms, ${storeStats.eventCount} events | ` +
+    `history: ${histStats.trackedAtoms} entries ≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB | ` +
+    `scores: ${scoreCount} live, ${cornersCount} corners, ${multiScoreCount} multi | ` +
+    `valueBets=${valueBetCount} dedup=${dedupCacheSize} | ` +
+    `passes=${state.totalPasses}`;
+
+  if (heapRatio >= HEAP_ERROR_RATIO) {
+    logger.error("MemoryWatch", `CRITICAL: ${line}`);
+  } else if (heapRatio >= HEAP_WARN_RATIO) {
+    logger.warn("MemoryWatch", `HIGH: ${line}`);
+  } else {
+    logger.info("MemoryWatch", line);
+  }
+}
+
+// ============================================
 // Memory cleanup — prune stale events
 // ============================================
 
@@ -349,10 +464,28 @@ function runStaleCleanup(): void {
   // Prune odds history
   const prunedHistory = pruneHistoryForEvents(activeIds);
 
-  if (prunedOdds > 0 || prunedHistory > 0) {
+  // Prune score stores — these were never cleaned up, growing unboundedly
+  const prunedScores = cleanupOldScores(3 * 60 * 60 * 1000); // 3h
+  const prunedMultiScores = cleanupOldMultiScores(3 * 60 * 60 * 1000); // 3h
+
+  // Prune the lastPersisted dedup cache — remove entries for bets
+  // that no longer exist in the active value-bet set
+  let prunedDedup = 0;
+  const currentBetIds = new Set(storeGetValueBets().map((vb) => vb.id));
+  for (const betId of lastPersisted.keys()) {
+    if (!currentBetIds.has(betId)) {
+      lastPersisted.delete(betId);
+      prunedDedup++;
+    }
+  }
+
+  const totalPruned =
+    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedDedup;
+  if (totalPruned > 0) {
+    const histStats = getHistoryStats();
     logger.info(
       "ReactiveDetector",
-      `Stale cleanup: pruned ${prunedOdds} odds events, ${prunedHistory} history entries`,
+      `Stale cleanup: odds=${prunedOdds} history=${prunedHistory} scores=${prunedScores} multiScores=${prunedMultiScores} dedup=${prunedDedup} | historyMem≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB`,
     );
   }
 }
@@ -386,9 +519,15 @@ export function startReactiveDetector(): void {
   // Start stale event cleanup
   state.cleanupTimer = setInterval(runStaleCleanup, STALE_ODDS_CLEANUP_INTERVAL_MS);
 
+  // Start memory telemetry watchdog (every 60s)
+  state.memoryTimer = setInterval(logMemoryTelemetry, MEMORY_TELEMETRY_INTERVAL_MS);
+
+  // Log initial memory baseline
+  logMemoryTelemetry();
+
   logger.info(
     "ReactiveDetector",
-    `Started (debounce=${DETECTION_DEBOUNCE_MS}ms, heartbeat=${HEARTBEAT_INTERVAL_MS / 1000}s, cleanup=${STALE_ODDS_CLEANUP_INTERVAL_MS / 60_000}min)`,
+    `Started (debounce=${DETECTION_DEBOUNCE_MS}ms, heartbeat=${HEARTBEAT_INTERVAL_MS / 1000}s, cleanup=${STALE_ODDS_CLEANUP_INTERVAL_MS / 60_000}min, memWatch=${MEMORY_TELEMETRY_INTERVAL_MS / 1000}s)`,
   );
 }
 
@@ -413,6 +552,10 @@ export function stopReactiveDetector(): void {
   if (state.cleanupTimer !== null) {
     clearInterval(state.cleanupTimer);
     state.cleanupTimer = null;
+  }
+  if (state.memoryTimer !== null) {
+    clearInterval(state.memoryTimer);
+    state.memoryTimer = null;
   }
 
   logger.info("ReactiveDetector", "Stopped");

@@ -1,7 +1,7 @@
-# Optimisation sidecar — Python 3.12 + Optuna.
+# ML training sidecar — LightGBM + ONNX pipeline.
 # Built by Cloud Build, deployed to Cloud Run Job `nahidarbx-optimizer-job`.
-# Each Job execution runs `python -m app.job`, reads RUN_ID from env, runs
-# one full optimization sweep to completion, then exits.
+# Each Job execution runs `python -m app.job`, trains a LightGBM model on
+# settled bets with ML features, exports to ONNX, uploads to GCS, and exits.
 
 FROM python:3.12-slim AS base
 

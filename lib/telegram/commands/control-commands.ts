@@ -37,7 +37,6 @@ import { refreshTokenIfNeeded } from "@/lib/auth/token-manager";
 import { reconcilePendingBets } from "@/lib/betting/ninewickets/reconciler";
 import { resetValueCache } from "@/lib/atoms/value-detector";
 import { invalidateResponseCache } from "@/lib/cache/response-cache";
-import { invalidateActiveStrategiesCache } from "@/lib/optimizer/active-strategies";
 import { toggleProviderAction } from "@/lib/providers/actions";
 import { isProviderRuntimeEnabled } from "@/lib/providers/runtime-state";
 import {
@@ -301,8 +300,8 @@ registerCommand({
   usage: "/cache reset",
   description: "Reset the value-detector + response cache.",
   explanation:
-    "Clears the in-memory value-detection cache (forces full recomputation on the next odds sync), the HTTP response cache, and the active-strategies cache. " +
-    "Useful when you've just changed settings or strategies and want to see the effect without waiting up to 60s for caches to expire naturally.",
+    "Clears the in-memory value-detection cache (forces full recomputation on the next odds sync) and the HTTP response cache. " +
+    "Useful when you've just changed settings and want to see the effect without waiting for caches to expire naturally.",
   group: "control",
   async handler({ args, reply }) {
     const action = (args[0] ?? "").toLowerCase();
@@ -312,8 +311,7 @@ registerCommand({
     }
     resetValueCache();
     invalidateResponseCache();
-    invalidateActiveStrategiesCache();
-    await reply("✅ Caches reset (value-detect, response, active-strategies).");
+    await reply("✅ Caches reset (value-detect, response).");
     return { alreadyReplied: true };
   },
 });

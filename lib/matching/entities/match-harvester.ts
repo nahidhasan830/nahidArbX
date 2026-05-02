@@ -25,6 +25,7 @@ import {
   ensureTeamEntity,
   recordObservation,
 } from "./observations";
+import type { ObservationSource } from "../../db/repositories/entities";
 import { logger } from "../../shared/logger";
 
 const tag = "MatchHarvester";
@@ -45,6 +46,7 @@ export async function harvestMatchPair(
   preNormA: PreNormalizedNames,
   preNormB: PreNormalizedNames,
   matchScore: number,
+  source: ObservationSource = "harvester",
 ): Promise<void> {
   try {
     const providerA =
@@ -102,7 +104,7 @@ export async function harvestMatchPair(
         pairedWithEntityId: homeEntity.id,
         matchScore,
         outcome: "matched",
-        source: "harvester",
+        source,
       });
     }
     if (awayEntity && variantAway !== sideA.away) {
@@ -114,7 +116,7 @@ export async function harvestMatchPair(
         pairedWithEntityId: awayEntity.id,
         matchScore,
         outcome: "matched",
-        source: "harvester",
+        source,
       });
     }
 
@@ -130,7 +132,7 @@ export async function harvestMatchPair(
         pairedWithEntityId: homeEntity.id,
         matchScore,
         outcome: "matched",
-        source: "harvester",
+        source,
       });
     }
     if (awayEntity) {
@@ -142,7 +144,7 @@ export async function harvestMatchPair(
         pairedWithEntityId: awayEntity.id,
         matchScore,
         outcome: "matched",
-        source: "harvester",
+        source,
       });
     }
 
@@ -157,7 +159,7 @@ export async function harvestMatchPair(
         pairedWithEntityId: compEntity.id,
         matchScore,
         outcome: "matched",
-        source: "harvester",
+        source,
       });
     }
   } catch (err) {

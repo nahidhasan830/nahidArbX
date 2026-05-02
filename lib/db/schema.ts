@@ -60,7 +60,6 @@ export const bets = pgTable(
       mode: "number",
     }).notNull(),
 
-
     // Soft side (the book we detected the opportunity on)
     softProvider: text().notNull(),
     softCommissionPct: numeric({
@@ -72,7 +71,6 @@ export const bets = pgTable(
 
     // Closing lines (for CLV calculation)
     closingSharpOdds: nz4(),
-
 
     // Detection lifecycle
     firstSeenAt: ts().notNull(),
@@ -87,8 +85,6 @@ export const bets = pgTable(
     currency: text().default("BDT"),
     providerTicketId: text(),
     mode: text(), // 'auto' | 'manual'
-
-
 
     // Outcome & settlement
     outcome: text().notNull().default("pending"),
@@ -106,10 +102,15 @@ export const bets = pgTable(
     // Record<string, OddsMovementData> keyed by provider ID; legacy rows
     // may contain a single OddsMovementData object directly.
     oddsMovement: jsonb().$type<
-      Record<string, import("@/lib/bets-history/types").OddsMovementData>
+      | Record<string, import("@/lib/bets-history/types").OddsMovementData>
       | import("@/lib/bets-history/types").OddsMovementData
       | null
     >(),
+
+    // ML pipeline columns
+    mlFeatures: real("ml_features").array(), // 23-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
+    mlScore: real(), // P(profitable) from LightGBM [0,1]
+    mlKellyAdjusted: real(), // Dynamic Kelly multiplier from staker
   },
   (t) => [
     index("bets_first_seen_idx").on(t.firstSeenAt.desc()),
@@ -138,6 +139,65 @@ export const bets = pgTable(
 
 export type BetRow = typeof bets.$inferSelect;
 export type NewBetRow = typeof bets.$inferInsert;
+
+/**
+ * Auto-placer decision log — captures every auto-placement attempt,
+ * whether it succeeded, was skipped, rejected, or errored. Used for
+ * diagnosing strategy middleware compliance, balance issues, and
+ * provider problems.
+ *
+ * Rows are append-only and never updated. The same bet ID can appear
+ * multiple times (one per tick that re-evaluates it).
+ */
+export const autoPlacerLog = pgTable(
+  "auto_placer_log",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    /** Timestamp of the decision. */
+    createdAt: tsNow(),
+    /** Deterministic bet ID: `${eventId}|${familyId}|${atomId}`. */
+    betId: text().notNull(),
+    /** Which gate/stage produced this outcome. */
+    gate: text().notNull(), // 'toggle' | 'adapter' | 'ml_score' | 'row_missing' | 'inflight' | 'refs' | 'account' | 'ev_floor' | 'balance' | 'market_max' | 'dedup' | 'book_reject' | 'book_error' | 'placed' | 'pending'
+    /** Outcome status. */
+    status: text().notNull(), // 'skipped' | 'rejected' | 'error' | 'placed' | 'pending'
+    /** Human-readable reason (populated for non-success outcomes). */
+    reason: text(),
+    /** Soft provider attempted. */
+    softProvider: text().notNull(),
+    /** Event teams for display. */
+    homeTeam: text(),
+    awayTeam: text(),
+    competition: text(),
+    eventStartTime: ts(),
+    /** Market context. */
+    marketType: text(),
+    atomLabel: text(),
+    /** Pricing at decision time. */
+    softOdds: nz4(),
+    sharpOdds: nz4(),
+    evPct: numeric({ precision: 6, scale: 2, mode: "number" }),
+    /** ML context (null when no model loaded). */
+    mlScore: real(),
+    /** Stake attempted (null when skipped before sizing). */
+    stake: numeric({ precision: 10, scale: 2, mode: "number" }),
+    /** Balance at decision time (null when skipped before balance check). */
+    balance: numeric({ precision: 10, scale: 2, mode: "number" }),
+    /** Booked odds (only for placed/pending). */
+    bookedOdds: nz4(),
+    /** Provider ticket ID (only for placed/pending). */
+    ticketId: text(),
+  },
+  (t) => [
+    index("auto_placer_log_created_idx").on(t.createdAt.desc()),
+    index("auto_placer_log_bet_idx").on(t.betId),
+    index("auto_placer_log_status_idx").on(t.status),
+    index("auto_placer_log_provider_idx").on(t.softProvider),
+  ],
+);
+
+export type AutoPlacerLogRow = typeof autoPlacerLog.$inferSelect;
+export type NewAutoPlacerLogRow = typeof autoPlacerLog.$inferInsert;
 
 /**
  * Settled match scores — permanent cache keyed by normalized eventId.
@@ -313,11 +373,9 @@ export const bettingSettings = pgTable("betting_settings", {
     .notNull()
     .default(2),
 
-
-  // Active strategies that gate auto-placement. Empty = global EV cutoff
-  // applies to everything. Non-empty = bets must match at least one of
-  // these strategies' filters or they're skipped.
-  activeStrategyIds: jsonb().$type<string[]>().notNull().default([]),
+  mlMinScore: numeric({ precision: 4, scale: 2, mode: "number" })
+    .notNull()
+    .default(0.4),
 
   updatedAt: tsNow(),
 });
@@ -326,255 +384,49 @@ export type BettingSettingsRow = typeof bettingSettings.$inferSelect;
 export type NewBettingSettingsRow = typeof bettingSettings.$inferInsert;
 
 /**
- * Optimisation — parameter-optimization run.
+ * ML Models — lifecycle tracking for LightGBM models.
  *
- * Each row is one user-submitted (or scheduled) sweep over a search space.
- * The Next.js side creates the row with status='queued'; the Python sidecar
- * picks it up, sets status='running', writes child trials, and eventually
- * sets status='completed' with a populated `summary`.
+ * Each row represents a trained model version. The training pipeline
+ * (Python sidecar on Cloud Run Job) writes rows here after CPCV
+ * evaluation. Only models passing quality gates (DSR > 0.8, PBO < 0.5)
+ * get status='deployed'. The Node.js ONNX scorer watches for the latest
+ * deployed model and hot-reloads it.
  */
-export const optimizationRuns = pgTable(
-  "optimization_runs",
+export const mlModels = pgTable(
+  "ml_models",
   {
     id: text().primaryKey(),
-    name: text().notNull(),
-    status: text().notNull().default("queued"), // queued | running | completed | failed | cancelled
-    searchSpace: jsonb().notNull(),
-    searchAlgorithm: text().notNull(), // ensemble | tpe | nsga2 | random
-    nTrialsTarget: integer().notNull(),
-    nTrialsDone: integer().notNull().default(0),
-    rngSeed: integer().notNull(),
-    cvStrategy: jsonb().notNull(), // { type, n_groups, n_test_groups, embargo_pct }
-    // Pre-search data scope filter — narrows which historical bets enter the
-    // analysis at all (vs. `searchSpace` which tunes within the included set).
-    // Default = empty object = include every settled bet. Shape:
-    //   {
-    //     excludeSoftProviders?: string[],   // e.g. ["ninewickets-exchange"]
-    //     includeSoftProviders?: string[],   // takes precedence if both set
-    //     excludeMarketTypes?: string[],     // e.g. ["BTTS"]
-    //     includeMarketTypes?: string[],
-    //     eventStartFrom?: string (ISO),     // e.g. "2026-01-01T00:00:00Z"
-    //     eventStartTo?: string (ISO),
-    //     placedOnly?: boolean,              // if true: WHERE placed_at IS NOT NULL
-    //   }
-    dataFilters: jsonb().notNull().default({}),
-    baselineMetrics: jsonb(), // global config evaluated on same splits
-    summary: jsonb(), // pareto frontier, DSR, PBO, top-K (populated at end)
-    bestTrialId: text(),
-    error: text(),
-    startedAt: ts(),
-    completedAt: ts(),
-    /** If true, the notifier tick fires a Telegram ping when the run hits a
-     *  terminal status. Manual runs default true; scheduled runs inherit
-     *  this from the schedule's own `notify_on_complete` at fire time. */
-    notifyOnComplete: boolean().notNull().default(true),
-    /** If true, the notifier tick fires a Telegram ping the moment the sidecar
-     *  picks the run up (status → running). Independent of `notify_on_complete`
-     *  — operators can opt into the start-ping only, the end-ping only, both,
-     *  or neither. Manual runs default true; scheduled runs inherit this from
-     *  the schedule's own `notify_on_start` at fire time. */
-    notifyOnStart: boolean().notNull().default(true),
-    /** Idempotency stamp — the notifier tick sets this when it sends the
-     *  "run completed" Telegram ping so it never sends twice for the same run. */
-    notifiedAt: ts(),
-    /** Idempotency stamp for the "run started" Telegram ping. Set once when
-     *  the sidecar picks the run up (status → running) so the notifier tick
-     *  doesn't re-send on subsequent polls. */
-    startedNotifiedAt: ts(),
-    createdBy: text(),
-    createdAt: tsNow(),
-  },
-  (t) => [
-    index("optimization_runs_status_idx").on(t.status),
-    index("optimization_runs_created_idx").on(t.createdAt.desc()),
-    // Queue lookup for the scheduler poll.
-    index("optimization_runs_queued_idx")
-      .on(t.createdAt)
-      .where(sql`${t.status} = 'queued'`),
-    // Notifier-tick claim query: pending "run completed" Telegram pings.
-    index("optimization_runs_notify_pending_idx")
-      .on(t.completedAt)
-      .where(
-        sql`${t.notifyOnComplete} = true AND ${t.notifiedAt} IS NULL AND ${t.status} IN ('completed','failed','cancelled')`,
-      ),
-    // Notifier-tick claim query: pending "run started" Telegram pings.
-    index("optimization_runs_started_notify_pending_idx")
-      .on(t.startedAt)
-      .where(
-        sql`${t.notifyOnStart} = true AND ${t.startedAt} IS NOT NULL AND ${t.startedNotifiedAt} IS NULL`,
-      ),
-  ],
-);
-
-export type OptimizationRunRow = typeof optimizationRuns.$inferSelect;
-export type NewOptimizationRunRow = typeof optimizationRuns.$inferInsert;
-
-/**
- * Optimisation — single trial result inside a run.
- *
- * One row per (sampled config × full CV evaluation). The Python sidecar
- * writes these as the trial loop progresses; the Next.js UI reads them
- * for live progress + the final Pareto / trial table.
- */
-export const optimizationTrials = pgTable(
-  "optimization_trials",
-  {
-    id: text().primaryKey(),
-    runId: text()
-      .notNull()
-      .references(() => optimizationRuns.id, { onDelete: "cascade" }),
-    trialIndex: integer().notNull(),
-    sampler: text().notNull(), // random | tpe | nsga2
-    params: jsonb().notNull(),
-    foldMetrics: jsonb().notNull(), // per-CPCV-path metrics
-
-    // Aggregated OOS metrics (precomputed for fast sort/filter in UI).
-    // Widened to numeric(14,4) in migration 0024 after prod observed
-    // Sharpe > 10^4 on noisy folds overflowing numeric(8,4). The
-    // sidecar also NULLs inf/nan values before insert — both defences
-    // cooperate.
+    version: integer().notNull(),
+    status: text().notNull().default("training"), // training|validated|deployed|retired
+    modelType: text().notNull().default("lightgbm"),
+    trainingSamples: integer().notNull(),
+    featureCount: integer().notNull().default(23),
+    trainingStartedAt: ts().notNull(),
+    trainingCompletedAt: ts(),
     oosRoiMean: numeric({ precision: 14, scale: 4, mode: "number" }),
-    oosRoiCiLow: numeric({ precision: 14, scale: 4, mode: "number" }),
-    oosRoiCiHigh: numeric({ precision: 14, scale: 4, mode: "number" }),
-    oosSortino: numeric({ precision: 14, scale: 4, mode: "number" }),
-    oosSharpe: numeric({ precision: 14, scale: 4, mode: "number" }),
+    oosAccuracy: numeric({ precision: 6, scale: 4, mode: "number" }),
+    oosAucRoc: numeric({ precision: 6, scale: 4, mode: "number" }),
+    oosLogLoss: numeric({ precision: 8, scale: 6, mode: "number" }),
     deflatedSharpe: numeric({ precision: 14, scale: 4, mode: "number" }),
-    probabilisticSharpe: numeric({ precision: 6, scale: 4, mode: "number" }),
-    maxDrawdown: numeric({ precision: 14, scale: 4, mode: "number" }),
-    sampleSize: integer(),
-    compositeScore: numeric({ precision: 14, scale: 4, mode: "number" }),
-    onPareto: boolean().notNull().default(false),
-    createdAt: tsNow(),
-  },
-  (t) => [
-    uniqueIndex("optimization_trials_run_index_idx").on(t.runId, t.trialIndex),
-    index("optimization_trials_score_idx").on(t.runId, t.compositeScore.desc()),
-    index("optimization_trials_pareto_idx")
-      .on(t.runId)
-      .where(sql`${t.onPareto} = true`),
-  ],
-);
-
-export type OptimizationTrialRow = typeof optimizationTrials.$inferSelect;
-export type NewOptimizationTrialRow = typeof optimizationTrials.$inferInsert;
-
-/**
- * Optimisation — promoted live strategy.
- *
- * A strategy is a configuration that the value-detector consults on every
- * tick. When a detected value bet matches the strategy's `filters`, the
- * bet is tagged with `strategy_id` and the strategy's `sizing` overrides
- * the global Kelly settings.
- *
- * Lifecycle: candidate → live → paused → retired.
- *
- * `filters` JSON shape mirrors the search-space dimension naming so a
- * trial config can be promoted directly:
- *   {
- *     min_ev_pct?: number,
-
- *     min_sharp_prob?: number,
- *     odds_lo?: number, odds_hi?: number,
- *     min_tick_count?: number,
- *     pre_match_only?: boolean,
- *     soft_providers?: string[],   // include-only
- *     market_types?: string[],     // include-only
- *   }
- *
- * `sizing` JSON: { kelly_fraction, kelly_cap_pct, staking_scheme }
- *
- * `metrics_snapshot` is the OOS metrics + CI captured at promotion time.
- * `live_metrics` is recomputed nightly from `bets WHERE strategy_id = X`.
- */
-export const optimizationStrategies = pgTable(
-  "optimization_strategies",
-  {
-    id: text().primaryKey(),
-    name: text().notNull(),
-    description: text(),
-    source: text().notNull().default("optimizer"), // optimizer | manual
-    sourceRunId: text(),
-    sourceTrialId: text(),
-    filters: jsonb().notNull(),
-    sizing: jsonb().notNull(),
-    metricsSnapshot: jsonb().notNull(),
-    liveMetrics: jsonb(),
-    /**
-     * Soft-delete timestamp. NULL = strategy is available (selectable as a
-     * spreadsheet filter and as a settings-level auto-place gate). Non-null
-     * = archived; hidden from default lists, can be restored.
-     */
+    pbo: numeric({ precision: 6, scale: 4, mode: "number" }),
+    calibrationError: numeric({ precision: 8, scale: 6, mode: "number" }),
+    featureImportance: jsonb(),
+    modelArtifactPath: text(),
+    trainingReport: jsonb(),
+    deployedAt: ts(),
     retiredAt: ts(),
-    createdBy: text(),
     createdAt: tsNow(),
-    updatedAt: tsNow(),
   },
   (t) => [
-    index("optimization_strategies_created_idx").on(t.createdAt.desc()),
-    index("optimization_strategies_active_idx")
-      .on(t.id)
-      .where(sql`${t.retiredAt} IS NULL`),
+    index("ml_models_status_idx").on(t.status),
+    index("ml_models_deployed_idx")
+      .on(t.deployedAt.desc())
+      .where(sql`${t.status} = 'deployed'`),
   ],
 );
 
-export type OptimizationStrategyRow =
-  typeof optimizationStrategies.$inferSelect;
-export type NewOptimizationStrategyRow =
-  typeof optimizationStrategies.$inferInsert;
-
-/**
- * Optimisation — recurring optimization run.
- *
- * Defines a saved configuration that the optimizer scheduler will fire on
- * a schedule (e.g. "every day at 03:00 Asia/Dhaka"). Each fire creates a
- * fresh row in `optimization_runs` from this schedule's snapshot, so a
- * schedule's history = the runs that point back at its id via
- * optimization_runs.created_by = `schedule:<id>`.
- *
- * `frequency` is a discriminated tag matching the lib/optimizer/schedules.ts
- * Frequency union (preset list — not a free-form cron string for v1):
- *   { kind: "every_n_hours", hours: 1|2|4|6|12 }
- *   { kind: "daily",         hourLocal: 0..23 }
- *   { kind: "weekly",        dayOfWeek: 0..6, hourLocal: 0..23 }
- *
- * `nextFireAt` is the absolute UTC instant the next firing happens — the
- * scheduler tick polls `WHERE enabled AND next_fire_at <= now()` and
- * recomputes after each fire.
- */
-export const optimizationSchedules = pgTable(
-  "optimization_schedules",
-  {
-    id: text().primaryKey(),
-    name: text().notNull(),
-    description: text(),
-    enabled: boolean().notNull().default(true),
-    timezone: text().notNull().default("Asia/Dhaka"),
-    frequency: jsonb().notNull(), // see comment above
-    nTrialsTarget: integer().notNull().default(2000),
-    searchAlgorithm: text().notNull().default("ensemble"), // ensemble|tpe|nsga2|random
-    searchSpace: jsonb().notNull().default({}),
-    cvStrategy: jsonb().notNull(),
-    dataFilters: jsonb().notNull().default({}),
-    notifyOnComplete: boolean().notNull().default(false),
-    notifyOnStart: boolean().notNull().default(false),
-    lastFireAt: ts(),
-    lastRunId: text(),
-    nextFireAt: ts().notNull(),
-    createdBy: text(),
-    createdAt: tsNow(),
-    updatedAt: tsNow(),
-  },
-  (t) => [
-    index("optimization_schedules_due_idx")
-      .on(t.nextFireAt)
-      .where(sql`${t.enabled} = true`),
-    index("optimization_schedules_created_idx").on(t.createdAt.desc()),
-  ],
-);
-
-export type OptimizationScheduleRow = typeof optimizationSchedules.$inferSelect;
-export type NewOptimizationScheduleRow =
-  typeof optimizationSchedules.$inferInsert;
+export type MlModelRow = typeof mlModels.$inferSelect;
+export type NewMlModelRow = typeof mlModels.$inferInsert;
 
 /**
  * Entity Resolution — replaces the JSON alias store.
@@ -742,7 +594,7 @@ export type NewEntityDecisionBlocklistRow =
 
 /**
  * ML-Augmented Matcher Pipeline — event pairs flowing through a 4-stage
- * state machine: inbox → ml_queued → ml_resolved/human_review → history.
+ * state machine: inbox → ml_queued → human_review → history.
  *
  * Replaces the file-backed near-matches.json + ai-decision-cache.json.
  */
@@ -750,7 +602,7 @@ export const matchPairs = pgTable(
   "match_pairs",
   {
     id: text().primaryKey(),
-    stage: text().notNull(), // 'inbox' | 'ml_queued' | 'ml_resolved' | 'human_review' | 'history'
+    stage: text().notNull(), // 'inbox' | 'ml_queued' | 'human_review' | 'history'
 
     // Event A snapshot
     eventAProvider: text().notNull(),
@@ -835,6 +687,14 @@ export const matcherConfig = pgTable("matcher_config", {
   xeMergeThreshold: real("xe_merge_threshold").notNull().default(0.9),
   xePvalueThreshold: real("xe_pvalue_threshold").notNull().default(0.05),
 
+  aiSearchEnabled: boolean("ai_search_enabled").notNull().default(true),
+  aiSearchConfidenceThreshold: integer("ai_search_confidence_threshold")
+    .notNull()
+    .default(70),
+  aiSearchMaxBatchSize: integer("ai_search_max_batch_size")
+    .notNull()
+    .default(20),
+
   updatedAt: ts().notNull().defaultNow(),
 });
 
@@ -855,6 +715,9 @@ export const matcherRuns = pgTable(
     merged: integer().notNull().default(0),
     rejected: integer().notNull().default(0),
     escalated: integer().notNull().default(0),
+    aiSearchAttempted: integer("ai_search_attempted").notNull().default(0),
+    aiSearchMerged: integer("ai_search_merged").notNull().default(0),
+    aiSearchRejected: integer("ai_search_rejected").notNull().default(0),
     status: text().notNull().default("running"),
     trigger: text().notNull().default("scheduler"),
     errorMessage: text("error_message"),
@@ -863,8 +726,6 @@ export const matcherRuns = pgTable(
 );
 
 export type MatcherRunRow = typeof matcherRuns.$inferSelect;
-
-
 
 /**
  * Persistent Telegram command history
@@ -892,16 +753,95 @@ export type TelegramCommandHistoryRow =
 export type NewTelegramCommandHistoryRow =
   typeof telegramCommandHistory.$inferInsert;
 
+/**
+ * AI Search logs — append-only audit trail for every call through the
+ * ai-search Python service proxy. Written by the Next.js API route so
+ * the Python service stays stateless.
+ *
+ * `endpoint` is the technical path ("search", "entity-match", etc.).
+ * `service` is a human-friendly caller label ("Playground", "Auto Matcher",
+ * "Auto Settler") so the Logs DataTable is instantly scannable.
+ */
+export const aiSearchLogs = pgTable(
+  "ai_search_logs",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    createdAt: tsNow(),
+    /** Technical endpoint: 'search' | 'entity-match' | 'grounded-query' | 'verify-settlement' */
+    endpoint: text().notNull(),
+    /** Human-readable caller: 'Playground' | 'Auto Matcher' | 'Auto Settler' | 'Manual' */
+    service: text().notNull().default("Manual"),
+    status: text().notNull(), // 'success' | 'error'
+    providerUsed: text(),
+    modelUsed: text(),
+    query: text(), // search query or summary of input
+    durationMs: integer(),
+    resultCount: integer(),
+    error: text(),
+    requestBody: jsonb(), // truncated request payload
+    responseSummary: jsonb(), // truncated response (decision, confidence, etc.)
+  },
+  (t) => [
+    index("ai_search_logs_created_idx").on(t.createdAt.desc()),
+    index("ai_search_logs_status_idx").on(t.status),
+    index("ai_search_logs_service_idx").on(t.service),
+  ],
+);
+
+export type AiSearchLogRow = typeof aiSearchLogs.$inferSelect;
+export type NewAiSearchLogRow = typeof aiSearchLogs.$inferInsert;
+
+/**
+ * Unified AI activity log — append-only audit trail for every AI
+ * operation across all subsystems: settlement (Gemini Tier 3),
+ * grounding lab (Groq), entity matching, and analysis.
+ *
+ * Gives the operator a single "AI Activity" page to inspect spend,
+ * latency, outcomes, and error patterns without jumping between
+ * disparate log views.
+ */
+export const aiActivityLog = pgTable(
+  "ai_activity_log",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    createdAt: tsNow(),
+    /** AI system: 'settlement' | 'grounding' | 'entity-match' | 'analysis' | 'propose' */
+    system: text().notNull(),
+    /** Triggering action: 'manual' | 'auto-scheduler' | 'playground' | 'batch' */
+    trigger: text().notNull().default("manual"),
+    /** 'success' | 'error' | 'partial' */
+    status: text().notNull(),
+    /** AI model used: 'gemini-lite' | 'gemini-flash' | 'gemini-pro' | etc */
+    model: text(),
+    /** Number of items processed (bets settled, queries run, pairs matched) */
+    itemCount: integer(),
+    /** Duration of the AI operation in ms */
+    durationMs: integer(),
+    /** Estimated cost in USD (null for free/local models) */
+    costUsd: numeric({ precision: 8, scale: 5, mode: "number" }),
+    /** Human-readable summary of what happened */
+    summary: text(),
+    /** Detailed error message (only on failure) */
+    error: text(),
+    /** Optional structured metadata (tier hits, scores, etc.) */
+    metadata: jsonb(),
+  },
+  (t) => [
+    index("ai_activity_log_created_idx").on(t.createdAt.desc()),
+    index("ai_activity_log_system_idx").on(t.system),
+    index("ai_activity_log_status_idx").on(t.status),
+  ],
+);
+
+export type AiActivityLogRow = typeof aiActivityLog.$inferSelect;
+export type NewAiActivityLogRow = typeof aiActivityLog.$inferInsert;
+
 export const schema = {
   bets,
   matchScores,
   settlementRuns,
   settlementDisputes,
   bettingSettings,
-  optimizationRuns,
-  optimizationTrials,
-  optimizationSchedules,
-  optimizationStrategies,
   entities,
   entityNames,
   nameObservations,
@@ -910,4 +850,7 @@ export const schema = {
   matcherConfig,
   matcherRuns,
   telegramCommandHistory,
+  mlModels,
+  aiSearchLogs,
+  aiActivityLog,
 };

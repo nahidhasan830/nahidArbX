@@ -26,6 +26,7 @@ import {
   type AiMode,
   type AiModel,
 } from "./cost-guard";
+import { recordAiActivity } from "../db/repositories/ai-activity-log";
 
 export interface SettleBatchOptions {
   /**
@@ -81,6 +82,7 @@ export async function settleBatch(
   ids: string[],
   options: SettleBatchOptions = {},
 ): Promise<SettleBatchResult> {
+  const startMs = Date.now();
   const rows = await getBetsByIds(ids);
   const found = new Set(rows.map((r) => r.id));
   const missing = ids.filter((id) => !found.has(id));
@@ -158,8 +160,9 @@ export async function settleBatch(
   });
 
   const unresolvedEvents = telemetry.unresolved;
+  const durationMs = Date.now() - startMs;
 
-  return {
+  const result: SettleBatchResult = {
     proposals,
     missing,
     telemetry: {
@@ -169,4 +172,32 @@ export async function settleBatch(
       unresolvedEvents,
     },
   };
+
+  // ── Fire-and-forget AI activity log ──
+  const hasErrors = proposals.some((p) => "error" in p);
+  recordAiActivity({
+    system: "settlement",
+    trigger: willUseAi ? "manual" : "auto-scheduler",
+    status: hasErrors ? "partial" : settledDeterministically > 0 ? "success" : "error",
+    model: willUseAi ? `gemini-${model}` : null,
+    itemCount: rows.length,
+    durationMs,
+    costUsd: null,
+    summary: `Settled ${settledDeterministically}/${rows.length} bets (${unresolvedEvents} unresolved events)`,
+    error: null,
+    metadata: {
+      tier0_hits: telemetry.tier0_hits,
+      tier1_hits: telemetry.tier1_hits,
+      tier2_hits: telemetry.tier2_hits,
+      tier3_hits: telemetry.tier3_hits,
+      tier4_hits: telemetry.tier4_hits,
+      unsupported,
+      unresolvedEvents,
+      forceAi: willUseAi,
+      bypassCache: options.bypassCache === true,
+    },
+  }).catch(() => {}); // never block settlement
+
+  return result;
 }
+

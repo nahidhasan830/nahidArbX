@@ -1,15 +1,8 @@
-"""Shared fixtures for AlphaSearch optimizer correctness tests.
+"""Shared fixtures for ML pipeline correctness tests.
 
-The sidecar's pure functions (`evaluate_trial`, `make_cpcv_splits`,
-`stationary_bootstrap_ci`, `pbo_score`, …) all take a Polars DataFrame
-and a config dict. We build synthetic DataFrames here so tests don't
-touch Postgres and the answers are controllable.
-
-Key fixture: `synthetic_bets(n, true_edge, seed)` generates rows whose
-P(win) = 1/odds + true_edge. With `true_edge=0`, no config can be
-profitable — the optimizer's statistical safeguards must report that
-honestly (placebo test). With `true_edge=0.03`, every reasonable
-config should find a ~3% edge (known-answer test).
+Generates synthetic training data with known signal characteristics
+so we can verify the full LightGBM → ONNX pipeline produces correct
+outputs without touching Postgres.
 """
 
 from __future__ import annotations
@@ -18,132 +11,130 @@ import numpy as np
 import polars as pl
 import pytest
 
-
-# Schema kept in sync with loader.py's Polars output. Any new column the
-# evaluator/CPCV reads must be added here.
-_SCHEMA = {
-    "id": pl.Utf8,
-    "event_start_time": pl.Datetime(time_unit="us"),
-    "soft_provider": pl.Utf8,
-    "market_type": pl.Utf8,
-    "time_scope": pl.Utf8,
-    "soft_odds": pl.Float64,
-    "soft_commission_pct": pl.Float64,
-    "sharp_true_prob": pl.Float64,
-    "tick_count": pl.Int64,
-    "ev_pct": pl.Float64,
-    "outcome": pl.Utf8,
-    "pnl": pl.Float64,
-    "closing_odds": pl.Float64,
-    "clv_pct": pl.Float64,
-}
+from app.feature_names import FEATURE_COUNT, FEATURE_NAMES
+from app.loader import TrainingData
 
 
-def make_synthetic_bets(
+def make_synthetic_training_data(
     n: int = 1_000,
     *,
-    true_edge: float = 0.0,
+    true_edge: float = 0.03,
     seed: int = 42,
-) -> pl.DataFrame:
-    """Generate `n` synthetic bets, sorted chronologically.
+) -> TrainingData:
+    """Generate synthetic training data with known signal.
 
-    ``true_edge`` controls the real-world win probability:
-        P(win) = 1/soft_odds + true_edge
-    so at ``true_edge=0`` the bets have zero edge (pure market price)
-    and at ``true_edge=0.03`` every bet is +3% EV vs a fair book.
+    ``true_edge`` controls how much the positive class is inflated:
+    features that matter (ev_pct, sharp_true_prob, etc.) will have
+    a detectable signal that LightGBM should learn.
 
-    Rows carry all columns the evaluator expects. Outcome is sampled
-    from the true win-probability; `pnl` is filled exactly the way
-    `_compute_pnl` does, so any non-zero ROI the optimizer reports must
-    come from a real signal in the data, not from simulation drift.
+    Returns a TrainingData container matching the real loader's output.
     """
     rng = np.random.default_rng(seed)
 
-    # Monotonic timestamps over 180 days — shape matches real bet history.
-    base_ns = np.int64(1_735_689_600_000_000_000)  # 2025-01-01 UTC in ns
-    day_ns = np.int64(86_400_000_000_000)
-    ts = base_ns + rng.integers(0, 180 * day_ns, size=n)
-    ts.sort()
+    # Generate realistic feature values
+    features = np.zeros((n, FEATURE_COUNT), dtype=np.float32)
 
-    soft_odds = rng.uniform(1.5, 5.0, size=n)
-    fair_prob = 1.0 / soft_odds
-    win_prob = np.clip(fair_prob + true_edge, 0.0, 0.99)
-    outcome_bool = rng.random(n) < win_prob
-    outcome = np.where(outcome_bool, "won", "lost")
+    # Feature 0: ev_pct — the primary signal
+    features[:, 0] = rng.uniform(1.0, 15.0, size=n)
+    # Feature 1: sharp_true_prob
+    features[:, 1] = rng.uniform(0.15, 0.85, size=n)
+    # Feature 2: soft_odds
+    features[:, 2] = rng.uniform(1.3, 6.0, size=n)
+    # Feature 3: adjusted_soft_odds
+    features[:, 3] = features[:, 2] * rng.uniform(0.97, 1.0, size=n)
+    # Feature 4: implied_prob_gap
+    features[:, 4] = features[:, 1] - 1.0 / features[:, 2]
+    # Feature 5: soft_odds_age_ms
+    features[:, 5] = rng.exponential(5000, size=n)
+    # Feature 6: tick_count
+    features[:, 6] = rng.integers(1, 50, size=n).astype(np.float32)
+    # Feature 7: time_to_kickoff_min
+    features[:, 7] = rng.uniform(5, 600, size=n)
+    # Feature 8: movement_pct_sharp
+    features[:, 8] = rng.normal(0, 1.5, size=n)
+    # Feature 9: movement_pct_soft
+    features[:, 9] = rng.normal(0, 2.0, size=n)
+    # Feature 10: steam_move_sharp (binary)
+    features[:, 10] = (rng.random(n) < 0.1).astype(np.float32)
+    # Feature 11: steam_move_soft (binary)
+    features[:, 11] = (rng.random(n) < 0.15).astype(np.float32)
+    # Feature 12: sharp_direction
+    features[:, 12] = rng.choice([-1, 0, 1], size=n).astype(np.float32)
+    # Feature 13: soft_direction
+    features[:, 13] = rng.choice([-1, 0, 1], size=n).astype(np.float32)
+    # Feature 14: convergence_rate
+    features[:, 14] = rng.normal(-0.5, 1.0, size=n)
+    # Feature 15: tick_velocity
+    features[:, 15] = rng.exponential(2.0, size=n)
+    # Feature 16: provider_count
+    features[:, 16] = rng.choice([2, 3, 4], size=n).astype(np.float32)
+    # Feature 17: opening_sharp_odds
+    features[:, 17] = features[:, 2] + rng.normal(0, 0.2, size=n)
+    # Feature 18: market_type_encoded
+    features[:, 18] = rng.integers(0, 8, size=n).astype(np.float32)
+    # Feature 19: is_asian_line (binary)
+    features[:, 19] = (rng.random(n) < 0.3).astype(np.float32)
+    # Feature 20: commission_pct
+    features[:, 20] = rng.choice([0.0, 2.0, 5.0], size=n).astype(np.float32)
+    # Feature 21: kelly_fraction_raw
+    features[:, 21] = rng.uniform(0.01, 0.15, size=n)
+    # Feature 22: vig_pct
+    features[:, 22] = rng.uniform(2.0, 8.0, size=n)
 
-    providers = np.array(
-        ["ninewickets-exchange", "ninewickets-sportsbook", "betconstruct"]
+    # Generate labels with a signal correlated to ev_pct + sharp_true_prob
+    # Higher EV and higher sharp_true_prob → more likely to win
+    signal = (
+        features[:, 0] * 0.03  # ev_pct
+        + features[:, 1] * 0.5  # sharp_true_prob
+        + features[:, 6] * 0.01  # tick_count
+        + true_edge
     )
-    soft_provider = providers[rng.integers(0, len(providers), size=n)]
-    # Exchange has a 2% commission; sportsbooks are 0%.
-    commission = np.where(soft_provider == "ninewickets-exchange", 2.0, 0.0)
+    win_prob = 1.0 / (1.0 + np.exp(-signal + 0.5))  # sigmoid
+    labels = (rng.random(n) < win_prob).astype(np.int32)
 
-    markets = np.array(["MATCH_ODDS", "OVER_UNDER_2_5", "ASIAN_HANDICAP", "BTTS"])
-    market_type = markets[rng.integers(0, len(markets), size=n)]
+    # Build metadata DataFrame
+    soft_odds = features[:, 2].astype(np.float64)
+    pnl = np.where(labels == 1, soft_odds - 1.0, -1.0)
 
-    sharp_true_prob = fair_prob
-    ev_pct = (soft_odds * sharp_true_prob - 1.0) * 100.0
+    base_ts = 1735689600  # 2025-01-01 UTC
+    timestamps = base_ts + np.sort(rng.integers(0, 180 * 86400, size=n))
 
-    # Simulate P&L exactly the way the sidecar's _compute_pnl would, so
-    # test assertions about ROI are internally consistent.
-    stake_unit = 1.0
-    pnl = np.where(
-        outcome == "won",
-        stake_unit * (soft_odds - 1.0),
-        np.where(outcome == "lost", -stake_unit, 0.0),
-    )
+    metadata = pl.DataFrame({
+        "id": [f"synthetic-{i}" for i in range(n)],
+        "outcome": ["won" if l == 1 else "lost" for l in labels],
+        "pnl": pnl.tolist(),
+        "soft_odds": soft_odds.tolist(),
+        "sharp_true_prob": features[:, 1].astype(np.float64).tolist(),
+        "soft_commission_pct": features[:, 20].astype(np.float64).tolist(),
+        "closing_sharp_odds": (soft_odds + rng.normal(0, 0.1, size=n)).tolist(),
+        "clv_pct": rng.normal(1.0, 3.0, size=n).tolist(),
+        "first_seen_at": [str(t) for t in timestamps],
+        "event_start_time": [str(t + 3600) for t in timestamps],
+        "event_id": [f"event-{i // 3}" for i in range(n)],
+    })
 
-    closing_odds = soft_odds + rng.normal(0.0, 0.05, size=n)
-    clv_pct = (soft_odds / np.maximum(closing_odds, 1.01) - 1.0) * 100.0
-
-    df = pl.DataFrame(
-        {
-            "id": [f"synthetic-{i}" for i in range(n)],
-            "event_start_time": ts,
-            "soft_provider": soft_provider.tolist(),
-            "market_type": market_type.tolist(),
-            "time_scope": ["pre_match"] * n,
-            "soft_odds": soft_odds.tolist(),
-            "soft_commission_pct": commission.tolist(),
-            "sharp_true_prob": sharp_true_prob.tolist(),
-            "tick_count": [5] * n,
-            "ev_pct": ev_pct.tolist(),
-            "outcome": outcome.tolist(),
-            "pnl": pnl.tolist(),
-            "closing_odds": closing_odds.tolist(),
-            "clv_pct": clv_pct.tolist(),
-        },
-        schema_overrides={
-            "event_start_time": pl.Datetime(time_unit="ns"),
-        },
-    )
-
-    # Cast timestamp to microseconds to match loader.py's output.
-    return df.with_columns(pl.col("event_start_time").cast(pl.Datetime("us"))).sort(
-        "event_start_time"
+    return TrainingData(
+        features=features,
+        labels=labels,
+        feature_names=list(FEATURE_NAMES),
+        metadata=metadata,
+        n_samples=n,
     )
 
 
 @pytest.fixture
-def zero_edge_bets() -> pl.DataFrame:
-    """1,000 bets with no edge — expected OOS ROI ≈ 0 with bounded noise."""
-    return make_synthetic_bets(n=1_000, true_edge=0.0, seed=42)
+def synthetic_data() -> TrainingData:
+    """1000 synthetic bets with a detectable +3% edge."""
+    return make_synthetic_training_data(n=1_000, true_edge=0.03, seed=42)
 
 
 @pytest.fixture
-def positive_edge_bets() -> pl.DataFrame:
-    """2,000 bets with a known +3% edge — every reasonable config should find it."""
-    return make_synthetic_bets(n=2_000, true_edge=0.03, seed=42)
+def large_synthetic_data() -> TrainingData:
+    """2000 synthetic bets for more robust CPCV testing."""
+    return make_synthetic_training_data(n=2_000, true_edge=0.03, seed=42)
 
 
 @pytest.fixture
-def default_config() -> dict:
-    """A representative trial config — wide-enough filters to keep most rows."""
-    return {
-        "min_ev_pct": 0.0,
-        "odds_lo": 1.5,
-        "odds_hi": 5.0,
-        "staking_scheme": "kelly",
-        "kelly_fraction": 0.25,
-        "kelly_cap_pct": 5.0,
-    }
+def zero_edge_data() -> TrainingData:
+    """1000 synthetic bets with NO edge — model should show poor metrics."""
+    return make_synthetic_training_data(n=1_000, true_edge=0.0, seed=42)

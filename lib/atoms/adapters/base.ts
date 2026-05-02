@@ -33,6 +33,7 @@ export interface FetchContext {
   homeTeam: string;
   awayTeam: string;
   options: AtomsFetchOptions;
+  resolvedSelections?: Record<string, string>;
 }
 
 /**

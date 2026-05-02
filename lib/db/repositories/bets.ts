@@ -59,6 +59,9 @@ export const persistValueBets = async (
     softOdds: number;
     detectedAt: Date | string | number;
     oddsMovement?: Record<string, import("@/lib/bets-history/types").OddsMovementData>;
+    mlFeatures?: number[] | null;
+    mlScore?: number | null;
+    mlKellyAdjusted?: number | null;
   }>,
 ): Promise<PersistResult> => {
   const result: PersistResult = {
@@ -125,6 +128,9 @@ export const persistValueBets = async (
       lastSeenAt: toIso(vb.detectedAt),
       tickCount: 1,
       oddsMovement: vb.oddsMovement ?? null,
+      mlFeatures: vb.mlFeatures ?? null,
+      mlScore: vb.mlScore ?? null,
+      mlKellyAdjusted: vb.mlKellyAdjusted ?? null,
       // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
     };
@@ -164,6 +170,11 @@ export const persistValueBets = async (
             oddsMovement: vb.oddsMovement
               ? vb.oddsMovement
               : sql`${bets.oddsMovement}`,
+            // ML features — always update when available, preserve existing otherwise
+            mlFeatures: vb.mlFeatures ?? sql`${bets.mlFeatures}`,
+            // ML score and adjusted Kelly — always update when available
+            mlScore: vb.mlScore ?? sql`${bets.mlScore}`,
+            mlKellyAdjusted: vb.mlKellyAdjusted ?? sql`${bets.mlKellyAdjusted}`,
           },
         })
         .returning({ tick: bets.tickCount });
@@ -237,6 +248,8 @@ export type ListFilters = {
 
   /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
   minTickCount?: number;
+  /** Placement mode filter — 'auto' or 'manual'. */
+  mode?: "auto" | "manual";
   limit?: number;
   offset?: number;
 };
@@ -313,6 +326,9 @@ const buildFilterClauses = (filters: ListFilters) => {
 
   if (filters.minTickCount !== undefined) {
     clauses.push(sql`${bets.tickCount} >= ${filters.minTickCount}`);
+  }
+  if (filters.mode) {
+    clauses.push(eq(bets.mode, filters.mode));
   }
   return clauses;
 };

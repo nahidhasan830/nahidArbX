@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Loader2, Microscope, MoreVertical, Trash2 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -16,10 +16,28 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/ui/data-table";
 import { OddsMovementTooltipContent } from "@/components/spreadsheet/OddsMovementTooltip";
-import { RerunButton, type RerunChoice } from "./AiSettleDialog";
+import { RERUN_OPTIONS, type RerunChoice } from "./AiSettleDialog";
 import { MovementDetailModal } from "./MovementDetailModal";
+import { FeatureInspectorDialog } from "./FeatureInspectorDialog";
 import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
 import { canResettle, prettySettledBy } from "@/lib/bets-history/resettle";
@@ -63,7 +81,7 @@ type SortKey =
   | "eventStartTime";
 type SortDir = "asc" | "desc" | "none";
 
-const PERSISTENCE_KEY = "bets-history-table:layout:v2";
+const PERSISTENCE_KEY = "bets-history-table:layout:v3";
 
 const OUTCOME_PILL: Record<Outcome, string> = {
   pending: "bg-muted text-muted-foreground border border-border",
@@ -92,6 +110,8 @@ export type BacktestTableProps = {
   onToggleRow: (id: string) => void;
   onToggleAllVisible: (ids: string[], check: boolean) => void;
   onMarkOutcome: (id: string, outcome: Outcome) => void;
+  onDeleteBet: (id: string) => void;
+  deletingIds?: Set<string>;
   onRerunRow: (id: string, choice: RerunChoice) => void;
   rerunningIds?: Set<string>;
   sortKey: SortKey;
@@ -181,6 +201,8 @@ export function BetsHistoryTable({
   onToggleRow,
   onToggleAllVisible,
   onMarkOutcome,
+  onDeleteBet,
+  deletingIds,
   onRerunRow,
   rerunningIds,
   sortKey,
@@ -193,6 +215,8 @@ export function BetsHistoryTable({
 }: BacktestTableProps) {
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
   const [movementRow, setMovementRow] = useState<Decorated | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Decorated | null>(null);
+  const [featureInspectRow, setFeatureInspectRow] = useState<Decorated | null>(null);
 
   const openMovement = useCallback((row: Decorated) => {
     setMovementRow(row);
@@ -733,42 +757,113 @@ export function BetsHistoryTable({
         header: () => (
           <StaticHeader
             label="Actions"
-            hint="Per-row actions: re-run AI settlement, open in Google AI Mode for verification."
+            hint="Row actions: settle, verify, inspect ML features, delete."
           />
         ),
         cell: ({ row }) => {
           const r = row.original;
           const running = rerunningIds?.has(r.id) ?? false;
+          const deleting = deletingIds?.has(r.id) ?? false;
           const gate = canResettle(r);
           const googleUrl = buildGoogleAiModeUrl(r);
+          const hasFeatures = Array.isArray(r.mlFeatures) && r.mlFeatures.length > 0;
+
           return (
-            <div className="flex items-center justify-end gap-0.5">
+            <div className="flex items-center justify-center gap-0">
+              {/* ML inspect — always visible for quick access */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <a
-                    href={googleUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center size-6 rounded-md hover:bg-accent"
+                  <button
+                    type="button"
+                    disabled={!hasFeatures}
+                    onClick={() => hasFeatures && setFeatureInspectRow(r)}
+                    className={cn(
+                      "inline-flex items-center justify-center size-6 rounded-md transition-colors",
+                      hasFeatures
+                        ? "hover:bg-violet-500/10 hover:text-violet-400 text-muted-foreground"
+                        : "text-muted-foreground/20 cursor-not-allowed",
+                    )}
                   >
-                    <ExternalLink className="size-3.5" />
-                  </a>
+                    <Microscope className="size-3.5" />
+                  </button>
                 </TooltipTrigger>
-                <TooltipContent>Verify on Google AI Mode</TooltipContent>
+                <TooltipContent>
+                  {hasFeatures ? "Inspect ML features" : "No features extracted"}
+                </TooltipContent>
               </Tooltip>
 
-              <div title={!gate.allowed ? gate.message : undefined}>
-                <RerunButton
-                  id={r.id}
-                  running={running}
-                  disabled={!gate.allowed}
-                  onRerun={onRerunRow}
-                />
-              </div>
+              {/* Spinner replaces the ⋮ when an async action is in flight */}
+              {running || deleting ? (
+                <div className="inline-flex items-center justify-center size-6">
+                  <Loader2 className={cn(
+                    "size-3.5 animate-spin",
+                    deleting ? "text-destructive" : "text-muted-foreground",
+                  )} />
+                </div>
+              ) : (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center size-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                        >
+                          <MoreVertical className="size-3.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Actions</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end" className="w-[190px] p-1">
+                    {/* ── Settle ── */}
+                    <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+                      Settle
+                    </DropdownMenuLabel>
+                    {RERUN_OPTIONS.map((opt) => {
+                      const key = opt.choice.kind === "default" ? "default" : `ai-${opt.choice.model}`;
+                      return (
+                        <DropdownMenuItem
+                          key={key}
+                          disabled={!gate.allowed}
+                          onSelect={() => onRerunRow(r.id, opt.choice)}
+                          className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
+                          title={!gate.allowed ? gate.message : opt.hint}
+                        >
+                          <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
+                          <span className="text-[11px] font-medium">{opt.label}</span>
+                        </DropdownMenuItem>
+                      );
+                    })}
+
+                    <DropdownMenuSeparator className="my-1" />
+
+                    {/* ── Verify ── */}
+                    <DropdownMenuItem
+                      onSelect={() => window.open(googleUrl, "_blank", "noreferrer")}
+                      className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
+                    >
+                      <ExternalLink className="size-3.5 shrink-0 text-sky-400" />
+                      <span className="text-[11px] font-medium">Verify on Google</span>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator className="my-1" />
+
+                    {/* ── Destructive ── */}
+                    <DropdownMenuItem
+                      onSelect={() => setDeleteTarget(r)}
+                      className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5 text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-3.5 shrink-0" />
+                      <span className="text-[11px] font-medium">Delete bet</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           );
         },
-        meta: { align: "center", fixed: "right", initialSize: 80 },
+        meta: { align: "center", fixed: "right", initialSize: 56 },
       },
     ];
   }, [
@@ -783,6 +878,8 @@ export function BetsHistoryTable({
     onToggleRow,
     onToggleAllVisible,
     onMarkOutcome,
+    onDeleteBet,
+    deletingIds,
     onRerunRow,
     onSortChange,
     openMovement,
@@ -823,6 +920,17 @@ export function BetsHistoryTable({
         )}
         renderFooter={renderFooter}
       />
+      {/* Feature Inspector */}
+      <FeatureInspectorDialog
+        open={featureInspectRow !== null}
+        onOpenChange={(open) => { if (!open) setFeatureInspectRow(null); }}
+        features={featureInspectRow?.mlFeatures}
+        mlScore={featureInspectRow?.mlScore}
+        mlKellyAdjusted={featureInspectRow?.mlKellyAdjusted}
+        eventLabel={featureInspectRow ? `${featureInspectRow.homeTeam} vs ${featureInspectRow.awayTeam}` : undefined}
+        marketLabel={featureInspectRow ? `[${featureInspectRow.timeScope}] ${formatMarketType(featureInspectRow.marketType)}${featureInspectRow.familyLine != null ? ` ${featureInspectRow.familyLine}` : ""} · ${formatAtomLabel(featureInspectRow.atomLabel)}` : undefined}
+      />
+
       <MovementDetailModal
         open={movementRow !== null}
         onOpenChange={closeMovement}
@@ -830,6 +938,106 @@ export function BetsHistoryTable({
         eventLabel={movementEventLabel}
         marketLabel={movementMarketLabel}
       />
+
+      {/* Delete confirmation dialog */}
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="size-4" />
+              Delete Bet
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently remove the bet and all associated ML data.
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
+              <div className="text-sm font-semibold">
+                {deleteTarget.homeTeam} vs {deleteTarget.awayTeam}
+              </div>
+              {deleteTarget.competition && (
+                <div className="text-xs text-muted-foreground">
+                  {deleteTarget.competition}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+                <div className="text-muted-foreground">Market</div>
+                <div>
+                  [{deleteTarget.timeScope}]{" "}
+                  {formatMarketType(deleteTarget.marketType)}
+                  {deleteTarget.familyLine != null && ` ${deleteTarget.familyLine}`}
+                </div>
+
+                <div className="text-muted-foreground">Selection</div>
+                <div>{formatAtomLabel(deleteTarget.atomLabel)}</div>
+
+                <div className="text-muted-foreground">Kickoff</div>
+                <div>{fmtDateTime(deleteTarget.eventStartTime)}</div>
+
+                <div className="text-muted-foreground">Sharp</div>
+                <div>
+                  {getProviderShortName(deleteTarget.sharpProvider)}{" "}
+                  <span className="font-medium tabular-nums">
+                    {deleteTarget.sharpOdds.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="text-muted-foreground">Soft</div>
+                <div>
+                  {getProviderShortName(deleteTarget.softProvider)}{" "}
+                  <span className="font-medium tabular-nums">
+                    {deleteTarget.softOdds.toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="text-muted-foreground">EV</div>
+                <div className="font-medium tabular-nums text-emerald-400">
+                  {deleteTarget._evPctMax >= 0 ? "+" : ""}
+                  {deleteTarget._evPctMax.toFixed(2)}%
+                </div>
+
+                <div className="text-muted-foreground">Status</div>
+                <div>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium",
+                      OUTCOME_PILL[deleteTarget.outcome as Outcome],
+                    )}
+                  >
+                    {OUTCOME_LABEL[deleteTarget.outcome as Outcome]}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteTarget) {
+                  onDeleteBet(deleteTarget.id);
+                  setDeleteTarget(null);
+                }
+              }}
+            >
+              Delete Permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

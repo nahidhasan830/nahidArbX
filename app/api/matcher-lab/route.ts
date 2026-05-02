@@ -24,6 +24,10 @@ import { matcherConfig } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { harvestMatchPair } from "@/lib/matching/entities/match-harvester";
 import { getIdToken } from "@/lib/matching/entities/matcher-client";
+import {
+  normalize,
+  normalizeCompetition,
+} from "@/lib/matching/entities/normalize";
 import type { NormalizedEvent } from "@/lib/types";
 import type { PreNormalizedNames } from "@/lib/matching/normalize";
 import { logger } from "@/lib/shared/logger";
@@ -33,7 +37,6 @@ const tag = "MatcherLab";
 const VALID_STAGES: MatchPairStage[] = [
   "inbox",
   "ml_queued",
-  "ml_resolved",
   "human_review",
   "history",
 ];
@@ -192,16 +195,21 @@ export async function POST(request: NextRequest) {
       }
 
       case "update-scheduler": {
-        const { enabled, intervalMs } = body as {
+        const {
+          enabled,
+          intervalMs,
+          aiSearchEnabled,
+          aiSearchConfidenceThreshold,
+          aiSearchMaxBatchSize,
+        } = body as {
           enabled?: boolean;
           intervalMs?: number;
+          aiSearchEnabled?: boolean;
+          aiSearchConfidenceThreshold?: number;
+          aiSearchMaxBatchSize?: number;
         };
 
-        const updates: Partial<{
-          enabled: boolean;
-          intervalMs: number;
-          updatedAt: string;
-        }> = {};
+        const updates: Record<string, unknown> = {};
 
         if (typeof enabled === "boolean") {
           updates.enabled = enabled;
@@ -209,17 +217,32 @@ export async function POST(request: NextRequest) {
         if (typeof intervalMs === "number") {
           updates.intervalMs = Math.max(10_000, Math.min(600_000, intervalMs));
         }
+        if (typeof aiSearchEnabled === "boolean") {
+          updates.aiSearchEnabled = aiSearchEnabled;
+        }
+        if (typeof aiSearchConfidenceThreshold === "number") {
+          updates.aiSearchConfidenceThreshold = Math.max(
+            0,
+            Math.min(100, Math.round(aiSearchConfidenceThreshold)),
+          );
+        }
+        if (typeof aiSearchMaxBatchSize === "number") {
+          updates.aiSearchMaxBatchSize = Math.max(
+            1,
+            Math.min(20, Math.round(aiSearchMaxBatchSize)),
+          );
+        }
 
         if (Object.keys(updates).length > 0) {
           await db
             .update(matcherConfig)
-            .set({ ...updates, updatedAt: new Date().toISOString() })
+            .set({ ...updates, updatedAt: new Date().toISOString() } as any)
             .where(eq(matcherConfig.id, "default"));
         }
 
         logger.info(
           tag,
-          `Config updated in Postgres: enabled=${enabled}, intervalMs=${intervalMs}`,
+          `Config updated: enabled=${enabled}, intervalMs=${intervalMs}, aiSearch=${aiSearchEnabled}`,
         );
 
         return NextResponse.json({ success: true });
@@ -269,15 +292,15 @@ async function learnAliases(
     };
 
     const preNormA: PreNormalizedNames = {
-      home: pair.eventAHomeTeam.toLowerCase().trim(),
-      away: pair.eventAAwayTeam.toLowerCase().trim(),
-      competition: pair.eventACompetition.toLowerCase().trim(),
+      home: normalize(pair.eventAHomeTeam),
+      away: normalize(pair.eventAAwayTeam),
+      competition: normalizeCompetition(pair.eventACompetition),
     };
 
     const preNormB: PreNormalizedNames = {
-      home: pair.eventBHomeTeam.toLowerCase().trim(),
-      away: pair.eventBAwayTeam.toLowerCase().trim(),
-      competition: pair.eventBCompetition.toLowerCase().trim(),
+      home: normalize(pair.eventBHomeTeam),
+      away: normalize(pair.eventBAwayTeam),
+      competition: normalizeCompetition(pair.eventBCompetition),
     };
 
     await harvestMatchPair(
@@ -286,6 +309,7 @@ async function learnAliases(
       preNormA,
       preNormB,
       pair.mlCombinedScore ?? pair.stringScore,
+      "match-review",
     );
   } catch (err) {
     logger.warn(

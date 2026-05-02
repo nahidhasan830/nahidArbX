@@ -13,6 +13,7 @@ import {
   useBetsList,
   useBetsStats,
   useBulkMarkOutcomes,
+  useDeleteBet,
   useMarkOutcome,
 } from "@/lib/bets-history/hooks";
 import { aiLabelBets } from "@/lib/bets-history/api-client";
@@ -20,13 +21,6 @@ import { estimateBatchCostUsd } from "@/lib/settle/cost-guard";
 import { useBetsHistoryPrefs } from "@/lib/bets-history/use-bets-history-prefs";
 import { canResettle } from "@/lib/bets-history/resettle";
 import { resolvePreset } from "@/lib/bets-history/date-presets";
-import { useLocalStorage } from "@/components/hooks/useLocalStorage";
-import { useApplicableStrategies } from "@/lib/optimizer/use-live-strategies";
-import {
-  betsHistoryFiltersMatchTemplate,
-  strategyToBetsHistoryPatch,
-} from "@/lib/optimizer/apply-strategy-to-prefs";
-import type { StrategyFilters } from "@/lib/optimizer/strategy-filters";
 import type { AiLabelResponse } from "@/lib/bets-history/api-client";
 import type { ListFilters } from "@/lib/bets-history/api-client";
 import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
@@ -47,6 +41,8 @@ export function BetsHistorySpreadsheet() {
     isAtDefaults,
     hasSavedDefaults,
   } = useBetsHistoryPrefs();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { key: sortKey, dir: sortDir } = sort;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [, setAiSettlingIds] = useState<Set<string>>(new Set());
@@ -77,54 +73,8 @@ export function BetsHistorySpreadsheet() {
     return () => clearInterval(id);
   }, []);
 
-  // Strategy = filter template. Picking a strategy populates the toolbar's
-  // strategy-mapped fields (EV / odds / providers / markets) so the user can
-  // see exactly what's being filtered and adjust further (date, search…).
-  // Persisted per-surface so the last selection survives reloads, but the
-  // toolbar values themselves are the source of truth — once any strategy
-  // field is edited, the picker badge drops via `isStrategyModified`.
-  const [appliedStrategyIds, setAppliedStrategyIds] = useLocalStorage<string[]>(
-    "bets-history:applied-strategies",
-    [],
-  );
-  const { data: strategies } = useApplicableStrategies();
-  const appliedStrategyFilters = useMemo<StrategyFilters[]>(() => {
-    if (!strategies || appliedStrategyIds.length === 0) return [];
-    return appliedStrategyIds
-      .map((id) => strategies.find((s) => s.id === id))
-      .filter((s): s is NonNullable<typeof s> => s != null)
-      .map((s) => s.filters as StrategyFilters);
-  }, [strategies, appliedStrategyIds]);
 
-  // Drop the "applied" badge once the toolbar diverges from the merged
-  // template. The user can still see which strategies they last picked
-  // (the dropdown shows checkmarks); the badge just reflects whether the
-  // toolbar values still equal the template.
-  const isStrategyModified = useMemo(() => {
-    if (appliedStrategyFilters.length === 0) return false;
-    return !betsHistoryFiltersMatchTemplate(filters, appliedStrategyFilters);
-  }, [filters, appliedStrategyFilters]);
-
-  const handleAppliedStrategiesChange = useCallback(
-    (ids: string[]) => {
-      setAppliedStrategyIds(ids);
-      const list = strategies ?? [];
-      const picked = ids
-        .map((id) => list.find((s) => s.id === id))
-        .filter((s): s is NonNullable<typeof s> => s != null)
-        .map((s) => s.filters as StrategyFilters);
-      const patch = strategyToBetsHistoryPatch(picked);
-      setFilters((prev) => ({ ...prev, ...patch }));
-    },
-    [setAppliedStrategyIds, strategies, setFilters],
-  );
-
-  // Cross-page hand-off: /lab/optimisation StrategiesTable links here with
-  // ?strategy=<id> when the user clicks "View bets" on a row. Apply once
-  // strategies are loaded, then strip the param so refresh doesn't reapply.
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // Dashboard accounts panel cross-page hand-off
+  // Cross-page hand-off: dashboard accounts panel links here with
   useEffect(() => {
     const p = searchParams.get("provider");
     const s = searchParams.get("status");
@@ -138,16 +88,6 @@ export function BetsHistorySpreadsheet() {
       router.replace("/bets");
     }
   }, [searchParams, setFilters, router]);
-
-  useEffect(() => {
-    const sid = searchParams.get("strategy");
-    if (!sid || !strategies) return;
-    const exists = strategies.some((s) => s.id === sid);
-    if (exists) {
-      handleAppliedStrategiesChange([sid]);
-    }
-    router.replace("/bets");
-  }, [searchParams, strategies, handleAppliedStrategiesChange, router]);
 
   const effectiveFilters = useMemo<ListFilters>(() => {
     const f: ListFilters = { ...filters };
@@ -187,6 +127,8 @@ export function BetsHistorySpreadsheet() {
 
   const markMutation = useMarkOutcome();
   const bulkMarkMutation = useBulkMarkOutcomes();
+  const deleteMutation = useDeleteBet();
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
   // AI-settle orchestration — batches server calls transparently so users can
   // select any number of rows without hitting the server's per-call cap.
@@ -257,6 +199,28 @@ export function BetsHistorySpreadsheet() {
           toast.error(`Failed to mark outcome: ${(err as Error).message}`),
       },
     );
+  };
+
+  const handleDeleteBet = (id: string) => {
+    setDeletingIds((cur) => new Set(cur).add(id));
+    deleteMutation.mutate(id, {
+      onSuccess: () => {
+        toast.success("Bet deleted");
+        setSelectedIds((cur) => {
+          const next = new Set(cur);
+          next.delete(id);
+          return next;
+        });
+      },
+      onError: (err) =>
+        toast.error(`Failed to delete bet: ${(err as Error).message}`),
+      onSettled: () =>
+        setDeletingIds((cur) => {
+          const next = new Set(cur);
+          next.delete(id);
+          return next;
+        }),
+    });
   };
 
   // Server caps at 50 per call; batch client-side so N rows always works.
@@ -650,7 +614,6 @@ export function BetsHistorySpreadsheet() {
 
   const handleResetToDefaults = () => {
     resetToDefaults();
-    setAppliedStrategyIds([]);
     toast.success(
       hasSavedDefaults ? "Reset to saved defaults" : "Reset to system defaults",
     );
@@ -697,9 +660,6 @@ export function BetsHistorySpreadsheet() {
           onClearSavedDefaults={handleClearSavedDefaults}
           isAtDefaults={isAtDefaults}
           hasSavedDefaults={hasSavedDefaults}
-          appliedStrategyIds={appliedStrategyIds}
-          onAppliedStrategiesChange={handleAppliedStrategiesChange}
-          strategyTemplateModified={isStrategyModified}
         />
 
         <BetsHistoryTable
@@ -709,6 +669,8 @@ export function BetsHistorySpreadsheet() {
           onToggleRow={toggleRow}
           onToggleAllVisible={toggleAllVisible}
           onMarkOutcome={handleMarkOutcome}
+          onDeleteBet={handleDeleteBet}
+          deletingIds={deletingIds}
           onRerunRow={handleTableRerun}
           rerunningIds={resettlingIds}
           sortKey={sortKey}

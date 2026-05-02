@@ -22,7 +22,18 @@ function summarizeEvent(e: NotificationEvent): string {
     case "system":
       return `System ${e.severity}: ${e.message.slice(0, 100)}`;
     case "system:boot":
-      return `Server started · ${e.env}`;
+      return `${e.process === "engine" ? "Engine" : "Frontend"} started · ${e.env}`;
+    case "system:unified_boot": {
+      const parts: string[] = [];
+      if (e.engine) parts.push("Engine");
+      if (e.aiSearch) parts.push("AI Search");
+      if (e.frontend) parts.push("Frontend");
+      return `All services started · ${parts.join(" + ")}`;
+    }
+    case "ai:engine_state":
+      return `AI engine ${e.state} · ${e.configuredModel}`;
+    case "ai:model_state":
+      return `AI model ${e.state.toUpperCase()} · ${e.model}`;
     case "optimizer:run_started":
       return `Run started · ${e.name}`;
     case "optimizer:run_completed":

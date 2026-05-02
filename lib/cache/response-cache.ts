@@ -8,12 +8,16 @@
  */
 
 import { getStoreVersion } from "../atoms/store";
+import { singleton } from "@/lib/util/singleton";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let cachedResponse: Record<string, any> | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let cachedResponseAll: Record<string, any> | null = null;
-let cachedAtVersion = -1;
+// Singleton to survive HMR — both Turbopack module graphs share one cache.
+const cache = singleton("response-cache:state", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  response: null as Record<string, any> | null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  responseAll: null as Record<string, any> | null,
+  atVersion: -1,
+}));
 
 /**
  * Get cached response. Returns null if store has changed since last cache.
@@ -24,8 +28,8 @@ export function getCachedResponse(
   const currentVersion = getStoreVersion();
 
   // Cache still valid — store hasn't changed
-  if (cachedAtVersion === currentVersion) {
-    return includeAll ? cachedResponseAll : cachedResponse;
+  if (cache.atVersion === currentVersion) {
+    return includeAll ? cache.responseAll : cache.response;
   }
 
   // Store changed — invalidate
@@ -36,11 +40,11 @@ export function setCachedResponse(
   data: Record<string, unknown>,
   includeAll = false,
 ): void {
-  cachedAtVersion = getStoreVersion();
+  cache.atVersion = getStoreVersion();
   if (includeAll) {
-    cachedResponseAll = data;
+    cache.responseAll = data;
   } else {
-    cachedResponse = data;
+    cache.response = data;
   }
 }
 
@@ -48,9 +52,9 @@ export function setCachedResponse(
  * Force invalidation (e.g., after fixture sync changes event structure).
  */
 export function invalidateResponseCache(): void {
-  cachedAtVersion = -1;
-  cachedResponse = null;
-  cachedResponseAll = null;
+  cache.atVersion = -1;
+  cache.response = null;
+  cache.responseAll = null;
 }
 
 // ============================================

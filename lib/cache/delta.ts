@@ -19,6 +19,7 @@
 import type { ValueBet } from "../atoms/value-detector";
 import { getValueBets } from "../store";
 import { logger } from "../shared/logger";
+import { singleton } from "@/lib/util/singleton";
 
 // ============================================
 // Types
@@ -63,7 +64,10 @@ interface Snapshot {
 
 const MAX_DELTA_CHANGES = 200; // Beyond this, signal full refresh
 
-let lastSnapshot: Snapshot | null = null;
+// Singleton for HMR safety — both module graphs share one snapshot.
+const deltaState = singleton("delta:state", () => ({
+  lastSnapshot: null as Snapshot | null,
+}));
 
 function getValueBetKey(vb: ValueBet): string {
   return `${vb.eventId}:${vb.atomId}`;
@@ -96,8 +100,8 @@ function takeSnapshot(version: number): Snapshot {
 export function computeDelta(currentVersion: number): DeltaOrRefresh {
   const current = takeSnapshot(currentVersion);
 
-  if (!lastSnapshot) {
-    lastSnapshot = current;
+  if (!deltaState.lastSnapshot) {
+    deltaState.lastSnapshot = current;
     return {
       type: "full-refresh",
       version: currentVersion,
@@ -105,7 +109,7 @@ export function computeDelta(currentVersion: number): DeltaOrRefresh {
     };
   }
 
-  const prev = lastSnapshot;
+  const prev = deltaState.lastSnapshot;
 
   // Compute value bet changes
   const valueBetsAdded: ValueBet[] = [];
@@ -132,7 +136,7 @@ export function computeDelta(currentVersion: number): DeltaOrRefresh {
   const changeCount = valueBetsAdded.length + valueBetsRemoved.length;
 
   // Update snapshot
-  lastSnapshot = current;
+  deltaState.lastSnapshot = current;
 
   // If too many changes, signal full refresh
   if (changeCount > MAX_DELTA_CHANGES) {
@@ -171,7 +175,7 @@ export function computeDelta(currentVersion: number): DeltaOrRefresh {
  * Signal that fixtures changed — always requires full refresh.
  */
 export function signalFixturesChanged(version: number): FullRefreshSignal {
-  lastSnapshot = null; // Reset snapshot on fixture change
+  deltaState.lastSnapshot = null; // Reset snapshot on fixture change
   return {
     type: "full-refresh",
     version,
@@ -183,7 +187,7 @@ export function signalFixturesChanged(version: number): FullRefreshSignal {
  * Reset delta tracking (e.g., on server restart).
  */
 export function resetDeltaTracking(): void {
-  lastSnapshot = null;
+  deltaState.lastSnapshot = null;
 }
 
 /**
@@ -191,8 +195,8 @@ export function resetDeltaTracking(): void {
  */
 export function getDeltaStats() {
   return {
-    hasSnapshot: lastSnapshot !== null,
-    snapshotVersion: lastSnapshot?.version ?? null,
-    snapshotValueBets: lastSnapshot?.valueBetKeys.size ?? 0,
+    hasSnapshot: deltaState.lastSnapshot !== null,
+    snapshotVersion: deltaState.lastSnapshot?.version ?? null,
+    snapshotValueBets: deltaState.lastSnapshot?.valueBetKeys.size ?? 0,
   };
 }

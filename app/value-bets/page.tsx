@@ -425,16 +425,14 @@ export default function AdminPage() {
   const infiniteQuery = useInfiniteEvents({
     search: serverSearch,
     pageSize: 50,
-    valueFilters: showOnlyValue
-      ? {
-          showOnlyValue: true,
-          evRangeMin,
-          evRangeMax,
-          softOddsMin: softOddsRangeMin,
-          softOddsMax: softOddsRangeMax,
-          softProviders: Array.from(selectedSoftProviders),
-        }
-      : undefined,
+    valueFilters: {
+      showOnlyValue,
+      evRangeMin,
+      evRangeMax,
+      softOddsMin: softOddsRangeMin,
+      softOddsMax: softOddsRangeMax,
+      softProviders: Array.from(selectedSoftProviders),
+    },
     displayFilters: {
       providers:
         selectedProviders.size < PROVIDER_IDS.length
@@ -554,6 +552,7 @@ export default function AdminPage() {
               isFetchingNextPage={activeQuery.isFetchingNextPage}
               onLoadMore={activeQuery.fetchNextPage}
               totalCount={activeQuery.totalCount}
+              totalValueBetCount={summary?.totalValueBets}
               searchTerm={searchTerm}
               onSearchChange={setSearchTerm}
             />

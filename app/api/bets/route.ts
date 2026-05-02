@@ -69,6 +69,7 @@ const QuerySchema = z.object({
   minSharpProb: z.coerce.number().min(0).max(1).optional(),
 
   minTickCount: z.coerce.number().int().nonnegative().optional(),
+  mode: z.enum(["auto", "manual"]).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(200),
   offset: z.coerce.number().int().min(0).default(0),
 });

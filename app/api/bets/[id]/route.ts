@@ -6,7 +6,7 @@ import {
   apiServerError,
   apiSuccess,
 } from "@/lib/shared/api-response";
-import { getBetById, markOutcome } from "@/lib/db/repositories/bets";
+import { getBetById, markOutcome, deleteBet } from "@/lib/db/repositories/bets";
 import { applySettlementOutcomes } from "@/lib/settle/apply-outcomes";
 
 const BodySchema = z.object({
@@ -55,5 +55,20 @@ export async function PATCH(
     return apiSuccess({ row });
   } catch (err) {
     return apiServerError(err, "Backtest:markOutcome");
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  if (!id) return apiBadRequest("Missing id");
+  try {
+    const deleted = await deleteBet(id);
+    if (!deleted) return apiNotFound(`Bet ${id} not found`);
+    return apiSuccess({ deleted: true });
+  } catch (err) {
+    return apiServerError(err, "Backtest:deleteBet");
   }
 }
