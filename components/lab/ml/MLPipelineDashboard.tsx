@@ -1043,11 +1043,35 @@ function StepDetailPanel({ step, data: d, statuses, trainingStream }: { step: nu
             ? `Training v${trainingStream.currentTraining?.version ?? d.training.activeTraining?.version ?? "?"} is in progress on ${d.dataCollection.settledWithFeatures.toLocaleString()} vectors. The Cloud Run Job typically takes 5–10 minutes.`
             : coldDone ? (d.training.totalModels > 0 ? "Retrain manually or let the scheduler manage cycles based on data growth." : "Commence the first training job. A candidate model will be generated and passed to validation.") : "Awaiting completion of the settlement cold-start phase.",
         };
-      case 3: return {
-          summary: "An automated quality control gate. Only models demonstrating strict monotonic performance, high AUC, and zero deflation are promoted. Overfit models are instantly rejected.",
-          rows: [["Deployed model", d.training.deployedModel ? "Active" : "None"], ["Rejected models", d.rejectedModels.length.toLocaleString()], ["Current Permission", d.deploymentGate.permissionLevel], ["Gate refreshed", d.deploymentGate.lastRefreshedAt ? new Date(d.deploymentGate.lastRefreshedAt).toLocaleString() : "—"]],
-          action: d.training.deployedModel ? "A verified model has passed all safety gates and is available to the inference engine." : d.rejectedModels.length > 0 ? "Review rejection diagnostics to understand model failures before adjusting thresholds." : "Awaiting a completed training run for validation.",
-        };
+      case 3: {
+          // Derive a contextual action from the most recent rejection reason
+          const latestRejection = d.rejectedModels[0];
+          const latestReasons = latestRejection?.reasons ?? [];
+          const latestReasonLower = (latestReasons[0] ?? "").toLowerCase();
+          
+          let validateAction: string;
+          if (d.training.deployedModel) {
+            validateAction = "A verified model has passed all safety gates and is available to the inference engine.";
+          } else if (latestReasonLower.includes("stale image") || latestReasonLower.includes("feature_version")) {
+            validateAction = "The Cloud Run image was out of sync. It has been rebuilt — trigger a new training run to generate a fresh model.";
+          } else if (latestReasonLower.includes("cold start")) {
+            validateAction = `Training failed due to insufficient data (${latestReasons[0]}). Wait for more bets to settle before retraining.`;
+          } else if (latestReasonLower.includes("auc") || latestReasonLower.includes("dsr") || latestReasonLower.includes("pbo") || latestReasonLower.includes("monoton")) {
+            validateAction = `Model rejected on quality metrics: "${latestReasons[0]}". Accumulate more data or review deployment gate thresholds, then retrain.`;
+          } else if (latestReasons.length > 0) {
+            validateAction = `Last rejection: "${latestReasons[0]}". Address the issue and trigger a new training run.`;
+          } else if (d.rejectedModels.length > 0) {
+            validateAction = "Models have been rejected. Review the diagnostics below and retrain when the underlying issue is resolved.";
+          } else {
+            validateAction = "Awaiting a completed training run for validation.";
+          }
+
+          return {
+            summary: "An automated quality control gate. Only models demonstrating strict monotonic performance, high AUC, and zero deflation are promoted. Overfit models are instantly rejected.",
+            rows: [["Deployed model", d.training.deployedModel ? "Active" : "None"], ["Rejected models", d.rejectedModels.length.toLocaleString()], ["Current Permission", d.deploymentGate.permissionLevel], ["Gate refreshed", d.deploymentGate.lastRefreshedAt ? new Date(d.deploymentGate.lastRefreshedAt).toLocaleString() : "—"]],
+            action: validateAction,
+          };
+        }
       case 4: return {
           summary: "The engine caches the deployed ONNX model in memory, enabling ultra-low-latency runtime scoring of detected value bets before placement.",
           rows: [["Model Version", d.inference.modelLoaded ? `v${d.inference.modelVersion}` : "None"], ["Total scored", d.inference.totalScored.toLocaleString()], ["Avg latency", `${d.inference.avgInferenceMs.toFixed(2)}ms`], ["Avg score", d.scoreDistribution.totalScored > 0 ? d.scoreDistribution.avgScore.toFixed(3) : "—"]],
@@ -1070,7 +1094,7 @@ function StepDetailPanel({ step, data: d, statuses, trainingStream }: { step: nu
              <h2 className="text-xl font-bold text-white tracking-tight">{stage.label}</h2>
              <span className={cn("rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest", statusTone(status))}>{statusLabel(status)}</span>
            </div>
-           {step === 2 && coldDone && (
+           {(step === 2 || (step === 3 && !d.training.deployedModel)) && coldDone && (
              <RetrainButton
                size="sm"
                hasExistingModel={d.training.totalModels > 0}
@@ -1132,11 +1156,25 @@ function StepDetailPanel({ step, data: d, statuses, trainingStream }: { step: nu
                 </div>
               )
             ) : step === 3 && d.rejectedModels.length > 0 ? (
-              <div className="grid grid-cols-2 gap-2">
-                {d.rejectedModels.slice(0, 4).map((model) => (
-                  <div key={model.version} className="rounded-md border border-rose-500/20 bg-rose-500/5 px-2 py-1.5 flex flex-col gap-0.5">
-                    <div className="font-bold text-rose-300 text-[10px]">v{model.version}</div>
-                    <div className="truncate text-[9px] font-medium text-white/50">{model.reasons[0] ?? model.status}</div>
+              <div className="space-y-2">
+                {d.rejectedModels.slice(0, 3).map((model) => (
+                  <div key={model.version} className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold text-rose-300 text-[10px]">v{model.version}</span>
+                      <span className="text-[9px] font-mono text-white/30">{model.status}</span>
+                    </div>
+                    {model.reasons.length > 0 ? (
+                      <div className="space-y-1">
+                        {model.reasons.map((reason, ri) => (
+                          <div key={ri} className="flex items-start gap-1.5 text-[10px]">
+                            <AlertTriangle className="size-3 mt-px shrink-0 text-amber-400/70" />
+                            <span className="text-white/70 leading-tight">{reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-white/40">No rejection details recorded.</p>
+                    )}
                   </div>
                 ))}
               </div>
