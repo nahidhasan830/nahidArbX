@@ -108,9 +108,12 @@ export const bets = pgTable(
     >(),
 
     // ML pipeline columns
-    mlFeatures: real("ml_features").array(), // 23-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
+    mlFeatures: real("ml_features").array(), // 25-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
     mlScore: real(), // P(profitable) from LightGBM [0,1]
     mlKellyAdjusted: real(), // Dynamic Kelly multiplier from staker
+    mlFeatureVersion: integer(), // Feature contract version at extraction time
+    mlFeatureCount: integer(), // Feature vector length at extraction time
+    mlFeatureNamesHash: text(), // SHA-256 of feature names for drift detection
   },
   (t) => [
     index("bets_first_seen_idx").on(t.firstSeenAt.desc()),
@@ -397,10 +400,12 @@ export const mlModels = pgTable(
   {
     id: text().primaryKey(),
     version: integer().notNull(),
-    status: text().notNull().default("training"), // training|validated|deployed|retired
+    status: text().notNull().default("training"), // training|validated|deployed|retired|rejected
     modelType: text().notNull().default("lightgbm"),
     trainingSamples: integer().notNull(),
-    featureCount: integer().notNull().default(23),
+    featureCount: integer().notNull().default(25),
+    featureVersion: integer().notNull().default(2),
+    featureNamesHash: text(),
     trainingStartedAt: ts().notNull(),
     trainingCompletedAt: ts(),
     oosRoiMean: numeric({ precision: 14, scale: 4, mode: "number" }),
@@ -413,6 +418,10 @@ export const mlModels = pgTable(
     featureImportance: jsonb(),
     modelArtifactPath: text(),
     trainingReport: jsonb(),
+    /** Runtime permission level assigned by the deployment gate. */
+    permissionLevel: text().default("shadow"), // shadow|gate_only|stake_reduce|stake_increase
+    /** JSON array of reasons why a model was rejected by the deployment gate (null if accepted). */
+    rejectionReasons: jsonb().$type<string[] | null>(),
     deployedAt: ts(),
     retiredAt: ts(),
     createdAt: tsNow(),
@@ -836,6 +845,152 @@ export const aiActivityLog = pgTable(
 export type AiActivityLogRow = typeof aiActivityLog.$inferSelect;
 export type NewAiActivityLogRow = typeof aiActivityLog.$inferInsert;
 
+/**
+ * Competition tiers — legacy table superseded by competition_enrichments.
+ * Kept for backwards compatibility with the enrichment cache loader.
+ */
+export const competitionTiers = pgTable("competition_tiers", {
+  name: text().primaryKey(),
+  tier: integer().notNull(),
+  classifiedAt: ts().notNull().defaultNow(),
+});
+
+export type CompetitionTierRow = typeof competitionTiers.$inferSelect;
+
+/**
+ * Competition enrichments — AI-classified competition metadata for
+ * market-efficiency context in ML features.
+ *
+ * Replaces the simple tier cache with richer data: region, country,
+ * competition level, market efficiency score, and AI confidence.
+ * Populated by the background enrichment warmer in the engine.
+ */
+export const competitionEnrichments = pgTable(
+  "competition_enrichments",
+  {
+    name: text().primaryKey(),
+    displayName: text().notNull(),
+    tier: integer().notNull().default(1),
+    marketEfficiencyScore: integer().notNull().default(0),
+    region: text(),
+    country: text(),
+    competitionLevel: text().notNull().default("unknown"),
+    confidence: integer().notNull().default(0),
+    model: text(),
+    provider: text(),
+    promptVersion: text().notNull(),
+    sources: jsonb().notNull().default([]),
+    rawResponse: jsonb(),
+    classifiedAt: ts().notNull().defaultNow(),
+    updatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    index("competition_enrichments_confidence_idx").on(t.confidence),
+    index("competition_enrichments_classified_idx").on(t.classifiedAt.desc()),
+  ],
+);
+
+export type CompetitionEnrichmentRow = typeof competitionEnrichments.$inferSelect;
+export type NewCompetitionEnrichmentRow = typeof competitionEnrichments.$inferInsert;
+
+/**
+ * Shadow decisions — per-bet shadow Kelly vs ML Kelly tracking.
+ *
+ * Created when a bet is placed; resolved when the bet settles.
+ * Enables side-by-side performance analysis of shadow vs ML staking.
+ */
+export const shadowDecisions = pgTable(
+  "shadow_decisions",
+  {
+    id: text().primaryKey(),
+    betId: text().notNull(),
+    eventId: text().notNull(),
+    placedAt: ts().notNull(),
+    kellyRaw: real().notNull(),
+    shadowKelly: real().notNull(),
+    mlKelly: real().notNull(),
+    mlMultiplier: real().notNull(),
+    outcome: text(),
+    settledAt: ts(),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("shadow_decisions_event_idx")
+      .on(t.eventId, t.outcome)
+      .where(sql`${t.outcome} IS NULL`),
+    index("shadow_decisions_bet_idx").on(t.betId),
+    index("shadow_decisions_placed_idx").on(t.placedAt.desc()),
+  ],
+);
+
+export type ShadowDecisionRow = typeof shadowDecisions.$inferSelect;
+export type NewShadowDecisionRow = typeof shadowDecisions.$inferInsert;
+
+/**
+ * ML Training Examples — decouples ML training data from operational bets.
+ *
+ * Stores feature snapshots alongside outcomes, labels, and sample weights
+ * for the LightGBM training pipeline. Supports multiple example types:
+ *   - settled_detected: detected value bet that eventually settled
+ *   - placed_settled: actually placed bet with real outcome
+ *   - near_miss: sub-threshold edge (survival bias mitigation)
+ *   - shadow_scored: feature snapshot at detection (outcome attached later)
+ */
+export const mlTrainingExamples = pgTable(
+  "ml_training_examples",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    sourceBetId: text(),
+    exampleType: text().notNull(), // 'settled_detected' | 'placed_settled' | 'near_miss' | 'shadow_scored'
+    eventId: text().notNull(),
+    familyId: text().notNull(),
+    atomId: text().notNull(),
+    features: real().array(),
+    featureVersion: integer().notNull().default(2),
+    label: text(), // 'positive' | 'negative' | null (pending)
+    labelSource: text(), // 'outcome' | 'clv' | null
+    sampleWeight: real().notNull().default(1.0),
+    outcome: text(), // 'won' | 'lost' | 'half_won' | 'half_lost' | 'void' | null
+    pnl: numeric({ precision: 10, scale: 2, mode: "number" }),
+    clvPct: numeric({ precision: 6, scale: 2, mode: "number" }),
+    createdAt: tsNow(),
+    settledAt: ts(),
+  },
+  (t) => [
+    index("ml_training_examples_type_idx").on(t.exampleType),
+    index("ml_training_examples_bet_idx").on(t.sourceBetId),
+    index("ml_training_examples_version_idx").on(t.featureVersion),
+    index("ml_training_examples_settled_idx")
+      .on(t.settledAt.desc())
+      .where(sql`${t.settledAt} IS NOT NULL`),
+  ],
+);
+
+export type MlTrainingExampleRow = typeof mlTrainingExamples.$inferSelect;
+export type NewMlTrainingExampleRow = typeof mlTrainingExamples.$inferInsert;
+
+/**
+ * ML Scheduler Settings — singleton config for automated retraining.
+ *
+ * Single-row table (id='default') read by the engine's model retraining
+ * scheduler to decide when to trigger Cloud Run training jobs. Editable
+ * from the ML Optimizer dashboard.
+ */
+export const mlSchedulerSettings = pgTable("ml_scheduler_settings", {
+  id: text().primaryKey().default("default"),
+  enabled: boolean().notNull().default(true),
+  cadenceHours: integer().notNull().default(24),
+  minNewSettledExamples: integer().notNull().default(50),
+  minGrowthPct: integer().notNull().default(20),
+  nextRunAt: ts(),
+  lastRunAt: ts(),
+  lastError: text(),
+  updatedAt: ts().notNull().defaultNow(),
+});
+
+export type MlSchedulerSettingsRow = typeof mlSchedulerSettings.$inferSelect;
+export type NewMlSchedulerSettingsRow = typeof mlSchedulerSettings.$inferInsert;
+
 export const schema = {
   bets,
   matchScores,
@@ -853,4 +1008,9 @@ export const schema = {
   mlModels,
   aiSearchLogs,
   aiActivityLog,
+  competitionTiers,
+  competitionEnrichments,
+  shadowDecisions,
+  mlTrainingExamples,
+  mlSchedulerSettings,
 };

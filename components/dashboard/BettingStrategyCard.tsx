@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface Settings {
   id: number;
@@ -162,6 +163,13 @@ export function BettingStrategyForm() {
       setDraft(toDraft(data.settings));
       setSavedTick(true);
       setTimeout(() => setSavedTick(false), 1500);
+      toast.success("💾 Strategy saved", {
+        description: `${formatKellyFractionLabel(data.settings.kellyFraction)} · cap ${data.settings.kellyCapPct}% · min ${data.settings.minStakeBdt} BDT`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      toast.error("❌ Couldn't save strategy", { description: msg });
     } finally {
       setSaving(false);
     }

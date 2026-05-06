@@ -2,6 +2,11 @@
 
 /**
  * AiActivityTable — DataTable displaying every AI operation.
+ *
+ * Enhanced with:
+ *   - Provider column extracted from model name / metadata
+ *   - Richer model display with full-name tooltip
+ *   - Metadata detail tooltip on summary hover (tier hits, decisions, etc.)
  */
 
 import { useMemo } from "react";
@@ -16,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { fmtSeen } from "@/lib/formatting/helpers";
 import type { AiActivityLogRow } from "@/lib/db/schema";
 
-const PERSISTENCE_KEY = "ai-activity-log-table:layout:v1";
+const PERSISTENCE_KEY = "ai-activity-log-table:layout:v2";
 
 const STATUS_PILL: Record<string, string> = {
   success: "bg-emerald-500/8 text-emerald-400/90 border border-emerald-500/20",
@@ -50,6 +55,123 @@ const TRIGGER_COLORS: Record<string, string> = {
   manual: "text-zinc-400", "auto-scheduler": "text-blue-400",
   playground: "text-purple-400", batch: "text-amber-400",
 };
+
+// ── Provider helpers ──
+
+type MetadataObj = Record<string, unknown>;
+
+function getMetadata(row: AiActivityLogRow): MetadataObj | null {
+  if (!row.metadata || typeof row.metadata !== "object") return null;
+  return row.metadata as MetadataObj;
+}
+
+function extractProvider(row: AiActivityLogRow): string | null {
+  const m = getMetadata(row);
+  if (m && typeof m.provider === "string") return m.provider;
+  // Infer from model name
+  if (row.model?.includes("llama") || row.model?.includes("qwen")) return "groq";
+  if (row.model?.includes("gemini")) return "google";
+  if (row.model?.startsWith("hf-") || row.model?.startsWith("Qwen/")) return "huggingface";
+  if (row.model?.includes("bi-encoder") || row.model?.includes("cross-encoder")) return "local";
+  return null;
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  groq: "Groq", google: "Google", huggingface: "HF", local: "Local",
+};
+const PROVIDER_COLORS: Record<string, string> = {
+  groq: "text-orange-400",
+  google: "text-blue-400",
+  huggingface: "text-yellow-400",
+  local: "text-zinc-400",
+};
+
+/** Shorten model names for compact display. */
+function shortModelName(model: string | null): string | null {
+  if (!model) return null;
+  return model.replace(/-preview$/, "").replace(/^models\//, "");
+}
+
+// ── Metadata detail rendering ──
+
+const METADATA_LABELS: Record<string, string> = {
+  // Settlement
+  tier0_hits: "T0 Cache",
+  tier1_hits: "T1 Live",
+  tier2_hits: "T2 Free API",
+  tier3_hits: "T3 Gemini",
+  tier4_hits: "T4 Batch",
+  unsupported: "Unsupported",
+  unresolvedEvents: "Unresolved",
+  bypassCache: "Cache Bypassed",
+  // Entity match
+  decision: "Decision",
+  confidence: "Confidence",
+  same: "SAME",
+  different: "DIFFERENT",
+  sourcesCount: "Sources",
+  merged: "Merged",
+  rejected: "Rejected",
+  escalated: "Escalated",
+  aiSearchAttempted: "AI Search Tried",
+  aiSearchMerged: "AI Search Merged",
+  aiSearchRejected: "AI Search Rejected",
+  // Grounding
+  provider: "Provider",
+  finishReason: "Finish Reason",
+  // Batch failure
+  failedChunk: "Failed Chunk",
+  processedSoFar: "Processed Before Fail",
+};
+
+function formatMetaValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") {
+    if (key.includes("confidence")) return `${value}%`;
+    return String(value);
+  }
+  return String(value);
+}
+
+/** Build a rich tooltip showing all metadata key-values. */
+function MetadataTooltipContent({ row }: { row: AiActivityLogRow }) {
+  const metadata = getMetadata(row);
+  if (!metadata) return null;
+
+  const entries = Object.entries(metadata)
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([k, v]) => ({
+      key: k,
+      label: METADATA_LABELS[k] ?? k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      value: formatMetaValue(k, v),
+      raw: v,
+    }));
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="space-y-0.5">
+      {entries.map(({ key, label, value, raw }) => (
+        <div key={key} className="flex items-baseline justify-between gap-3 text-[11px]">
+          <span className="text-muted-foreground shrink-0">{label}</span>
+          <span className={cn(
+            "font-medium tabular-nums",
+            typeof raw === "number" && raw > 0 && key.includes("hit") && "text-emerald-400",
+            typeof raw === "boolean" && raw && "text-amber-400",
+            key === "decision" && raw === "SAME" && "text-emerald-400",
+            key === "decision" && raw === "DIFFERENT" && "text-red-400",
+            key === "decision" && raw === "UNCERTAIN" && "text-amber-400",
+          )}>
+            {value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Table component ──
 
 export type AiActivityTableProps = {
   rows: AiActivityLogRow[];
@@ -97,13 +219,42 @@ export function AiActivityLogTable({
       meta: { hint: "How the operation was triggered.", initialSize: 85 },
     },
     {
+      id: "provider", header: "Provider",
+      cell: ({ row }) => {
+        const provider = extractProvider(row.original);
+        if (!provider) return <span className="text-muted-foreground/40">&mdash;</span>;
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={cn(
+                "text-[10px] font-medium cursor-help",
+                PROVIDER_COLORS[provider] ?? "text-muted-foreground",
+              )}>
+                {PROVIDER_LABELS[provider] ?? provider}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">AI provider: {provider}</TooltipContent>
+          </Tooltip>
+        );
+      },
+      meta: { hint: "AI provider (Groq, Google, HuggingFace, Local).", align: "center" as const, initialSize: 70 },
+    },
+    {
       id: "model", accessorKey: "model", header: "Model",
       cell: ({ row }) => {
         const m = row.original.model;
         if (!m) return <span className="text-muted-foreground/40">&mdash;</span>;
-        return <span className="text-[11px]">{m}</span>;
+        const short = shortModelName(m);
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-[11px] cursor-help truncate max-w-[130px] inline-block">{short}</span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs font-mono text-[11px]">{m}</TooltipContent>
+          </Tooltip>
+        );
       },
-      meta: { hint: "AI model used.", align: "center" as const, initialSize: 110 },
+      meta: { hint: "AI model used. Hover for full name.", align: "center" as const, initialSize: 130 },
     },
     {
       id: "items", accessorKey: "itemCount", header: "Items",
@@ -112,7 +263,7 @@ export function AiActivityLogTable({
         if (n == null) return <span className="text-muted-foreground/40">&mdash;</span>;
         return <span className="tabular-nums font-medium">{n}</span>;
       },
-      meta: { hint: "Number of items processed.", align: "right" as const, initialSize: 60 },
+      meta: { hint: "Number of items processed.", align: "right" as const, initialSize: 55 },
     },
     {
       id: "duration", accessorKey: "durationMs", header: "Duration",
@@ -138,9 +289,36 @@ export function AiActivityLogTable({
       cell: ({ row }) => {
         const s = row.original.summary;
         if (!s) return <span className="text-muted-foreground/40">&mdash;</span>;
-        return (<Tooltip><TooltipTrigger asChild><span className="text-[10px] text-muted-foreground truncate max-w-[250px] inline-block cursor-help">{s}</span></TooltipTrigger><TooltipContent side="top" className="max-w-md whitespace-pre-wrap text-xs">{s}</TooltipContent></Tooltip>);
+        const metadata = getMetadata(row.original);
+        const hasMeta = metadata && Object.keys(metadata).length > 0;
+        const tooltipBody = (
+          <div className="space-y-2 max-w-md">
+            <div className="text-xs whitespace-pre-wrap">{s}</div>
+            {hasMeta && (
+              <>
+                <div className="border-t border-border/40 pt-1.5">
+                  <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1">Metadata</div>
+                  <MetadataTooltipContent row={row.original} />
+                </div>
+              </>
+            )}
+          </div>
+        );
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={cn(
+                "text-[10px] text-muted-foreground truncate max-w-[250px] inline-block cursor-help",
+                hasMeta && "underline decoration-dotted underline-offset-2 decoration-muted-foreground/30",
+              )}>
+                {s}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="p-3">{tooltipBody}</TooltipContent>
+          </Tooltip>
+        );
       },
-      meta: { hint: "Human-readable summary.", initialSize: 250 },
+      meta: { hint: "Human-readable summary. Hover for metadata details.", initialSize: 280 },
     },
     {
       id: "error", header: "Error", accessorKey: "error",

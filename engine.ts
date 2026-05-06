@@ -148,6 +148,13 @@ async function main() {
   import("./lib/ml/scorer").then(({ ensureModel }) => ensureModel()).catch(() => {});
   logger.info("Boot", "ML model warmup initiated (non-blocking)");
 
+  // Warm up competition enrichment cache (non-blocking). Detection never
+  // waits for AI; unknown competitions use tier 1 until the warmer catches up.
+  import("./lib/ml/competition-enrichment")
+    .then(({ startCompetitionEnrichmentWarmer }) => startCompetitionEnrichmentWarmer())
+    .catch(() => {});
+  logger.info("Boot", "Competition enrichment warmer started (non-blocking)");
+
   // Telegram bot
   if (!isTelegramBotRunning()) {
     const started = startTelegramBot();
@@ -232,6 +239,10 @@ async function main() {
         const { stopModelWatcher } = await import("./lib/ml/scorer");
         stopModelWatcher();
       } catch { /* scorer may not have been loaded */ }
+      try {
+        const { stopCompetitionEnrichmentWarmer } = await import("./lib/ml/competition-enrichment");
+        stopCompetitionEnrichmentWarmer();
+      } catch { /* enrichment warmer may not have been loaded */ }
       pinnacleSyncService.stop();
       geniusSportsSyncService.stop();
       if (isProviderRuntimeEnabled("betconstruct")) {

@@ -194,18 +194,29 @@ export function BetsHistorySpreadsheet() {
     markMutation.mutate(
       { id, outcome },
       {
-        onSuccess: () => toast.success(`Outcome: ${outcome}`),
+        onSuccess: () => {
+          const row = rows.find((r) => r.id === id);
+          const label = row ? `${row.homeTeam} vs ${row.awayTeam}`.slice(0, 50) : undefined;
+          const emoji = outcome === "won" || outcome === "half_won" ? "✅" : outcome === "lost" || outcome === "half_lost" ? "❌" : outcome === "void" ? "⚪" : "🟡";
+          toast.success(`${emoji} Marked as ${outcome}`, {
+            description: label,
+          });
+        },
         onError: (err) =>
-          toast.error(`Failed to mark outcome: ${(err as Error).message}`),
+          toast.error(`❌ Failed to mark outcome: ${(err as Error).message}`),
       },
     );
   };
 
   const handleDeleteBet = (id: string) => {
     setDeletingIds((cur) => new Set(cur).add(id));
+    const row = rows.find((r) => r.id === id);
+    const label = row ? `${row.homeTeam} vs ${row.awayTeam}`.slice(0, 50) : undefined;
     deleteMutation.mutate(id, {
       onSuccess: () => {
-        toast.success("Bet deleted");
+        toast.success("🗑️ Bet deleted", {
+          description: label,
+        });
         setSelectedIds((cur) => {
           const next = new Set(cur);
           next.delete(id);
@@ -213,7 +224,7 @@ export function BetsHistorySpreadsheet() {
         });
       },
       onError: (err) =>
-        toast.error(`Failed to delete bet: ${(err as Error).message}`),
+        toast.error(`❌ Failed to delete bet: ${(err as Error).message}`),
       onSettled: () =>
         setDeletingIds((cur) => {
           const next = new Set(cur);
@@ -231,7 +242,7 @@ export function BetsHistorySpreadsheet() {
 
   const runAiSettle = async (ids: string[]) => {
     if (ids.length === 0) {
-      toast.error("No rows to settle");
+      toast.error("⚠️ No rows to settle");
       return;
     }
 
@@ -348,7 +359,7 @@ export function BetsHistorySpreadsheet() {
 
     if (anyErr) {
       const err = anyErr as Error;
-      toast.error("Settlement failed", { description: err.message });
+      toast.error("❌ Settlement failed", { description: err.message });
     } else {
       // Rich toast: concise title + breakdown on line 2. Mentions AI
       // only when it actually contributed; otherwise it's the free
@@ -362,10 +373,10 @@ export function BetsHistorySpreadsheet() {
       if (summary.unresolved > 0)
         pieces.push(`unresolved ${summary.unresolved}`);
       const seconds = (summary.durationMs / 1000).toFixed(1);
-      toast.success(`Settled ${summary.resolved} / ${ids.length} ${word}`, {
+      toast.success(`✅ Settled ${summary.resolved} / ${ids.length} ${word}`, {
         description:
           pieces.length > 0
-            ? `${pieces.join(" · ")} · ${seconds}s`
+            ? `${pieces.join(" · ")} · ⏱️ ${seconds}s`
             : `Took ${seconds}s`,
       });
       // Whole batch finished — drop the selection so the user doesn't
@@ -379,7 +390,7 @@ export function BetsHistorySpreadsheet() {
     if (!row) return;
     const gate = canResettle(row);
     if (!gate.allowed) {
-      toast.error(gate.message);
+      toast.error("🚫 " + gate.message);
       return;
     }
     setSettleCandidates([row]);
@@ -396,7 +407,7 @@ export function BetsHistorySpreadsheet() {
       const data = await aiLabelBets([id], reqOpts);
       setSettleResponse(data);
     } catch (err) {
-      toast.error(`Settlement failed: ${(err as Error).message}`);
+      toast.error(`❌ Settlement failed: ${(err as Error).message}`);
       setSettleResponse({
         proposals: [{ id, error: (err as Error).message }],
         attempted: 1,
@@ -436,7 +447,7 @@ export function BetsHistorySpreadsheet() {
       }
       if (eligible.length === 0) {
         toast.error(
-          "None of the selected rows can be settled yet — matches still live.",
+          "🚫 None of the selected rows can be settled yet — matches still live.",
         );
         return;
       }
@@ -480,7 +491,7 @@ export function BetsHistorySpreadsheet() {
           }
         } catch (err) {
           errors += chunk.length;
-          toast.error(`Settlement batch failed: ${(err as Error).message}`, {
+          toast.error(`❌ Settlement batch failed: ${(err as Error).message}`, {
             description: `${chunk.length} rows skipped`,
           });
         }
@@ -490,17 +501,17 @@ export function BetsHistorySpreadsheet() {
         try {
           const res = await bulkMarkMutation.mutateAsync(updates);
           toast.success(
-            `Settled ${res.applied} of ${eligible.length} selected`,
+            `✅ Settled ${res.applied} of ${eligible.length} selected`,
             {
-              description: `unresolved ${unresolved}${errors > 0 ? ` · errors ${errors}` : ""}`,
+              description: `⚠️ ${unresolved} unresolved${errors > 0 ? ` · ❌ ${errors} errors` : ""}`,
             },
           );
         } catch (err) {
-          toast.error(`Apply failed: ${(err as Error).message}`);
+          toast.error(`❌ Apply failed: ${(err as Error).message}`);
         }
       } else {
         toast.info(
-          `No outcomes changed — ${unresolved} unresolved${errors > 0 ? `, ${errors} errors` : ""}`,
+          `📥 No outcomes changed — ${unresolved} unresolved${errors > 0 ? `, ${errors} errors` : ""}`,
         );
       }
 
@@ -543,7 +554,7 @@ export function BetsHistorySpreadsheet() {
       const data = await aiLabelBets([id], reqOpts);
       const fresh = data.proposals.find((p) => p.id === id);
       if (!fresh) {
-        toast.error(`Re-run returned no proposal for ${id}`);
+        toast.error(`❌ Re-run returned no proposal for ${id}`);
         return;
       }
       setSettleResponse((prev) => {
@@ -556,16 +567,16 @@ export function BetsHistorySpreadsheet() {
       const pathLabel =
         choice.kind === "default" ? "default pipeline" : `AI · ${choice.model}`;
       if ("error" in fresh) {
-        toast.error(`Re-run failed: ${fresh.error}`);
+        toast.error(`❌ Re-run failed: ${fresh.error}`);
       } else {
         toast.success(
-          `Re-ran via ${pathLabel} → ${fresh.proposedOutcome}${
+          `♻️ Re-ran via ${pathLabel} → ${fresh.proposedOutcome}${
             fresh.score ? ` (${fresh.score})` : ""
           }`,
         );
       }
     } catch (err) {
-      toast.error(`Re-run failed: ${(err as Error).message}`);
+      toast.error(`❌ Re-run failed: ${(err as Error).message}`);
     } finally {
       setRerunningIds((cur) => {
         const next = new Set(cur);
@@ -582,13 +593,13 @@ export function BetsHistorySpreadsheet() {
     try {
       const result = await bulkMarkMutation.mutateAsync(updates);
       toast.success(
-        `Applied ${result.applied} outcome${result.applied === 1 ? "" : "s"}`,
+        `✅ Applied ${result.applied} outcome${result.applied === 1 ? "" : "s"}`,
       );
       setSettleOpen(false);
       setSettleResponse(null);
       clearSelection();
     } catch (err) {
-      toast.error(`Bulk apply failed: ${(err as Error).message}`);
+      toast.error(`❌ Bulk apply failed: ${(err as Error).message}`);
     }
   };
 
@@ -599,11 +610,11 @@ export function BetsHistorySpreadsheet() {
       ids.map((id) => ({ id, outcome })),
       {
         onSuccess: (r) => {
-          toast.success(`Marked ${r.applied} as ${outcome}`);
+          toast.success(`✅ Marked ${r.applied} as ${outcome}`);
           clearSelection();
         },
         onError: (err) =>
-          toast.error(`Bulk mark failed: ${(err as Error).message}`),
+          toast.error(`❌ Bulk mark failed: ${(err as Error).message}`),
       },
     );
   };
@@ -615,18 +626,18 @@ export function BetsHistorySpreadsheet() {
   const handleResetToDefaults = () => {
     resetToDefaults();
     toast.success(
-      hasSavedDefaults ? "Reset to saved defaults" : "Reset to system defaults",
+      hasSavedDefaults ? "⚙️ Reset to saved defaults" : "⚙️ Reset to system defaults",
     );
   };
 
   const handleSaveAsDefault = () => {
     saveCurrentAsDefault();
-    toast.success("Current view saved as default");
+    toast.success("💾 Current view saved as default");
   };
 
   const handleClearSavedDefaults = () => {
     clearSavedDefaults();
-    toast.success("Saved defaults cleared — reset falls back to system");
+    toast.success("🧹 Saved defaults cleared — reset falls back to system");
   };
 
   return (

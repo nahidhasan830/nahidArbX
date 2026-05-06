@@ -18,6 +18,7 @@ DSR/PSR-detected overfitting.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats
@@ -254,3 +255,132 @@ def whites_reality_check_pvalue(
         if bootstrap_means.max() >= observed_max:
             misses += 1
     return float(misses / n_bootstraps)
+
+
+# ── Score Bucket Analysis (Phase 6) ────────────────────────────────────────
+#
+# Evaluate whether higher ML scores produce better ROI/CLV. A model is only
+# useful if score buckets are directionally monotonic: higher score → better
+# financial outcome.
+
+# Bucket edges per the plan: <0.4, 0.4-0.5, 0.5-0.6, 0.6-0.7, 0.7-0.8, >0.8
+SCORE_BUCKET_EDGES: list[float] = [0.0, 0.4, 0.5, 0.6, 0.7, 0.8, 1.01]
+SCORE_BUCKET_LABELS: list[str] = ["<0.4", "0.4-0.5", "0.5-0.6", "0.6-0.7", "0.7-0.8", ">0.8"]
+
+
+@dataclass
+class ScoreBucket:
+    """Metrics for a single score bucket."""
+    label: str
+    low: float
+    high: float
+    count: int
+    n_positive: int
+    n_negative: int
+    win_rate: float       # fraction of positives
+    mean_pnl: float       # average PnL per sample
+    roi_pct: float        # sum(pnl) / count * 100
+    mean_clv_pct: float   # average CLV% (NaN if no CLV data)
+    mean_score: float     # average predicted score in this bucket
+
+
+@dataclass
+class ScoreBucketReport:
+    """Full score-bucket analysis across all buckets."""
+    buckets: list[ScoreBucket]
+    roi_monotonicity: float     # 0..1 — fraction of adjacent pairs where higher bucket has higher ROI
+    clv_monotonicity: float     # 0..1 — same for CLV
+    win_rate_monotonicity: float  # 0..1 — same for win rate
+    is_directionally_monotonic: bool  # True if roi_monotonicity >= 0.6
+
+
+def score_bucket_analysis(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    pnl: np.ndarray,
+    clv_pct: np.ndarray | None = None,
+) -> ScoreBucketReport:
+    """Compute per-bucket ROI, CLV, win rate and monotonicity.
+
+    Args:
+        scores: P(positive) predictions, shape (n,)
+        labels: binary labels {0, 1}, shape (n,)
+        pnl: per-sample PnL, shape (n,)
+        clv_pct: per-sample CLV%, shape (n,) or None
+    """
+    n = len(scores)
+    edges = SCORE_BUCKET_EDGES
+    bucket_labels = SCORE_BUCKET_LABELS
+
+    buckets: list[ScoreBucket] = []
+    for i in range(len(edges) - 1):
+        lo, hi = edges[i], edges[i + 1]
+        mask = (scores >= lo) & (scores < hi)
+        cnt = int(mask.sum())
+
+        if cnt == 0:
+            buckets.append(ScoreBucket(
+                label=bucket_labels[i], low=lo, high=hi,
+                count=0, n_positive=0, n_negative=0,
+                win_rate=0.0, mean_pnl=0.0, roi_pct=0.0,
+                mean_clv_pct=float("nan"), mean_score=0.0,
+            ))
+            continue
+
+        b_labels = labels[mask]
+        b_pnl = pnl[mask]
+        b_scores = scores[mask]
+        n_pos = int(b_labels.sum())
+        n_neg = cnt - n_pos
+
+        mean_clv = float("nan")
+        if clv_pct is not None:
+            b_clv = clv_pct[mask]
+            finite_clv = b_clv[np.isfinite(b_clv)]
+            if len(finite_clv) > 0:
+                mean_clv = float(finite_clv.mean())
+
+        buckets.append(ScoreBucket(
+            label=bucket_labels[i], low=lo, high=hi,
+            count=cnt, n_positive=n_pos, n_negative=n_neg,
+            win_rate=round(n_pos / cnt, 4) if cnt > 0 else 0.0,
+            mean_pnl=round(float(b_pnl.mean()), 4),
+            roi_pct=round(float(b_pnl.sum() / cnt * 100), 4) if cnt > 0 else 0.0,
+            mean_clv_pct=round(mean_clv, 4) if np.isfinite(mean_clv) else float("nan"),
+            mean_score=round(float(b_scores.mean()), 4),
+        ))
+
+    # Monotonicity: fraction of adjacent non-empty bucket pairs where metric increases
+    roi_mono = _monotonicity([b.roi_pct for b in buckets], [b.count for b in buckets])
+    clv_mono = _monotonicity(
+        [b.mean_clv_pct for b in buckets], [b.count for b in buckets]
+    )
+    wr_mono = _monotonicity([b.win_rate for b in buckets], [b.count for b in buckets])
+
+    return ScoreBucketReport(
+        buckets=buckets,
+        roi_monotonicity=round(roi_mono, 4),
+        clv_monotonicity=round(clv_mono, 4),
+        win_rate_monotonicity=round(wr_mono, 4),
+        is_directionally_monotonic=roi_mono >= 0.6,
+    )
+
+
+def _monotonicity(values: list[float], counts: list[int]) -> float:
+    """Fraction of adjacent non-empty pairs where the value increases.
+
+    Returns 1.0 if perfectly monotonically increasing, 0.0 if all decreasing.
+    Skips empty buckets (count=0) and NaN values.
+    """
+    non_empty = [(v, c) for v, c in zip(values, counts) if c > 0 and np.isfinite(v)]
+    if len(non_empty) < 2:
+        return 1.0  # Not enough data to judge
+
+    pairs = 0
+    increases = 0
+    for i in range(len(non_empty) - 1):
+        pairs += 1
+        if non_empty[i + 1][0] >= non_empty[i][0]:
+            increases += 1
+
+    return increases / pairs if pairs > 0 else 1.0

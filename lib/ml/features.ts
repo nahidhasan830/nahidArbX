@@ -1,7 +1,7 @@
 /**
  * ML Feature Extractor
  *
- * Extracts a 23-dimensional feature vector from a ValueBet and the
+ * Extracts a 25-dimensional feature vector from a ValueBet and the
  * in-memory odds stores. Feature order is contractual — it must match
  * the Python training pipeline's `feature_names.py` exactly.
  *
@@ -19,10 +19,12 @@ import {
 import { getAllOddsForAtom } from "@/lib/atoms/store";
 import { getFamily } from "@/lib/atoms/registry";
 import { getCachedVigData } from "@/lib/atoms/value-detector";
-import { getProviderCommission } from "@/lib/providers/registry";
 import { getEvent } from "@/lib/store";
 import { computeConvergenceRate } from "@/lib/ml/convergence";
+import { getCompetitionTier } from "@/lib/ml/competition-enrichment";
+import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import { differenceInMinutes } from "date-fns";
+import { createHash } from "node:crypto";
 import type { AtomMarketType } from "@/lib/atoms/types";
 
 // ============================================
@@ -35,27 +37,33 @@ export const FEATURE_NAMES: string[] = [
   "soft_odds",             // 2
   "adjusted_soft_odds",    // 3
   "implied_prob_gap",      // 4
-  "soft_odds_age_ms",      // 5
-  "tick_count",            // 6
-  "time_to_kickoff_min",   // 7
-  "movement_pct_sharp",    // 8
-  "movement_pct_soft",     // 9
-  "steam_move_sharp",      // 10
-  "steam_move_soft",       // 11
-  "sharp_direction",       // 12
-  "soft_direction",        // 13
-  "convergence_rate",      // 14
-  "tick_velocity",         // 15
-  "provider_count",        // 16
-  "opening_sharp_odds",    // 17
-  "market_type_encoded",   // 18
-  "is_asian_line",         // 19
-  "commission_pct",        // 20
-  "kelly_fraction_raw",    // 21
-  "vig_pct",               // 22
+  "tick_count",            // 5
+  "time_to_kickoff_min",   // 6
+  "movement_pct_sharp",    // 7
+  "movement_pct_soft",     // 8
+  "steam_move_sharp",      // 9
+  "steam_move_soft",       // 10
+  "sharp_direction",       // 11
+  "soft_direction",        // 12
+  "convergence_rate",      // 13
+  "tick_velocity",         // 14
+  "provider_count",        // 15
+  "opening_sharp_odds",    // 16
+  "market_type_encoded",   // 17
+  "is_asian_line",         // 18
+  "kelly_fraction_raw",    // 19
+  "vig_pct",               // 20
+  "competition_tier",      // 21
+  "hours_since_line_opened", // 22
+  "sharp_soft_spread",     // 23
+  "num_markets_same_event", // 24
 ];
 
-export const FEATURE_COUNT = 23;
+export const FEATURE_COUNT = ML_FEATURE_COUNT;
+export const FEATURE_VERSION = ML_FEATURE_VERSION;
+export const FEATURE_NAMES_HASH = createHash("sha256")
+  .update(FEATURE_NAMES.join(","))
+  .digest("hex");
 
 // ============================================
 // Market type ordinal encoding
@@ -99,12 +107,12 @@ function encodeDirection(dir: "up" | "down" | "stable" | undefined): number {
 // ============================================
 
 /**
- * Extract a 23-element feature vector from a ValueBet.
+ * Extract a 25-element feature vector from a ValueBet.
  *
  * All values default to 0 for null/undefined sources.
  * All values rounded to 4 decimal places.
  */
-export function extractFeatures(vb: ValueBet): number[] {
+export function extractFeatures(vb: ValueBet, numMarketsInEvent?: number): number[] {
   const eId = vb.eventId;
   const fId = vb.familyId;
   const aId = vb.atomId;
@@ -150,32 +158,49 @@ export function extractFeatures(vb: ValueBet): number[] {
     }
   }
 
+  // Feature 22: hours_since_line_opened
+  let hoursSinceLineOpened = 0;
+  const sharpOpenTs = sharpHistory?.openingTimestamp;
+  if (sharpOpenTs != null && sharpOpenTs > 0) {
+    hoursSinceLineOpened = (Date.now() - sharpOpenTs) / (1000 * 60 * 60);
+  }
+  hoursSinceLineOpened = Math.max(0, hoursSinceLineOpened);
+
+  const sharpSoftSpread = vb.softOdds - (1 / vb.trueProb);
+  const safeSharpSoftSpread = Number.isFinite(sharpSoftSpread) ? sharpSoftSpread : 0;
+  const safeMarketCount = Math.max(1, numMarketsInEvent ?? 1);
+
   const features: number[] = [
     /* 0  ev_pct            */ vb.evPct,
     /* 1  sharp_true_prob   */ vb.trueProb,
     /* 2  soft_odds         */ vb.softOdds,
     /* 3  adjusted_soft_odds */ vb.adjustedSoftOdds,
     /* 4  implied_prob_gap  */ vb.trueProb - 1 / vb.softOdds,
-    /* 5  soft_odds_age_ms  */ Date.now() - vb.timestamp,
-    /* 6  tick_count        */ sharpHistory?.totalTicks ?? 0,
-    /* 7  time_to_kickoff   */ timeToKickoffMin,
-    /* 8  movement_pct_sharp */ sharpMovement?.changePct ?? 0,
-    /* 9  movement_pct_soft */ softMovement?.changePct ?? 0,
-    /* 10 steam_move_sharp  */ detectSteamMove(eId, fId, aId, vb.sharpProvider) != null ? 1 : 0,
-    /* 11 steam_move_soft   */ detectSteamMove(eId, fId, aId, vb.softProvider) != null ? 1 : 0,
-    /* 12 sharp_direction   */ encodeDirection(sharpMovement?.direction),
-    /* 13 soft_direction    */ encodeDirection(softMovement?.direction),
-    /* 14 convergence_rate  */ computeConvergenceRate(eId, fId, aId, vb.sharpProvider, vb.softProvider),
-    /* 15 tick_velocity     */ tickVelocity,
-    /* 16 provider_count    */ getAllOddsForAtom(eId, fId, aId).size,
-    /* 17 opening_sharp_odds */ sharpHistory?.openingOdds ?? 0,
-    /* 18 market_type_encoded */ marketTypeEncoded,
-    /* 19 is_asian_line     */ isAsianLine,
-    /* 20 commission_pct    */ getProviderCommission(vb.softProvider),
-    /* 21 kelly_fraction_raw */ vb.kellyFraction,
-    /* 22 vig_pct           */ vigData?.vigPct ?? 0,
+    /* 5  tick_count        */ sharpHistory?.totalTicks ?? 0,
+    /* 6  time_to_kickoff   */ timeToKickoffMin,
+    /* 7  movement_pct_sharp */ sharpMovement?.changePct ?? 0,
+    /* 8  movement_pct_soft */ softMovement?.changePct ?? 0,
+    /* 9  steam_move_sharp  */ detectSteamMove(eId, fId, aId, vb.sharpProvider) != null ? 1 : 0,
+    /* 10 steam_move_soft   */ detectSteamMove(eId, fId, aId, vb.softProvider) != null ? 1 : 0,
+    /* 11 sharp_direction   */ encodeDirection(sharpMovement?.direction),
+    /* 12 soft_direction    */ encodeDirection(softMovement?.direction),
+    /* 13 convergence_rate  */ computeConvergenceRate(eId, fId, aId, vb.sharpProvider, vb.softProvider),
+    /* 14 tick_velocity     */ tickVelocity,
+    /* 15 provider_count    */ getAllOddsForAtom(eId, fId, aId).size,
+    /* 16 opening_sharp_odds */ sharpHistory?.openingOdds ?? 0,
+    /* 17 market_type_encoded */ marketTypeEncoded,
+    /* 18 is_asian_line     */ isAsianLine,
+    /* 19 kelly_fraction_raw */ vb.kellyFraction,
+    /* 20 vig_pct           */ vigData?.vigPct ?? 0,
+    /* 21 competition_tier  */ getCompetitionTier(event?.competition ?? ""),
+    /* 22 hours_since_line_opened */ hoursSinceLineOpened,
+    /* 23 sharp_soft_spread */ safeSharpSoftSpread,
+    /* 24 num_markets_same_event */ safeMarketCount,
   ];
 
   // Round all values to 4 decimal places to prevent HOT-busting float drift
-  return features.map((v) => Math.round((v ?? 0) * 10000) / 10000);
+  return features.map((v) => {
+    const safe = Number.isFinite(v) ? v : 0;
+    return Math.round(safe * 10000) / 10000;
+  });
 }

@@ -657,7 +657,7 @@ Odds Age: ${oddsAge?.display || "unknown"}
 `.trim();
 
     navigator.clipboard.writeText(text);
-    toast.success("Copied", {
+    toast.success("📋 Copied", {
       description: "Full value bet details",
     });
   };
@@ -672,7 +672,7 @@ Bet @ ${selectedMetrics.label}: ${m.odds.toFixed(2)}
 EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${DISPLAY_CURRENCY}`;
 
     navigator.clipboard.writeText(text);
-    toast.success("Copied", {
+    toast.success("📋 Copied", {
       description: `${outcomeLabel} @ ${selectedMetrics.label}`,
     });
   };

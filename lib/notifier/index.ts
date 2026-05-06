@@ -34,10 +34,7 @@ function summarizeEvent(e: NotificationEvent): string {
       return `AI engine ${e.state} · ${e.configuredModel}`;
     case "ai:model_state":
       return `AI model ${e.state.toUpperCase()} · ${e.model}`;
-    case "optimizer:run_started":
-      return `Run started · ${e.name}`;
-    case "optimizer:run_completed":
-      return `Run ${e.status} · ${e.name}`;
+
     case "ml:run_completed":
       return `ML Matcher · ${e.processed} pairs processed`;
     default:

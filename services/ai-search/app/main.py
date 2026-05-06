@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -46,12 +47,6 @@ logging.basicConfig(
 config = load_config()
 search_router = SearchRouter(config)
 
-# Check for monthly quota reset (excludes Serper one-time credits)
-from app.quota_store import get_store as _get_store
-_store = _get_store()
-if _store.check_monthly_reset(exclude={"serper"}):
-    log.info("Monthly reset applied — search provider counters cleared")
-
 # Build LLM engine chain: HF Router (Pro) → Groq (free)
 from app.llm.hf_engine import HFEngine
 from app.llm.fallback import FallbackEngine
@@ -79,10 +74,24 @@ llm_engine = FallbackEngine(engines) if len(engines) > 1 else engines[0][1]
 
 grounded_ai = GroundedAI(search_router, llm_engine, config)
 
+
+# ── Lifespan ──────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup: sync live quotas from providers that support it."""
+    log.info("Syncing provider quotas on startup...")
+    await search_router.sync_quotas()
+    log.info("Quota sync complete")
+    yield
+
+
 app = FastAPI(
     title="ai-search",
-    version="0.3.0",
+    version="0.4.0",
     description="Search-grounded AI inference for entity resolution and settlement.",
+    lifespan=lifespan,
 )
 
 
@@ -185,7 +194,9 @@ async def entity_match(req: EntityMatchRequest) -> MatchVerdict:
     """Determine if two sports events are the same real-world match."""
     await ensure_model_ready()
 
-    return await grounded_ai.entity_match(req.event_a, req.event_b)
+    return await grounded_ai.entity_match(
+        req.event_a, req.event_b, llm_override=req.llm_provider,
+    )
 
 
 # ── /entity-match-batch ───────────────────────────────────────────

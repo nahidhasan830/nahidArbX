@@ -100,6 +100,7 @@ class ProviderStats(BaseModel):
     requests_used: int
     quota_limit: int | None
     quota_remaining: int | None
+    quota_source: str = "local"  # "live" | "local" | "none"
     last_error: str | None = None
     last_used_at: str | None = None
 
@@ -131,6 +132,7 @@ class GroundedQueryRequest(BaseModel):
 class EntityMatchRequest(BaseModel):
     event_a: EventInfo
     event_b: EventInfo
+    llm_provider: str | None = None  # force a specific LLM engine ("huggingface", "groq")
 
 
 class BatchEntityMatchRequest(BaseModel):

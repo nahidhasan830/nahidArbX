@@ -1,7 +1,7 @@
 /**
  * Matcher Lab API
  *
- * GET  ?stage=inbox|ml_queued|human_review|history  — list pairs by stage
+ * GET  ?stage=inbox|human_review|history  — list pairs by stage
  *      &limit=N &offset=N                          — pagination
  *
  * POST action=decide   { id, decision, decidedBy, reason? }
@@ -36,7 +36,6 @@ const tag = "MatcherLab";
 
 const VALID_STAGES: MatchPairStage[] = [
   "inbox",
-  "ml_queued",
   "human_review",
   "history",
 ];

@@ -15,11 +15,18 @@
  *   1. On first `ensureModel()`, try local cache → GCS download
  *   2. Every 60s, poll `ml_models WHERE status='deployed'` for version changes
  *   3. On version change, hot-reload the ONNX session
+ *
+ * Phase 8 scoring semantics:
+ *   - No model loaded → scoreBatch returns null[] (pass-through)
+ *   - Model loaded → returns P(profitable) for each feature vector
+ *   The null return signals callers that ML is inactive, preventing
+ *   the old bug where 1.0 scores fed into the staker's multiplier
+ *   logic and changed behavior before any model existed.
  */
 
 import { singleton } from "@/lib/util/singleton";
 import { logger } from "@/lib/shared/logger";
-import { FEATURE_NAMES, FEATURE_COUNT } from "./features";
+import { FEATURE_NAMES, FEATURE_COUNT, FEATURE_NAMES_HASH, FEATURE_VERSION } from "./features";
 
 // ============================================
 // State — singleton for HMR safety
@@ -155,13 +162,31 @@ async function loadModel(modelPath: string, version: number): Promise<boolean> {
     // ONNX metadata is exposed differently across onnxruntime versions;
     // we try the most common accessors and fall back gracefully.
     let modelFeatureNames: string | undefined;
+    let modelFeatureVersion: string | undefined;
+    let modelFeatureNamesHash: string | undefined;
     try {
       // onnxruntime-node exposes metadata on the session object
       const sessionAny = newSession as unknown as Record<string, unknown>;
       const meta = (sessionAny.metadata ?? sessionAny._metadata) as Record<string, string> | undefined;
       modelFeatureNames = meta?.feature_names;
+      modelFeatureVersion = meta?.feature_version;
+      modelFeatureNamesHash = meta?.feature_names_hash;
     } catch {
       // metadata access not supported in this version — skip validation
+    }
+    if (modelFeatureVersion && Number(modelFeatureVersion) !== FEATURE_VERSION) {
+      logger.error(
+        "MLScorer",
+        `Feature version mismatch! Model: ${modelFeatureVersion}, Code: ${FEATURE_VERSION}`,
+      );
+      return false;
+    }
+    if (modelFeatureNamesHash && modelFeatureNamesHash !== FEATURE_NAMES_HASH) {
+      logger.error(
+        "MLScorer",
+        `Feature hash mismatch! Model: ${modelFeatureNamesHash}, Code: ${FEATURE_NAMES_HASH}`,
+      );
+      return false;
     }
     if (modelFeatureNames && modelFeatureNames !== FEATURE_NAMES.join(",")) {
       logger.error(
@@ -189,6 +214,13 @@ async function loadModel(modelPath: string, version: number): Promise<boolean> {
 // ============================================
 
 /**
+ * Whether a model is currently loaded and ready for inference.
+ */
+export function isModelLoaded(): boolean {
+  return state.session != null;
+}
+
+/**
  * Ensure the ONNX model is loaded. Call at boot for warmup.
  * Returns true if a model is active, false if operating in pass-through mode.
  */
@@ -211,12 +243,14 @@ export async function ensureModel(): Promise<boolean> {
 /**
  * Score a batch of feature vectors. Returns P(profitable) for each.
  *
- * When no model is loaded, returns 1.0 for all inputs (pass-through mode)
- * so the system behaves identically to pre-ML: every bet passes the gate.
+ * When no model is loaded, returns null for all inputs to signal that
+ * ML is inactive. This prevents the old bug where 1.0 pass-through
+ * scores fed into the staker's multiplier logic and changed behavior
+ * before any model was deployed.
  */
-export async function scoreBatch(featureArrays: number[][]): Promise<number[]> {
+export async function scoreBatch(featureArrays: number[][]): Promise<(number | null)[]> {
   if (!state.session || featureArrays.length === 0) {
-    return featureArrays.map(() => 1.0); // pass-through
+    return featureArrays.map(() => null); // no model → null (not 1.0)
   }
 
   const inferStart = Date.now();
@@ -253,7 +287,7 @@ export async function scoreBatch(featureArrays: number[][]): Promise<number[]> {
 
     if (!probs) {
       logger.warn("MLScorer", "No probability output found in ONNX results");
-      return featureArrays.map(() => 1.0);
+      return featureArrays.map(() => null);
     }
 
     // Extract P(positive) — for [n, 2] shape, it's column 1 (index i*2+1)
@@ -266,11 +300,11 @@ export async function scoreBatch(featureArrays: number[][]): Promise<number[]> {
       return Array.from(probs);
     } else {
       logger.warn("MLScorer", `Unexpected output shape: ${probs.length} for ${featureArrays.length} inputs`);
-      return featureArrays.map(() => 1.0);
+      return featureArrays.map(() => null);
     }
   } catch (err) {
     logger.error("MLScorer", `Inference failed: ${(err as Error).message}`);
-    return featureArrays.map(() => 1.0); // fail-open
+    return featureArrays.map(() => null); // fail-open with null (callers handle)
   }
 }
 
@@ -299,12 +333,17 @@ export function getScorerStatus() {
 /**
  * Start polling for model version changes. If a new deployed model is
  * found, hot-reload the ONNX session without restarting the engine.
+ * Also refreshes the deployment gate permission level on each tick.
  */
 function startModelWatcher(): void {
   if (state.watcherTimer) return; // already watching
 
   state.watcherTimer = setInterval(async () => {
     try {
+      // Refresh deployment gate permission level alongside model check
+      const { refreshPermissionLevel } = await import("./deployment-gate");
+      await refreshPermissionLevel();
+
       const resolved = await resolveModelPath();
       if (!resolved) return;
 

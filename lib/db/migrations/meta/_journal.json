@@ -43,6 +43,20 @@
       "when": 1777714247395,
       "tag": "0005_ai_search_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777882739323,
+      "tag": "0006_add_auto_settle_ai_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777882765762,
+      "tag": "0007_add_auto_settle_ai_config",
+      "breakpoints": true
     }
   ]
 }

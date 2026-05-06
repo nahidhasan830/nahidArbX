@@ -1,4 +1,4 @@
-export type MatchPairStage = "inbox" | "ml_queued" | "human_review" | "history";
+export type MatchPairStage = "inbox" | "human_review" | "history";
 
 export type MatchPairDecision =
   | "auto-merge"
@@ -55,7 +55,6 @@ export interface MatchPairRow {
 
 export interface StageCounts {
   inbox: number;
-  ml_queued: number;
   human_review: number;
   history: number;
 }
@@ -133,13 +132,7 @@ export const STAGE_META: Record<
     color: "text-amber-300",
     bgActive: "bg-amber-500/15 border-amber-500/30",
   },
-  ml_queued: {
-    label: "ML Queue",
-    tooltip:
-      "Pairs being processed through the ML pipeline: bi-encoder → cross-encoder → AI Search. When the matcher service is down, pairs bounce back to Inbox on the next tick.",
-    color: "text-sky-300",
-    bgActive: "bg-sky-500/15 border-sky-500/30",
-  },
+
   human_review: {
     label: "Human Review",
     tooltip:

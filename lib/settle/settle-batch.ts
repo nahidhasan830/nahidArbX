@@ -173,30 +173,34 @@ export async function settleBatch(
     },
   };
 
-  // ── Fire-and-forget AI activity log ──
-  const hasErrors = proposals.some((p) => "error" in p);
-  recordAiActivity({
-    system: "settlement",
-    trigger: willUseAi ? "manual" : "auto-scheduler",
-    status: hasErrors ? "partial" : settledDeterministically > 0 ? "success" : "error",
-    model: willUseAi ? `gemini-${model}` : null,
-    itemCount: rows.length,
-    durationMs,
-    costUsd: null,
-    summary: `Settled ${settledDeterministically}/${rows.length} bets (${unresolvedEvents} unresolved events)`,
-    error: null,
-    metadata: {
-      tier0_hits: telemetry.tier0_hits,
-      tier1_hits: telemetry.tier1_hits,
-      tier2_hits: telemetry.tier2_hits,
-      tier3_hits: telemetry.tier3_hits,
-      tier4_hits: telemetry.tier4_hits,
-      unsupported,
-      unresolvedEvents,
-      forceAi: willUseAi,
-      bypassCache: options.bypassCache === true,
-    },
-  }).catch(() => {}); // never block settlement
+  // ── Fire-and-forget AI activity log (only when AI was actually used) ──
+  // Deterministic auto-settler runs already write to `settlement_runs`
+  // via persistRun() — logging them here was pure noise (null model,
+  // null cost, misleading "Settlement" entries in the AI Activity page).
+  if (willUseAi) {
+    const hasErrors = proposals.some((p) => "error" in p);
+    recordAiActivity({
+      system: "settlement",
+      trigger: "manual",
+      status: hasErrors ? "partial" : settledDeterministically > 0 ? "success" : "error",
+      model: `gemini-${model}`,
+      itemCount: rows.length,
+      durationMs,
+      costUsd: null,
+      summary: `Settled ${settledDeterministically}/${rows.length} bets (${unresolvedEvents} unresolved events)`,
+      error: null,
+      metadata: {
+        tier0_hits: telemetry.tier0_hits,
+        tier1_hits: telemetry.tier1_hits,
+        tier2_hits: telemetry.tier2_hits,
+        tier3_hits: telemetry.tier3_hits,
+        tier4_hits: telemetry.tier4_hits,
+        unsupported,
+        unresolvedEvents,
+        bypassCache: options.bypassCache === true,
+      },
+    }).catch(() => {}); // never block settlement
+  }
 
   return result;
 }

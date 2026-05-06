@@ -272,7 +272,7 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
     engine = get_engine()
 
     try:
-        # Atomically move inbox → ml_queued
+        # Fetch inbox pairs
         with engine.begin() as conn:
             conn.execute(text(
                 "INSERT INTO matcher_runs (id, trigger) VALUES (:id, :trigger)"
@@ -280,17 +280,13 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
 
             if pair_ids:
                 result = conn.execute(text("""
-                    UPDATE match_pairs
-                    SET stage = 'ml_queued', stage_changed_at = now()
+                    SELECT id FROM match_pairs
                     WHERE stage = 'inbox' AND id = ANY(:ids)
-                    RETURNING id
                 """), {"ids": pair_ids})
             else:
                 result = conn.execute(text("""
-                    UPDATE match_pairs
-                    SET stage = 'ml_queued', stage_changed_at = now()
+                    SELECT id FROM match_pairs
                     WHERE stage = 'inbox'
-                    RETURNING id
                 """))
             ids = [row[0] for row in result]
 
@@ -437,14 +433,9 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
         duration_ms = int((time.time() - t0) * 1000)
         log.exception("process_batch failed: %s", exc)
 
-        # Return pairs to inbox on failure
+        # Record failure
         try:
             with engine.begin() as conn:
-                conn.execute(text("""
-                    UPDATE match_pairs
-                    SET stage = 'inbox', stage_changed_at = now()
-                    WHERE stage = 'ml_queued'
-                """))
                 conn.execute(text("""
                     UPDATE matcher_runs SET
                         status = 'service_error',

@@ -123,7 +123,7 @@ async function testStats(): Promise<StatsResponse | null> {
     ok("stageCounts present", JSON.stringify(data.stageCounts));
 
     const sc = data.stageCounts;
-    for (const stage of ["inbox", "ml_queued", "human_review", "history"]) {
+    for (const stage of ["inbox", "human_review", "history"]) {
       if (typeof sc[stage] === "number") ok(`stageCounts.${stage}`, String(sc[stage]));
       else err(`stageCounts.${stage} missing or wrong type`);
     }
@@ -153,7 +153,7 @@ async function testListStages(counts: Record<string, number>): Promise<Record<st
   header("2. GET /api/matcher-lab?stage=X (list pairs per stage)");
   const result: Record<string, any[]> = {};
 
-  for (const stage of ["inbox", "ml_queued", "human_review", "history"]) {
+  for (const stage of ["inbox", "human_review", "history"]) {
     try {
       const { status, data } = await get<ListResponse>(`/api/matcher-lab?stage=${stage}&limit=50`);
       if (status !== 200) { err(`List ${stage}`, `HTTP ${status}`); continue; }
@@ -401,7 +401,7 @@ async function runTests() {
 
   // 1. Stats
   const stats = await testStats();
-  const counts = stats?.stageCounts ?? { inbox: 0, ml_queued: 0, human_review: 0, history: 0 };
+  const counts = stats?.stageCounts ?? { inbox: 0, human_review: 0, history: 0 };
 
   // 2. List each stage
   const pairs = await testListStages(counts);

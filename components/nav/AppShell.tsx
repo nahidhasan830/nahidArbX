@@ -18,11 +18,11 @@
  *   Navigate · Actions · (future) Jump to event
  */
 import * as React from "react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Brain,
-
   History,
   LayoutDashboard,
   LineChart,
@@ -108,8 +108,13 @@ const NAV_SECTIONS: NavSection[] = [
       },
       {
         href: "/lab/ml",
-        label: "Bet Optimizer",
+        label: "ML Optimizer",
         icon: Sparkles,
+      },
+      {
+        href: "/lab/shadow-mode",
+        label: "Shadow Mode",
+        icon: LineChart,
       },
       {
         href: "/ai-search",
@@ -155,6 +160,12 @@ function readSidebarCookie(): boolean {
   return entry.slice(SIDEBAR_COOKIE_NAME.length + 1) === "true";
 }
 
+export interface AppShellTab {
+  value: string;
+  label: string;
+  icon?: React.ComponentType<{ className?: string }>;
+}
+
 export interface AppShellProps {
   title: string;
   /** Optional pill/badge rendered next to the title. */
@@ -163,6 +174,12 @@ export interface AppShellProps {
   actions?: React.ReactNode;
   /** When true, main content gets no padding (for edge-to-edge spreadsheets). */
   edgeToEdge?: boolean;
+  /** Optional tabs rendered in the top bar. Wraps children in a Tabs provider. */
+  tabs?: AppShellTab[];
+  /** Controlled active tab value. When omitted, defaults to first tab. */
+  activeTab?: string;
+  /** Callback when tab changes (controlled mode). */
+  onTabChange?: (value: string) => void;
   children: React.ReactNode;
 }
 
@@ -171,6 +188,9 @@ export function AppShell({
   titleBadge,
   actions,
   edgeToEdge,
+  tabs,
+  activeTab,
+  onTabChange,
   children,
 }: AppShellProps) {
   const pathname = usePathname() ?? "";
@@ -269,9 +289,9 @@ export function AppShell({
                           className={cn(
                             "relative transition-colors",
                             active &&
-                            "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-3/5 before:rounded-r-[3px] before:bg-gradient-to-b before:from-cyan-400 before:to-blue-500 before:shadow-[0_0_8px_rgba(34,211,238,0.5),0_0_16px_rgba(34,211,238,0.2)]",
+                              "before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-[3px] before:h-3/5 before:rounded-r-[3px] before:bg-gradient-to-b before:from-cyan-400 before:to-blue-500 before:shadow-[0_0_8px_rgba(34,211,238,0.5),0_0_16px_rgba(34,211,238,0.2)]",
                             !active &&
-                            "hover:before:absolute hover:before:left-0 hover:before:top-1/2 hover:before:-translate-y-1/2 hover:before:w-[3px] hover:before:h-3/5 hover:before:rounded-r-[3px] hover:before:bg-cyan-400/40",
+                              "hover:before:absolute hover:before:left-0 hover:before:top-1/2 hover:before:-translate-y-1/2 hover:before:w-[3px] hover:before:h-3/5 hover:before:rounded-r-[3px] hover:before:bg-cyan-400/40",
                           )}
                         >
                           <Link href={item.href}>
@@ -371,13 +391,43 @@ export function AppShell({
           </div>
         </header>
 
-        <div
-          className={
-            edgeToEdge ? "flex flex-col flex-1 min-h-0 overflow-hidden" : "p-4"
-          }
-        >
-          {children}
-        </div>
+        {tabs && tabs.length > 0 ? (
+          <Tabs
+            {...(activeTab != null
+              ? { value: activeTab, onValueChange: onTabChange }
+              : { defaultValue: tabs[0].value })}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <div className="border-b border-sidebar-border px-3">
+              <TabsList variant="line" className="h-9 bg-transparent p-0 gap-0">
+                {tabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <TabsTrigger
+                      key={tab.value}
+                      value={tab.value}
+                      className="relative h-9 rounded-none border-b-2 border-transparent px-3 text-xs font-medium text-muted-foreground data-[state=active]:border-cyan-400 data-[state=active]:text-foreground data-[state=active]:shadow-none"
+                    >
+                      {Icon && <Icon className="mr-1.5 size-3.5" />}
+                      {tab.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </div>
+            <div className={edgeToEdge ? "flex flex-col flex-1 min-h-0 overflow-hidden" : "p-4"}>
+              {children}
+            </div>
+          </Tabs>
+        ) : (
+          <div
+            className={
+              edgeToEdge ? "flex flex-col flex-1 min-h-0 overflow-hidden" : "p-4"
+            }
+          >
+            {children}
+          </div>
+        )}
       </SidebarInset>
 
       {/* ─── Command Palette (⌘K) ─── */}

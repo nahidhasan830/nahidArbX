@@ -927,6 +927,8 @@ export function BetsHistoryTable({
         features={featureInspectRow?.mlFeatures}
         mlScore={featureInspectRow?.mlScore}
         mlKellyAdjusted={featureInspectRow?.mlKellyAdjusted}
+        featureVersion={featureInspectRow?.mlFeatureVersion}
+        featureCount={featureInspectRow?.mlFeatureCount}
         eventLabel={featureInspectRow ? `${featureInspectRow.homeTeam} vs ${featureInspectRow.awayTeam}` : undefined}
         marketLabel={featureInspectRow ? `[${featureInspectRow.timeScope}] ${formatMarketType(featureInspectRow.marketType)}${featureInspectRow.familyLine != null ? ` ${featureInspectRow.familyLine}` : ""} · ${formatAtomLabel(featureInspectRow.atomLabel)}` : undefined}
       />
@@ -937,6 +939,7 @@ export function BetsHistoryTable({
         data={movementData}
         eventLabel={movementEventLabel}
         marketLabel={movementMarketLabel}
+        features={movementRow?.mlFeatures}
       />
 
       {/* Delete confirmation dialog */}

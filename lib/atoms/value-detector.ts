@@ -32,6 +32,7 @@ import {
   KELLY_FRACTION,
   VALUE_TOTAL_STAKE,
   MAX_VALUE_ODDS_AGE_MS,
+  NEAR_MISS_MIN_EV_PCT,
 } from "../shared/constants";
 import { adjustOddsForCommission } from "../shared/commission";
 
@@ -561,4 +562,124 @@ export function groupByProvider(
   }
 
   return grouped;
+}
+
+// ============================================
+// Near-Miss Detection (Phase 9)
+// ============================================
+
+/**
+ * Lightweight struct for near-miss atoms: sub-threshold EV that
+ * still has enough edge to be informative training data.
+ * Stored as lower-weight negatives to reduce survival bias.
+ */
+export interface NearMissBet {
+  id: string;           // deterministic: eventId|familyId|atomId
+  eventId: string;
+  familyId: string;
+  atomId: string;
+  sharpProvider: ProviderKey;
+  softProvider: ProviderKey;
+  softOdds: number;
+  adjustedSoftOdds: number;
+  evPct: number;
+  trueProb: number;
+  kellyFraction: number;
+  detectedAt: Date;
+}
+
+/**
+ * Detect near-miss atoms for a single family.
+ *
+ * Near-misses are atoms where NEAR_MISS_MIN_EV_PCT ≤ EV% < MIN_EV_PCT.
+ * They represent sub-threshold edges that, without collection, create
+ * survivorship bias: the model only sees "good enough" bets and never
+ * learns what "almost good enough" looks like.
+ *
+ * Returns at most 1 near-miss per atom (best soft provider, same as
+ * detectValueForAtom). The caller caps total near-misses per pass.
+ */
+export function detectNearMissesForFamily(
+  eventId: string,
+  familyId: string,
+  options: ValueDetectionOptions = {},
+): NearMissBet[] {
+  const family = getFamily(familyId);
+  if (!family) return [];
+
+  const sharpProviders = getRuntimeSharpProviders();
+  if (sharpProviders.length === 0) return [];
+
+  const sharpProvider = sharpProviders[0];
+
+  const familyTrueOdds = calculateTrueOddsForFamily(
+    eventId,
+    familyId,
+    sharpProvider,
+  );
+  if (!familyTrueOdds) return [];
+
+  const {
+    kellyFraction = KELLY_FRACTION,
+    maxOddsAgeMs = MAX_VALUE_ODDS_AGE_MS,
+  } = options;
+
+  const softProviders = getRuntimeSoftProviders();
+  const now = Date.now();
+  const nearMisses: NearMissBet[] = [];
+
+  for (const atomTrueOdds of familyTrueOdds.atoms) {
+    const atomId = atomTrueOdds.atomId;
+    const allOdds = getAllOddsForAtom(eventId, familyId, atomId);
+
+    // Sharp staleness gate (same as value detection)
+    const sharpRecord = allOdds.get(sharpProvider);
+    const sharpAge = sharpRecord ? now - sharpRecord.timestamp : null;
+    if (sharpAge == null || sharpAge > maxOddsAgeMs) continue;
+
+    let best: NearMissBet | null = null;
+    for (const softProvider of softProviders) {
+      const softRecord = allOdds.get(softProvider);
+      if (!softRecord || softRecord.suspended) continue;
+      if (now - softRecord.timestamp > maxOddsAgeMs) continue;
+      if (softRecord.odds <= 1) continue;
+
+      const commissionPct = getProviderCommission(softProvider);
+      const adjustedSoftOdds = adjustOddsForCommission(
+        softRecord.odds,
+        commissionPct,
+      );
+
+      const edge = adjustedSoftOdds * atomTrueOdds.trueProb - 1;
+      const evPct = edge * 100;
+
+      // Near-miss band: above noise floor, below value threshold
+      if (evPct < NEAR_MISS_MIN_EV_PCT || evPct >= MIN_EV_PCT) continue;
+
+      const fullKelly = edge / (adjustedSoftOdds - 1);
+      const fractionalKelly = fullKelly * kellyFraction;
+
+      const candidate: NearMissBet = {
+        id: `${eventId}|${familyId}|${atomId}`,
+        eventId,
+        familyId,
+        atomId,
+        sharpProvider,
+        softProvider,
+        softOdds: softRecord.odds,
+        adjustedSoftOdds,
+        evPct: Math.round(evPct * 100) / 100,
+        trueProb: atomTrueOdds.trueProb,
+        kellyFraction: fractionalKelly,
+        detectedAt: new Date(),
+      };
+
+      if (!best || candidate.evPct > best.evPct) {
+        best = candidate;
+      }
+    }
+    if (best) nearMisses.push(best);
+  }
+
+  return nearMisses;
 }

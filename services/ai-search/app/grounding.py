@@ -95,6 +95,7 @@ class GroundedAI:
         event_b: EventInfo,
         *,
         use_tools: bool = False,
+        llm_override: str | None = None,
     ) -> MatchVerdict:
         """Determine if two events are the same real-world match.
 
@@ -104,16 +105,32 @@ class GroundedAI:
         3. Search web for evidence (fan-out to 2 providers).
         4. Feed evidence to LLM → structured verdict.
         5. Cache and return.
+
+        Args:
+            llm_override: If set, force a specific named LLM engine
+                (e.g. "huggingface", "groq") instead of the default fallback chain.
         """
         cache_key = self._match_cache_key(event_a, event_b)
         if cache_key in self._match_cache:
             log.info("Entity match cache hit: %s", cache_key[:60])
             return self._match_cache[cache_key]
 
-        if use_tools:
-            verdict = await self._entity_match_with_tools(event_a, event_b)
-        else:
-            verdict = await self._entity_match_presearch(event_a, event_b)
+        # Temporarily swap LLM if caller asked for a specific provider
+        original_llm = None
+        if llm_override and hasattr(self.llm, "get_engine_by_name"):
+            pinned = self.llm.get_engine_by_name(llm_override)
+            if pinned:
+                original_llm = self.llm
+                self.llm = pinned
+
+        try:
+            if use_tools:
+                verdict = await self._entity_match_with_tools(event_a, event_b)
+            else:
+                verdict = await self._entity_match_presearch(event_a, event_b)
+        finally:
+            if original_llm is not None:
+                self.llm = original_llm
 
         self._match_cache[cache_key] = verdict
         return verdict

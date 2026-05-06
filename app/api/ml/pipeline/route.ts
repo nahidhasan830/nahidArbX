@@ -1,19 +1,44 @@
 /**
- * GET /api/ml/pipeline — comprehensive Bet Optimizer pipeline stats.
+ * GET /api/ml/pipeline — comprehensive ML Optimizer pipeline stats.
  *
  * Single endpoint that returns the full picture: data collection health,
- * training readiness, inference status, and score distribution.
+ * training readiness, inference status, score distribution, and Phase 10
+ * diagnostic data (feature contract, enrichment coverage, training
+ * sample composition, rejected model reasons, score bucket ROI/CLV).
  * The UI polls this every 15 seconds.
  */
 import { NextResponse } from "next/server";
-import { sql, and, isNotNull, desc } from "drizzle-orm";
+import { sql, and, isNotNull, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { bets, mlModels } from "@/lib/db/schema";
-import { ML_COLD_START_THRESHOLD, ML_MIN_SCORE } from "@/lib/shared/constants";
+import { bets, mlModels, competitionEnrichments, mlTrainingExamples, mlSchedulerSettings } from "@/lib/db/schema";
+import { ML_COLD_START_THRESHOLD, ML_MIN_SCORE, ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
 import { engineGet } from "@/lib/engine-proxy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+async function getSchedulerSettings() {
+  try {
+    const [row] = await db
+      .select()
+      .from(mlSchedulerSettings)
+      .where(eq(mlSchedulerSettings.id, "default"))
+      .limit(1);
+    return row ?? null;
+  } catch {
+    return null;
+  }
+}
+
+interface DeploymentGateStatus {
+  permissionLevel: string;
+  modelVersion: number | null;
+  canGate: boolean;
+  canReduceStake: boolean;
+  canIncreaseStake: boolean;
+  lastRefreshedAt: string | null;
+}
 
 interface ScorerStatus {
   modelLoaded: boolean;
@@ -69,6 +94,155 @@ export async function GET() {
         ? Math.round((recentWithFeatures / recentBets.length) * 100)
         : 0;
 
+    // ── Feature contract diagnostics (Phase 10) ─────────────────────
+    const featureVersionRows = await db
+      .select({
+        version: bets.mlFeatureVersion,
+        cnt: sql<number>`count(*)::int`,
+      })
+      .from(bets)
+      .where(isNotNull(bets.mlFeatures))
+      .groupBy(bets.mlFeatureVersion);
+
+    const featureLengthRows = await db
+      .select({
+        len: sql<number>`array_length(${bets.mlFeatures}, 1)`,
+        cnt: sql<number>`count(*)::int`,
+      })
+      .from(bets)
+      .where(isNotNull(bets.mlFeatures))
+      .groupBy(sql`array_length(${bets.mlFeatures}, 1)`);
+
+    const currentNamesHash = FEATURE_NAMES_HASH.slice(0, 16);
+
+    const featureContract = {
+      currentVersion: ML_FEATURE_VERSION,
+      currentFeatureCount: ML_FEATURE_COUNT,
+      currentNamesHash,
+      versionDistribution: featureVersionRows.map((r) => ({
+        version: r.version ?? null,
+        count: r.cnt,
+      })),
+      lengthDistribution: featureLengthRows.map((r) => ({
+        length: r.len ?? null,
+        count: r.cnt,
+      })),
+      allVersionsMatch:
+        featureVersionRows.length === 1 &&
+        featureVersionRows[0].version === ML_FEATURE_VERSION,
+      allLengthsMatch:
+        featureLengthRows.length === 1 &&
+        featureLengthRows[0].len === ML_FEATURE_COUNT,
+    };
+
+    // ── Enrichment cache coverage (Phase 10) ────────────────────────
+    const distinctComps = await db
+      .select({ cnt: sql<number>`count(DISTINCT competition)::int` })
+      .from(bets)
+      .where(isNotNull(bets.competition));
+
+    const enrichedComps = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(competitionEnrichments);
+
+    const highConfidenceEnrichments = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(competitionEnrichments)
+      .where(sql`${competitionEnrichments.confidence} >= 70`);
+
+    const enrichmentCoverage = {
+      distinctCompetitions: distinctComps[0]?.cnt ?? 0,
+      enrichedCompetitions: enrichedComps[0]?.cnt ?? 0,
+      highConfidence: highConfidenceEnrichments[0]?.cnt ?? 0,
+      coveragePct:
+        (distinctComps[0]?.cnt ?? 0) > 0
+          ? Math.round(
+              ((enrichedComps[0]?.cnt ?? 0) /
+                (distinctComps[0]?.cnt ?? 0)) *
+                100,
+            )
+          : 0,
+    };
+
+    // ── Training sample composition (Phase 10) ──────────────────────
+    const exampleTypeCounts = await db
+      .select({
+        exampleType: mlTrainingExamples.exampleType,
+        cnt: sql<number>`count(*)::int`,
+      })
+      .from(mlTrainingExamples)
+      .groupBy(mlTrainingExamples.exampleType);
+
+    const labelCounts = await db
+      .select({
+        label: mlTrainingExamples.label,
+        cnt: sql<number>`count(*)::int`,
+      })
+      .from(mlTrainingExamples)
+      .where(isNotNull(mlTrainingExamples.label))
+      .groupBy(mlTrainingExamples.label);
+
+    const trainingComposition = {
+      byType: Object.fromEntries(
+        exampleTypeCounts.map((r) => [r.exampleType, r.cnt]),
+      ),
+      byLabel: Object.fromEntries(
+        labelCounts.map((r) => [r.label ?? "unlabeled", r.cnt]),
+      ),
+      totalExamples: exampleTypeCounts.reduce((s, r) => s + r.cnt, 0),
+    };
+
+    // ── Score bucket ROI/CLV (Phase 10) ─────────────────────────────
+    // Query settled bets that have both ml_score and pnl/clv_pct
+    const bucketPerformance = await db
+      .select({
+        bucket: sql<string>`
+          CASE
+            WHEN ${bets.mlScore} < 0.4 THEN '<0.4'
+            WHEN ${bets.mlScore} < 0.5 THEN '0.4–0.5'
+            WHEN ${bets.mlScore} < 0.6 THEN '0.5–0.6'
+            WHEN ${bets.mlScore} < 0.7 THEN '0.6–0.7'
+            WHEN ${bets.mlScore} < 0.8 THEN '0.7–0.8'
+            ELSE '≥0.8'
+          END`,
+        cnt: sql<number>`count(*)::int`,
+        avgPnl: sql<number>`coalesce(avg(${bets.pnl}::float), 0)::float`,
+        avgClv: sql<number>`coalesce(avg(${bets.clvPct}::float), 0)::float`,
+        winRate: sql<number>`coalesce(
+          avg(CASE WHEN ${bets.outcome} IN ('won', 'half_won') THEN 1.0 ELSE 0.0 END),
+          0
+        )::float`,
+      })
+      .from(bets)
+      .where(
+        and(
+          isNotNull(bets.mlScore),
+          sql`${bets.outcome} NOT IN ('pending', 'void')`,
+        ),
+      )
+      .groupBy(sql`
+        CASE
+          WHEN ${bets.mlScore} < 0.4 THEN '<0.4'
+          WHEN ${bets.mlScore} < 0.5 THEN '0.4–0.5'
+          WHEN ${bets.mlScore} < 0.6 THEN '0.5–0.6'
+          WHEN ${bets.mlScore} < 0.7 THEN '0.6–0.7'
+          WHEN ${bets.mlScore} < 0.8 THEN '0.7–0.8'
+          ELSE '≥0.8'
+        END`);
+
+    // Ensure all 6 buckets are present in order
+    const bucketOrder = ["<0.4", "0.4–0.5", "0.5–0.6", "0.6–0.7", "0.7–0.8", "≥0.8"];
+    const bucketMap = Object.fromEntries(
+      bucketPerformance.map((r) => [r.bucket, r]),
+    );
+    const scoreBucketROI = bucketOrder.map((b) => ({
+      bucket: b,
+      count: bucketMap[b]?.cnt ?? 0,
+      avgPnl: Math.round((bucketMap[b]?.avgPnl ?? 0) * 100) / 100,
+      avgClv: Math.round((bucketMap[b]?.avgClv ?? 0) * 100) / 100,
+      winRate: Math.round((bucketMap[b]?.winRate ?? 0) * 1000) / 10,
+    }));
+
     // ── Training stats ──────────────────────────────────────────────
     const allModels = await db
       .select()
@@ -78,9 +252,39 @@ export async function GET() {
 
     const deployed = allModels.find((m) => m.status === "deployed") ?? null;
     const latest = allModels[0] ?? null;
-    const modelsInTraining = allModels.filter(
+    const trainingModels = allModels.filter(
       (m) => m.status === "training",
-    ).length;
+    );
+    const modelsInTraining = trainingModels.length;
+
+    // Active training model info — for real-time UI hydration on page load
+    const activeTrainingModel = trainingModels[0] ?? null;
+    const activeTraining = activeTrainingModel
+      ? {
+          modelId: activeTrainingModel.id,
+          version: activeTrainingModel.version,
+          status: activeTrainingModel.status,
+          startedAt: activeTrainingModel.trainingStartedAt,
+          elapsedMs: activeTrainingModel.trainingStartedAt
+            ? Date.now() - new Date(activeTrainingModel.trainingStartedAt).getTime()
+            : null,
+        }
+      : null;
+
+    // Rejected models (Phase 10)
+    const rejectedModels = allModels
+      .filter((m) => m.status === "rejected" || (m.rejectionReasons && (m.rejectionReasons as string[]).length > 0))
+      .slice(0, 5)
+      .map((m) => ({
+        version: m.version,
+        status: m.status,
+        reasons: (m.rejectionReasons as string[] | null) ?? [],
+        createdAt: m.createdAt,
+        trainingSamples: m.trainingSamples,
+        oosAucRoc: m.oosAucRoc != null ? Number(m.oosAucRoc) : null,
+        deflatedSharpe: m.deflatedSharpe != null ? Number(m.deflatedSharpe) : null,
+        pbo: m.pbo != null ? Number(m.pbo) : null,
+      }));
 
     // Retraining readiness (mirrors scheduler.ts shouldRetrain logic)
     let readyToRetrain = false;
@@ -114,9 +318,12 @@ export async function GET() {
       avgInferenceMs: 0,
       lastInferenceMs: 0,
     };
-    const inferenceResult = await engineGet<ScorerStatus>("/engine/ml/status");
+    let deploymentGate: DeploymentGateStatus | null = null;
+    const inferenceResult = await engineGet<ScorerStatus & { deploymentGate?: DeploymentGateStatus }>("/engine/ml/status");
     if (inferenceResult) {
-      inference = inferenceResult;
+      const { deploymentGate: gate, ...scorerFields } = inferenceResult;
+      inference = scorerFields;
+      deploymentGate = gate ?? null;
     } else {
       inference.error = "Engine unreachable";
     }
@@ -159,6 +366,18 @@ export async function GET() {
 
 
 
+    // ── Resolve scoring mode label for UI ──────────────────────────────
+    const permLevel = deploymentGate?.permissionLevel ?? "shadow";
+    const scoringModeLabels: Record<string, string> = {
+      shadow: "Shadow (log only)",
+      gate_only: "Gate Only (skip low scores)",
+      stake_reduce: "Stake Reduce (reduce weak bets)",
+      stake_increase: "Stake Adjust (full ML sizing)",
+    };
+    const scoringMode = inference.modelLoaded
+      ? (scoringModeLabels[permLevel] ?? "Unknown")
+      : "Pass-through (no model)";
+
     return NextResponse.json({
       dataCollection: {
         totalBets,
@@ -180,9 +399,19 @@ export async function GET() {
         readyToRetrain,
         newDataSinceLastTrain,
         growthPct,
+        activeTraining,
       },
       inference,
       scheduler,
+      deploymentGate: deploymentGate ?? {
+        permissionLevel: "shadow",
+        modelVersion: null,
+        canGate: false,
+        canReduceStake: false,
+        canIncreaseStake: false,
+        lastRefreshedAt: null,
+      },
+      scoringMode,
       scoreDistribution: {
         buckets: bucketLabels.map((range, i) => ({
           range,
@@ -196,7 +425,14 @@ export async function GET() {
         aboveThreshold: scoredBets.length - belowThreshold,
         totalScored: scoredBets.length,
       },
-
+      // Phase 10 diagnostic data
+      featureContract,
+      enrichmentCoverage,
+      trainingComposition,
+      scoreBucketROI,
+      rejectedModels,
+      // Scheduler settings from DB
+      schedulerSettings: await getSchedulerSettings(),
     });
   } catch (err) {
     return NextResponse.json(

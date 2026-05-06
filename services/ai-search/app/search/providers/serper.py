@@ -3,6 +3,9 @@
 Returns structured Google search results.  2,500 free one-time credits
 (no CC required).  After that, $1/1k requests.
 
+No programmatic quota API available — uses session counter only.
+Dashboard: https://serper.dev/
+
 Docs: https://serper.dev/
 """
 
@@ -19,11 +22,11 @@ log = logging.getLogger("ai-search.serper")
 
 
 class SerperSearchProvider(BaseSearchProvider):
-    """Serper.dev — Google SERP results, secondary provider."""
+    """Serper.dev — Google SERP results, session counter only (no quota API)."""
 
     def __init__(self, api_key: str, total_limit: int = 2500) -> None:
-        # Serper uses one-time credits, not monthly — but the base class
-        # quota tracking still works (just don't reset).
+        # Serper uses one-time credits, not monthly.
+        # No API to check remaining — session counter is the best we have.
         super().__init__("serper", quota_limit=total_limit)
         self._api_key = api_key
         self._base_url = "https://google.serper.dev/search"

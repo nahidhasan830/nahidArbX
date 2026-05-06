@@ -115,17 +115,28 @@ async function postJson<T>(
  *
  * Returns a verdict with web evidence citations, or `null` if the
  * service is unreachable.
+ *
+ * @param llmProvider - If set, force a specific LLM engine ("huggingface", "groq")
  */
 export async function matchSingle(
   eventA: AiSearchEventInfo,
   eventB: AiSearchEventInfo,
+  opts?: { llmProvider?: string },
 ): Promise<AiSearchMatchVerdict | null> {
   const t0 = Date.now();
   const pairLabel = `${eventA.home_team} v ${eventA.away_team} vs ${eventB.home_team} v ${eventB.away_team}`;
 
+  const body: Record<string, unknown> = {
+    event_a: eventA,
+    event_b: eventB,
+  };
+  if (opts?.llmProvider) {
+    body.llm_provider = opts.llmProvider;
+  }
+
   const result = await postJson<AiSearchMatchVerdict>(
     "/entity-match",
-    { event_a: eventA, event_b: eventB },
+    body,
     SINGLE_TIMEOUT_MS,
   );
 

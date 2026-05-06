@@ -25,28 +25,29 @@ from sklearn.metrics import (
 from .cpcv import CpcvConfig, CpcvSplit, make_cpcv_splits
 from .feature_names import FEATURE_COUNT, FEATURE_NAMES
 from .loader import TrainingData
-from .scoring import deflated_sharpe, pbo_score
+from .scoring import deflated_sharpe, pbo_score, score_bucket_analysis, ScoreBucketReport
 
 log = logging.getLogger(__name__)
 
-# Default LightGBM hyperparameters — conservative to avoid overfitting
-# on the typically small (500-5000 sample) betting datasets.
+# Default LightGBM hyperparameters — Phase 6 conservative tuning for
+# small/medium betting datasets (typically 500-5000 samples).
 DEFAULT_LGBM_PARAMS: dict = {
     "objective": "binary",
     "metric": "binary_logloss",
     "boosting_type": "gbdt",
-    "num_leaves": 31,
-    "max_depth": 6,
-    "learning_rate": 0.05,
-    "n_estimators": 300,
-    "min_child_samples": 20,
+    "num_leaves": 15,
+    "max_depth": 5,
+    "learning_rate": 0.03,
+    "n_estimators": 500,
+    # min_child_samples is injected adaptively by _adaptive_min_child_samples()
     "subsample": 0.8,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.6,
     "reg_alpha": 0.1,
     "reg_lambda": 1.0,
     "random_state": 42,
     "verbose": -1,
     "force_col_wise": True,
+    # scale_pos_weight is injected dynamically from TrainingData.scale_pos_weight
 }
 
 # CPCV config: 10 groups, pick 2 for test → 45 paths.
@@ -65,6 +66,7 @@ class TrainingMetrics:
 
     # Financial metrics (aggregated OOS)
     oos_roi_mean: float
+    oos_clv_mean: float
 
     # Overfitting diagnostics
     dsr: float   # Deflated Sharpe Ratio
@@ -75,12 +77,16 @@ class TrainingMetrics:
     n_positive: int
     n_negative: int
     n_folds: int
+    scale_pos_weight: float | None = None
 
     # Per-fold metrics for PBO/DSR computation
     per_fold_sharpes: list[float] = field(default_factory=list)
 
     # SHAP feature importance (feature_name → mean |SHAP|)
     feature_importance: dict[str, float] = field(default_factory=dict)
+
+    # Score bucket calibration (Phase 6)
+    score_bucket_report: ScoreBucketReport | None = None
 
 
 @dataclass
@@ -108,11 +114,25 @@ def train(
     params = {**DEFAULT_LGBM_PARAMS, **(lgbm_params or {})}
     cfg = cpcv_config or DEFAULT_CPCV_CONFIG
 
+    # Inject adaptive min_child_samples based on dataset size
+    if "min_child_samples" not in params and "min_child_samples" not in (lgbm_params or {}):
+        params["min_child_samples"] = _adaptive_min_child_samples(len(data.labels))
+
+    # Inject scale_pos_weight from TrainingData if available and not already overridden
+    if data.scale_pos_weight is not None and "scale_pos_weight" not in params:
+        params["scale_pos_weight"] = data.scale_pos_weight
+
     X = data.features
     y = data.labels
+    w = data.sample_weights  # may be None
     n_samples = len(y)
 
-    log.info("Training LightGBM: %d samples, %d features", n_samples, FEATURE_COUNT)
+    log.info(
+        "Training LightGBM: %d samples, %d features, scale_pos_weight=%s, sample_weights=%s",
+        n_samples, FEATURE_COUNT,
+        params.get("scale_pos_weight", "none"),
+        "yes" if w is not None else "no",
+    )
 
     # ── Build CPCV splits ──────────────────────────────────────────────
     # CPCV operates on a time-sorted DataFrame. We use the metadata's
@@ -144,10 +164,12 @@ def train(
 
         X_train, y_train = X[train_idx], y[train_idx]
         X_test, y_test = X[test_idx], y[test_idx]
+        w_train = w[train_idx] if w is not None else None
 
         model = lgb.LGBMClassifier(**params)
         model.fit(
             X_train, y_train,
+            sample_weight=w_train,
             eval_set=[(X_test, y_test)],
             callbacks=[lgb.log_evaluation(period=0)],  # silence per-iteration logs
         )
@@ -204,6 +226,12 @@ def train(
     # OOS ROI
     oos_roi = float(np.mean(per_fold_rois)) if per_fold_rois else 0.0
 
+    # OOS CLV — average CLV% across OOS samples that have valid CLV data
+    clv_col = data.metadata["clv_pct"].to_numpy().astype(np.float64)
+    clv_valid = clv_col[valid_mask]
+    finite_clv = clv_valid[np.isfinite(clv_valid)]
+    oos_clv = float(finite_clv.mean()) if len(finite_clv) > 0 else 0.0
+
     # ── Overfitting diagnostics ────────────────────────────────────────
     # DSR: how confident is the best fold's Sharpe after trial count adjustment?
     sharpe_arr = np.array(per_fold_sharpes)
@@ -231,10 +259,20 @@ def train(
     # ── Train final model on ALL data ──────────────────────────────────
     log.info("Training final model on all %d samples", n_samples)
     final_model = lgb.LGBMClassifier(**params)
-    final_model.fit(X, y)
+    final_model.fit(X, y, sample_weight=w)
 
     # ── SHAP feature importance ────────────────────────────────────────
     feature_importance = _compute_shap_importance(final_model, X)
+
+    # ── Score bucket calibration (Phase 6) ─────────────────────────────
+    pnl_arr = data.metadata["pnl"].to_numpy().astype(np.float64)
+    pnl_valid = np.nan_to_num(pnl_arr[valid_mask], nan=0.0)
+    clv_for_buckets = clv_valid if len(finite_clv) > 0 else None
+    bucket_report = score_bucket_analysis(
+        oos_valid, labels_valid, pnl_valid, clv_for_buckets,
+    )
+
+    _log_bucket_report(bucket_report)
 
     metrics = TrainingMetrics(
         auc_roc=round(auc, 4),
@@ -242,19 +280,24 @@ def train(
         log_loss_val=round(ll, 6),
         calibration_error=round(cal_err, 6),
         oos_roi_mean=round(oos_roi, 4),
+        oos_clv_mean=round(oos_clv, 4),
         dsr=round(dsr, 4),
         pbo=round(pbo_val, 4),
         n_samples=n_samples,
         n_positive=int(y.sum()),
         n_negative=int((y == 0).sum()),
         n_folds=n_folds,
+        scale_pos_weight=data.scale_pos_weight,
         per_fold_sharpes=[round(s, 4) for s in per_fold_sharpes],
         feature_importance=feature_importance,
+        score_bucket_report=bucket_report,
     )
 
     log.info(
-        "Training complete: AUC=%.4f, DSR=%.4f, PBO=%.4f, ROI=%.2f%%",
+        "Training complete: AUC=%.4f, DSR=%.4f, PBO=%.4f, ROI=%.2f%%, CLV=%.2f%%, "
+        "bucket_monotonicity=%.2f",
         metrics.auc_roc, metrics.dsr, metrics.pbo, metrics.oos_roi_mean,
+        metrics.oos_clv_mean, bucket_report.roi_monotonicity,
     )
 
     return TrainingResult(
@@ -336,3 +379,34 @@ def _compute_shap_importance(
     except Exception as e:
         log.warning("SHAP computation failed: %s", e)
         return {}
+
+
+def _adaptive_min_child_samples(n_samples: int) -> int:
+    """Compute adaptive min_child_samples based on dataset size.
+
+    Small datasets need fewer min_child_samples to avoid underfitting.
+    Ranges from 5 (n≤200) to 20 (n≥2000), linearly interpolated.
+    """
+    if n_samples <= 200:
+        return 5
+    if n_samples >= 2000:
+        return 20
+    # Linear interpolation between 5 and 20 over [200, 2000]
+    return int(5 + (n_samples - 200) / (2000 - 200) * 15)
+
+
+def _log_bucket_report(report: 'ScoreBucketReport') -> None:
+    """Log the score bucket report in a readable table format."""
+    log.info("Score bucket calibration report:")
+    log.info("  %-10s %6s %8s %8s %8s %8s", "Bucket", "Count", "WinRate", "ROI%", "CLV%", "MeanScr")
+    for b in report.buckets:
+        clv_str = f"{b.mean_clv_pct:8.2f}" if math.isfinite(b.mean_clv_pct) else "     N/A"
+        log.info(
+            "  %-10s %6d %7.1f%% %7.1f%% %s %8.4f",
+            b.label, b.count, b.win_rate * 100, b.roi_pct, clv_str, b.mean_score,
+        )
+    log.info(
+        "  Monotonicity: ROI=%.2f, CLV=%.2f, WinRate=%.2f | Directional=%s",
+        report.roi_monotonicity, report.clv_monotonicity,
+        report.win_rate_monotonicity, report.is_directionally_monotonic,
+    )

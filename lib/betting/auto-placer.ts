@@ -16,10 +16,10 @@
  * Gates:
  *   1. Per-provider toggle (auto-place must be ON for the soft provider)
  *   2. Provider must have a registered adapter
- *   3. ML confidence gate: if mlScore is available and below the
- *      configured mlMinScore threshold, the bet is skipped. When no ML
- *      model is loaded, mlScore is undefined → gate is bypassed (same
- *      behavior as pre-ML).
+ *   3. ML confidence gate (Phase 8 permission-aware):
+ *      - shadow mode: mlScore is undefined → gate bypassed (pre-ML behavior)
+ *      - gate_only+: mlScore is provided → skip if below mlMinScore
+ *      When no ML model is loaded, mlScore is always undefined.
  */
 import { isAutoPlaceEnabled } from "./auto-place-config";
 import { getBettingProvider } from "./registry";

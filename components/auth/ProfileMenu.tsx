@@ -43,7 +43,7 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
       const data = await res.json();
 
       if (!res.ok) {
-        toast.error("Couldn't stop impersonation", {
+        toast.error("❌ Couldn't stop impersonation", {
           description: data.error || undefined,
         });
         return;
@@ -51,7 +51,7 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
 
       window.location.reload();
     } catch (err) {
-      toast.error("Couldn't stop impersonation", {
+      toast.error("❌ Couldn't stop impersonation", {
         description: "Network error — please try again",
       });
       console.error("Stop impersonation error:", err);
@@ -207,8 +207,14 @@ function EditProfileModal({
       }
 
       onSave();
+      toast.success("✏️ Profile updated", {
+        description: `Display name set to "${displayName.trim()}"`,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update profile");
+      toast.error("❌ Profile update failed", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -307,11 +313,15 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
       }
 
       setSuccess(true);
+      toast.success("🔒 Password changed");
       setTimeout(onClose, 1500);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to change password",
       );
+      toast.error("❌ Password change failed", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     } finally {
       setIsLoading(false);
     }

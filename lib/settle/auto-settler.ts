@@ -191,6 +191,19 @@ export async function runAutoSettle(
   if (updates.length > 0) {
     try {
       applied += await applySettlementOutcomes(updates);
+      // Resolve shadow decisions after settlement outcomes are applied.
+      // Import here to avoid circular dependency at module level.
+      const { resolveShadowDecision } = await import("@/lib/ml/shadow-mode");
+      await Promise.allSettled(
+        updates.map((u) =>
+          resolveShadowDecision(u.id, u.outcome, new Date()).catch((err) =>
+            logger.warn(
+              "AutoSettle",
+              `resolveShadowDecision failed (non-fatal): ${u.id} | ${(err as Error).message}`,
+            ),
+          ),
+        ),
+      );
     } catch (err) {
       const msg = (err as Error).message;
       errors.push(`applySettlementOutcomes failed: ${msg}`);

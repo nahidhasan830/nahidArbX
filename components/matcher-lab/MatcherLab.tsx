@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
 import {
-  ArrowRight,
   CheckCircle2,
   ExternalLink,
   Loader2,
@@ -45,7 +44,6 @@ import type {
   MlRunHistoryEntry,
   MlProgressEvent,
   PairProcessingStatus,
-  MatcherConfigResponse,
   MatchPairDecidedBy,
 } from "./types";
 import {
@@ -57,16 +55,16 @@ import {
 import { SchedulerPopover } from "./SchedulerPopover";
 import { format, isValid, parseISO } from "date-fns";
 
+import { AppShell } from "@/components/nav/AppShell";
+
 const VISIBLE_STAGES: MatchPairStage[] = [
   "inbox",
-  "ml_queued",
   "human_review",
   "history",
 ];
 
 const REFRESH_INTERVALS: Partial<Record<MatchPairStage, number>> = {
   inbox: 15_000,
-  ml_queued: 5_000,
   human_review: 30_000,
 };
 
@@ -194,7 +192,7 @@ function AiVerifyDropdown({
   running: boolean;
   selectedCount?: number;
   onVerify: (
-    engine: "gemini" | "ai-search",
+    engine: "gemini" | "ai-search" | "huggingface",
     model?: "lite" | "flash" | "pro",
   ) => void;
   inline?: boolean;
@@ -243,6 +241,18 @@ function AiVerifyDropdown({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+          🤗 HuggingFace (free)
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={() => onVerify("huggingface")}
+          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
+          title="Web search grounding + HuggingFace Router LLM (Llama 3.3 70B) — free"
+        >
+          <Bot className="size-3.5 text-orange-400" />
+          <span className="text-[11px]">Search + HuggingFace</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
           ☁️ Gemini (paid)
         </DropdownMenuLabel>
         <DropdownMenuItem
@@ -281,7 +291,6 @@ export function MatcherLab() {
   const [refreshing, setRefreshing] = useState(false);
   const [counts, setCounts] = useState<StageCounts>({
     inbox: 0,
-    ml_queued: 0,
     human_review: 0,
     history: 0,
   });
@@ -289,7 +298,7 @@ export function MatcherLab() {
   const [mlHistory, setMlHistory] = useState<MlRunHistoryEntry[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
-  const [config, setConfig] = useState<MatcherConfigResponse | null>(null);
+
   const [actingOn, setActingOn] = useState<Set<string>>(new Set());
   const [mlRunning, setMlRunning] = useState(false);
   const [pairStatuses, setPairStatuses] = useState<
@@ -382,7 +391,6 @@ export function MatcherLab() {
       setMlHistory(data.history ?? []);
       setHasMoreHistory(data.hasMoreHistory ?? false);
       setHistoryTotal(data.historyTotal ?? 0);
-      setConfig(data.config ?? null);
 
       if (!initialTabPicked.current) {
         initialTabPicked.current = true;
@@ -402,7 +410,7 @@ export function MatcherLab() {
       const data = await fetchPairsByStage(stage, { limit: 200 });
       setRows(data.rows);
     } catch (err) {
-      toast.error("Failed to load pairs", {
+      toast.error("❌ Failed to load pairs", {
         description: (err as Error).message,
       });
     } finally {
@@ -432,11 +440,23 @@ export function MatcherLab() {
     async (id: string, decision: "human-merge" | "human-reject") => {
       setActingOn((s) => new Set(s).add(id));
       try {
+        const pair = rows.find((r) => r.id === id);
         await decidePair(id, decision, "human");
-        toast.success(decision === "human-merge" ? "Merged" : "Rejected");
+        const eventLabel = pair
+          ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(0, 70)
+          : id.slice(0, 30);
+        if (decision === "human-merge") {
+          toast.success(`✅ Merged`, {
+            description: eventLabel,
+          });
+        } else {
+          toast.success(`🚫 Rejected`, {
+            description: eventLabel,
+          });
+        }
         await refresh();
       } catch (err) {
-        toast.error("Action failed", {
+        toast.error("❌ Action failed", {
           description: (err as Error).message,
         });
       } finally {
@@ -447,7 +467,7 @@ export function MatcherLab() {
         });
       }
     },
-    [refresh],
+    [refresh, rows],
   );
 
   const [aiVerifyingIds, setAiVerifyingIds] = useState<Set<string>>(new Set());
@@ -455,7 +475,7 @@ export function MatcherLab() {
 
   const handleVerifyAi = useCallback(
     async (
-      engine: "gemini" | "ai-search",
+      engine: "gemini" | "ai-search" | "huggingface",
       model?: "lite" | "flash" | "pro",
       singleId?: string,
     ) => {
@@ -475,16 +495,27 @@ export function MatcherLab() {
 
       let merged = 0;
       let rejected = 0;
+      let uncertain = 0;
       let errors = 0;
+
+      const engineLabel = engine === "ai-search" ? "AI Search" : engine === "huggingface" ? "HuggingFace" : "Gemini";
+      const engineEmoji = engine === "ai-search" ? "🔍" : engine === "huggingface" ? "🤗" : "✨";
 
       for (const id of idsToRun) {
         try {
+          const pair = rows.find((r) => r.id === id);
+          const pairLabel = pair
+            ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(0, 65)
+            : id.slice(0, 30);
           const result = await verifyAiMatch(id, { engine, model });
           if (result.decision === "UNCERTAIN") {
+            uncertain++;
             toast.warning(
-              `AI ${engine === "ai-search" ? "Search" : "Gemini"} Uncertain`,
+              `${engineEmoji} Uncertain — ${pairLabel}`,
               {
-                description: `Confidence: ${result.confidence}%`,
+                description: result.reasoning
+                  ? `${result.reasoning.slice(0, 120)} · ${result.confidence}% confidence`
+                  : `${engineLabel} couldn't decide · ${result.confidence}% confidence`,
               },
             );
             continue;
@@ -496,19 +527,25 @@ export function MatcherLab() {
           if (result.decision === "SAME") merged++;
           else rejected++;
 
-          const label = engine === "ai-search" ? "AI Search" : "Gemini";
-          toast.success(
-            `${label} ${result.decision === "SAME" ? "Merged" : "Rejected"}`,
-            {
-              description: result.reasoning
-                ? `${result.reasoning.slice(0, 200)} (${result.confidence}%)`
-                : `Confidence: ${result.confidence}%`,
-            },
-          );
+          // Only show per-pair toasts for single-item runs
+          if (idsToRun.length === 1) {
+            const icon = result.decision === "SAME" ? "✅" : "🚫";
+            toast.success(
+              `${icon} ${engineLabel}: ${result.decision === "SAME" ? "Merged" : "Rejected"}`,
+              {
+                description: result.reasoning
+                  ? `${pairLabel}\n${result.reasoning.slice(0, 150)} · ${result.confidence}%`
+                  : `${pairLabel} · ${result.confidence}% confidence`,
+              },
+            );
+          }
         } catch (err) {
           errors++;
-          toast.error("AI Verify failed", {
-            description: (err as Error).message,
+          const pair = rows.find((r) => r.id === id);
+          toast.error(`❌ ${engineLabel} failed`, {
+            description: pair
+              ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}\n${(err as Error).message}`.slice(0, 200)
+              : (err as Error).message,
           });
         } finally {
           setAiVerifyingIds((prev) => {
@@ -522,14 +559,19 @@ export function MatcherLab() {
       setIsBulkVerifying(false);
 
       if (idsToRun.length > 1) {
-        toast.info("AI Batch Complete", {
-          description: `Merged: ${merged}, Rejected: ${rejected}${errors > 0 ? `, Errors: ${errors}` : ""}`,
+        const parts: string[] = [];
+        if (merged > 0) parts.push(`✅ ${merged} merged`);
+        if (rejected > 0) parts.push(`🚫 ${rejected} rejected`);
+        if (uncertain > 0) parts.push(`⚠️ ${uncertain} uncertain`);
+        if (errors > 0) parts.push(`❌ ${errors} failed`);
+        toast.info(`${engineEmoji} ${engineLabel} Batch Complete`, {
+          description: parts.join(" · ") || "No pairs processed",
         });
       }
 
       await refresh();
     },
-    [selectedPairIds, refresh],
+    [selectedPairIds, refresh, rows],
   );
 
   const handleRunMl = useCallback(async () => {
@@ -635,7 +677,7 @@ export function MatcherLab() {
             break;
 
           case "service_unreachable":
-            toast.error("ML matcher service unreachable", {
+            toast.error("🔌 ML matcher service unreachable", {
               description:
                 "The bi-encoder service didn't respond. Pairs returned to Inbox for retry.",
             });
@@ -650,19 +692,23 @@ export function MatcherLab() {
 
           case "batch_complete": {
             if (event.processed === -1) {
-              toast.warning("ML batch already running", {
+              toast.warning("⏳ ML batch already running", {
                 description: "Wait for the current batch to finish.",
               });
             } else if (event.processed === 0) {
-              toast.info("No pairs to process", {
+              toast.info("📭 No pairs to process", {
                 description: "Inbox is empty.",
               });
             } else {
               const sec = event.durationMs
                 ? `${(event.durationMs / 1000).toFixed(1)}s`
                 : "";
-              toast.success("ML batch complete", {
-                description: `${event.merged} merged, ${event.rejected} rejected, ${event.escalated} → review${sec ? ` in ${sec}` : ""}`,
+              const parts: string[] = [];
+              if (event.merged) parts.push(`✅ ${event.merged} merged`);
+              if (event.rejected) parts.push(`🚫 ${event.rejected} rejected`);
+              if (event.escalated) parts.push(`👀 ${event.escalated} → review`);
+              toast.success(`🤖 ML batch complete${sec ? ` in ${sec}` : ""}`, {
+                description: parts.join(" · ") || "No changes",
               });
             }
             break;
@@ -672,7 +718,7 @@ export function MatcherLab() {
 
       await refresh();
     } catch (err) {
-      toast.error("ML batch failed", {
+      toast.error("❌ ML batch failed", {
         description: (err as Error).message,
       });
     } finally {
@@ -703,48 +749,54 @@ export function MatcherLab() {
   );
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Stepper header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/50">
-        <div className="flex items-center gap-1">
-          {VISIBLE_STAGES.map((stage, i) => {
-            const meta = STAGE_META[stage];
-            const count = counts[stage];
-            const isActive = activeStage === stage;
-            return (
-              <div key={stage} className="flex items-center">
-                {i > 0 && (
-                  <ArrowRight className="size-3 text-zinc-600 mx-1 shrink-0" />
-                )}
-                <button
-                  onClick={() => setActiveStage(stage)}
-                  title={meta.tooltip}
-                  className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors border",
-                    isActive
-                      ? meta.bgActive
-                      : "border-transparent text-zinc-500 hover:text-zinc-300",
-                  )}
-                >
-                  <span className={cn("font-medium", isActive && meta.color)}>
-                    {meta.label}
-                  </span>
-                  <span
-                    className={cn(
-                      "tabular-nums",
-                      isActive ? meta.color : "text-zinc-600",
-                      stage === "ml_queued" && count > 0 && "animate-pulse",
-                    )}
-                  >
-                    ({count})
-                  </span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
+    <AppShell
+      title="Matcher Lab"
+      edgeToEdge
+      tabs={VISIBLE_STAGES.map((stage) => {
+        const meta = STAGE_META[stage];
+        const count = counts[stage] || 0;
+        return {
+          value: stage,
+          label: meta.label,
+          badge: count > 0 ? (
+            <span
+              className={cn(
+                "ml-1 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums border",
+                meta.color,
+                meta.bgActive
+              )}
+            >
+              {count}
+            </span>
+          ) : null,
+        };
+      })}
+      activeTab={activeStage}
+      onTabChange={(v) => setActiveStage(v as MatchPairStage)}
+      actions={
         <div className="flex items-center gap-1.5">
+          {!mlProgress && mlStats?.lastRunAt && (
+            <div className="flex items-center gap-3 px-3 border-r border-border/40 text-[11px] text-zinc-500 mr-1 hidden lg:flex">
+              <span>
+                Last ML run:{" "}
+                <span className="text-zinc-400">
+                  {formatTime(mlStats.lastRunAt)}
+                </span>
+              </span>
+              <span>
+                Last batch:{" "}
+                <span className="text-zinc-400 tabular-nums">
+                  {mlStats.lastBatchSize}
+                </span>
+              </span>
+              <span>
+                Total processed:{" "}
+                <span className="text-zinc-400 tabular-nums">
+                  {mlStats.totalProcessed}
+                </span>
+              </span>
+            </div>
+          )}
           <SchedulerCountdown mlStats={mlStats} />
 
           {mlStats && (
@@ -803,7 +855,6 @@ export function MatcherLab() {
             history={mlHistory}
             hasMoreHistory={hasMoreHistory}
             historyTotal={historyTotal}
-            config={config}
             onConfigSaved={loadStats}
           />
 
@@ -820,7 +871,9 @@ export function MatcherLab() {
             />
           </Button>
         </div>
-      </div>
+      }
+    >
+      <div className="h-full flex flex-col overflow-hidden bg-background">
 
       {/* ML progress bar */}
       {mlProgress && (
@@ -845,33 +898,10 @@ export function MatcherLab() {
         </div>
       )}
 
-      {/* ML stats bar (compact) */}
-      {!mlProgress && mlStats?.lastRunAt && (
-        <div className="flex items-center gap-3 px-3 py-1 border-b border-zinc-800/30 text-[11px] text-zinc-500">
-          <span>
-            Last ML run:{" "}
-            <span className="text-zinc-400">
-              {formatTime(mlStats.lastRunAt)}
-            </span>
-          </span>
-          <span>
-            Last batch:{" "}
-            <span className="text-zinc-400 tabular-nums">
-              {mlStats.lastBatchSize}
-            </span>
-          </span>
-          <span>
-            Total processed:{" "}
-            <span className="text-zinc-400 tabular-nums">
-              {mlStats.totalProcessed}
-            </span>
-          </span>
-        </div>
-      )}
-
       {/* DataTable */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 p-2">
         <DataTable<MatchPairRow>
+          withCard
           data={rows}
           columns={columns}
           getRowId={(row) => row.id}
@@ -906,16 +936,19 @@ export function MatcherLab() {
             if (row.decision?.includes("merge")) return "bg-emerald-900/[0.04]";
             if (row.decision?.includes("reject"))
               return "bg-red-900/[0.04] opacity-80";
+            
+            // Global processing effect for inbox pairs
+            if (activeStage === "inbox" && (mlProgress != null || mlStats?.processing)) {
+              return "bg-sky-900/[0.04] animate-pulse";
+            }
             return undefined;
           }}
           renderEmpty={() => (
             <div className="flex flex-col items-center justify-center py-12 text-zinc-500">
               <p className="text-sm">
                 {activeStage === "inbox"
-                  ? "Inbox is empty — all pairs have been scored or are waiting in the ML queue."
-                  : activeStage === "ml_queued"
-                    ? "No pairs being processed. The ML queue is clear."
-                    : activeStage === "human_review"
+                  ? "Inbox is empty — all pairs have been scored."
+                  : activeStage === "human_review"
                       ? "Nothing needs a human decision right now."
                       : "No resolved pairs yet."}
               </p>
@@ -924,7 +957,8 @@ export function MatcherLab() {
         />
       </div>
     </div>
-  );
+  </AppShell>
+);
 }
 
 // ─── Column builder ───────────────────────────────────────────────────
@@ -936,7 +970,7 @@ function buildColumns(
   onDecide: (id: string, decision: "human-merge" | "human-reject") => void,
   aiVerifyingIds: Set<string>,
   onVerifyAi: (
-    engine: "gemini" | "ai-search",
+    engine: "gemini" | "ai-search" | "huggingface",
     model?: "lite" | "flash" | "pro",
     id?: string,
   ) => void,

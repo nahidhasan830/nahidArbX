@@ -79,13 +79,13 @@ export function useProviderRuntimeState(): ProviderRuntimeState {
       }
       const label = getProviderDisplayName(id);
       if (!enabled) {
-        toast.success(`${label} disabled`, {
+        toast.success(`⏸️ ${label} disabled`, {
           description: data.purgedEvents
             ? `Paused fetching, odds, and AI — purged ${data.purgedEvents} event${data.purgedEvents === 1 ? "" : "s"}`
             : "Paused fetching, odds, and AI",
         });
       } else {
-        toast.success(`${label} enabled`, {
+        toast.success(`▶️ ${label} enabled`, {
           description: "Data will repopulate on the next sync",
         });
       }
@@ -97,7 +97,7 @@ export function useProviderRuntimeState(): ProviderRuntimeState {
         else next.delete(id);
         return next;
       });
-      toast.error("Couldn't update provider", {
+      toast.error("❌ Couldn't update provider", {
         description: `${getProviderDisplayName(id)} — ${(err as Error).message}`,
       });
     }

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/nav/AppShell";
 import {
@@ -49,6 +49,8 @@ export default function AiSearchDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  // True until the first load() resolves — prevents false "offline" flash
+  const [initialLoad, setInitialLoad] = useState(true);
 
   // Models
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -95,6 +97,7 @@ export default function AiSearchDashboard() {
       setLastLoadedAt(new Date().toISOString());
     } finally {
       setIsRefreshing(false);
+      setInitialLoad(false);
       loadRef.current = false;
     }
   }, []);
@@ -155,6 +158,11 @@ export default function AiSearchDashboard() {
   const serviceOnline = Boolean(health?.status === "ok" || health?.status === "degraded");
   const hfAvailable = Boolean((stats as Record<string, unknown> | null)?.hf_available);
 
+  // During initial load, show a neutral loading badge instead of false "offline"
+  const serviceBadge = initialLoad
+    ? { label: "loading…", online: false, loading: true }
+    : { label: serviceOnline ? "service online" : "service offline", online: serviceOnline, loading: false };
+
   return (
     <TooltipProvider delayDuration={200}>
       <AppShell
@@ -164,12 +172,14 @@ export default function AiSearchDashboard() {
             variant="secondary"
             className={cn(
               "ml-2 text-[10px] font-mono tabular-nums tracking-tight",
-              serviceOnline
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                : "bg-red-500/10 text-red-400 border-red-500/30",
+              serviceBadge.loading
+                ? "bg-muted/30 text-muted-foreground border-border/40 animate-pulse"
+                : serviceBadge.online
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  : "bg-red-500/10 text-red-400 border-red-500/30",
             )}
           >
-            {serviceOnline ? "service online" : "service offline"}
+            {serviceBadge.label}
           </Badge>
         }
         actions={
@@ -184,43 +194,34 @@ export default function AiSearchDashboard() {
             <TooltipContent>Refresh live AI search status</TooltipContent>
           </Tooltip>
         }
+        tabs={[
+          { value: "overview", label: "Overview", icon: LayoutDashboard },
+          { value: "playground", label: "Playground", icon: FlaskConical },
+        ]}
         edgeToEdge
       >
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto p-3 bg-background">
-          <Tabs defaultValue="overview" className="flex flex-col flex-1 gap-0">
-            <TabsList variant="line" className="mb-3 w-fit">
-              <TabsTrigger value="overview" className="gap-1.5 text-xs">
-                <LayoutDashboard className="size-3.5" />
-                Overview
-              </TabsTrigger>
-              <TabsTrigger value="playground" className="gap-1.5 text-xs">
-                <FlaskConical className="size-3.5" />
-                Playground
-              </TabsTrigger>
-            </TabsList>
+          <TabsContent value="overview" className="mt-0 outline-none flex-1 min-h-0">
+            <OverviewTab
+              stats={stats}
+              health={health}
+              groqLimits={llmStats}
+              error={error}
+              isRefreshing={isRefreshing}
+              lastLoadedAt={lastLoadedAt}
+              onToggleProvider={handleToggleProvider}
+              toggleBusy={toggleBusy}
+            />
+          </TabsContent>
 
-            <TabsContent value="overview">
-              <OverviewTab
-                stats={stats}
-                health={health}
-                groqLimits={llmStats}
-                error={error}
-                isRefreshing={isRefreshing}
-                lastLoadedAt={lastLoadedAt}
-                onToggleProvider={handleToggleProvider}
-                toggleBusy={toggleBusy}
-              />
-            </TabsContent>
-
-            <TabsContent value="playground">
-              <PlaygroundTab
-                serviceOnline={serviceOnline}
-                availableModels={availableModels}
-                defaultModel={selectedModel}
-                hfAvailable={hfAvailable}
-              />
-            </TabsContent>
-          </Tabs>
+          <TabsContent value="playground" className="mt-0 outline-none flex-1 min-h-0">
+            <PlaygroundTab
+              serviceOnline={serviceOnline}
+              availableModels={availableModels}
+              defaultModel={selectedModel}
+              hfAvailable={hfAvailable}
+            />
+          </TabsContent>
         </div>
       </AppShell>
     </TooltipProvider>

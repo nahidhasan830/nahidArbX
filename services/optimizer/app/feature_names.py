@@ -1,6 +1,6 @@
 """Feature name contract — must match lib/ml/features.ts:FEATURE_NAMES exactly.
 
-This list defines the column order of the 23-dimension feature vector stored
+This list defines the column order of the 25-dimension feature vector stored
 in bets.ml_features.  If the TypeScript extractor changes order or adds a
 feature, this file MUST be updated in the same commit.
 
@@ -11,33 +11,39 @@ input layout.
 
 from __future__ import annotations
 
+import hashlib
+
 FEATURE_NAMES: list[str] = [
     "ev_pct",                # 0
     "sharp_true_prob",       # 1
     "soft_odds",             # 2
     "adjusted_soft_odds",    # 3
     "implied_prob_gap",      # 4
-    "soft_odds_age_ms",      # 5
-    "tick_count",            # 6
-    "time_to_kickoff_min",   # 7
-    "movement_pct_sharp",    # 8
-    "movement_pct_soft",     # 9
-    "steam_move_sharp",      # 10
-    "steam_move_soft",       # 11
-    "sharp_direction",       # 12
-    "soft_direction",        # 13
-    "convergence_rate",      # 14
-    "tick_velocity",         # 15
-    "provider_count",        # 16
-    "opening_sharp_odds",    # 17
-    "market_type_encoded",   # 18
-    "is_asian_line",         # 19
-    "commission_pct",        # 20
-    "kelly_fraction_raw",    # 21
-    "vig_pct",               # 22
+    "tick_count",            # 5
+    "time_to_kickoff_min",   # 6
+    "movement_pct_sharp",    # 7
+    "movement_pct_soft",     # 8
+    "steam_move_sharp",      # 9
+    "steam_move_soft",       # 10
+    "sharp_direction",       # 11
+    "soft_direction",        # 12
+    "convergence_rate",      # 13
+    "tick_velocity",         # 14
+    "provider_count",        # 15
+    "opening_sharp_odds",    # 16
+    "market_type_encoded",   # 17
+    "is_asian_line",         # 18
+    "kelly_fraction_raw",    # 19
+    "vig_pct",               # 20
+    "competition_tier",      # 21
+    "hours_since_line_opened", # 22
+    "sharp_soft_spread",     # 23
+    "num_markets_same_event", # 24
 ]
 
-FEATURE_COUNT = 23
+FEATURE_COUNT = 25
+FEATURE_VERSION = 2
+FEATURE_NAMES_HASH = hashlib.sha256(",".join(FEATURE_NAMES).encode("utf-8")).hexdigest()
 
 assert len(FEATURE_NAMES) == FEATURE_COUNT, (
     f"Feature name list has {len(FEATURE_NAMES)} entries, expected {FEATURE_COUNT}"

@@ -275,17 +275,17 @@ export function UserManagementModal({
       // Check if email wasn't actually sent
       if (data.data?.emailNotConfigured && data.data?.setupUrl) {
         setInviteSetupUrl(data.data.setupUrl);
-        toast.warning("Email not configured", {
+        toast.warning("⚠️ Email not configured", {
           description: "Share the invite link manually",
         });
       } else {
-        toast.success("Invite sent", { description: inviteEmail });
+        toast.success("📧 Invite sent", { description: inviteEmail });
         setInviteEmail("");
         setActiveTab("users");
       }
       fetchUsers();
     } catch (err) {
-      toast.error("Couldn't send invite", {
+      toast.error("❌ Couldn't send invite", {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -311,12 +311,12 @@ export function UserManagementModal({
       }
 
       toast.success(
-        newStatus === "suspended" ? "User suspended" : "User activated",
+        newStatus === "suspended" ? "⏸️ User suspended" : "✅ User activated",
         { description: user.displayName || user.email },
       );
       fetchUsers();
     } catch (err) {
-      toast.error(`Couldn't ${action.toLowerCase()} user`, {
+      toast.error(`❌ Couldn't ${action.toLowerCase()} user`, {
         description: err instanceof Error ? err.message : undefined,
       });
     }
@@ -342,14 +342,14 @@ export function UserManagementModal({
         throw new Error(data.error || "Failed to delete user");
       }
 
-      toast.success("User deleted", {
+      toast.success("🗑️ User deleted", {
         description: userToDelete.displayName || userToDelete.email,
       });
       if (selectedUser?.id === userToDelete.id) setSelectedUser(null);
       setUserToDelete(null);
       fetchUsers();
     } catch (err) {
-      toast.error("Couldn't delete user", {
+      toast.error("❌ Couldn't delete user", {
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -373,7 +373,7 @@ export function UserManagementModal({
 
       window.location.reload();
     } catch (err) {
-      toast.error("Couldn't impersonate user", {
+      toast.error("❌ Couldn't impersonate user", {
         description: err instanceof Error ? err.message : undefined,
       });
     }
@@ -394,12 +394,12 @@ export function UserManagementModal({
         throw new Error(data.error || "Failed to logout user");
       }
 
-      toast.success("User logged out", {
+      toast.success("🚪 User logged out", {
         description: user.displayName || user.email,
       });
       fetchUsers();
     } catch (err) {
-      toast.error("Couldn't log out user", {
+      toast.error("❌ Couldn't log out user", {
         description: err instanceof Error ? err.message : undefined,
       });
     }
@@ -616,7 +616,7 @@ export function UserManagementModal({
                         <button
                           onClick={() => {
                             navigator.clipboard.writeText(inviteSetupUrl);
-                            toast.success("Link copied");
+                            toast.success("📋 Link copied");
                           }}
                           className="p-2 hover:bg-slate-700 rounded-lg transition text-gray-400 hover:text-white"
                         >
@@ -795,20 +795,20 @@ function UserDetailsPanel({
       if (res.ok) {
         if (data.emailNotConfigured && data.setupUrl) {
           navigator.clipboard.writeText(data.setupUrl);
-          toast.success("Invite link copied", {
+          toast.success("📋 Invite link copied", {
             description: "Share it manually — email isn't configured",
           });
         } else {
-          toast.success("Invite re-sent", { description: user.email });
+          toast.success("📧 Invite re-sent", { description: user.email });
         }
         onRefresh();
       } else {
-        toast.error("Couldn't re-send invite", {
+        toast.error("❌ Couldn't re-send invite", {
           description: data.error || undefined,
         });
       }
     } catch {
-      toast.error("Couldn't re-send invite", {
+      toast.error("❌ Couldn't re-send invite", {
         description: "Network error — please try again",
       });
     } finally {
@@ -1224,16 +1224,16 @@ function SessionsTab({ userId }: { userId: string }) {
       });
 
       if (res.ok) {
-        toast.success("Session revoked");
+        toast.success("🔒 Session revoked");
         fetchSessions();
       } else {
         const data = await res.json();
-        toast.error("Couldn't revoke session", {
+        toast.error("❌ Couldn't revoke session", {
           description: data.error || undefined,
         });
       }
     } catch {
-      toast.error("Couldn't revoke session", {
+      toast.error("❌ Couldn't revoke session", {
         description: "Network error — please try again",
       });
     } finally {
@@ -1501,18 +1501,18 @@ function PermissionsTab({
           prev.map((p) => (p.featureId === featureId ? { ...p, enabled } : p)),
         );
         const perm = permissions.find((p) => p.featureId === featureId);
-        toast.success(enabled ? "Permission enabled" : "Permission disabled", {
+        toast.success(enabled ? "✅ Permission enabled" : "🚫 Permission disabled", {
           description: perm?.displayName,
         });
         onRefresh();
       } else {
         const data = await res.json();
-        toast.error("Couldn't update permission", {
+        toast.error("❌ Couldn't update permission", {
           description: data.error || undefined,
         });
       }
     } catch {
-      toast.error("Couldn't update permission", {
+      toast.error("❌ Couldn't update permission", {
         description: "Network error — please try again",
       });
     } finally {
@@ -1547,13 +1547,13 @@ function PermissionsTab({
               : p,
           ),
         );
-        toast.success(enabled ? "Category enabled" : "Category disabled", {
+        toast.success(enabled ? "✅ Category enabled" : "🚫 Category disabled", {
           description: CATEGORY_INFO[category]?.label || category,
         });
         onRefresh();
       }
     } catch {
-      toast.error("Couldn't update permissions", {
+      toast.error("❌ Couldn't update permissions", {
         description: "Network error — please try again",
       });
     }

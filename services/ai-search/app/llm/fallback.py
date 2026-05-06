@@ -52,6 +52,13 @@ class FallbackEngine:
         # All exhausted — set on first
         self._engines[0][1].model = value
 
+    def get_engine_by_name(self, name: str) -> Any | None:
+        """Return a specific engine by its registered name, or None."""
+        for n, engine in self._engines:
+            if n == name:
+                return engine
+        return None
+
     # ── generate ─────────────────────────────────────────────────────
 
     async def generate(self, prompt: str, **kwargs: Any) -> LLMResponse:

@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .feature_names import FEATURE_COUNT, FEATURE_NAMES
+from .feature_names import FEATURE_COUNT, FEATURE_NAMES, FEATURE_NAMES_HASH, FEATURE_VERSION
 from .trainer import TrainingMetrics
 
 log = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def export_onnx(
 
     Returns the output path.
     """
-    # Define input type: batch of 23-dim float vectors
+    # Define input type: batch of 25-dim float vectors
     initial_type = [("input", FloatTensorType([None, FEATURE_COUNT]))]
 
     # Convert to ONNX
@@ -57,6 +57,12 @@ def export_onnx(
     )
     onnx_model.metadata_props.append(
         StringStringEntryProto(key="feature_count", value=str(FEATURE_COUNT))
+    )
+    onnx_model.metadata_props.append(
+        StringStringEntryProto(key="feature_version", value=str(FEATURE_VERSION))
+    )
+    onnx_model.metadata_props.append(
+        StringStringEntryProto(key="feature_names_hash", value=FEATURE_NAMES_HASH)
     )
 
     # Validate the ONNX model
@@ -105,17 +111,25 @@ def write_model_row(
     artifact_path: str | None,
     *,
     deploy: bool = True,
+    permission_level: str = "shadow",
+    rejection_reasons: list[str] | None = None,
 ) -> str:
     """Write a row to ml_models tracking this training run.
 
     If deploy=True, sets status='deployed' and retires any previously
-    deployed model.
+    deployed model. If deploy=False and rejection_reasons is non-empty,
+    sets status='rejected' (otherwise 'validated').
     """
     import ulid
 
     model_id = str(ulid.new())
     now = datetime.now(timezone.utc).isoformat()
-    status = "deployed" if deploy else "validated"
+    if deploy:
+        status = "deployed"
+    elif rejection_reasons:
+        status = "rejected"
+    else:
+        status = "validated"
 
     # Retire any currently deployed model
     if deploy:
@@ -128,21 +142,30 @@ def write_model_row(
             {"now": now},
         )
 
+    # Clean up any dummy 'training' rows that were inserted to trigger UI indicators
+    session.execute(
+        text("DELETE FROM ml_models WHERE status = 'training'")
+    )
+
     session.execute(
         text("""
             INSERT INTO ml_models (
                 id, version, status, model_type, training_samples,
                 feature_count, training_started_at, training_completed_at,
+                feature_version, feature_names_hash,
                 oos_roi_mean, oos_accuracy, oos_auc_roc, oos_log_loss,
                 deflated_sharpe, pbo, calibration_error,
                 feature_importance, model_artifact_path, training_report,
+                permission_level, rejection_reasons,
                 deployed_at, created_at
             ) VALUES (
                 :id, :version, :status, :model_type, :training_samples,
                 :feature_count, :training_started_at, :training_completed_at,
+                :feature_version, :feature_names_hash,
                 :oos_roi_mean, :oos_accuracy, :oos_auc_roc, :oos_log_loss,
                 :deflated_sharpe, :pbo, :calibration_error,
                 :feature_importance, :model_artifact_path, :training_report,
+                :permission_level, :rejection_reasons,
                 :deployed_at, :created_at
             )
         """),
@@ -153,6 +176,8 @@ def write_model_row(
             "model_type": "lightgbm",
             "training_samples": metrics.n_samples,
             "feature_count": FEATURE_COUNT,
+            "feature_version": FEATURE_VERSION,
+            "feature_names_hash": FEATURE_NAMES_HASH,
             "training_started_at": now,  # Approximation — actual start tracked externally
             "training_completed_at": now,
             "oos_roi_mean": metrics.oos_roi_mean,
@@ -168,8 +193,13 @@ def write_model_row(
                 "n_positive": metrics.n_positive,
                 "n_negative": metrics.n_negative,
                 "n_folds": metrics.n_folds,
+                "scale_pos_weight": metrics.scale_pos_weight,
                 "per_fold_sharpes": metrics.per_fold_sharpes,
+                "oos_clv_mean": metrics.oos_clv_mean,
+                "score_bucket_report": _serialize_bucket_report(metrics.score_bucket_report),
             }),
+            "permission_level": permission_level,
+            "rejection_reasons": _json_dumps(rejection_reasons) if rejection_reasons else None,
             "deployed_at": now if deploy else None,
             "created_at": now,
         },
@@ -191,6 +221,8 @@ def export_and_upload(
     model: lgb.LGBMClassifier,
     metrics: TrainingMetrics,
     session: Session,
+    *,
+    permission_level: str = "shadow",
 ) -> str:
     """Full export pipeline: ONNX → GCS → DB row.
 
@@ -212,7 +244,8 @@ def export_and_upload(
 
     # Write DB row
     model_id = write_model_row(
-        session, version, metrics, artifact_path, deploy=True
+        session, version, metrics, artifact_path,
+        deploy=True, permission_level=permission_level,
     )
 
     log.info(
@@ -232,8 +265,17 @@ def _validate_onnx_output(model_path: str) -> None:
         input_name = sess.get_inputs()[0].name
         results = sess.run(None, {input_name: dummy})
 
-        # LightGBM ONNX outputs [labels, probabilities]
-        probs = results[1]
+        # LightGBM ONNX outputs [labels, probabilities]. Depending on
+        # onnxruntime version, probabilities may be an ndarray or a sequence
+        # of class-probability maps.
+        probs_raw = results[1]
+        if isinstance(probs_raw, np.ndarray):
+            probs = probs_raw
+        elif isinstance(probs_raw, list):
+            probs = np.array([[d[0], d[1]] for d in probs_raw], dtype=np.float32)
+        else:
+            raise AssertionError(f"Unexpected probability output type {type(probs_raw)}")
+
         assert probs.shape == (2, 2), f"Expected shape (2,2), got {probs.shape}"
         assert np.all(probs >= 0) and np.all(probs <= 1), "Probabilities out of range"
         log.info("ONNX validation passed: output shape %s", probs.shape)
@@ -247,3 +289,28 @@ def _json_dumps(obj: dict) -> str:
     """JSON serialize for JSONB columns."""
     import json
     return json.dumps(obj, default=str)
+
+
+def _serialize_bucket_report(report: object | None) -> dict | None:
+    """Convert ScoreBucketReport to a JSON-serializable dict."""
+    if report is None:
+        return None
+    import dataclasses
+    import math
+
+    buckets = []
+    for b in report.buckets:  # type: ignore[union-attr]
+        d = dataclasses.asdict(b)
+        # Replace NaN with None for JSON compatibility
+        for k, v in d.items():
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                d[k] = None
+        buckets.append(d)
+
+    return {
+        "buckets": buckets,
+        "roi_monotonicity": report.roi_monotonicity,
+        "clv_monotonicity": report.clv_monotonicity,
+        "win_rate_monotonicity": report.win_rate_monotonicity,
+        "is_directionally_monotonic": report.is_directionally_monotonic,
+    }

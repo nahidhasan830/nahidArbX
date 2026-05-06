@@ -44,49 +44,53 @@ def make_synthetic_training_data(
     features[:, 3] = features[:, 2] * rng.uniform(0.97, 1.0, size=n)
     # Feature 4: implied_prob_gap
     features[:, 4] = features[:, 1] - 1.0 / features[:, 2]
-    # Feature 5: soft_odds_age_ms
-    features[:, 5] = rng.exponential(5000, size=n)
-    # Feature 6: tick_count
-    features[:, 6] = rng.integers(1, 50, size=n).astype(np.float32)
-    # Feature 7: time_to_kickoff_min
-    features[:, 7] = rng.uniform(5, 600, size=n)
-    # Feature 8: movement_pct_sharp
-    features[:, 8] = rng.normal(0, 1.5, size=n)
-    # Feature 9: movement_pct_soft
-    features[:, 9] = rng.normal(0, 2.0, size=n)
-    # Feature 10: steam_move_sharp (binary)
-    features[:, 10] = (rng.random(n) < 0.1).astype(np.float32)
-    # Feature 11: steam_move_soft (binary)
-    features[:, 11] = (rng.random(n) < 0.15).astype(np.float32)
-    # Feature 12: sharp_direction
+    # Feature 5: tick_count
+    features[:, 5] = rng.integers(1, 50, size=n).astype(np.float32)
+    # Feature 6: time_to_kickoff_min
+    features[:, 6] = rng.uniform(5, 600, size=n)
+    # Feature 7: movement_pct_sharp
+    features[:, 7] = rng.normal(0, 1.5, size=n)
+    # Feature 8: movement_pct_soft
+    features[:, 8] = rng.normal(0, 2.0, size=n)
+    # Feature 9: steam_move_sharp (binary)
+    features[:, 9] = (rng.random(n) < 0.1).astype(np.float32)
+    # Feature 10: steam_move_soft (binary)
+    features[:, 10] = (rng.random(n) < 0.15).astype(np.float32)
+    # Feature 11: sharp_direction
+    features[:, 11] = rng.choice([-1, 0, 1], size=n).astype(np.float32)
+    # Feature 12: soft_direction
     features[:, 12] = rng.choice([-1, 0, 1], size=n).astype(np.float32)
-    # Feature 13: soft_direction
-    features[:, 13] = rng.choice([-1, 0, 1], size=n).astype(np.float32)
-    # Feature 14: convergence_rate
-    features[:, 14] = rng.normal(-0.5, 1.0, size=n)
-    # Feature 15: tick_velocity
-    features[:, 15] = rng.exponential(2.0, size=n)
-    # Feature 16: provider_count
-    features[:, 16] = rng.choice([2, 3, 4], size=n).astype(np.float32)
-    # Feature 17: opening_sharp_odds
-    features[:, 17] = features[:, 2] + rng.normal(0, 0.2, size=n)
-    # Feature 18: market_type_encoded
-    features[:, 18] = rng.integers(0, 8, size=n).astype(np.float32)
-    # Feature 19: is_asian_line (binary)
-    features[:, 19] = (rng.random(n) < 0.3).astype(np.float32)
-    # Feature 20: commission_pct
-    features[:, 20] = rng.choice([0.0, 2.0, 5.0], size=n).astype(np.float32)
-    # Feature 21: kelly_fraction_raw
-    features[:, 21] = rng.uniform(0.01, 0.15, size=n)
-    # Feature 22: vig_pct
-    features[:, 22] = rng.uniform(2.0, 8.0, size=n)
+    # Feature 13: convergence_rate
+    features[:, 13] = rng.normal(-0.5, 1.0, size=n)
+    # Feature 14: tick_velocity
+    features[:, 14] = rng.exponential(2.0, size=n)
+    # Feature 15: provider_count
+    features[:, 15] = rng.choice([2, 3, 4], size=n).astype(np.float32)
+    # Feature 16: opening_sharp_odds
+    features[:, 16] = features[:, 2] + rng.normal(0, 0.2, size=n)
+    # Feature 17: market_type_encoded
+    features[:, 17] = rng.integers(0, 8, size=n).astype(np.float32)
+    # Feature 18: is_asian_line (binary)
+    features[:, 18] = (rng.random(n) < 0.3).astype(np.float32)
+    # Feature 19: kelly_fraction_raw
+    features[:, 19] = rng.uniform(0.01, 0.15, size=n)
+    # Feature 20: vig_pct
+    features[:, 20] = rng.uniform(2.0, 8.0, size=n)
+    # Feature 21: competition_tier
+    features[:, 21] = rng.choice([1, 2, 3], size=n).astype(np.float32)
+    # Feature 22: hours_since_line_opened
+    features[:, 22] = rng.uniform(0, 48, size=n)
+    # Feature 23: sharp_soft_spread
+    features[:, 23] = rng.normal(0, 0.5, size=n)
+    # Feature 24: num_markets_same_event
+    features[:, 24] = rng.choice([1, 2, 3, 4, 5], size=n).astype(np.float32)
 
     # Generate labels with a signal correlated to ev_pct + sharp_true_prob
     # Higher EV and higher sharp_true_prob → more likely to win
     signal = (
         features[:, 0] * 0.03  # ev_pct
         + features[:, 1] * 0.5  # sharp_true_prob
-        + features[:, 6] * 0.01  # tick_count
+        + features[:, 5] * 0.01  # tick_count
         + true_edge
     )
     win_prob = 1.0 / (1.0 + np.exp(-signal + 0.5))  # sigmoid
@@ -105,7 +109,7 @@ def make_synthetic_training_data(
         "pnl": pnl.tolist(),
         "soft_odds": soft_odds.tolist(),
         "sharp_true_prob": features[:, 1].astype(np.float64).tolist(),
-        "soft_commission_pct": features[:, 20].astype(np.float64).tolist(),
+        "soft_commission_pct": rng.choice([0.0, 2.0, 5.0], size=n).astype(np.float64).tolist(),
         "closing_sharp_odds": (soft_odds + rng.normal(0, 0.1, size=n)).tolist(),
         "clv_pct": rng.normal(1.0, 3.0, size=n).tolist(),
         "first_seen_at": [str(t) for t in timestamps],
@@ -113,12 +117,30 @@ def make_synthetic_training_data(
         "event_id": [f"event-{i // 3}" for i in range(n)],
     })
 
+    # Derive sample weights — simulate realistic weight distribution
+    # Half outcomes don't exist in synthetic data, so all base weights are 1.0.
+    # Apply PnL boost to match the real loader's logic.
+    pnl_values = pnl.astype(np.float64)
+    sample_weights = np.ones(n, dtype=np.float64)
+    for i in range(n):
+        pnl_abs = abs(pnl_values[i])
+        if pnl_abs > 0:
+            boost = 1.0 + np.log1p(pnl_abs / 5.0) * 0.3
+            sample_weights[i] = min(boost, 2.0)
+
+    n_pos = int(labels.sum())
+    n_neg = int((labels == 0).sum())
+    ratio = n_neg / n_pos if n_pos > 0 else 1.0
+    scale_pos_weight = 1.0 if 0.7 <= ratio <= 1.4 else round(np.sqrt(ratio), 4)
+
     return TrainingData(
         features=features,
         labels=labels,
         feature_names=list(FEATURE_NAMES),
         metadata=metadata,
         n_samples=n,
+        sample_weights=sample_weights,
+        scale_pos_weight=scale_pos_weight,
     )
 
 

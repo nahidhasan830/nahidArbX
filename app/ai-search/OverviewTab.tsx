@@ -21,6 +21,7 @@ export interface ProviderStat {
   requests_used: number;
   quota_limit: number | null;
   quota_remaining: number | null;
+  quota_source: "live" | "local" | "none";
   last_error: string | null;
   last_used_at: string | null;
 }
@@ -271,6 +272,14 @@ function ProviderCard({
   const barTone = usagePct === null ? "bg-muted-foreground/40" : usagePct > 80 ? "bg-red-500" : usagePct > 50 ? "bg-amber-500" : "bg-emerald-500";
   const statusDot = isOff ? "bg-muted-foreground/40" : isLive ? "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)] animate-pulse" : "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]";
   const statusBadge = isOff ? { text: "Off", cls: "bg-muted/30 text-muted-foreground/60 border-border/40" } : isLive ? { text: "Live", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" } : { text: "Error", cls: "bg-red-500/10 text-red-400 border-red-500/30" };
+  const quotaSourceBadge = p.quota_source === "live"
+    ? { text: "Live", cls: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30" }
+    : p.quota_source === "local"
+    ? { text: "Local", cls: "bg-amber-500/10 text-amber-400 border-amber-500/30" }
+    : null;
+  const usedTooltip = p.quota_source === "live"
+    ? "Server-reported usage (authoritative)"
+    : "Session counter (local tracking)";
 
   return (
     <div className={cn("relative rounded-xl border border-border/60 bg-card/40 backdrop-blur-md shadow-[0_1px_3px_rgba(0,0,0,0.18)] p-4 overflow-hidden transition-all hover:border-border hover:bg-card/60 hover:-translate-y-px hover:shadow-[0_2px_6px_rgba(0,0,0,0.25)]", isOff && "opacity-50")}>
@@ -281,12 +290,22 @@ function ProviderCard({
           <span className="text-sm font-semibold text-foreground/90 truncate">{meta.label}</span>
           <Badge variant="outline" className={cn("text-[9px] font-semibold px-1.5 py-0", statusBadge.cls)}>{statusBadge.text}</Badge>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div><Switch checked={p.enabled !== false} onCheckedChange={(c) => onToggle(p.name, c)} disabled={busy} className="scale-90" /></div>
-          </TooltipTrigger>
-          <TooltipContent>{p.enabled !== false ? `Disable ${meta.label}` : `Enable ${meta.label}`}</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1.5">
+          {quotaSourceBadge && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className={cn("text-[8px] font-semibold px-1 py-0", quotaSourceBadge.cls)}>{quotaSourceBadge.text}</Badge>
+              </TooltipTrigger>
+              <TooltipContent>{p.quota_source === "live" ? "Quota synced from provider API" : "Quota tracked locally (session only)"}</TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div><Switch checked={p.enabled !== false} onCheckedChange={(c) => onToggle(p.name, c)} disabled={busy} className="scale-90" /></div>
+            </TooltipTrigger>
+            <TooltipContent>{p.enabled !== false ? `Disable ${meta.label}` : `Enable ${meta.label}`}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
       <div className="mb-2.5">
         <div className="flex items-baseline justify-between mb-1">
@@ -294,7 +313,7 @@ function ProviderCard({
             <TooltipTrigger asChild>
               <span className="text-[22px] font-bold font-mono tabular-nums text-foreground/90 tracking-tight cursor-default">{p.requests_used.toLocaleString()}</span>
             </TooltipTrigger>
-            <TooltipContent>Searches routed to this provider since service start</TooltipContent>
+            <TooltipContent>{usedTooltip}</TooltipContent>
           </Tooltip>
           <span className="text-[11px] font-mono tabular-nums text-muted-foreground/60">
             {p.quota_limit != null ? `/ ${p.quota_limit.toLocaleString()}` : "\u221e"}

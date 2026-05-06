@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { getProviderShortName } from "@/lib/providers/registry";
 import { CONFIGURED_BETTING_PROVIDER_IDS } from "@/lib/betting/configured-ids";
 import { KELLY_FRACTION } from "@/lib/shared/constants";
@@ -282,9 +283,27 @@ export function PlaceBetPanel({
       });
       const body = (await res.json()) as PlaceBetPanelProps["result"];
       setResult(body);
+      // Toast feedback — the in-panel banner covers the detail, but
+      // toasts persist even if the modal is closed early.
+      if (body?.status === "placed" || body?.status === "pending") {
+        const label = outcomeLabel ? `${outcomeLabel} @ ${providerShort}` : providerShort;
+        toast.success(`🎯 Bet ${body.status === "placed" ? "placed" : "pending"}`, {
+          description: `${label} · ${Number(stake).toLocaleString()} ${DISPLAY_CURRENCY} @ ${chosenOdds!.toFixed(2)}`,
+        });
+      } else if (
+        body &&
+        (body.status === "skipped" ||
+          body.status === "rejected" ||
+          body.status === "error")
+      ) {
+        toast.error(`❌ Bet ${body.status}`, {
+          description: body.reason?.slice(0, 150),
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setResult({ status: "error", reason: msg });
+      toast.error("❌ Placement failed", { description: msg });
     } finally {
       setPlacing(false);
     }

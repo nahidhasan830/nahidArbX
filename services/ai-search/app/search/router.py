@@ -5,7 +5,7 @@ Routes queries across Brave, Tavily, Serper, and DuckDuckGo with:
 - Automatic failover on error (marks unhealthy with 60s cooldown)
 - Optional fan-out to multiple providers for higher recall
 - Result deduplication by URL
-- Per-provider usage tracking for /stats
+- Live quota from provider APIs (Brave headers, Tavily /usage)
 """
 
 from __future__ import annotations
@@ -71,8 +71,6 @@ class SearchRouter:
         self._providers.append(DuckDuckGoSearchProvider())
         log.info("DuckDuckGo enabled (fallback, no quota)")
 
-        self._total_searches = 0
-
     @property
     def providers(self) -> list[BaseSearchProvider]:
         return list(self._providers)
@@ -104,7 +102,6 @@ class SearchRouter:
         for provider in available:
             try:
                 results = await provider.search(query, max_results)
-                self._total_searches += 1
                 log.info(
                     "Search via %s: %d results for %r",
                     provider.name,
@@ -164,7 +161,6 @@ class SearchRouter:
                     deduped.append(r)
             all_results = deduped
 
-        self._total_searches += 1
         provider_label = "+".join(providers_used) or "none"
         log.info(
             "Fan-out search via %s: %d results for %r",
@@ -206,11 +202,26 @@ class SearchRouter:
 
         return [p for p in candidates if p.is_healthy() and p.has_quota() and p.enabled]
 
+    async def sync_quotas(self) -> None:
+        """Sync live quotas from providers that support it (startup + periodic)."""
+        for p in self._providers:
+            if hasattr(p, "sync_usage"):
+                try:
+                    await p.sync_usage()
+                except Exception as exc:
+                    log.warning("Quota sync failed for %s: %s", p.name, str(exc)[:200])
+
     def get_stats(self) -> dict:
-        """Return aggregate stats for the /stats endpoint."""
+        """Return aggregate stats for the /stats endpoint.
+
+        total_searches is derived from the sum of per-provider requests_used,
+        which uses server-authoritative data when available.
+        """
+        provider_stats = [p.stats() for p in self._providers]
+        total = sum(ps.get("requests_used", 0) for ps in provider_stats)
         return {
-            "providers": [p.stats() for p in self._providers],
-            "total_searches": self._total_searches,
+            "providers": provider_stats,
+            "total_searches": total,
         }
 
     def toggle_provider(self, name: str, enabled: bool) -> bool:

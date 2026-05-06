@@ -229,10 +229,19 @@ export async function POST(
       }
     }
 
+    const upstreamBody =
+      subPath === "grounded-query"
+        ? {
+            ...body,
+            question: body.question ?? body.query ?? "",
+            query: undefined,
+          }
+        : body;
+
     const resp = await fetch(`${AI_SEARCH_URL}/${subPath}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(upstreamBody),
       signal: AbortSignal.timeout(60_000), // LLM calls can be slow
     });
 

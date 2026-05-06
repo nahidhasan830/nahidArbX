@@ -30,10 +30,6 @@ class Settings(BaseSettings):
     # ML pipeline thresholds.
     ml_cold_start_threshold: int = Field(default=100, alias="ML_COLD_START_THRESHOLD")
 
-    # Quality gates — model must pass both to be deployed.
-    ml_min_dsr: float = Field(default=0.8, alias="ML_MIN_DSR")
-    ml_max_pbo: float = Field(default=0.5, alias="ML_MAX_PBO")
-
     # Logging.
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 

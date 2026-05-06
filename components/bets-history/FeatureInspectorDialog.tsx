@@ -1,12 +1,16 @@
 "use client";
 
 /**
- * FeatureInspectorDialog — wide, compact modal that visualises the 23-dimension
+ * FeatureInspectorDialog — wide, compact modal that visualises the 25-dimension
  * ML feature vector attached to a bet.
  *
- * Layout: header row with event context + ML scores, then a flat 3-column grid
- * of all 23 features. Each cell shows category dot, label, and formatted value.
- * Hover for full description. Fits on screen without scrolling.
+ * Layout: header row with event context + ML scores + feature version info,
+ * then a flat 3-column grid of all 25 features. Each cell shows category dot,
+ * label, and formatted value. Hover for full description. Fits on screen
+ * without scrolling.
+ *
+ * Phase 10: shows feature version, enrichment confidence, and whether
+ * the ML score affected placement behavior.
  */
 
 import {
@@ -31,7 +35,7 @@ import {
 interface FeatureInspectorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The 23-element feature vector, or null if not available. */
+  /** The 25-element feature vector, or null if not available. */
   features: number[] | null | undefined;
   /** ML confidence score (0–1), if available. */
   mlScore?: number | null;
@@ -41,6 +45,14 @@ interface FeatureInspectorDialogProps {
   eventLabel?: string;
   /** Market label for context (e.g. "[FT] Match Result · Home"). */
   marketLabel?: string;
+  /** Feature contract version at extraction time. */
+  featureVersion?: number | null;
+  /** Feature vector length at extraction time. */
+  featureCount?: number | null;
+  /** Whether the ML score affected placement (gate_only+ permission). */
+  scoreAffectedPlacement?: boolean;
+  /** Current permission level of the deployed model. */
+  permissionLevel?: string | null;
 }
 
 export function FeatureInspectorDialog({
@@ -51,6 +63,10 @@ export function FeatureInspectorDialog({
   mlKellyAdjusted,
   eventLabel,
   marketLabel,
+  featureVersion,
+  featureCount,
+  scoreAffectedPlacement,
+  permissionLevel,
 }: FeatureInspectorDialogProps) {
   if (!features || features.length === 0) return null;
 
@@ -74,41 +90,73 @@ export function FeatureInspectorDialog({
                 )}
               </DialogDescription>
             </div>
-            {/* Inline ML scores */}
-            {(mlScore != null || mlKellyAdjusted != null) && (
-              <div className="flex items-center gap-3 shrink-0 pr-6">
-                {mlScore != null && (
-                  <div className="text-right">
-                    <div className="text-[10px] text-muted-foreground">ML Score</div>
-                    <div className={cn(
-                      "text-sm font-semibold tabular-nums",
-                      mlScore >= 0.4 ? "text-emerald-400" : "text-amber-400",
-                    )}>
-                      {mlScore.toFixed(3)}
-                    </div>
+            {/* Inline ML scores + version info */}
+            <div className="flex items-center gap-3 shrink-0 pr-6">
+              {mlScore != null && (
+                <div className="text-right">
+                  <div className="text-[10px] text-muted-foreground">ML Score</div>
+                  <div className={cn(
+                    "text-sm font-semibold tabular-nums",
+                    mlScore >= 0.4 ? "text-emerald-400" : "text-amber-400",
+                  )}>
+                    {mlScore.toFixed(3)}
                   </div>
-                )}
-                {mlKellyAdjusted != null && (
-                  <div className="text-right">
-                    <div className="text-[10px] text-muted-foreground">Kelly (adj.)</div>
-                    <div className="text-sm font-semibold tabular-nums text-foreground">
-                      {(mlKellyAdjusted * 100).toFixed(2)}%
-                    </div>
+                </div>
+              )}
+              {mlKellyAdjusted != null && (
+                <div className="text-right">
+                  <div className="text-[10px] text-muted-foreground">Kelly (adj.)</div>
+                  <div className="text-sm font-semibold tabular-nums text-foreground">
+                    {(mlKellyAdjusted * 100).toFixed(2)}%
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+              {featureVersion != null && (
+                <div className="text-right">
+                  <div className="text-[10px] text-muted-foreground">Version</div>
+                  <div className="text-sm font-semibold tabular-nums text-foreground">
+                    v{featureVersion}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </DialogHeader>
 
-        {/* Category legend — compact inline */}
-        <div className="flex gap-3 text-[10px] text-muted-foreground">
-          {(["Value", "Odds", "Movement", "Market", "Staking"] as const).map((cat) => (
-            <span key={cat} className="flex items-center gap-1">
-              <span className={cn("size-1.5 rounded-full", CATEGORY_COLORS[cat])} />
-              {cat}
+        {/* Phase 10: Score impact + permission info */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Category legend — compact inline */}
+          <div className="flex gap-3 text-[10px] text-muted-foreground">
+            {(["Value", "Odds", "Movement", "Market", "Staking"] as const).map((cat) => (
+              <span key={cat} className="flex items-center gap-1">
+                <span className={cn("size-1.5 rounded-full", CATEGORY_COLORS[cat])} />
+                {cat}
+              </span>
+            ))}
+          </div>
+          <div className="flex-1" />
+          {/* Score placement effect badge */}
+          {mlScore != null && (
+            <span className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+              scoreAffectedPlacement
+                ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400"
+                : permissionLevel === "shadow"
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                  : "border-border/40 bg-muted/20 text-muted-foreground",
+            )}>
+              {scoreAffectedPlacement
+                ? "Score affected placement"
+                : permissionLevel === "shadow"
+                  ? "Shadow mode (log only)"
+                  : "Score did not affect placement"}
             </span>
-          ))}
+          )}
+          {featureCount != null && featureCount !== features.length && (
+            <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+              ⚠ Length mismatch: stored {featureCount} vs actual {features.length}
+            </span>
+          )}
         </div>
 
         {/* Flat 3-column feature grid */}

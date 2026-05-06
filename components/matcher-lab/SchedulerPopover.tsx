@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { Clock, Loader2, Search, Sliders } from "lucide-react";
+import { Clock, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,14 +20,13 @@ import type {
   MlRunHistoryEntry,
   MatcherConfigResponse,
 } from "./types";
-import { checkAiSearchHealth } from "./api";
 
 interface SchedulerPopoverProps {
   mlStats: MlSchedulerStats | null;
   history: MlRunHistoryEntry[];
   hasMoreHistory: boolean;
   historyTotal: number;
-  config: MatcherConfigResponse | null;
+
   onConfigSaved: () => void;
 }
 
@@ -71,14 +70,13 @@ const STATUS_BADGE: Record<
   },
 };
 
-const POPOVER_HEIGHT = "h-[280px]";
+const POPOVER_HEIGHT = "h-[320px]";
 
 export function SchedulerPopover({
   mlStats,
   history,
   hasMoreHistory,
   historyTotal,
-  config,
   onConfigSaved,
 }: SchedulerPopoverProps) {
   const [saving, setSaving] = useState(false);
@@ -86,20 +84,6 @@ export function SchedulerPopover({
   const [intervalSec, setIntervalSec] = useState(
     String((mlStats?.intervalMs ?? 60_000) / 1000),
   );
-  const [aiSearchEnabled, setAiSearchEnabled] = useState(
-    config?.aiSearchEnabled ?? true,
-  );
-  const [aiSearchThreshold, setAiSearchThreshold] = useState(
-    config?.aiSearchConfidenceThreshold ?? 70,
-  );
-  const [aiSearchBatchSize, setAiSearchBatchSize] = useState(
-    config?.aiSearchMaxBatchSize ?? 20,
-  );
-  const [aiSearchHealth, setAiSearchHealth] = useState<{
-    ok: boolean;
-    model?: string;
-  } | null>(null);
-  const [checkingHealth, setCheckingHealth] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState<
     MlRunHistoryEntry[] | null
   >(null);
@@ -112,24 +96,24 @@ export function SchedulerPopover({
     try {
       const ms = Math.round(Number(intervalSec) * 1000);
       if (isNaN(ms) || ms < 10_000) {
-        toast.error("Interval must be at least 10 seconds");
+        toast.error("⚠️ Interval must be at least 10 seconds");
         return;
       }
       await updateScheduler({
         enabled,
         intervalMs: ms,
-        aiSearchEnabled,
-        aiSearchConfidenceThreshold: aiSearchThreshold,
-        aiSearchMaxBatchSize: aiSearchBatchSize,
+        aiSearchEnabled: true,
+        aiSearchConfidenceThreshold: 70,
+        aiSearchMaxBatchSize: 20,
       });
-      toast.success("Scheduler config saved", {
+      toast.success("⚙️ Scheduler config saved", {
         description: enabled
-          ? `Running every ${intervalSec}s`
-          : "Scheduler paused",
+          ? `▶️ Running every ${intervalSec}s`
+          : "⏸️ Scheduler paused",
       });
       onConfigSaved();
     } catch (err) {
-      toast.error("Failed to save", {
+      toast.error("❌ Failed to save", {
         description: (err as Error).message,
       });
     } finally {
@@ -138,9 +122,6 @@ export function SchedulerPopover({
   }, [
     enabled,
     intervalSec,
-    aiSearchEnabled,
-    aiSearchThreshold,
-    aiSearchBatchSize,
     onConfigSaved,
   ]);
 
@@ -150,7 +131,7 @@ export function SchedulerPopover({
       const data = await fetchStats({ historyLimit: 50 });
       setExpandedHistory(data.history);
     } catch {
-      toast.error("Failed to load history");
+      toast.error("❌ Failed to load history");
     } finally {
       setLoadingMore(false);
     }
@@ -161,19 +142,10 @@ export function SchedulerPopover({
       if (open && mlStats) {
         setEnabled(mlStats.active);
         setIntervalSec(String(mlStats.intervalMs / 1000));
-        setAiSearchEnabled(config?.aiSearchEnabled ?? true);
-        setAiSearchThreshold(config?.aiSearchConfidenceThreshold ?? 70);
-        setAiSearchBatchSize(config?.aiSearchMaxBatchSize ?? 20);
         setExpandedHistory(null);
-
-        // Health check on open
-        setCheckingHealth(true);
-        const health = await checkAiSearchHealth();
-        setAiSearchHealth(health);
-        setCheckingHealth(false);
       }
     },
-    [mlStats, config],
+    [mlStats],
   );
 
   return (
@@ -209,12 +181,6 @@ export function SchedulerPopover({
               className="text-[11px] data-[state=active]:bg-zinc-800/60"
             >
               Config
-            </TabsTrigger>
-            <TabsTrigger
-              value="ai-search"
-              className="text-[11px] data-[state=active]:bg-zinc-800/60"
-            >
-              AI Search
             </TabsTrigger>
             <TabsTrigger
               value="history"
@@ -266,121 +232,7 @@ export function SchedulerPopover({
 
             <Button
               size="sm"
-              className="w-full h-7 text-[11px] mt-3 mb-2"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving && <Loader2 className="size-3 animate-spin mr-1.5" />}
-              Save
-            </Button>
-          </TabsContent>
-
-          {/* ── AI Search tab ── */}
-          <TabsContent
-            value="ai-search"
-            className="p-3 mt-0 flex-1 flex flex-col"
-          >
-            {/* Health indicator */}
-            <div className="flex items-center gap-2 mb-3 px-2 py-1.5 rounded-md bg-zinc-900/50 border border-zinc-800/50">
-              {checkingHealth ? (
-                <Loader2 className="size-3 animate-spin text-zinc-500" />
-              ) : (
-                <span
-                  className={cn(
-                    "size-2 rounded-full shrink-0",
-                    aiSearchHealth?.ok
-                      ? "bg-emerald-400"
-                      : aiSearchHealth === null
-                        ? "bg-zinc-600"
-                        : "bg-red-400",
-                  )}
-                />
-              )}
-              <Search className="size-3 text-cyan-400 shrink-0" />
-              <span className="text-[11px] text-zinc-300">
-                {checkingHealth
-                  ? "Checking..."
-                  : aiSearchHealth?.ok
-                    ? `Healthy · ${aiSearchHealth.model ?? "Groq"}`
-                    : aiSearchHealth === null
-                      ? "Unreachable"
-                      : "Unhealthy"}
-              </span>
-            </div>
-
-            <div className="space-y-4 flex-1">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-zinc-200">
-                    AI Search escalation
-                  </div>
-                  <div className="text-sm text-zinc-500">
-                    Escalate uncertain pairs to Groq + web search
-                    before human review.
-                  </div>
-                </div>
-                <Switch
-                  checked={aiSearchEnabled}
-                  onCheckedChange={setAiSearchEnabled}
-                  className="ml-3 shrink-0"
-                  disabled={!aiSearchHealth?.ok}
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm font-medium text-zinc-200">
-                    Confidence threshold
-                  </span>
-                  <span className="text-[11px] text-cyan-400 tabular-nums">
-                    {aiSearchThreshold}%
-                  </span>
-                </div>
-                <div className="text-sm text-zinc-500 mb-2">
-                  Minimum AI Search confidence to auto-decide. Higher = more
-                  pairs go to human review.
-                </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={aiSearchThreshold}
-                    onChange={(e) =>
-                      setAiSearchThreshold(Number(e.target.value))
-                    }
-                    className="flex-1 h-6"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className="text-sm font-medium text-zinc-200 mb-1.5">
-                  Max batch size
-                </div>
-                <div className="text-sm text-zinc-500 mb-2">
-                  Pairs per AI Search request. Max 20.
-                </div>
-                <Input
-                  type="number"
-                  min={1}
-                  max={20}
-                  step={1}
-                  value={aiSearchBatchSize}
-                  onChange={(e) =>
-                    setAiSearchBatchSize(
-                      Math.max(1, Math.min(20, Number(e.target.value))),
-                    )
-                  }
-                  className="w-20 h-8 text-sm tabular-nums"
-                />
-              </div>
-            </div>
-
-            <Button
-              size="sm"
-              className="w-full h-7 text-[11px] mt-3 mb-2"
+              className="w-full h-7 text-[11px] mt-4 mb-2 shrink-0"
               onClick={handleSave}
               disabled={saving}
             >

@@ -15,8 +15,6 @@ export type NotificationEvent =
   | UnifiedBootEvent
   | AiEngineStateEvent
   | AiModelStateEvent
-  | OptimizerRunStartedEvent
-  | OptimizerRunCompletedEvent
   | MlRunCompletedEvent;
 
 export interface MlRunCompletedEvent {
@@ -257,100 +255,6 @@ export interface UnifiedBootEvent {
   engine?: SystemBootEvent;
   aiSearch?: AiEngineStateEvent;
   frontend?: SystemBootEvent;
-}
-
-/**
- * Fired once when the sidecar picks an Optimisation run up (status transitions
- * from `queued → running`). Emitted by the notifier tick on a ~10s cadence;
- * the tick stamps `optimization_runs.started_notified_at` for at-most-once
- * delivery.
- *
- * Payload is the full heads-up package the operator needs to decide whether
- * to expect a quick sweep or a long overnight run: name + id, algorithm,
- * trial count, CV strategy, expected finish time (p50 of historical
- * durations for the same shape), bet count surviving the data-scope filter,
- * and a one-line scope summary (date range + soft books + markets).
- */
-export interface OptimizerRunStartedEvent {
-  type: "optimizer:run_started";
-  at: string; // ISO — time of emission (= close to started_notified_at)
-  runId: string;
-  name: string;
-  searchAlgorithm: string; // "ensemble" | "tpe" | "nsga2" | "random" | "ml-xgboost"
-  rngSeed: number;
-  nTrialsTarget: number;
-  /** CV strategy label — e.g. "CPCV-10 (embargo 5)" or "Walk-forward (3 windows)". */
-  cvStrategyLabel: string;
-  startedAt: string; // ISO
-
-  /** Bet count that survived the pre-search data-scope filter. */
-  betCount: number | null;
-  /** One-line human-readable summary — date range + providers + markets. */
-  scopeSummary: string;
-
-  /** Historical p50-based estimate of seconds to finish. Null if we've
-   *  never run something like this before — the formatter then omits the ETA
-   *  line rather than guessing wildly. */
-  estimatedDurationSec: number | null;
-  /** String describing how the ETA was derived — "p50 of 12 prior runs" or
-   *  "heuristic (no prior data)" — for transparency. */
-  estimationBasis: string | null;
-  /** ISO of the expected finish time (started_at + estimatedDurationSec).
-   *  Null when estimatedDurationSec is null. */
-  estimatedFinishAt: string | null;
-
-  /** "manual" | `schedule:<schedule_id>`. Copies `created_by` verbatim. */
-  createdBy: string;
-  /** Deep-link to /lab/optimisation/<runId>. */
-  dashboardUrl?: string;
-}
-
-/**
- * Fired once when an Optimisation optimizer run transitions to a terminal
- * status (`completed | failed | cancelled`). Emitted by the notifier tick
- * (lib/optimizer/notifier-tick.ts) on a ~10s cadence; the tick stamps
- * `optimization_runs.notified_at` to guarantee at-most-once delivery.
- *
- * The formatter (lib/notifier/telegram.ts) renders this in the repo's strict
- * one-fact-per-line style with signed percentages so the operator can scan
- * a run's outcome from the notification without opening the app.
- */
-export interface OptimizerRunCompletedEvent {
-  type: "optimizer:run_completed";
-  at: string; // ISO — time of emission (= close to notified_at)
-  runId: string;
-  name: string;
-  status: "completed" | "failed" | "cancelled";
-  searchAlgorithm: string; // "ensemble" | "tpe" | "nsga2" | "random" | "ml-xgboost"
-  startedAt: string | null;
-  completedAt: string;
-  durationSec: number;
-  nTrialsDone: number;
-  nTrialsTarget: number;
-  /** Populated for completed runs from the sidecar's summary JSON. */
-  nPareto?: number | null;
-  bestComposite?: number | null;
-  /** Best-trial metrics — null on failure / no trials completed. */
-  best?: {
-    trialId: string;
-    trialIndex?: number | null;
-    roiPct: number | null;
-    roiCiLow: number | null;
-    roiCiHigh: number | null;
-    sharpe: number | null;
-    sortino: number | null;
-    maxDrawdownPct: number | null;
-    deflatedSharpe: number | null;
-    probabilisticSharpe: number | null;
-    sampleSize: number | null;
-  } | null;
-  /** "manual" | `schedule:<schedule_id>`. Copies `created_by` verbatim. */
-  createdBy: string;
-  error?: string | null;
-  /** Deep-link to /lab/optimisation/<runId>. */
-  dashboardUrl?: string;
-  /** Deep-link to the best trial inside the run detail page. */
-  topTrialUrl?: string;
 }
 
 /**

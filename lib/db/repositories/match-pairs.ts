@@ -2,7 +2,7 @@
  * Repository for the `match_pairs` table — the ML-augmented matcher
  * pipeline's persistence layer.
  *
- * Pairs flow: inbox → ml_queued → human_review → history.
+ * Pairs flow: inbox → human_review → history.
  * Every mutation uses atomic stage transitions to prevent races between
  * the background ML scheduler and operator actions.
  */
@@ -17,7 +17,7 @@ const tag = "MatchPairsRepo";
 
 // ─── Types ─────────────────────────────────────────────────────────────
 
-export type MatchPairStage = "inbox" | "ml_queued" | "human_review" | "history";
+export type MatchPairStage = "inbox" | "human_review" | "history";
 
 export type MatchPairDecision =
   | "auto-merge"
@@ -178,40 +178,6 @@ export async function transitionStage(
   return rows.length > 0;
 }
 
-/**
- * Move all inbox pairs to ml_queued in one atomic UPDATE. Returns the
- * IDs of transitioned rows.
- */
-export async function batchTransitionToMlQueued(): Promise<string[]> {
-  const rows = await db
-    .update(matchPairs)
-    .set({
-      stage: "ml_queued",
-      stageChangedAt: new Date().toISOString(),
-    })
-    .where(eq(matchPairs.stage, "inbox"))
-    .returning({ id: matchPairs.id });
-  return rows.map((r) => r.id);
-}
-
-/**
- * Move specific inbox pairs to ml_queued. Only transitions rows that are
- * still in `inbox` — safe against races. Returns the IDs actually moved.
- */
-export async function batchTransitionToMlQueuedByIds(
-  ids: string[],
-): Promise<string[]> {
-  if (ids.length === 0) return [];
-  const rows = await db
-    .update(matchPairs)
-    .set({
-      stage: "ml_queued",
-      stageChangedAt: new Date().toISOString(),
-    })
-    .where(and(eq(matchPairs.stage, "inbox"), inArray(matchPairs.id, ids)))
-    .returning({ id: matchPairs.id });
-  return rows.map((r) => r.id);
-}
 
 // ─── ML score writes ───────────────────────────────────────────────────
 
@@ -327,7 +293,6 @@ export async function getStageCounts(): Promise<
 
   const counts: Record<MatchPairStage, number> = {
     inbox: 0,
-    ml_queued: 0,
     human_review: 0,
     history: 0,
   };

@@ -13,6 +13,19 @@
  *   4. A mutex prevents concurrent passes; queued signals fire one follow-up pass
  *   5. A 30s heartbeat acts as a safety net to flush any orphaned dirty families
  *
+ * Phase 8 ML integration:
+ *   - Features are extracted for ALL detected value bets (training data)
+ *   - Scoring runs through the ONNX model (returns null when no model loaded)
+ *   - Permission-aware staking via `computeScoredStake()` respects the
+ *     deployment gate (shadow/gate_only/stake_reduce/stake_increase)
+ *   - Shadow decisions are logged for offline analysis
+ *
+ * Phase 9 near-miss + shadow data:
+ *   - Shadow-scored detection snapshots stored for every value bet (outcome later)
+ *   - Near-miss atoms (0.5% ≤ EV% < MIN_EV_PCT) collected as lower-weight
+ *     negative training examples to reduce survival bias
+ *   - Rate-limited per bet key (10min cooldown) and capped per pass (5 max)
+ *
  * Memory-safe: no accumulation. The dirty set is consumed every pass.
  * Thread-safe: single-threaded JS + mutex flag = no races.
  */
@@ -23,6 +36,8 @@ import {
   DETECTION_DEBOUNCE_MS,
   HEARTBEAT_INTERVAL_MS,
   STALE_ODDS_CLEANUP_INTERVAL_MS,
+  NEAR_MISS_MAX_PER_PASS,
+  NEAR_MISS_COOLDOWN_MS,
 } from "@/lib/shared/constants";
 import {
   consumeDirtyFamilies,
@@ -31,11 +46,13 @@ import {
   getStoreStats,
   pruneOddsForStaleEvents,
   getAllOddsForAtom,
+  getFamiliesForEvent,
 } from "@/lib/atoms/store";
 import { pruneHistoryForEvents, getHistoryStats } from "@/lib/atoms/odds-history";
 import { cleanupOldScores, getScoreCount, getCornersScoreCount } from "@/lib/scores/store";
 import { cleanupOldMultiScores, getMultiScoreCount } from "@/lib/scores/multi-source-store";
-import { detectAllValueBetsIncremental } from "@/lib/atoms/value-detector";
+import { detectAllValueBetsIncremental, detectNearMissesForFamily } from "@/lib/atoms/value-detector";
+import type { NearMissBet } from "@/lib/atoms/value-detector";
 import { persistValueBets } from "@/lib/db/repositories/bets";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { maybeAutoPlace } from "@/lib/betting/auto-placer";
@@ -50,8 +67,11 @@ import { computeDelta } from "@/lib/cache/delta";
 import { syncBus } from "@/lib/events/event-bus";
 import { buildMovementSnapshot } from "@/lib/atoms/odds-history";
 import { extractFeatures } from "@/lib/ml/features";
-import { scoreBatch } from "@/lib/ml/scorer";
-import { computeAdjustedKelly } from "@/lib/ml/staker";
+import { scoreBatch, isModelLoaded } from "@/lib/ml/scorer";
+import { computeScoredStake, computeAdjustedKelly } from "@/lib/ml/staker";
+import { logShadowDecision, SHADOW_KELLY_MULTIPLIER } from "@/lib/ml/shadow-mode";
+import { getPermissionLevel } from "@/lib/ml/deployment-gate";
+import { writeDetectionSnapshot, writeNearMissExamples } from "@/lib/ml/training-example-writer";
 
 // ============================================
 // State — singleton for HMR safety
@@ -100,6 +120,16 @@ const lastPersisted = singleton(
   (): Map<string, PersistedSnapshot> => new Map(),
 );
 
+/**
+ * Near-miss rate-limit cache: bet key → last-written timestamp.
+ * Prevents writing the same near-miss more than once per NEAR_MISS_COOLDOWN_MS.
+ * Pruned alongside the dedup cache during stale cleanup.
+ */
+const nearMissLastWritten = singleton(
+  "reactive-detector:nearMissLastWritten",
+  (): Map<string, number> => new Map(),
+);
+
 // ============================================
 // Core detection pass
 // ============================================
@@ -114,7 +144,6 @@ async function runDetectionPass(): Promise<void> {
   state.passInProgress = true;
 
   try {
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       state.needsAnotherPass = false;
 
@@ -171,28 +200,56 @@ async function runDetectionPass(): Promise<void> {
 
       if (changedBets.length > 0) {
         // ── ML feature extraction ──────────────────────────────────
-        // Compute 23-dim feature vectors for each changed bet.
+        // Compute 25-dim feature vectors for each changed bet.
         // Feature extraction failure must never block detection.
+
+        // Build event → market count map for feature[24] (num_markets_same_event)
+        const eventMarketCounts = new Map<string, number>();
+        for (const vb of valueBets) {
+          eventMarketCounts.set(vb.eventId, (eventMarketCounts.get(vb.eventId) ?? 0) + 1);
+        }
+
         const featuresMap = new Map<string, number[]>();
         const featureStart = Date.now();
+        let fqMissingEvent = 0;
+        let fqMissingHistory = 0;
+        let fqMissingVig = 0;
         for (const vb of changedBets) {
           try {
-            featuresMap.set(vb.id, extractFeatures(vb));
+            const f = extractFeatures(vb, eventMarketCounts.get(vb.eventId));
+            featuresMap.set(vb.id, f);
+            // Feature quality tracking (indexes: 5=tick_count, 6=time_to_kickoff, 16=opening_sharp, 20=vig_pct)
+            if (f[6] === 0 && f[5] === 0 && f[16] === 0) fqMissingEvent++;
+            if (f[5] === 0 && f[16] === 0) fqMissingHistory++;
+            if (f[20] === 0) fqMissingVig++;
           } catch {
             // Feature extraction failure must never block detection
           }
         }
         const featureMs = Date.now() - featureStart;
-        if (featureMs > 10) logger.warn("ReactiveDetector", `Feature extraction slow: ${featureMs}ms`);
+        if (featureMs > 10 || fqMissingEvent > 0 || fqMissingVig > 0) {
+          logger.info(
+            "ReactiveDetector",
+            `Features: ${featuresMap.size}/${changedBets.length} ok, ${featureMs}ms` +
+              (fqMissingEvent ? ` | missingEvent=${fqMissingEvent}` : "") +
+              (fqMissingHistory ? ` | missingHistory=${fqMissingHistory}` : "") +
+              (fqMissingVig ? ` | missingVig=${fqMissingVig}` : ""),
+          );
+        }
 
         // ── ML scoring ────────────────────────────────────────────
         // Batch-score all bets with available features through the
-        // ONNX model. Without a model, scoreBatch returns 1.0 for
+        // ONNX model. Without a model, scoreBatch returns null for
         // all (pass-through). Score ALL bets — low-score bets are
         // still valuable training data. Filtering happens at the
         // auto-placer gate only.
-        const scoresMap = new Map<string, number>();
-        const kellyMap = new Map<string, number>();
+        //
+        // Phase 8: Read the deployment gate permission level to
+        // determine how scores affect staking.
+        const permissionLevel = getPermissionLevel();
+        const modelActive = isModelLoaded();
+        const scoresMap = new Map<string, number | null>();
+        const kellyMap = new Map<string, number | null>();
         try {
           const featureArrays: number[][] = [];
           const betIds: string[] = [];
@@ -209,17 +266,34 @@ async function runDetectionPass(): Promise<void> {
               const betId = betIds[i];
               const score = scores[i];
               scoresMap.set(betId, score);
-              // Compute adjusted Kelly for this bet
+
+              // Permission-aware staking: computeScoredStake respects
+              // the deployment gate level. Returns null when ML should
+              // not affect staking (shadow mode or no model).
               const vb = changedBets.find((b) => b.id === betId);
               if (vb) {
                 const features = featuresMap.get(betId)!;
-                kellyMap.set(betId, computeAdjustedKelly(vb.kellyFraction, score, features));
+                const adjusted = computeScoredStake(
+                  vb.kellyFraction,
+                  score,
+                  features,
+                  permissionLevel,
+                );
+                kellyMap.set(betId, adjusted);
               }
             }
           }
         } catch (err) {
           // Scoring failure must never block detection
           logger.warn("ReactiveDetector", `ML scoring failed: ${(err as Error).message}`);
+        }
+
+        // Log scoring mode on first pass with a model
+        if (modelActive && state.totalPasses === 0) {
+          logger.info(
+            "ReactiveDetector",
+            `ML scoring active — permission=${permissionLevel}, model loaded`,
+          );
         }
 
         try {
@@ -256,12 +330,19 @@ async function runDetectionPass(): Promise<void> {
               }
             }
 
+            // Resolve ML score and Kelly for persistence.
+            // The score is always persisted (even in shadow mode) for training data.
+            // The Kelly adjustment is only persisted when the permission level allows it.
+            const rawScore = scoresMap.get(vb.id);
+            const adjustedKelly = kellyMap.get(vb.id);
+
             return { 
               ...vb, 
               oddsMovement: Object.keys(snapshots).length > 0 ? snapshots : undefined,
               mlFeatures: featuresMap.get(vb.id) ?? null,
-              mlScore: scoresMap.get(vb.id) ?? null,
-              mlKellyAdjusted: kellyMap.get(vb.id) ?? null,
+              mlScore: rawScore ?? null,
+              // Only persist ML-adjusted Kelly when permission level actually modifies it
+              mlKellyAdjusted: adjustedKelly ?? null,
             };
           });
 
@@ -292,17 +373,157 @@ async function runDetectionPass(): Promise<void> {
           );
         }
 
-        // Auto-place only changed bets (fire-and-forget per bet)
-        // Pass ML score + adjusted Kelly so the placer can use them
+        // Auto-place only changed bets (fire-and-forget per bet).
+        // Pass the permission-aware adjusted Kelly so the placer uses
+        // the correct stake. When adjustedKelly is null (shadow mode or
+        // no model), the placer falls back to base Kelly.
         for (const vb of changedBets) {
-          const mlScore = scoresMap.get(vb.id);
-          const mlKellyAdjusted = kellyMap.get(vb.id);
-          maybeAutoPlace(vb, mlScore ?? undefined, mlKellyAdjusted ?? undefined).catch((err) =>
+          const rawScore = scoresMap.get(vb.id);
+          const adjustedKelly = kellyMap.get(vb.id);
+
+          // Only pass score to auto-placer when the permission level
+          // allows gating (gate_only or higher). In shadow mode, we
+          // don't want the placer's ML gate to activate.
+          const scoreForPlacer = permissionLevel === "shadow"
+            ? undefined
+            : (rawScore ?? undefined);
+          const kellyForPlacer = adjustedKelly ?? undefined;
+
+          maybeAutoPlace(vb, scoreForPlacer, kellyForPlacer).catch((err) =>
             logger.error(
               "ReactiveDetector",
               `AutoPlace failed for ${vb.id}: ${(err as Error).message}`,
             ),
           );
+
+          // Shadow-mode logging: always log when a model is active,
+          // regardless of permission level (for offline A/B analysis)
+          if (modelActive && rawScore != null) {
+            const features = featuresMap.get(vb.id);
+            if (features) {
+              const mlKelly = computeAdjustedKelly(vb.kellyFraction, rawScore, features);
+              logShadowDecision({
+                betId: vb.id,
+                eventId: vb.eventId,
+                kellyFraction: vb.kellyFraction,
+                shadowKelly: vb.kellyFraction * SHADOW_KELLY_MULTIPLIER,
+                mlKelly,
+                mlMultiplier: vb.kellyFraction > 0 ? mlKelly / vb.kellyFraction : 0,
+                placedAt: new Date(),
+              }).catch(() => {}); // fire-and-forget
+            }
+          }
+        }
+
+        // ── Phase 9: Shadow-scored detection snapshots ────────────────
+        // Store a feature snapshot for every detected value bet so we can
+        // later attach outcome/CLV when the bet settles. This builds the
+        // shadow_scored training examples dataset.
+        for (const vb of changedBets) {
+          const features = featuresMap.get(vb.id);
+          if (features) {
+            writeDetectionSnapshot(
+              vb.id,
+              vb.eventId,
+              vb.familyId,
+              vb.atomId,
+              features,
+            ).catch(() => {}); // fire-and-forget
+          }
+        }
+
+        // ── Phase 9: Near-miss collection ─────────────────────────────
+        // Collect sub-threshold edges (0.5% ≤ EV% < MIN_EV_PCT) from
+        // dirty families as lower-weight negative training examples.
+        // Rate-limited per bet key and capped per pass.
+        const now9 = Date.now();
+        const nearMissCandidates: NearMissBet[] = [];
+        const dirtyEventIds = new Set<string>();
+        for (const dirtyKey of dirty) {
+          const parts = dirtyKey.split("|");
+          if (parts.length >= 1) dirtyEventIds.add(parts[0]);
+        }
+        for (const eventId of dirtyEventIds) {
+          if (nearMissCandidates.length >= NEAR_MISS_MAX_PER_PASS) break;
+          const families = getFamiliesForEvent(eventId);
+          for (const familyId of families) {
+            if (nearMissCandidates.length >= NEAR_MISS_MAX_PER_PASS) break;
+            // Only scan dirty families
+            if (!dirty.has(`${eventId}|${familyId}`)) continue;
+            const nms = detectNearMissesForFamily(eventId, familyId, {
+              kellyFraction: bettingSettings.kellyFraction,
+            });
+            for (const nm of nms) {
+              if (nearMissCandidates.length >= NEAR_MISS_MAX_PER_PASS) break;
+              // Rate limit: skip if we wrote this key recently
+              const lastTs = nearMissLastWritten.get(nm.id);
+              if (lastTs && now9 - lastTs < NEAR_MISS_COOLDOWN_MS) continue;
+              nearMissCandidates.push(nm);
+            }
+          }
+        }
+
+        if (nearMissCandidates.length > 0) {
+          // Extract features for near-miss atoms
+          const nmWithFeatures: Array<{
+            id: string;
+            eventId: string;
+            familyId: string;
+            atomId: string;
+            features: number[];
+          }> = [];
+          for (const nm of nearMissCandidates) {
+            try {
+              // Build a minimal ValueBet-like object for extractFeatures()
+              const nmAsBet = {
+                id: nm.id,
+                eventId: nm.eventId,
+                familyId: nm.familyId,
+                atomId: nm.atomId,
+                sharpProvider: nm.sharpProvider,
+                softProvider: nm.softProvider,
+                softOdds: nm.softOdds,
+                adjustedSoftOdds: nm.adjustedSoftOdds,
+                evPct: nm.evPct,
+                trueProb: nm.trueProb,
+                trueOdds: 1 / nm.trueProb,
+                sharpOdds: 0,
+                impliedProb: 1 / nm.adjustedSoftOdds,
+                commissionPct: 0,
+                edge: nm.evPct / 100,
+                kellyFraction: nm.kellyFraction,
+                kellyStake: 0,
+                detectedAt: nm.detectedAt,
+                timestamp: Date.now(),
+              };
+              const f = extractFeatures(nmAsBet, eventMarketCounts.get(nm.eventId));
+              nmWithFeatures.push({
+                id: nm.id,
+                eventId: nm.eventId,
+                familyId: nm.familyId,
+                atomId: nm.atomId,
+                features: f,
+              });
+            } catch {
+              // Feature extraction failure — skip this near-miss
+            }
+          }
+          if (nmWithFeatures.length > 0) {
+            writeNearMissExamples(nmWithFeatures)
+              .then((written) => {
+                // Update cooldown cache for successfully written near-misses
+                for (const nm of nmWithFeatures) {
+                  nearMissLastWritten.set(nm.id, now9);
+                }
+                if (written > 0) {
+                  logger.debug(
+                    "ReactiveDetector",
+                    `Near-miss: ${written} examples written from ${nearMissCandidates.length} candidates`,
+                  );
+                }
+              })
+              .catch(() => {}); // fire-and-forget
+          }
         }
       }
 
@@ -479,13 +700,23 @@ function runStaleCleanup(): void {
     }
   }
 
+  // Prune the near-miss cooldown cache — remove expired entries
+  let prunedNearMiss = 0;
+  const nowCleanup = Date.now();
+  for (const [key, ts] of nearMissLastWritten.entries()) {
+    if (nowCleanup - ts > NEAR_MISS_COOLDOWN_MS) {
+      nearMissLastWritten.delete(key);
+      prunedNearMiss++;
+    }
+  }
+
   const totalPruned =
-    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedDedup;
+    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedDedup + prunedNearMiss;
   if (totalPruned > 0) {
     const histStats = getHistoryStats();
     logger.info(
       "ReactiveDetector",
-      `Stale cleanup: odds=${prunedOdds} history=${prunedHistory} scores=${prunedScores} multiScores=${prunedMultiScores} dedup=${prunedDedup} | historyMem≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB`,
+      `Stale cleanup: odds=${prunedOdds} history=${prunedHistory} scores=${prunedScores} multiScores=${prunedMultiScores} dedup=${prunedDedup} nearMiss=${prunedNearMiss} | historyMem≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB`,
     );
   }
 }

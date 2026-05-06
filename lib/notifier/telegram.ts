@@ -31,9 +31,7 @@ import type {
   MatchScoreInfo,
   NotificationChannel,
   NotificationEvent,
-  OptimizerRunCompletedEvent,
   MlRunCompletedEvent,
-  OptimizerRunStartedEvent,
   SystemEvent,
   SystemBootEvent,
   UnifiedBootEvent,
@@ -153,10 +151,6 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatAiEngineState(event);
     case "ai:model_state":
       return formatAiModelState(event);
-    case "optimizer:run_started":
-      return formatOptimizerRunStarted(event);
-    case "optimizer:run_completed":
-      return formatOptimizerRunCompleted(event);
     case "ml:run_completed":
       return formatMlRunCompleted(event);
   }
@@ -375,172 +369,7 @@ const REASON_CATEGORY_LABEL: Record<
   unknown: "unknown",
 };
 
-// --------------------------------------------------------------------
-// optimizer:run_started
-// --------------------------------------------------------------------
 
-function formatOptimizerRunStarted(
-  e: OptimizerRunStartedEvent,
-): FormattedMessage {
-  const lines: string[] = [];
-  lines.push(`🚀 <b>${esc(e.name)}</b> · Optimisation run started`);
-  lines.push(`🤖 Algorithm: <b>${esc(formatAlgorithm(e.searchAlgorithm))}</b>`);
-  lines.push(
-    `🧮 Trials: <b>${e.nTrialsTarget.toLocaleString()}</b> · 🎲 Seed <code>${e.rngSeed}</code>`,
-  );
-  lines.push(`🧪 Validation: <b>${esc(e.cvStrategyLabel)}</b>`);
-
-  if (e.betCount != null && e.betCount > 0) {
-    lines.push(
-      `📊 Dataset: <b>${e.betCount.toLocaleString()}</b> settled bets`,
-    );
-  }
-  if (e.scopeSummary) {
-    lines.push(`🎯 Scope: <i>${esc(e.scopeSummary)}</i>`);
-  }
-
-  // ETA block — omitted entirely when we have no basis for a guess, so we
-  // never mislead the operator with a fabricated finish time.
-  if (e.estimatedDurationSec != null && e.estimatedFinishAt != null) {
-    lines.push("───");
-    const etaLabel = durationLabel(e.estimatedDurationSec * 1000);
-    const basisSuffix = e.estimationBasis
-      ? ` <i>(${esc(e.estimationBasis)})</i>`
-      : "";
-    lines.push(`⏱ ETA: <b>~${esc(etaLabel)}</b>${basisSuffix}`);
-    lines.push(
-      `🗓 Expected finish: <b>${esc(formatAbsoluteTime(e.estimatedFinishAt))}</b>`,
-    );
-  }
-
-  lines.push(`🏷 Source: <code>${esc(e.createdBy || "manual")}</code>`);
-  lines.push(`🕒 Started: ${esc(formatAbsoluteTime(e.startedAt))}`);
-
-  const buttons: InlineKey[] = [];
-  if (e.dashboardUrl)
-    buttons.push({ text: "📊 Open run", url: e.dashboardUrl });
-
-  return {
-    text: lines.join("\n"),
-    buttons: buttons.length > 0 ? buttons : undefined,
-  };
-}
-
-// --------------------------------------------------------------------
-// optimizer:run_completed
-// --------------------------------------------------------------------
-
-function formatOptimizerRunCompleted(
-  e: OptimizerRunCompletedEvent,
-): FormattedMessage {
-  const statusBadge = (() => {
-    if (e.status === "completed") return "✅ <b>Completed</b>";
-    if (e.status === "failed") return "⚠️ <b>Failed</b>";
-    return "⏹ <b>Cancelled</b>";
-  })();
-
-  const lines: string[] = [];
-  lines.push(`🧪 <b>${esc(e.name)}</b> · ${statusBadge}`);
-  lines.push(`🤖 Algorithm: <b>${esc(formatAlgorithm(e.searchAlgorithm))}</b>`);
-
-  const durWord = e.status === "completed" ? "Finished" : "Stopped";
-  const durLabel = durationLabel(e.durationSec * 1000);
-  lines.push(`⏱ ${durWord} in <b>${esc(durLabel)}</b>`);
-
-  const trialsLine =
-    e.nPareto != null && e.nPareto > 0
-      ? `🧮 Trials: <b>${e.nTrialsDone.toLocaleString()}</b>/${e.nTrialsTarget.toLocaleString()} · <b>${e.nPareto}</b> on Pareto`
-      : `🧮 Trials: <b>${e.nTrialsDone.toLocaleString()}</b>/${e.nTrialsTarget.toLocaleString()}`;
-  lines.push(trialsLine);
-
-  if (typeof e.bestComposite === "number" && Number.isFinite(e.bestComposite)) {
-    lines.push(`🏆 Best composite: <b>${esc(e.bestComposite.toFixed(2))}</b>`);
-  }
-
-  // Best-trial block — only meaningful when the run completed with ≥ 1 trial.
-  if (e.status === "completed" && e.best) {
-    lines.push("───");
-    const b = e.best;
-
-    if (b.roiPct != null && Number.isFinite(b.roiPct)) {
-      const ciSuffix =
-        b.roiCiLow != null &&
-        b.roiCiHigh != null &&
-        Number.isFinite(b.roiCiLow) &&
-        Number.isFinite(b.roiCiHigh)
-          ? `  <i>(95% CI ${esc(signedPct(b.roiCiLow))} → ${esc(signedPct(b.roiCiHigh))})</i>`
-          : "";
-      lines.push(
-        `📈 Best trial ROI: <b>${esc(signedPct(b.roiPct))}</b>${ciSuffix}`,
-      );
-    }
-
-    const riskParts: string[] = [];
-    if (b.sharpe != null && Number.isFinite(b.sharpe)) {
-      riskParts.push(`Sharpe <b>${esc(b.sharpe.toFixed(2))}</b>`);
-    }
-    if (b.sortino != null && Number.isFinite(b.sortino)) {
-      riskParts.push(`Sortino <b>${esc(b.sortino.toFixed(2))}</b>`);
-    }
-    if (b.maxDrawdownPct != null && Number.isFinite(b.maxDrawdownPct)) {
-      riskParts.push(
-        `Max DD <b>${esc(Math.abs(b.maxDrawdownPct).toFixed(1))}%</b>`,
-      );
-    }
-    if (riskParts.length > 0) lines.push(`📊 ${riskParts.join(" · ")}`);
-
-    const robustnessParts: string[] = [];
-    if (b.deflatedSharpe != null && Number.isFinite(b.deflatedSharpe)) {
-      robustnessParts.push(`DSR <b>${esc(b.deflatedSharpe.toFixed(2))}</b>`);
-    }
-    if (
-      b.probabilisticSharpe != null &&
-      Number.isFinite(b.probabilisticSharpe)
-    ) {
-      robustnessParts.push(
-        `PSR <b>${esc(b.probabilisticSharpe.toFixed(2))}</b>`,
-      );
-    }
-    if (b.sampleSize != null && b.sampleSize > 0) {
-      robustnessParts.push(`n=<b>${b.sampleSize.toLocaleString()}</b>`);
-    }
-    if (robustnessParts.length > 0)
-      lines.push(`🛡 ${robustnessParts.join(" · ")}`);
-  }
-
-  // Failure reason — truncated to keep the card readable.
-  if (e.status === "failed" && e.error) {
-    lines.push(`🛑 ${esc(truncate(e.error, 280))}`);
-  }
-
-  // Source: manual vs scheduled.
-  lines.push(`🏷 Source: <code>${esc(e.createdBy || "manual")}</code>`);
-  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
-
-  const buttons: InlineKey[] = [];
-  if (e.dashboardUrl)
-    buttons.push({ text: "📊 Open run", url: e.dashboardUrl });
-  if (e.topTrialUrl && e.status === "completed" && e.best) {
-    buttons.push({ text: "🏆 Top trial", url: e.topTrialUrl });
-  }
-
-  return {
-    text: lines.join("\n"),
-    buttons: buttons.length > 0 ? buttons : undefined,
-  };
-}
-
-const ALGORITHM_LABEL: Record<string, string> = {
-  ensemble: "Ensemble",
-  tpe: "TPE (Bayesian)",
-  nsga2: "NSGA-II",
-  random: "Random",
-  "ml-xgboost": "ML / XGBoost",
-};
-
-function formatAlgorithm(algo: string): string {
-  return ALGORITHM_LABEL[algo] ?? algo;
-}
 
 // --------------------------------------------------------------------
 // ai engine/model lifecycle

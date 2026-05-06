@@ -50,4 +50,10 @@ export const STEAM_MOVE_STRONG_PCT = 5; // ≥5% move in ≤30s = strong
 // ML pipeline
 export const ML_MIN_SCORE = 0.4;           // Below this, don't auto-place
 export const ML_COLD_START_THRESHOLD = 100; // Need this many settled bets for first ML model (retrain as data grows)
-export const ML_FEATURE_COUNT = 23;        // Dimensionality of feature vector
+export const ML_FEATURE_COUNT = 25;        // Dimensionality of feature vector
+export const ML_FEATURE_VERSION = 2;       // Contract version for persisted ML feature vectors
+
+// Phase 9: Near-miss + shadow data collection
+export const NEAR_MISS_MIN_EV_PCT = 0.5;   // Floor: ignore EV below this (noise)
+export const NEAR_MISS_MAX_PER_PASS = 5;   // Cap near-miss examples per detection pass
+export const NEAR_MISS_COOLDOWN_MS = 10 * 60 * 1000; // Rate limit: one near-miss per bet key per 10 min

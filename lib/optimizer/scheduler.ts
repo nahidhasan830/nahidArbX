@@ -5,17 +5,19 @@
  * run should be triggered. When criteria are met, fires a Cloud Run Job
  * that runs the LightGBM training pipeline (services/optimizer/).
  *
+ * Reads configuration from `ml_scheduler_settings` (DB singleton row)
+ * so the operator can adjust cadence, thresholds, and enable/disable
+ * from the ML Optimizer dashboard without restarting the engine.
+ *
  * Pattern mirrors `lib/settle/scheduler.ts`: singleton state, idempotent
  * (HMR-safe), errors logged + swallowed (don't poison the loop).
- *
- * Previously this file was the Optuna-based optimizer scheduler. It was
- * stripped and repurposed for the ML pipeline in Phase 5.
  */
 
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
-import { ML_COLD_START_THRESHOLD } from "../shared/constants";
+import { ML_COLD_START_THRESHOLD, ML_FEATURE_VERSION } from "../shared/constants";
 import { processPendingModelNotifications } from "./notifier-tick";
+import { startTrainingPoller, stopTrainingPoller, emitTrainingStarted } from "./training-poller";
 
 const tag = "ModelRetrainingScheduler";
 const POLL_INTERVAL_MS = 60_000; // 60s — retraining checks don't need to be frequent
@@ -37,14 +39,64 @@ const state = singleton<SchedulerState>("ml:retrain-scheduler", () => ({
 }));
 
 /**
+ * Load scheduler settings from DB. Returns defaults if row doesn't exist.
+ */
+async function loadSettings() {
+  try {
+    const { db } = await import("../db/client");
+    const { mlSchedulerSettings } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+
+    const [row] = await db
+      .select()
+      .from(mlSchedulerSettings)
+      .where(eq(mlSchedulerSettings.id, "default"))
+      .limit(1);
+
+    return row ?? {
+      enabled: true,
+      cadenceHours: 24,
+      minNewSettledExamples: 50,
+      minGrowthPct: 20,
+      nextRunAt: null,
+      lastRunAt: null,
+    };
+  } catch {
+    // DB not ready or table doesn't exist yet — use defaults
+    return {
+      enabled: true,
+      cadenceHours: 24,
+      minNewSettledExamples: 50,
+      minGrowthPct: 20,
+      nextRunAt: null,
+      lastRunAt: null,
+    };
+  }
+}
+
+/**
  * Check if retraining should be triggered. Criteria:
- * 1. At least ML_COLD_START_THRESHOLD settled bets with features exist
- * 2. No model is currently in 'training' status
- * 3. Either no model exists OR settled bets since last training > 20% of
- *    the last model's training samples
+ * 1. Scheduler is enabled in settings
+ * 2. At least ML_COLD_START_THRESHOLD settled bets with features exist
+ * 3. No model is currently in 'training' status
+ * 4. Either no model exists OR settled bets since last training > minGrowthPct%
+ *    of the last model's training samples
+ * 5. If cadence is set, enough time has passed since last run
  */
 async function shouldRetrain(): Promise<boolean> {
   try {
+    const settings = await loadSettings();
+
+    // Check if scheduler is enabled
+    if (!settings.enabled) return false;
+
+    // Check cadence — skip if not enough time has passed
+    if (settings.lastRunAt) {
+      const lastRun = new Date(settings.lastRunAt).getTime();
+      const cadenceMs = settings.cadenceHours * 60 * 60 * 1000;
+      if (Date.now() - lastRun < cadenceMs) return false;
+    }
+
     const { db } = await import("../db/client");
     const { mlModels, bets } = await import("../db/schema");
     const { eq, and, isNotNull, sql, desc } = await import("drizzle-orm");
@@ -83,9 +135,10 @@ async function shouldRetrain(): Promise<boolean> {
     // No deployed model yet — retrain
     if (!latest) return true;
 
-    // Retrain if settled bets grew by 20%+ since last training
+    // Retrain if settled bets grew by minGrowthPct% since last training
+    const growthThreshold = settings.minGrowthPct / 100;
     const growth = settledCount - latest.trainingSamples;
-    return growth > latest.trainingSamples * 0.2;
+    return growth > latest.trainingSamples * growthThreshold;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(tag, `shouldRetrain check failed: ${msg}`);
@@ -107,24 +160,67 @@ async function triggerRetraining(): Promise<void> {
   }
 
   try {
-    // Dynamic import to avoid bundling GCP deps in Next.js
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { JobsClient } = require("@google-cloud/run") as {
-      JobsClient: new () => {
-        runJob(req: { name: string }): Promise<unknown>;
-      };
-    };
+    const runModule = await import("@google-cloud/run");
+    const JobsClient = runModule.JobsClient || runModule.default?.JobsClient;
 
     const client = new JobsClient();
     const name = `projects/${projectId}/locations/${region}/jobs/${jobName}`;
-    await client.runJob({ name });
+    await client.runJob({
+      name,
+      overrides: {
+        containerOverrides: [{
+          env: [{ name: "EXPECTED_FEATURE_VERSION", value: String(ML_FEATURE_VERSION) }],
+        }],
+      },
+    });
 
     state.totalRetrainTriggers += 1;
     logger.info(tag, `Triggered retraining job: ${jobName}`);
+
+    // Stamp lastRunAt in settings and insert training row
+    try {
+      const { db } = await import("../db/client");
+      const { mlSchedulerSettings, mlModels } = await import("../db/schema");
+      const { eq, sql } = await import("drizzle-orm");
+      
+      await db
+        .update(mlSchedulerSettings)
+        .set({ lastRunAt: sql`now()`, lastError: null })
+        .where(eq(mlSchedulerSettings.id, "default"));
+        
+      const [{ maxVersion }] = await db
+        .select({ maxVersion: sql<number>`COALESCE(MAX(${mlModels.version}), 0)::int` })
+        .from(mlModels);
+        
+      await db.insert(mlModels).values({
+        id: `training-${Date.now()}`,
+        version: maxVersion + 1,
+        status: "training",
+        modelType: "lightgbm",
+        trainingSamples: 0,
+        featureCount: 25,
+        featureVersion: 2,
+        trainingStartedAt: new Date().toISOString(),
+      });
+
+      // Emit real-time training-started event for SSE subscribers
+      emitTrainingStarted(`training-${Date.now()}`, maxVersion + 1);
+    } catch (e) { logger.warn(tag, "Failed to update db states", e) }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(tag, `Failed to trigger retraining: ${msg}`);
     state.lastError = msg;
+
+    // Stamp error in settings
+    try {
+      const { db } = await import("../db/client");
+      const { mlSchedulerSettings } = await import("../db/schema");
+      const { eq } = await import("drizzle-orm");
+      await db
+        .update(mlSchedulerSettings)
+        .set({ lastError: msg })
+        .where(eq(mlSchedulerSettings.id, "default"));
+    } catch { /* non-critical */ }
   }
 }
 
@@ -159,6 +255,8 @@ export function startModelRetrainingScheduler(): void {
     void tick();
   }, POLL_INTERVAL_MS);
   logger.info(tag, `Started (poll every ${POLL_INTERVAL_MS / 1000}s)`);
+  // Start the training status poller for real-time SSE updates
+  startTrainingPoller();
   // Fire one tick immediately on startup.
   void tick();
 }
@@ -168,6 +266,7 @@ export function stopModelRetrainingScheduler(): void {
   if (state.timer) clearInterval(state.timer);
   state.timer = null;
   state.active = false;
+  stopTrainingPoller();
   logger.info(tag, "Stopped");
 }
 

@@ -126,6 +126,9 @@ export type ValueBetRow = {
 
   // ML pipeline columns
   mlFeatures?: number[] | null;
+  mlFeatureVersion?: number | null;
+  mlFeatureCount?: number | null;
+  mlFeatureNamesHash?: string | null;
   mlScore?: number | null;
   mlKellyAdjusted?: number | null;
 };

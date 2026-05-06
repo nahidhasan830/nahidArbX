@@ -8,21 +8,21 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  try {
-    const status = await engineGet<Record<string, unknown>>("/engine/ml/status");
+  const status = await engineGet<Record<string, unknown>>("/engine/ml/status");
+  if (status) {
     return NextResponse.json(status);
-  } catch (err) {
-    return NextResponse.json(
-      {
-        modelLoaded: false,
-        modelVersion: null,
-        featureCount: 0,
-        totalScored: 0,
-        avgInferenceMs: 0,
-        lastInferenceMs: 0,
-        error: err instanceof Error ? err.message : "Engine unreachable",
-      },
-      { status: 503 },
-    );
   }
+
+  return NextResponse.json(
+    {
+      modelLoaded: false,
+      modelVersion: null,
+      featureCount: 0,
+      totalScored: 0,
+      avgInferenceMs: 0,
+      lastInferenceMs: 0,
+      error: "Engine unreachable",
+    },
+    { status: 503 },
+  );
 }

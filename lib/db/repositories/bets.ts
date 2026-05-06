@@ -23,6 +23,7 @@ import { logger } from "@/lib/shared/logger";
 import { normalizeOutcome, type Outcome } from "@/lib/bets-history/types";
 import { formatAtomLabel } from "@/lib/formatting/labels";
 import { getBettingSettings } from "./betting-settings";
+import { FEATURE_COUNT, FEATURE_NAMES_HASH, FEATURE_VERSION } from "@/lib/ml/features";
 
 // ─── Type re-exports for backwards compatibility ────────────────────────────────
 
@@ -129,6 +130,9 @@ export const persistValueBets = async (
       tickCount: 1,
       oddsMovement: vb.oddsMovement ?? null,
       mlFeatures: vb.mlFeatures ?? null,
+      mlFeatureVersion: vb.mlFeatures ? FEATURE_VERSION : null,
+      mlFeatureCount: vb.mlFeatures ? FEATURE_COUNT : null,
+      mlFeatureNamesHash: vb.mlFeatures ? FEATURE_NAMES_HASH : null,
       mlScore: vb.mlScore ?? null,
       mlKellyAdjusted: vb.mlKellyAdjusted ?? null,
       // Placement fields remain NULL for newly detected opportunities
@@ -172,6 +176,9 @@ export const persistValueBets = async (
               : sql`${bets.oddsMovement}`,
             // ML features — always update when available, preserve existing otherwise
             mlFeatures: vb.mlFeatures ?? sql`${bets.mlFeatures}`,
+            mlFeatureVersion: vb.mlFeatures ? FEATURE_VERSION : sql`${bets.mlFeatureVersion}`,
+            mlFeatureCount: vb.mlFeatures ? FEATURE_COUNT : sql`${bets.mlFeatureCount}`,
+            mlFeatureNamesHash: vb.mlFeatures ? FEATURE_NAMES_HASH : sql`${bets.mlFeatureNamesHash}`,
             // ML score and adjusted Kelly — always update when available
             mlScore: vb.mlScore ?? sql`${bets.mlScore}`,
             mlKellyAdjusted: vb.mlKellyAdjusted ?? sql`${bets.mlKellyAdjusted}`,

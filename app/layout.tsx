@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers/Providers";
+import { Toaster } from "@/components/ui/sonner";
 import { BRAND } from "@/lib/branding";
 
 // Force all pages to be dynamic (no static prerendering)
@@ -40,8 +41,12 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="font-sans antialiased" suppressHydrationWarning>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <Toaster position="bottom-right" richColors closeButton />
+        </Providers>
       </body>
     </html>
   );
 }
+

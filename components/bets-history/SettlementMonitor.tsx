@@ -41,6 +41,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { useSettlementMonitor } from "@/lib/bets-history/use-settlement-monitor";
+
 import {
   postSettlementAction,
   type SettlementAction,
@@ -121,6 +122,15 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
   const [busy, setBusy] = useState<SettlementAction | null>(null);
   const [intervalInput, setIntervalInput] = useState("");
 
+  const ACTION_LABELS: Record<string, { success: string; emoji: string }> = {
+    run: { success: "Tick triggered", emoji: "⚡" },
+    pause: { success: "Scheduler paused", emoji: "⏸️" },
+    resume: { success: "Scheduler resumed", emoji: "▶️" },
+    start: { success: "Scheduler started", emoji: "🚀" },
+    stop: { success: "Scheduler stopped", emoji: "⏹️" },
+    restart: { success: "Scheduler restarted", emoji: "🔄" },
+  };
+
   const runAction = async (
     action: SettlementAction,
     opts?: { intervalMs?: number; reason?: string },
@@ -129,10 +139,13 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
     setBusy(action);
     try {
       await postSettlementAction(action, opts);
-      toast.success(successMessage ?? `Action ${action} completed`);
+      const meta = ACTION_LABELS[action];
+      const msg = successMessage ?? meta?.success ?? `${action} completed`;
+      const emoji = meta?.emoji ?? "⚙️";
+      toast.success(`${emoji} ${msg}`);
       await refresh();
     } catch (err) {
-      toast.error(`${action} failed: ${(err as Error).message}`);
+      toast.error(`❌ ${action} failed: ${(err as Error).message}`);
     } finally {
       setBusy(null);
     }
@@ -141,7 +154,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
   const handleRestartWithInterval = async () => {
     const seconds = Number(intervalInput);
     if (!Number.isFinite(seconds) || seconds < 30) {
-      toast.error("Interval must be at least 30 seconds");
+      toast.error("⚠️ Interval must be at least 30 seconds");
       return;
     }
     await runAction(
@@ -312,6 +325,7 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 </>
               )}
             </div>
+
           </div>
 
           {/* Controls */}

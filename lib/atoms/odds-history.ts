@@ -266,18 +266,30 @@ export function getMovementSummary(
 
   if (nonSuspended.length === 0) return null;
 
-  // Direction + changePct: compare last two non-suspended ticks
-  let direction: "up" | "down" | "stable" = "stable";
+  // changePct: opening-to-current (not last-two-ticks).
+  // This matches the ML feature catalog description and is stable
+  // against single-tick data glitches.
   let changePct = 0;
-  if (nonSuspended.length >= 2) {
-    const prev = nonSuspended[nonSuspended.length - 2];
-    const curr = nonSuspended[nonSuspended.length - 1];
-    if (prev.odds !== 0) {
-      changePct =
-        Math.round(((curr.odds - prev.odds) / prev.odds) * 10000) / 100;
+  const latestTick = nonSuspended[nonSuspended.length - 1];
+  if (hist.openingOdds != null && hist.openingOdds > 0) {
+    changePct =
+      Math.round(((latestTick.odds - hist.openingOdds) / hist.openingOdds) * 10000) / 100;
+    // Clamp to ±50% — anything beyond is a data feed glitch
+    changePct = Math.max(-50, Math.min(50, changePct));
+  }
+
+  // Direction: windowed over the last 10 non-suspended ticks to capture
+  // recent trend without being vulnerable to single-tick noise.
+  let direction: "up" | "down" | "stable" = "stable";
+  const dirWindow = nonSuspended.slice(-10);
+  if (dirWindow.length >= 2) {
+    const wFirst = dirWindow[0];
+    const wLast = dirWindow[dirWindow.length - 1];
+    if (wFirst.odds > 0) {
+      const wChangePct = ((wLast.odds - wFirst.odds) / wFirst.odds) * 100;
+      if (wChangePct > 0.1) direction = "up";
+      else if (wChangePct < -0.1) direction = "down";
     }
-    if (changePct > 0.01) direction = "up";
-    else if (changePct < -0.01) direction = "down";
   }
 
   // Compact sparkline: last 20 non-suspended ticks

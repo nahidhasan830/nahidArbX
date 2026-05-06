@@ -8,9 +8,10 @@ import { useInfiniteEvents } from "@/components/hooks/useInfiniteEvents";
 import { PROVIDER_IDS } from "@/lib/providers/registry";
 import { useEventStream } from "@/components/hooks/useEventStream";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AlertCircle, Loader2, Zap, Radio, Wifi, WifiOff, Server, Database, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Toaster } from "sonner";
+
 import { useAuth, Feature } from "@/components/auth/AuthProvider";
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
 import {
@@ -39,19 +40,23 @@ function EngineStatusBar({
   const providerRuntime = useProviderRuntimeState();
   const engine = connectionHealth?.engine as EngineStatus | undefined;
 
+  // Don't evaluate provider-specific indicators while provider state is loading
+  // — otherwise all providers appear "enabled" before the real state arrives.
+  const providerStateReady = !providerRuntime.isLoading;
+
   // Pinnacle WS status
-  const pinnacleEnabled = providerRuntime.isLoading || providerRuntime.isEnabled("pinnacle");
+  const pinnacleEnabled = providerStateReady && providerRuntime.isEnabled("pinnacle");
   const wsConnected = engine?.pinnacleWs?.connected ?? false;
   const wsEvents = engine?.pinnacleWs?.subscribedEvents ?? 0;
 
   // 9W/Velki polling loop counts
-  const nwEnabled = providerRuntime.isLoading || providerRuntime.isEnabled("ninewickets-sportsbook");
-  const velkiEnabled = providerRuntime.isLoading || providerRuntime.isEnabled("velki-sportsbook");
+  const nwEnabled = providerStateReady && providerRuntime.isEnabled("ninewickets-sportsbook");
+  const velkiEnabled = providerStateReady && providerRuntime.isEnabled("velki-sportsbook");
   const nwLoops = engine?.pollingLoops?.ninewickets ?? 0;
   const velkiLoops = engine?.pollingLoops?.velki ?? 0;
 
   // BetConstruct session health
-  const bcEnabled = providerRuntime.isLoading || providerRuntime.isEnabled("betconstruct");
+  const bcEnabled = providerStateReady && providerRuntime.isEnabled("betconstruct");
   const bcConnected = connectionHealth?.betconstruct?.connected ?? false;
 
   // Reactive detector
@@ -518,12 +523,21 @@ export default function AdminPage() {
   const actions = (
     <>
       <EngineStatusBar isSSEConnected={isSSEConnected} />
-      <span className="text-[11px] text-muted-foreground tabular-nums min-w-[14ch] text-right">
-        <span className="font-medium text-foreground">
-          {stats?.matchedEvents ?? 0}
-        </span>{" "}
-        matched · {stats?.totalEvents ?? 0} total
-      </span>
+      {isQueryLoading && !stats ? (
+        <span className="text-[11px] text-muted-foreground tabular-nums min-w-[14ch] text-right flex items-center gap-1.5">
+          <Skeleton className="h-3.5 w-8 rounded" />
+          <span className="opacity-50">matched ·</span>
+          <Skeleton className="h-3.5 w-6 rounded" />
+          <span className="opacity-50">total</span>
+        </span>
+      ) : (
+        <span className="text-[11px] text-muted-foreground tabular-nums min-w-[14ch] text-right">
+          <span className="font-medium text-foreground">
+            {stats?.matchedEvents ?? 0}
+          </span>{" "}
+          matched · {stats?.totalEvents ?? 0} total
+        </span>
+      )}
     </>
   );
 
@@ -559,17 +573,7 @@ export default function AdminPage() {
           )}
         </main>
       </div>
-      <Toaster
-        theme="dark"
-        position="bottom-right"
-        toastOptions={{
-          classNames: {
-            toast: "!bg-neutral-900 !text-white !border-neutral-700",
-            title: "!text-white",
-            description: "!text-white/80",
-          },
-        }}
-      />
+
     </AppShell>
   );
 }

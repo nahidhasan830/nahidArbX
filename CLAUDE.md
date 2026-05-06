@@ -16,7 +16,7 @@ Dual-process on **localhost** (`nahidarbx.store` is inactive). Bangladesh IP req
 |-----------|-------|-------|
 | Engine | `npm run engine` (tsx) | 13 background subsystems. `NAHIDARBX_ENGINE=1` |
 | Next.js | `http://localhost:3000` | `npm run dev` — web-only, read-only UI + API |
-| Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job` | Project `nahidarbx-6e73`, region `asia-south1` |
+| Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job` | ML training sidecar (LightGBM). Project `nahidarbx-6e73`, region `asia-south1` |
 | Database | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | Via Cloud SQL Connector (no local proxy needed) |
 
 ## Commands
@@ -57,9 +57,10 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 | `/dashboard` | Central betting-account dashboard |
 | `/value-bets` | Value-bet / arb finder |
 | `/bets` | Bets history — settlement + review |
-| `/lab/optimisation` | Strategy parameter optimizer |
+| `/lab/ml` | ML Optimizer — LightGBM model pipeline dashboard |
 | `/api/value-bets` | GET: arb data, POST: manual sync |
-| `/api/optimizer/runs` | POST: queue run + trigger Job; GET: list runs |
+| `/api/ml/pipeline` | GET: ML pipeline stats |
+| `/api/ml/retrain` | POST: trigger Cloud Run training job |
 
 ## Critical Rules
 

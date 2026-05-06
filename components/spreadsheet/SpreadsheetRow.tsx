@@ -143,7 +143,15 @@ export interface SpreadsheetRowProps {
   ) => void;
   onHide: (eventId: string, familyId: string) => void;
   /** Opens the movement detail modal for this provider's odds. */
-  onMovementClick?: (oddsRow: SpreadsheetRow["odds"], context: { eventLabel: string; marketLabel: string }) => void;
+  onMovementClick?: (oddsRow: SpreadsheetRow["odds"], context: {
+    eventLabel: string;
+    marketLabel: string;
+    valueBetDetails?: SpreadsheetRow["valueBetDetails"];
+    startTime?: string;
+    marketType?: string;
+    line?: number;
+    providerCount?: number;
+  }) => void;
   liveScore?: LiveScoreData;
   /** Event-level suspension (all markets blocked) */
   suspended?: boolean;
@@ -457,6 +465,11 @@ export function SpreadsheetRow({
               ? () => onMovementClick(row.odds, {
                   eventLabel: row.eventLabel,
                   marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
+                  valueBetDetails: row.valueBetDetails,
+                  startTime: row.startTime,
+                  marketType: row.marketType,
+                  line: row.line,
+                  providerCount: row.providerCount,
                 })
               : undefined
             }
@@ -464,6 +477,11 @@ export function SpreadsheetRow({
               ? () => onMovementClick(row.odds, {
                   eventLabel: row.eventLabel,
                   marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
+                  valueBetDetails: row.valueBetDetails,
+                  startTime: row.startTime,
+                  marketType: row.marketType,
+                  line: row.line,
+                  providerCount: row.providerCount,
                 })
               : undefined
             }

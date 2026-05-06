@@ -382,7 +382,11 @@ export function registerEngineRoutes() {
   addRoute("GET", "/engine/ml/status", async (_req, res) => {
     try {
       const { getScorerStatus } = await import("../ml/scorer");
-      return jsonResponse(res, getScorerStatus());
+      const { getDeploymentGateStatus } = await import("../ml/deployment-gate");
+      return jsonResponse(res, {
+        ...getScorerStatus(),
+        deploymentGate: getDeploymentGateStatus(),
+      });
     } catch (err) {
       return jsonResponse(res, {
         modelLoaded: false,
@@ -392,6 +396,7 @@ export function registerEngineRoutes() {
         totalScored: 0,
         avgInferenceMs: 0,
         lastInferenceMs: 0,
+        deploymentGate: null,
         error: err instanceof Error ? err.message : String(err),
       });
     }

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/db/client", () => ({
+  db: {},
+}));
+
 vi.mock("@/lib/db/repositories/bets", () => ({
   getBetsByIds: vi.fn(),
   markOutcomesBulk: vi.fn(),
@@ -14,6 +18,11 @@ vi.mock("@/lib/betting/registry", () => ({
   getBettingProvider: vi.fn().mockReturnValue({
     providerDisplayName: "9W Sportsbook",
   }),
+}));
+
+vi.mock("@/lib/ml/training-example-writer", () => ({
+  writeSettledExamples: vi.fn().mockResolvedValue(0),
+  resolveDetectionSnapshot: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/shared/logger", () => ({

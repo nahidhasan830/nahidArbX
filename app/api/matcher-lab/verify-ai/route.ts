@@ -36,9 +36,11 @@ export async function POST(request: NextRequest) {
       startTime: pair.eventBStartTime,
     };
 
-    // Route to AI Search (Groq + web grounding) or Gemini
-    // Logging is handled inside matchSingle() and analyzeMatchWithGemini()
-    if (engine === "ai-search") {
+    // AI Search (Groq/HF + web grounding) or Gemini (paid, no grounding)
+    // Both "ai-search" and "huggingface" go through the grounded pipeline;
+    // "huggingface" pins the LLM to the HF Router engine specifically.
+    if (engine === "ai-search" || engine === "huggingface") {
+      const llmProvider = engine === "huggingface" ? "huggingface" : undefined;
       const verdict = await matchSingle(
         {
           home_team: eventA.homeTeam,
@@ -54,6 +56,7 @@ export async function POST(request: NextRequest) {
           start_time: eventB.startTime,
           provider: pair.eventBProvider,
         },
+        { llmProvider },
       );
 
       if (!verdict) {
@@ -68,7 +71,7 @@ export async function POST(request: NextRequest) {
           decision: verdict.decision,
           confidence: verdict.confidence,
           model: verdict.model,
-          engine: "ai-search",
+          engine,
           reasoning: verdict.reasoning,
           sources: verdict.sources,
           search_queries_used: verdict.search_queries_used,

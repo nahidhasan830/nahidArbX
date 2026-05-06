@@ -9,6 +9,11 @@ import { getBettingProvider } from "../betting/registry";
 import { notify } from "../notifier";
 import type { BetOutcome, MatchScoreInfo } from "../notifier/types";
 import { logger } from "../shared/logger";
+import {
+  writeSettledExamples,
+  resolveDetectionSnapshot,
+} from "../ml/training-example-writer";
+import type { BetRow } from "../db/schema";
 
 export interface SettlementOutcomeUpdate {
   id: string;
@@ -123,6 +128,53 @@ export async function applySettlementOutcomes(
         "SettlementApply",
         `Notification failed for ${update.id}: ${(err as Error).message}`,
       );
+    }
+  }
+
+  // ── Phase 9: ML training data hooks ─────────────────────────────
+  // After settlement outcomes are applied, write training examples and
+  // resolve shadow-scored detection snapshots. Fire-and-forget to never
+  // block the settlement pipeline.
+  if (applied > 0) {
+    // Re-fetch rows with updated outcomes for training example creation
+    const settledIds = updates
+      .filter((u) => u.outcome !== "pending" && u.outcome !== "void")
+      .map((u) => u.id);
+    if (settledIds.length > 0) {
+      getBetsByIds(settledIds)
+        .then(async (settledRows) => {
+          // 1. Write settled training examples from bets with features
+          try {
+            await writeSettledExamples(settledRows as BetRow[]);
+          } catch (err) {
+            logger.warn(
+              "SettlementApply",
+              `writeSettledExamples failed: ${(err as Error).message}`,
+            );
+          }
+
+          // 2. Resolve shadow-scored detection snapshots
+          for (const row of settledRows) {
+            if (row.outcome === "pending" || row.outcome === "void") continue;
+            try {
+              await resolveDetectionSnapshot(
+                row.id,
+                row.outcome,
+                row.pnl ?? null,
+                row.clvPct ?? null,
+                row.settledAt ?? null,
+              );
+            } catch {
+              // Non-critical — swallow
+            }
+          }
+        })
+        .catch((err) => {
+          logger.warn(
+            "SettlementApply",
+            `ML training data hooks failed: ${(err as Error).message}`,
+          );
+        });
     }
   }
 

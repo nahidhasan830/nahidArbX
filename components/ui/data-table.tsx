@@ -157,6 +157,8 @@ export type DataTableProps<T> = {
   // Styling.
   className?: string;
   density?: "compact" | "comfortable";
+  toolbar?: React.ReactNode;
+  withCard?: boolean;
 };
 
 // ---------- style primitives ----------
@@ -368,6 +370,8 @@ export function DataTable<T>({
   loading,
   className,
   density = "compact",
+  toolbar,
+  withCard = false,
 }: DataTableProps<T>) {
   const styleTokens = densityClasses[density];
   const effectiveRowHeight = rowHeight ?? styleTokens.rowHeight;
@@ -722,11 +726,14 @@ export function DataTable<T>({
     </table>
   );
 
-  return (
+  const mainContent = (
     <TooltipProvider delayDuration={200}>
       <div
         ref={scrollRef}
-        className={cn("flex-1 min-h-0 overflow-auto", className)}
+        className={cn(
+          "flex-1 min-h-0 overflow-auto",
+          !withCard && !toolbar && className,
+        )}
       >
         {dndReady ? (
           <DndContext
@@ -742,6 +749,24 @@ export function DataTable<T>({
       </div>
     </TooltipProvider>
   );
+
+  if (withCard || toolbar) {
+    // Dynamically import Card to avoid circular deps if any, or just use normal divs
+    // Actually we can just use the standard Card classes: bg-card text-card-foreground border rounded-xl shadow-sm
+    return (
+      <div
+        className={cn(
+          "flex flex-col flex-1 min-h-0 relative overflow-hidden py-0 gap-0 bg-card text-card-foreground border rounded-xl shadow-sm",
+          className,
+        )}
+      >
+        {toolbar}
+        {mainContent}
+      </div>
+    );
+  }
+
+  return mainContent;
 }
 
 // Split out so hover/click handlers don't rerender every row on unrelated state.

@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Banknote, HeartPulse } from "lucide-react";
+import { Activity, Banknote, HeartPulse, Loader2 } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 // Polls the same cadence as the table so numbers don't drift apart visually.
@@ -148,19 +149,22 @@ function Metric({
         <span className="inline-flex items-center gap-1 text-muted-foreground cursor-help">
           {icon}
           <span className="opacity-80">{label}</span>
-          <span
-            className={cn(
-              "font-medium tabular-nums",
-              tone === "positive" && "text-emerald-400",
-              tone === "negative" && "text-rose-400",
-              tone === "neutral" && "text-foreground",
-              tone === "muted" && "text-muted-foreground",
-              tone === "onHold" && "text-amber-400",
-              loading && "opacity-60",
-            )}
-          >
-            {value}
-          </span>
+          {loading ? (
+            <Skeleton className="h-3.5 w-14 rounded" />
+          ) : (
+            <span
+              className={cn(
+                "font-medium tabular-nums",
+                tone === "positive" && "text-emerald-400",
+                tone === "negative" && "text-rose-400",
+                tone === "neutral" && "text-foreground",
+                tone === "muted" && "text-muted-foreground",
+                tone === "onHold" && "text-amber-400",
+              )}
+            >
+              {value}
+            </span>
+          )}
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-[300px]">{tooltip}</TooltipContent>
@@ -175,7 +179,7 @@ function Metric({
  * SettlementMonitor.tsx so the header styling stays consistent.
  */
 function SettlementChip() {
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["settlement", "header-status"] as const,
     queryFn: async () => {
       const res = await fetch("/api/settlement?runs=0&log=0", {
@@ -198,6 +202,17 @@ function SettlementChip() {
     refetchInterval: REFRESH_MS,
     refetchIntervalInBackground: false,
   });
+
+  // During initial load, show a skeleton instead of false "Unknown" status
+  if (isLoading && !data) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground">
+        <Loader2 className="size-3 animate-spin opacity-50" />
+        <span className="opacity-80">Settlement</span>
+        <Skeleton className="h-3.5 w-12 rounded" />
+      </span>
+    );
+  }
 
   const healthy = !!data?.active && !data?.disabled && !data?.lastError;
   const stopped = !!data?.disabled || !data?.active;

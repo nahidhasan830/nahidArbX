@@ -34,6 +34,8 @@ import {
   PROVIDER_IDS,
   getProviderShortName,
   getProviderColorClasses,
+  getProviderCommission,
+  getSharpProviders,
   type ProviderKey,
 } from "@/lib/providers/registry";
 import {
@@ -125,12 +127,21 @@ export function ValueBetSpreadsheet({
     data: Record<string, OddsMovementData>;
     eventLabel: string;
     marketLabel: string;
+    features: number[] | null;
   } | null>(null);
 
   const handleMovementClick = useCallback(
     (
       oddsRow: SpreadsheetRowData["odds"],
-      context: { eventLabel: string; marketLabel: string },
+      context: {
+        eventLabel: string;
+        marketLabel: string;
+        valueBetDetails?: SpreadsheetRowData["valueBetDetails"];
+        startTime?: string;
+        marketType?: string;
+        line?: number;
+        providerCount?: number;
+      },
     ) => {
       const data: Record<string, OddsMovementData> = {};
       for (const [providerKey, od] of Object.entries(oddsRow)) {
@@ -146,10 +157,95 @@ export function ValueBetSpreadsheet({
         }
       }
 
+      // Compute client-side feature vector from available data
+      let features: number[] | null = null;
+      const vbd = context.valueBetDetails;
+      if (vbd) {
+        const sharpId = getSharpProviders()[0];
+        const sharpMov = sharpId ? oddsRow[sharpId]?.movement : undefined;
+        const softMov = vbd.softProvider ? oddsRow[vbd.softProvider]?.movement : undefined;
+
+        // Tick velocity from soft sparkline
+        let tickVelocity = 0;
+        if (softMov && softMov.sparkline.length >= 2) {
+          const first = softMov.sparkline[0];
+          const last = softMov.sparkline[softMov.sparkline.length - 1];
+          const spanMs = last[0] - first[0];
+          if (spanMs > 0) tickVelocity = (softMov.sparkline.length / spanMs) * 60_000;
+        }
+
+        // Time to kickoff
+        let timeToKickoffMin = 0;
+        if (context.startTime) {
+          timeToKickoffMin = Math.round((new Date(context.startTime).getTime() - Date.now()) / 60_000);
+        }
+
+        // Market type encoding
+        const MT_ORD: Record<string, number> = {
+          MATCH_RESULT: 0, TOTAL_GOALS: 1, ASIAN_HANDICAP: 2,
+          EUROPEAN_HANDICAP: 3, BTTS: 4, DNB: 5, DOUBLE_CHANCE: 6,
+          HOME_TEAM_TOTAL: 7, AWAY_TEAM_TOTAL: 8, CORNERS: 9,
+          CORNERS_HANDICAP: 10, CORNERS_EUROPEAN_HANDICAP: 11,
+          HOME_CORNERS_TOTAL: 12, AWAY_CORNERS_TOTAL: 13,
+          BOOKINGS: 14, BOOKINGS_HANDICAP: 15, ODD_EVEN_GOALS: 16,
+          CLEAN_SHEET: 17, WIN_TO_NIL: 18, TO_SCORE: 19,
+        };
+        const marketTypeEncoded = MT_ORD[context.marketType ?? ""] ?? 0;
+
+        // Asian line check
+        let isAsianLine = 0;
+        if (context.line != null) {
+          const line = context.line;
+          if ((line * 4) % 1 === 0 && line % 0.5 !== 0) isAsianLine = 1;
+        }
+
+        // Direction encoding
+        const dir = (d?: "up" | "down" | "stable") => d === "up" ? 1 : d === "down" ? -1 : 0;
+
+        const commission = getProviderCommission(vbd.softProvider);
+        const adjustedSoftOdds = commission > 0
+          ? 1 + (vbd.softOdds - 1) * (1 - commission / 100)
+          : vbd.softOdds;
+
+        features = [
+          vbd.evPct,                                                          // 0  ev_pct
+          vbd.trueProb,                                                       // 1  sharp_true_prob
+          vbd.softOdds,                                                       // 2  soft_odds
+          adjustedSoftOdds,                                                   // 3  adjusted_soft_odds
+          vbd.trueProb - 1 / vbd.softOdds,                                   // 4  implied_prob_gap
+          sharpMov?.totalTicks ?? 0,                                          // 5  tick_count
+          timeToKickoffMin,                                                   // 6  time_to_kickoff_min
+          sharpMov?.changePct ?? 0,                                           // 7  movement_pct_sharp
+          softMov?.changePct ?? 0,                                            // 8  movement_pct_soft
+          sharpMov?.steamMove ? 1 : 0,                                        // 9  steam_move_sharp
+          softMov?.steamMove ? 1 : 0,                                         // 10 steam_move_soft
+          dir(sharpMov?.direction),                                           // 11 sharp_direction
+          dir(softMov?.direction),                                            // 12 soft_direction
+          0,                                                                  // 13 convergence_rate (not available client-side)
+          tickVelocity,                                                       // 14 tick_velocity
+          context.providerCount ?? Object.keys(oddsRow).length,               // 15 provider_count
+          sharpMov?.openingOdds ?? 0,                                         // 16 opening_sharp_odds
+          marketTypeEncoded,                                                  // 17 market_type_encoded
+          isAsianLine,                                                        // 18 is_asian_line
+          vbd.kellyFraction,                                                  // 19 kelly_fraction_raw
+          vbd.familyOdds?.vigPct ?? 0,                                        // 20 vig_pct
+          1,                                                                  // 21 competition_tier (cache unavailable client-side)
+          0,                                                                  // 22 hours_since_line_opened (not available client-side)
+          Number.isFinite(vbd.softOdds - (1 / vbd.trueProb))                  // 23 sharp_soft_spread
+            ? vbd.softOdds - (1 / vbd.trueProb)
+            : 0,
+          Math.max(1, context.providerCount ?? Object.keys(oddsRow).length),  // 24 num_markets_same_event fallback
+        ].map(v => {
+          const safe = Number.isFinite(v) ? v : 0;
+          return Math.round(safe * 10000) / 10000;
+        });
+      }
+
       setMovementModal({
         data,
         eventLabel: context.eventLabel,
         marketLabel: context.marketLabel,
+        features,
       });
     },
     [],
@@ -235,7 +331,7 @@ export function ValueBetSpreadsheet({
           const data = await res
             .json()
             .catch(() => ({ error: "Unknown error" }));
-          toast.error("Couldn't fetch raw data", {
+          toast.error("❌ Couldn't fetch raw data", {
             description: data.error || "Unknown error",
           });
           return;
@@ -245,17 +341,17 @@ export function ValueBetSpreadsheet({
         await navigator.clipboard.writeText(
           JSON.stringify(data.rawResponse, null, 2),
         );
-        toast.success("Copied", {
+        toast.success("📋 Copied", {
           description: `${getProviderShortName(provider)} raw response`,
         });
       } catch (err) {
         clearTimeout(timeoutId);
         if (err instanceof Error && err.name === "AbortError") {
-          toast.error("Copy timed out", {
+          toast.error("⏳ Copy timed out", {
             description: "Request took longer than 10s",
           });
         } else {
-          toast.error("Couldn't copy", {
+          toast.error("❌ Couldn't copy", {
             description: err instanceof Error ? err.message : undefined,
           });
         }
@@ -565,7 +661,7 @@ export function ValueBetSpreadsheet({
       hasActiveFilters={prefs.hasActiveFilters || searchTerm.length > 0}
       onSaveAsDefault={() => {
         prefs.saveCurrentAsDefault();
-        toast.success("Filters saved", {
+        toast.success("💾 Filters saved", {
           description: "This view will load by default next time",
         });
       }}
@@ -573,7 +669,7 @@ export function ValueBetSpreadsheet({
         prefs.clearSavedDefaults();
         prefs.resetFilters();
         onSearchChange("");
-        toast.info("Defaults cleared", {
+        toast.info("🧹 Defaults cleared", {
           description: "Reset to system defaults",
         });
       }}
@@ -855,6 +951,7 @@ export function ValueBetSpreadsheet({
         data={movementModal?.data ?? null}
         eventLabel={movementModal?.eventLabel ?? ""}
         marketLabel={movementModal?.marketLabel ?? ""}
+        features={movementModal?.features}
       />
     </>
   );

@@ -1,5 +1,5 @@
 /**
- * One-shot runner for Optimisation migrations against the production
+ * One-shot runner for pending migrations against the production
  * Cloud SQL instance. Every migration file is idempotent
  * (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`), so it's
  * safe to re-run — only the pending DDL executes.
@@ -29,18 +29,7 @@ import "dotenv/config";
 // Keep this list in order. Idempotent DDL means re-running a past
 // migration is a no-op, so we don't track which ones already ran.
 const MIGRATIONS = [
-  "0018_alphasearch_optimizer.sql",
-  "0019_optimization_data_filters.sql",
-  "0020_optimization_schedules.sql",
-  "0021_alphasearch_strategies.sql",
-  "0022_strategy_validations.sql",
-  "0023_optimizer_run_notifications.sql",
-  "0024_widen_optimizer_metric_columns.sql",
-  "0025_optimizer_run_started_notified_at.sql",
-  "0026_optimizer_run_notify_on_start.sql",
-  "0027_drop_bets_strategy_id.sql",
-  "0028_betting_settings_active_strategies.sql",
-  "0029_drop_strategy_status.sql",
+  // Legacy optimizer migrations 0018-0029 removed — tables dropped by 0051.
   "0030_drop_strategy_validations.sql",
   "0031_entities.sql",
   "0032_entity_review_queue.sql",
@@ -48,7 +37,18 @@ const MIGRATIONS = [
   "0034_matcher_rebuild.sql",
   "0035_match_pairs.sql",
   "0036_matcher_config.sql",
+  "0044_drop_auto_settle_ai_config.sql",
+  "0045_competition_tiers.sql",
+  "0046_ml_feature_contract.sql",
+  "0047_competition_enrichments.sql",
+  "0048_shadow_decisions.sql",
+  "0049_ml_training_examples.sql",
+  "0050_ml_deployment_gate.sql",
+  "0051_drop_legacy_optimizer_tables.sql",
+  "0052_ml_scheduler_settings.sql",
 ];
+
+let cloudSqlConnector: Connector | null = null;
 
 async function buildPool(): Promise<Pool> {
   const url = process.env.DATABASE_URL;
@@ -66,8 +66,8 @@ async function buildPool(): Promise<Pool> {
   const password = decodeURIComponent(parsed.password);
   const database = parsed.pathname.slice(1);
 
-  const connector = new Connector();
-  const opts = await connector.getOptions({
+  cloudSqlConnector = new Connector();
+  const opts = await cloudSqlConnector.getOptions({
     instanceConnectionName: instance,
     ipType: IpAddressTypes.PUBLIC,
   });
@@ -108,30 +108,6 @@ async function main() {
   // 500 on corresponding reads.
   console.log("\nSchema post-checks:");
   const checks: Array<{ what: string; sql: string; expect: number }> = [
-    {
-      what: "optimization_runs.notified_at",
-      sql: `SELECT count(*)::int AS n FROM information_schema.columns
-              WHERE table_name = 'optimization_runs' AND column_name = 'notified_at'`,
-      expect: 1,
-    },
-    {
-      what: "optimization_runs.started_notified_at",
-      sql: `SELECT count(*)::int AS n FROM information_schema.columns
-              WHERE table_name = 'optimization_runs' AND column_name = 'started_notified_at'`,
-      expect: 1,
-    },
-    {
-      what: "optimization_runs.notify_on_start",
-      sql: `SELECT count(*)::int AS n FROM information_schema.columns
-              WHERE table_name = 'optimization_runs' AND column_name = 'notify_on_start'`,
-      expect: 1,
-    },
-    {
-      what: "optimization_schedules.notify_on_start",
-      sql: `SELECT count(*)::int AS n FROM information_schema.columns
-              WHERE table_name = 'optimization_schedules' AND column_name = 'notify_on_start'`,
-      expect: 1,
-    },
     {
       what: "strategy_validations table dropped",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
@@ -194,6 +170,65 @@ async function main() {
                 AND format_type(a.atttypid, a.atttypmod) = 'vector(1024)'`,
       expect: 1,
     },
+    {
+      what: "bets.ml_feature_version column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'ml_feature_version'`,
+      expect: 1,
+    },
+    {
+      what: "bets.ml_feature_count column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'ml_feature_count'`,
+      expect: 1,
+    },
+    {
+      what: "bets.ml_feature_names_hash column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'ml_feature_names_hash'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.feature_version column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'feature_version'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.permission_level column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'permission_level'`,
+      expect: 1,
+    },
+    {
+      what: "competition_enrichments table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'competition_enrichments'`,
+      expect: 1,
+    },
+    {
+      what: "shadow_decisions table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'shadow_decisions'`,
+      expect: 1,
+    },
+    {
+      what: "ml_training_examples table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'ml_training_examples'`,
+      expect: 1,
+    },
+    {
+      what: "ml_scheduler_settings table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'ml_scheduler_settings'`,
+      expect: 1,
+    },
   ];
   let failures = 0;
   for (const c of checks) {
@@ -205,6 +240,9 @@ async function main() {
   }
 
   await pool.end();
+  if (cloudSqlConnector) {
+    await cloudSqlConnector.close();
+  }
   if (failures > 0) {
     console.error(`\n${failures} post-check(s) failed.`);
     process.exit(1);

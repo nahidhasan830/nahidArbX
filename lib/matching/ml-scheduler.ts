@@ -15,8 +15,7 @@
 import { singleton } from "../util/singleton";
 import { logger } from "../shared/logger";
 import {
-  batchTransitionToMlQueued,
-  batchTransitionToMlQueuedByIds,
+  listByStage,
   getByIds,
   updateMlScores,
   updateXeScores,
@@ -215,15 +214,10 @@ async function processBatchWithProgress(
   try {
     onProgress({ type: "transitioning" });
 
-    const ids = selectedIds
-      ? await batchTransitionToMlQueuedByIds(selectedIds)
-      : await batchTransitionToMlQueued();
+    const pairs = selectedIds
+      ? (await getByIds(selectedIds)).filter((p) => p.stage === "inbox")
+      : await listByStage("inbox", { limit: 2000 });
 
-    if (ids.length === 0) {
-      return empty;
-    }
-
-    const pairs = await getByIds(ids);
     if (pairs.length === 0) {
       return empty;
     }
@@ -236,10 +230,7 @@ async function processBatchWithProgress(
     });
 
     if (!batchResult) {
-      logger.warn(tag, "Matcher service unreachable, returning pairs to inbox");
-      for (const id of ids) {
-        await transitionStage(id, "ml_queued", "inbox");
-      }
+      logger.warn(tag, "Matcher service unreachable, aborting batch");
       onProgress({ type: "service_unreachable" });
       return { ...empty, status: "service_unreachable" };
     }
@@ -487,19 +478,13 @@ async function processBatch(
   }
 
   try {
-    // Atomically move all inbox → ml_queued
-    const ids = await batchTransitionToMlQueued();
-    if (ids.length === 0) {
-      return empty;
-    }
-
-    logger.info(tag, `Processing ${ids.length} pairs from inbox`);
-
-    // Fetch full rows
-    const pairs = await getByIds(ids);
+    // Fetch pairs directly from inbox
+    const pairs = await listByStage("inbox", { limit: 2000 });
     if (pairs.length === 0) {
       return empty;
     }
+
+    logger.info(tag, `Processing ${pairs.length} pairs from inbox`);
 
     // Score the batch
     const batchResult = await scorePairsBatch(pairs, {
@@ -507,11 +492,8 @@ async function processBatch(
     });
 
     if (!batchResult) {
-      // Matcher service unreachable — move pairs back to inbox for retry
-      logger.warn(tag, "Matcher service unreachable, returning pairs to inbox");
-      for (const id of ids) {
-        await transitionStage(id, "ml_queued", "inbox");
-      }
+      // Matcher service unreachable — abort
+      logger.warn(tag, "Matcher service unreachable, aborting batch");
       const r = { ...empty, status: "service_unreachable" as const };
       return r;
     }
@@ -686,7 +668,7 @@ async function escalateToAiSearch(
   if (!config.aiSearchEscalation.enabled) {
     // AI Search disabled — send all to human_review
     for (const id of pairIds) {
-      await transitionStage(id, "ml_queued", "human_review");
+      await transitionStage(id, "inbox", "human_review");
       result.escalated++;
     }
     return result;
@@ -706,7 +688,7 @@ async function escalateToAiSearch(
   for (const id of pairIds) {
     const pair = pairMap.get(id);
     if (!pair) {
-      await transitionStage(id, "ml_queued", "human_review");
+      await transitionStage(id, "inbox", "human_review");
       result.escalated++;
       continue;
     }
@@ -746,7 +728,7 @@ async function escalateToAiSearch(
     // AI Search unreachable — send all to human_review
     logger.warn(tag, "AI Search unreachable, routing uncertain pairs to human_review");
     for (const p of aiPairs) {
-      await transitionStage(p.id, "ml_queued", "human_review");
+      await transitionStage(p.id, "inbox", "human_review");
       result.escalated++;
     }
     return result;
@@ -780,7 +762,7 @@ async function escalateToAiSearch(
       result.rejected++;
     } else {
       // Low confidence or UNCERTAIN → human_review
-      await transitionStage(pair.id, "ml_queued", "human_review");
+      await transitionStage(pair.id, "inbox", "human_review");
       result.escalated++;
     }
   }
@@ -789,7 +771,7 @@ async function escalateToAiSearch(
   const verdictIndices = new Set(batchResult.verdicts.map((v) => v.pair_index));
   for (let i = 0; i < aiPairs.length; i++) {
     if (!verdictIndices.has(i)) {
-      await transitionStage(aiPairs[i].id, "ml_queued", "human_review");
+      await transitionStage(aiPairs[i].id, "inbox", "human_review");
       result.escalated++;
     }
   }

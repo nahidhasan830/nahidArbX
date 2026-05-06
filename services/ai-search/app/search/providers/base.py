@@ -1,4 +1,12 @@
-"""Base types and protocol for search providers."""
+"""Base types and protocol for search providers.
+
+Quota tracking is now live — providers that support server-side quota
+(Brave via headers, Tavily via /usage API) populate _server_* fields.
+Providers without an API (Serper) fall back to session counters.
+DuckDuckGo has no quota concept.
+
+QuotaStore is no longer used for search providers (LLM engines still use it).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +15,6 @@ import logging
 from datetime import datetime
 
 from app.models import SearchResult
-from app.quota_store import get_store
 
 log = logging.getLogger("ai-search.provider")
 
@@ -15,17 +22,13 @@ log = logging.getLogger("ai-search.provider")
 class BaseSearchProvider(abc.ABC):
     """Abstract base for all search providers.
 
-    Each provider tracks its own usage counter, health status, and
-    optional quota limit.  The SearchRouter inspects these to decide
-    which provider to use next.
-
-    Usage counters are persisted to disk via QuotaStore so they survive
-    process restarts.
+    Each provider tracks its own health status and quota.  Providers that
+    support live quota from the server populate ``_server_remaining``,
+    ``_server_limit``, and ``_server_used``.  Others fall back to a
+    session-level request counter.
     """
 
     name: str
-    _requests_used: int
-    _quota_limit: int | None
     _healthy: bool
     _enabled: bool
     _last_error: str | None
@@ -34,16 +37,18 @@ class BaseSearchProvider(abc.ABC):
 
     def __init__(self, name: str, quota_limit: int | None = None) -> None:
         self.name = name
-        self._quota_limit = quota_limit
+        self._quota_limit = quota_limit  # fallback/config limit
         self._healthy = True
         self._enabled = True
         self._last_error = None
         self._last_used_at = None
         self._unhealthy_until = None
-        # Restore persisted usage count
-        self._requests_used = get_store().get_search_usage(name)
-        if self._requests_used > 0:
-            log.info("Restored %s usage: %d requests", name, self._requests_used)
+        self._session_requests = 0  # requests in this process lifetime
+
+        # Server-side quota — populated by subclasses that support live data
+        self._server_remaining: int | None = None
+        self._server_limit: int | None = None
+        self._server_used: int | None = None
 
     @abc.abstractmethod
     async def _do_search(
@@ -58,12 +63,10 @@ class BaseSearchProvider(abc.ABC):
         Raises on failure so the router can fall through.
         """
         results = await self._do_search(query, max_results)
-        self._requests_used += 1
+        self._session_requests += 1
         self._last_used_at = datetime.now()
         self._healthy = True
         self._last_error = None
-        # Persist updated count
-        get_store().set_search_usage(self.name, self._requests_used)
         return results
 
     def mark_unhealthy(self, error: str, cooldown_seconds: int = 60) -> None:
@@ -85,20 +88,34 @@ class BaseSearchProvider(abc.ABC):
 
     def has_quota(self) -> bool:
         """Check if provider has remaining quota."""
+        if self._server_remaining is not None:
+            return self._server_remaining > 0
         if self._quota_limit is None:
             return True
-        return self._requests_used < self._quota_limit
+        # No server data, no way to verify — assume yes
+        return True
 
     def remaining_quota(self) -> int | None:
         """Return remaining quota, or None if unlimited."""
+        if self._server_remaining is not None:
+            return self._server_remaining
         if self._quota_limit is None:
             return None
-        return max(0, self._quota_limit - self._requests_used)
+        # Serper: use config limit minus session requests as best guess
+        return max(0, self._quota_limit - self._session_requests)
+
+    @property
+    def quota_source(self) -> str:
+        """'live' if server data available, 'local' for session tracking, 'none' if unlimited."""
+        if self._server_remaining is not None or self._server_used is not None:
+            return "live"
+        if self._quota_limit is not None:
+            return "local"
+        return "none"
 
     def reset_usage(self) -> None:
-        """Reset monthly usage counter."""
-        self._requests_used = 0
-        get_store().set_search_usage(self.name, 0)
+        """Reset session usage counter."""
+        self._session_requests = 0
 
     def enable(self) -> None:
         """Enable provider for request routing."""
@@ -114,13 +131,23 @@ class BaseSearchProvider(abc.ABC):
 
     def stats(self) -> dict:
         """Return provider stats for the /stats endpoint."""
+        # Use server data when available, fall back to session counter
+        used = self._server_used if self._server_used is not None else self._session_requests
+        limit = self._server_limit if self._server_limit is not None else self._quota_limit
+        remaining = self._server_remaining
+        if remaining is None and limit is not None and self._server_used is not None:
+            remaining = max(0, limit - self._server_used)
+        elif remaining is None and self._quota_limit is not None:
+            remaining = max(0, self._quota_limit - self._session_requests)
+
         return {
             "name": self.name,
             "healthy": self.is_healthy(),
             "enabled": self._enabled,
-            "requests_used": self._requests_used,
-            "quota_limit": self._quota_limit,
-            "quota_remaining": self.remaining_quota(),
+            "requests_used": used,
+            "quota_limit": limit,
+            "quota_remaining": remaining,
+            "quota_source": self.quota_source,
             "last_error": self._last_error,
             "last_used_at": (
                 self._last_used_at.isoformat() if self._last_used_at else None
