@@ -186,7 +186,6 @@ export function getValueBets(): ValueBet[] {
   return store.valueBets;
 }
 
-
 // Get value bets grouped by event
 export function getValueBetsByEvent(): Map<string, ValueBet[]> {
   const grouped = new Map<string, ValueBet[]>();
@@ -247,4 +246,3 @@ export function setSyncStatus(status: Partial<SyncStatus>): void {
 export function getSyncStatus(): SyncStatus {
   return { ...syncStatus };
 }
-

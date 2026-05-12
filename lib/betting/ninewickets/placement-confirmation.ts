@@ -98,7 +98,6 @@ export interface PendingConfirmation {
   gradeUrl?: string;
   dashboardUrl?: string;
 
-
   /** Ticket id returned synchronously, if any. Used as a match short-circuit. */
   ticketIdHint: string | null;
 
@@ -461,7 +460,6 @@ async function finaliseConfirmed(
     currency: attempt.currency,
     providerTicketId: ticketId,
     mode: attempt.mode,
-
   };
 
   try {

@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     getCommandHistoryStats(),
     getCommandCounts(),
   ]);
-  
+
   return NextResponse.json({
     entries,
     stats,

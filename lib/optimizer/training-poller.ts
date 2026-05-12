@@ -31,8 +31,10 @@ interface PollerState {
 
 const FAST_POLL_MS = 5_000;
 const SLOW_POLL_MS = 60_000;
-/** If a model stays at 'training' longer than this, auto-fail it. */
-const STUCK_TRAINING_TIMEOUT_MS = 25 * 60 * 1000; // 25 minutes
+/** If a model stays at 'training' longer than this, auto-fail it.
+ *  Pipeline = Cloud Build (~5 min) + Cloud Run Job (~15 min) = ~20 min typical.
+ *  45 min gives generous headroom for slow builds or large datasets. */
+const STUCK_TRAINING_TIMEOUT_MS = 45 * 60 * 1000; // 45 minutes
 
 const state = singleton<PollerState>("ml:training-poller", () => ({
   active: false,
@@ -43,26 +45,44 @@ const state = singleton<PollerState>("ml:training-poller", () => ({
 
 function mapStatusToPhase(status: string): MLTrainingUpdate["phase"] {
   switch (status) {
-    case "training": return "training";
-    case "validated": return "validating";
-    case "deployed": return "completed";
-    case "rejected": return "rejected";
-    case "failed": return "failed";
-    default: return "training";
+    case "training":
+      return "training";
+    case "validated":
+      return "validating";
+    case "deployed":
+      return "completed";
+    case "rejected":
+      return "rejected";
+    case "failed":
+      return "failed";
+    default:
+      return "training";
   }
 }
 
-function phaseMessage(phase: MLTrainingUpdate["phase"], version: number): string {
+function phaseMessage(
+  phase: MLTrainingUpdate["phase"],
+  version: number,
+): string {
   switch (phase) {
-    case "started": return `Model v${version} training job triggered`;
-    case "loading": return `Loading training data for v${version}`;
-    case "training": return `LightGBM CPCV training in progress (v${version})`;
-    case "validating": return `Running deployment gates on v${version}`;
-    case "exporting": return `Exporting ONNX model v${version}`;
-    case "completed": return `Model v${version} deployed successfully`;
-    case "failed": return `Model v${version} training failed`;
-    case "rejected": return `Model v${version} rejected by deployment gate`;
-    default: return `Model v${version} — ${phase}`;
+    case "started":
+      return `Model v${version} training job triggered`;
+    case "loading":
+      return `Loading training data for v${version}`;
+    case "training":
+      return `LightGBM CPCV training in progress (v${version})`;
+    case "validating":
+      return `Running deployment gates on v${version}`;
+    case "exporting":
+      return `Exporting ONNX model v${version}`;
+    case "completed":
+      return `Model v${version} deployed successfully`;
+    case "failed":
+      return `Model v${version} training failed`;
+    case "rejected":
+      return `Model v${version} rejected by deployment gate`;
+    default:
+      return `Model v${version} — ${phase}`;
   }
 }
 
@@ -76,7 +96,9 @@ async function pollTrainingStatus(): Promise<void> {
     const recentModels = await db
       .select()
       .from(mlModels)
-      .where(sql`${mlModels.status} = 'training' OR ${mlModels.createdAt} > now() - interval '5 minutes'`)
+      .where(
+        sql`${mlModels.status} = 'training' OR ${mlModels.createdAt} > now() - interval '5 minutes'`,
+      )
       .orderBy(desc(mlModels.createdAt))
       .limit(10);
 
@@ -95,14 +117,20 @@ async function pollTrainingStatus(): Promise<void> {
       const elapsedMs = Date.now() - startedAt;
 
       if (elapsedMs > STUCK_TRAINING_TIMEOUT_MS) {
-        logger.warn(tag, `Model v${model.version} stuck at 'training' for ${Math.round(elapsedMs / 60000)}min — marking as failed`);
+        logger.warn(
+          tag,
+          `Model v${model.version} stuck at 'training' for ${Math.round(elapsedMs / 60000)}min — marking as failed`,
+        );
         try {
           const { eq } = await import("drizzle-orm");
           await db
             .update(mlModels)
             .set({
               status: "failed",
-              rejectionReasons: ["Training timed out — Cloud Run Job may have exited without updating the database."],
+              rejectionReasons: [
+                "Training timed out — Cloud Run Job may have exited without updating the database.",
+              ],
+              trainingCompletedAt: new Date().toISOString(),
             })
             .where(eq(mlModels.id, model.id));
 
@@ -116,12 +144,33 @@ async function pollTrainingStatus(): Promise<void> {
             modelId: model.id,
             elapsedMs,
           };
-          syncBus.emitBus({ type: "ml:training:update", training: failedUpdate });
+          syncBus.emitBus({
+            type: "ml:training:update",
+            training: failedUpdate,
+          });
 
           // Update known models so we don't re-process
-          state.knownModels.set(model.id, { status: "failed", lastEmittedPhase: "failed" });
+          state.knownModels.set(model.id, {
+            status: "failed",
+            lastEmittedPhase: "failed",
+          });
+
+          // Notify via Telegram
+          void notifyTrainingCompleted(
+            {
+              ...model,
+              status: "failed",
+              rejectionReasons: [
+                "Training timed out — Cloud Run Job may have exited without updating the database.",
+              ],
+            },
+            elapsedMs,
+          );
         } catch (err) {
-          logger.warn(tag, `Failed to auto-fail stuck model: ${err instanceof Error ? err.message : String(err)}`);
+          logger.warn(
+            tag,
+            `Failed to auto-fail stuck model: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
     }
@@ -134,7 +183,10 @@ async function pollTrainingStatus(): Promise<void> {
       state.timer = setInterval(() => {
         void pollTrainingStatus();
       }, desiredInterval);
-      logger.info(tag, `Poll interval adjusted to ${desiredInterval / 1000}s (${hasActiveTraining ? "active training" : "idle"})`);
+      logger.info(
+        tag,
+        `Poll interval adjusted to ${desiredInterval / 1000}s (${hasActiveTraining ? "active training" : "idle"})`,
+      );
     }
 
     // Emit events for models that changed state
@@ -146,9 +198,14 @@ async function pollTrainingStatus(): Promise<void> {
 
       if (!known) {
         // First time seeing this model — emit its current state
-        state.knownModels.set(model.id, { status: model.status, lastEmittedPhase: currentPhase });
+        state.knownModels.set(model.id, {
+          status: model.status,
+          lastEmittedPhase: currentPhase,
+        });
 
-        const startedAt = model.trainingStartedAt ? new Date(model.trainingStartedAt).getTime() : Date.now();
+        const startedAt = model.trainingStartedAt
+          ? new Date(model.trainingStartedAt).getTime()
+          : Date.now();
         const elapsedMs = Date.now() - startedAt;
 
         const update: MLTrainingUpdate = {
@@ -163,12 +220,17 @@ async function pollTrainingStatus(): Promise<void> {
         // Add metrics for completed/rejected models
         if (model.status === "deployed" || model.status === "rejected") {
           update.metrics = {
-            aucRoc: model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
-            dsr: model.deflatedSharpe != null ? Number(model.deflatedSharpe) : undefined,
+            aucRoc:
+              model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
+            dsr:
+              model.deflatedSharpe != null
+                ? Number(model.deflatedSharpe)
+                : undefined,
             pbo: model.pbo != null ? Number(model.pbo) : undefined,
             trainingSamples: model.trainingSamples,
             permissionLevel: model.permissionLevel ?? "shadow",
-            rejectionReasons: (model.rejectionReasons as string[] | null) ?? undefined,
+            rejectionReasons:
+              (model.rejectionReasons as string[] | null) ?? undefined,
           };
         }
 
@@ -182,7 +244,9 @@ async function pollTrainingStatus(): Promise<void> {
         known.status = model.status;
         known.lastEmittedPhase = currentPhase;
 
-        const startedAt = model.trainingStartedAt ? new Date(model.trainingStartedAt).getTime() : Date.now();
+        const startedAt = model.trainingStartedAt
+          ? new Date(model.trainingStartedAt).getTime()
+          : Date.now();
         const elapsedMs = Date.now() - startedAt;
 
         const update: MLTrainingUpdate = {
@@ -196,17 +260,34 @@ async function pollTrainingStatus(): Promise<void> {
 
         if (model.status === "deployed" || model.status === "rejected") {
           update.metrics = {
-            aucRoc: model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
-            dsr: model.deflatedSharpe != null ? Number(model.deflatedSharpe) : undefined,
+            aucRoc:
+              model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
+            dsr:
+              model.deflatedSharpe != null
+                ? Number(model.deflatedSharpe)
+                : undefined,
             pbo: model.pbo != null ? Number(model.pbo) : undefined,
             trainingSamples: model.trainingSamples,
             permissionLevel: model.permissionLevel ?? "shadow",
-            rejectionReasons: (model.rejectionReasons as string[] | null) ?? undefined,
+            rejectionReasons:
+              (model.rejectionReasons as string[] | null) ?? undefined,
           };
         }
 
         syncBus.emitBus({ type: "ml:training:update", training: update });
-        logger.info(tag, `Status transition → ${currentPhase} for model v${model.version}`);
+        logger.info(
+          tag,
+          `Status transition → ${currentPhase} for model v${model.version}`,
+        );
+
+        // ── Send Telegram notification for terminal states ────────────
+        if (
+          model.status === "deployed" ||
+          model.status === "rejected" ||
+          model.status === "failed"
+        ) {
+          void notifyTrainingCompleted(model, elapsedMs);
+        }
       }
     }
 
@@ -256,7 +337,10 @@ export function emitTrainingStarted(modelId: string, version: number): void {
     modelId,
   };
 
-  state.knownModels.set(modelId, { status: "training", lastEmittedPhase: "started" });
+  state.knownModels.set(modelId, {
+    status: "training",
+    lastEmittedPhase: "started",
+  });
 
   // Emit through the bus (async import to avoid circular deps at boot)
   void import("../events/event-bus").then(({ syncBus }) => {
@@ -271,5 +355,59 @@ export function emitTrainingStarted(modelId: string, version: number): void {
       void pollTrainingStatus();
     }, FAST_POLL_MS);
     logger.info(tag, "Switched to fast polling (5s) for active training");
+  }
+}
+
+/**
+ * Send Telegram notification when training reaches a terminal state.
+ */
+async function notifyTrainingCompleted(
+  model: {
+    id: string;
+    version: number;
+    status: string;
+    trainingSamples: number;
+    oosAucRoc: string | number | null;
+    deflatedSharpe: string | number | null;
+    pbo: string | number | null;
+    permissionLevel: string | null;
+    rejectionReasons: unknown;
+    trainingStartedAt: string | null;
+    trainingCompletedAt: string | null;
+  },
+  elapsedMs: number,
+): Promise<void> {
+  try {
+    const { notify } = await import("../notifier");
+
+    const outcome: "deployed" | "rejected" | "failed" =
+      model.status === "deployed"
+        ? "deployed"
+        : model.status === "rejected"
+          ? "rejected"
+          : "failed";
+
+    await notify({
+      type: "ml:training_completed",
+      at: new Date().toISOString(),
+      modelId: model.id,
+      version: model.version,
+      outcome,
+      permissionLevel: model.permissionLevel ?? undefined,
+      durationMs: elapsedMs,
+      trainingSamples: model.trainingSamples,
+      aucRoc: model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
+      dsr:
+        model.deflatedSharpe != null ? Number(model.deflatedSharpe) : undefined,
+      pbo: model.pbo != null ? Number(model.pbo) : undefined,
+      rejectionReasons: Array.isArray(model.rejectionReasons)
+        ? (model.rejectionReasons as string[])
+        : undefined,
+    });
+  } catch (err) {
+    logger.warn(
+      tag,
+      `Telegram training notification failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

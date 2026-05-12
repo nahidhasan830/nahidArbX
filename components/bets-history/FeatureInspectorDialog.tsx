@@ -83,10 +83,14 @@ export function FeatureInspectorDialog({
               </DialogTitle>
               <DialogDescription className="mt-0.5 truncate">
                 {eventLabel && (
-                  <span className="text-xs font-medium text-foreground mr-2">{eventLabel}</span>
+                  <span className="text-xs font-medium text-foreground mr-2">
+                    {eventLabel}
+                  </span>
                 )}
                 {marketLabel && (
-                  <span className="text-[11px] text-muted-foreground">{marketLabel}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {marketLabel}
+                  </span>
                 )}
               </DialogDescription>
             </div>
@@ -94,18 +98,24 @@ export function FeatureInspectorDialog({
             <div className="flex items-center gap-3 shrink-0 pr-6">
               {mlScore != null && (
                 <div className="text-right">
-                  <div className="text-[10px] text-muted-foreground">ML Score</div>
-                  <div className={cn(
-                    "text-sm font-semibold tabular-nums",
-                    mlScore >= 0.4 ? "text-emerald-400" : "text-amber-400",
-                  )}>
+                  <div className="text-[10px] text-muted-foreground">
+                    ML Score
+                  </div>
+                  <div
+                    className={cn(
+                      "text-sm font-semibold tabular-nums",
+                      mlScore >= 0.4 ? "text-emerald-400" : "text-amber-400",
+                    )}
+                  >
                     {mlScore.toFixed(3)}
                   </div>
                 </div>
               )}
               {mlKellyAdjusted != null && (
                 <div className="text-right">
-                  <div className="text-[10px] text-muted-foreground">Kelly (adj.)</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Kelly (adj.)
+                  </div>
                   <div className="text-sm font-semibold tabular-nums text-foreground">
                     {(mlKellyAdjusted * 100).toFixed(2)}%
                   </div>
@@ -113,7 +123,9 @@ export function FeatureInspectorDialog({
               )}
               {featureVersion != null && (
                 <div className="text-right">
-                  <div className="text-[10px] text-muted-foreground">Version</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    Version
+                  </div>
                   <div className="text-sm font-semibold tabular-nums text-foreground">
                     v{featureVersion}
                   </div>
@@ -127,24 +139,33 @@ export function FeatureInspectorDialog({
         <div className="flex items-center gap-3 flex-wrap">
           {/* Category legend — compact inline */}
           <div className="flex gap-3 text-[10px] text-muted-foreground">
-            {(["Value", "Odds", "Movement", "Market", "Staking"] as const).map((cat) => (
-              <span key={cat} className="flex items-center gap-1">
-                <span className={cn("size-1.5 rounded-full", CATEGORY_COLORS[cat])} />
-                {cat}
-              </span>
-            ))}
+            {(["Value", "Odds", "Movement", "Market", "Staking"] as const).map(
+              (cat) => (
+                <span key={cat} className="flex items-center gap-1">
+                  <span
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      CATEGORY_COLORS[cat],
+                    )}
+                  />
+                  {cat}
+                </span>
+              ),
+            )}
           </div>
           <div className="flex-1" />
           {/* Score placement effect badge */}
           {mlScore != null && (
-            <span className={cn(
-              "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
-              scoreAffectedPlacement
-                ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400"
-                : permissionLevel === "shadow"
-                  ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                  : "border-border/40 bg-muted/20 text-muted-foreground",
-            )}>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                scoreAffectedPlacement
+                  ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400"
+                  : permissionLevel === "shadow"
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                    : "border-border/40 bg-muted/20 text-muted-foreground",
+              )}
+            >
               {scoreAffectedPlacement
                 ? "Score affected placement"
                 : permissionLevel === "shadow"
@@ -154,7 +175,8 @@ export function FeatureInspectorDialog({
           )}
           {featureCount != null && featureCount !== features.length && (
             <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
-              ⚠ Length mismatch: stored {featureCount} vs actual {features.length}
+              ⚠ Length mismatch: stored {featureCount} vs actual{" "}
+              {features.length}
             </span>
           )}
         </div>
@@ -166,13 +188,21 @@ export function FeatureInspectorDialog({
             return (
               <Tooltip key={meta.name}>
                 <TooltipTrigger asChild>
-                  <div className={cn(
-                    "flex items-center justify-between px-2.5 py-[5px] cursor-help group transition-colors hover:bg-muted/20",
-                    // Subtle separator between rows — every 3rd cell is followed by a border
-                    i < FEATURE_CATALOG.length - 3 && "border-b border-border/10",
-                  )}>
+                  <div
+                    className={cn(
+                      "flex items-center justify-between px-2.5 py-[5px] cursor-help group transition-colors hover:bg-muted/20",
+                      // Subtle separator between rows — every 3rd cell is followed by a border
+                      i < FEATURE_CATALOG.length - 3 &&
+                        "border-b border-border/10",
+                    )}
+                  >
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className={cn("size-1.5 rounded-full shrink-0", CATEGORY_COLORS[meta.cat])} />
+                      <span
+                        className={cn(
+                          "size-1.5 rounded-full shrink-0",
+                          CATEGORY_COLORS[meta.cat],
+                        )}
+                      />
                       <span className="text-[11px] text-muted-foreground group-hover:text-foreground transition-colors truncate">
                         {meta.label}
                       </span>
@@ -182,10 +212,15 @@ export function FeatureInspectorDialog({
                     </span>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+                <TooltipContent
+                  side="top"
+                  className="max-w-[280px] text-xs leading-relaxed"
+                >
                   <div className="font-semibold mb-0.5">{meta.label}</div>
                   <div className="text-muted-foreground">{meta.desc}</div>
-                  <div className="text-[10px] text-muted-foreground/50 mt-1 font-mono">{meta.name} = {value}</div>
+                  <div className="text-[10px] text-muted-foreground/50 mt-1 font-mono">
+                    {meta.name} = {value}
+                  </div>
                 </TooltipContent>
               </Tooltip>
             );

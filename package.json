@@ -28,6 +28,7 @@
     "test:api": "npx playwright test e2e/api-health.spec.ts",
     "test:nav": "npx playwright test e2e/navigation.spec.ts",
     "test:ml-ui": "tsx scripts/test-ml-ui-pipeline.ts",
+    "test:ml-e2e": "tsx scripts/test-e2e-ml.ts",
     "test:settle": "node --import tsx --test lib/settle/*.test.ts",
     "test:unit": "node --import tsx --test lib/**/*.test.ts",
     "ai-search": "tsx scripts/ai-search-supervisor.ts",

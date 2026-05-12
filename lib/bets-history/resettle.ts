@@ -92,6 +92,8 @@ export function prettySettledBy(source: string | null): string {
       return "Manual";
     case "espn":
       return "ESPN";
+    case "api-football":
+      return "API-Football";
     case "sofascore":
       return "SofaScore";
     case "pinnacle-ws":
@@ -100,10 +102,12 @@ export function prettySettledBy(source: string | null): string {
       return "BetConstruct";
     case "football-data":
       return "football-data";
+    case "ai-search-hf":
+      return "HF+Search";
+    case "ai-search-groq":
+      return "Groq+Search";
     case "url-context":
-      return "AI · URL";
     case "gemini-batch":
-      return "AI · Batch";
     case "legacy-ai":
       return "AI (legacy)";
     default:

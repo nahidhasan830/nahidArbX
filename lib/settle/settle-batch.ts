@@ -1,10 +1,9 @@
 /**
  * settleBatch — top-level settlement entry point.
  *
- * Replaces the per-bet Gemini fan-out from `labelOutcomesForBets`. Given a
- * list of value-bet row IDs:
+ * Given a list of value-bet row IDs:
  *   1. Dedupe to unique eventIds.
- *   2. Run the waterfall to resolve each eventId's final score once.
+ *   2. Run the free waterfall to resolve each eventId's final score once.
  *   3. Apply deterministic `settleBet(row, score)` per bet.
  * Bets whose market isn't covered by the pure settler (or whose event
  * couldn't be resolved at any tier) are returned with outcome "pending"
@@ -21,12 +20,7 @@ import {
 import { settleBet } from "./settle-bet";
 import type { SettleResult } from "./types";
 import type { Outcome } from "../bets-history/types";
-import {
-  assertWithinRequestCeiling,
-  type AiMode,
-  type AiModel,
-} from "./cost-guard";
-import { recordAiActivity } from "../db/repositories/ai-activity-log";
+import { clearCanonicalCache, preResolveTeams } from "./aliases";
 
 export interface SettleBatchOptions {
   /**
@@ -34,14 +28,6 @@ export interface SettleBatchOptions {
    * an old score is cached. Useful for "Re-run default pipeline" in the UI.
    */
   bypassCache?: boolean;
-  /**
-   * Operator-triggered: send events straight to Tier 3 Gemini. The ONLY
-   * way this batch invokes paid AI; never set by the automatic
-   * scheduler. Set true by the manual "AI settle" dialog on `/bets`.
-   */
-  forceAi?: boolean;
-  /** Which Gemini tier to use when Tier 3 fires. Defaults to Lite. */
-  aiModel?: "lite" | "flash" | "pro";
 }
 
 export interface SettleProposal {
@@ -82,7 +68,6 @@ export async function settleBatch(
   ids: string[],
   options: SettleBatchOptions = {},
 ): Promise<SettleBatchResult> {
-  const startMs = Date.now();
   const rows = await getBetsByIds(ids);
   const found = new Set(rows.map((r) => r.id));
   const missing = ids.filter((id) => !found.has(id));
@@ -102,39 +87,41 @@ export async function settleBatch(
       });
     }
   }
+
+  // ── Pre-resolve team names via entity DB ─────────────────────────────
+  //
+  // Before the waterfall fuzzy-matches our team names against score
+  // sources, look up canonical names from the entity-resolution DB.
+  // Every merge in Matcher Lab feeds this — if "Ypiranga FC" and
+  // "Ypiranga-RS" share the same entity, both resolve to the canonical
+  // name, guaranteeing a 1.0 similarity score.
+  clearCanonicalCache();
+  const allTeamNames = rows.flatMap((r) => [r.homeTeam, r.awayTeam]);
+  await preResolveTeams(allTeamNames, { provider: "settle" });
   // Does the batch contain any corner-market bet? If so, ask the
   // waterfall to fetch corner stats. If not, skip the extra HTTP cost.
-  const needsCorners = rows.some(
-    (r) =>
-      r.marketType === "CORNERS" ||
-      r.marketType === "HOME_CORNERS_TOTAL" ||
-      r.marketType === "AWAY_CORNERS_TOTAL" ||
-      r.marketType === "CORNERS_HANDICAP" ||
-      r.marketType === "CORNERS_EUROPEAN_HANDICAP",
-  );
+  const CORNER_MARKETS = new Set([
+    "CORNERS", "HOME_CORNERS_TOTAL", "AWAY_CORNERS_TOTAL",
+    "CORNERS_HANDICAP", "CORNERS_EUROPEAN_HANDICAP",
+  ]);
+  const BOOKING_MARKETS = new Set(["BOOKINGS", "BOOKINGS_HANDICAP"]);
 
-  // ── Cost guard — pre-flight ceiling only. ───────────────────────────────
-  //
-  // Refuses the batch if the estimated cost would exceed
-  // `AI_MAX_PER_REQUEST_USD` (default $2). The UI also shows a
-  // confirmation popup before calling, so this is the last-line-of-
-  // defense for programmatic clients that bypass the UI.
-  const willUseAi = options.forceAi === true;
-  const mode: AiMode = willUseAi ? "force-ai" : "fallback";
-  const model: AiModel = options.aiModel ?? "lite";
-  if (willUseAi && eventMap.size > 0) {
-    assertWithinRequestCeiling({
-      eventCount: eventMap.size,
-      model,
-      mode,
-    });
-  }
+  const needsCorners = rows.some((r) => CORNER_MARKETS.has(r.marketType));
+  const needsBookings = rows.some((r) => BOOKING_MARKETS.has(r.marketType));
+
+  // If any bet uses a non-FT scope, the waterfall MUST resolve HT scores.
+  // Without this flag, Tier 0 happily accepts cached ESPN rows that lack
+  // HT data — then settleBet() returns "pending" because it can't compute
+  // the 1H/2H scope.
+  const needsHtScore = rows.some(
+    (r) => r.timeScope === "1H" || r.timeScope === "2H",
+  );
 
   const { scores, telemetry } = await resolveScores([...eventMap.values()], {
     needsCorners,
+    needsBookings,
+    needsHtScore,
     bypassCache: options.bypassCache === true,
-    forceAi: options.forceAi === true,
-    aiModel: options.aiModel,
   });
 
   let settledDeterministically = 0;
@@ -147,7 +134,7 @@ export async function settleBatch(
         id: row.id,
         proposedOutcome: "pending",
         confidence: 0,
-        reasoning: "No final score resolved by any free tier — needs AI tier.",
+        reasoning: "No final score resolved by any tier.",
         score: "",
         tier: "unresolved",
         source: null,
@@ -160,7 +147,6 @@ export async function settleBatch(
   });
 
   const unresolvedEvents = telemetry.unresolved;
-  const durationMs = Date.now() - startMs;
 
   const result: SettleBatchResult = {
     proposals,
@@ -172,36 +158,5 @@ export async function settleBatch(
       unresolvedEvents,
     },
   };
-
-  // ── Fire-and-forget AI activity log (only when AI was actually used) ──
-  // Deterministic auto-settler runs already write to `settlement_runs`
-  // via persistRun() — logging them here was pure noise (null model,
-  // null cost, misleading "Settlement" entries in the AI Activity page).
-  if (willUseAi) {
-    const hasErrors = proposals.some((p) => "error" in p);
-    recordAiActivity({
-      system: "settlement",
-      trigger: "manual",
-      status: hasErrors ? "partial" : settledDeterministically > 0 ? "success" : "error",
-      model: `gemini-${model}`,
-      itemCount: rows.length,
-      durationMs,
-      costUsd: null,
-      summary: `Settled ${settledDeterministically}/${rows.length} bets (${unresolvedEvents} unresolved events)`,
-      error: null,
-      metadata: {
-        tier0_hits: telemetry.tier0_hits,
-        tier1_hits: telemetry.tier1_hits,
-        tier2_hits: telemetry.tier2_hits,
-        tier3_hits: telemetry.tier3_hits,
-        tier4_hits: telemetry.tier4_hits,
-        unsupported,
-        unresolvedEvents,
-        bypassCache: options.bypassCache === true,
-      },
-    }).catch(() => {}); // never block settlement
-  }
-
   return result;
 }
-

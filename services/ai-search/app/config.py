@@ -25,11 +25,11 @@ class Config:
     serper_api_key: str = ""
     # DDG needs no key
 
-    # ── Groq (cloud LLM, free tier) ──────────────────────────────────
+    # ── Groq (cloud LLM, free tier — fallback when HF exhausted) ─────
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
 
-    # ── HuggingFace Router (primary while Pro credits last) ──────────
+    # ── HuggingFace Router (primary LLM engine) ─────────────────────
     hf_api_key: str = ""
     hf_model: str = "meta-llama/Llama-3.3-70B-Instruct"
     hf_routing: str = "fastest"

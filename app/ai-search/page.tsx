@@ -13,18 +13,19 @@ import { FlaskConical, LayoutDashboard, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/nav/AppShell";
 import {
   OverviewTab,
-  deriveModelStatus,
   formatApiError,
   type StatsData,
   type HealthData,
-  type LlmStatsData,
 } from "./OverviewTab";
 import { PlaygroundTab } from "./PlaygroundTab";
 
@@ -45,7 +46,6 @@ interface ModelsData {
 export default function AiSearchDashboard() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [health, setHealth] = useState<HealthData | null>(null);
-  const [llmStats, setLlmStats] = useState<LlmStatsData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
@@ -77,21 +77,23 @@ export default function AiSearchDashboard() {
     setError(null);
 
     try {
-      const [statsResult, healthResult, limitsResult] = await Promise.allSettled([
+      const [statsResult, healthResult] = await Promise.allSettled([
         readJson<StatsData>("/api/ai-search/stats"),
         readJson<HealthData>("/api/ai-search/healthz"),
-        readJson<LlmStatsData>("/api/ai-search/llm-stats"),
       ]);
 
       const messages: string[] = [];
       if (statsResult.status === "fulfilled") setStats(statsResult.value);
-      else { setStats(null); messages.push(`stats: ${statsResult.reason}`); }
+      else {
+        setStats(null);
+        messages.push(`stats: ${statsResult.reason}`);
+      }
 
       if (healthResult.status === "fulfilled") setHealth(healthResult.value);
-      else { setHealth(null); messages.push(`health: ${healthResult.reason}`); }
-
-      if (limitsResult.status === "fulfilled") setLlmStats(limitsResult.value);
-      else setLlmStats(null);
+      else {
+        setHealth(null);
+        messages.push(`health: ${healthResult.reason}`);
+      }
 
       if (messages.length) setError(messages.join(" · "));
       setLastLoadedAt(new Date().toISOString());
@@ -119,49 +121,83 @@ export default function AiSearchDashboard() {
         if (data.models && Array.isArray(data.models)) {
           const names = data.models.map((m) => m.name).filter(Boolean);
           setAvailableModels(names);
-          if (!selectedModel) setSelectedModel(data.configured_model || data.default || names[0] || "");
+          if (!selectedModel)
+            setSelectedModel(
+              data.configured_model || data.default || names[0] || "",
+            );
         } else if (data.model) {
           // Groq single-model response
           setAvailableModels([data.model]);
           if (!selectedModel) setSelectedModel(data.model);
         }
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleToggleProvider = useCallback(
     async (providerName: string, enabled: boolean) => {
       setStats((prev) =>
-        prev ? { ...prev, providers: prev.providers.map((p) => p.name === providerName ? { ...p, enabled } : p) } : prev,
+        prev
+          ? {
+              ...prev,
+              providers: prev.providers.map((p) =>
+                p.name === providerName ? { ...p, enabled } : p,
+              ),
+            }
+          : prev,
       );
       setToggleBusy((prev) => new Set(prev).add(providerName));
       try {
-        const res = await fetch(`/api/ai-search/providers/${providerName}/toggle`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled }),
-        });
+        const res = await fetch(
+          `/api/ai-search/providers/${providerName}/toggle`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+          },
+        );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         void load();
       } catch {
         setStats((prev) =>
-          prev ? { ...prev, providers: prev.providers.map((p) => p.name === providerName ? { ...p, enabled: !enabled } : p) } : prev,
+          prev
+            ? {
+                ...prev,
+                providers: prev.providers.map((p) =>
+                  p.name === providerName ? { ...p, enabled: !enabled } : p,
+                ),
+              }
+            : prev,
         );
       } finally {
-        setToggleBusy((prev) => { const next = new Set(prev); next.delete(providerName); return next; });
+        setToggleBusy((prev) => {
+          const next = new Set(prev);
+          next.delete(providerName);
+          return next;
+        });
       }
     },
     [load],
   );
 
-  const modelStatus = deriveModelStatus(health, stats, lastLoadedAt);
-  const serviceOnline = Boolean(health?.status === "ok" || health?.status === "degraded");
-  const hfAvailable = Boolean((stats as Record<string, unknown> | null)?.hf_available);
+  const serviceOnline = Boolean(
+    health?.status === "ok" || health?.status === "degraded",
+  );
+  const hfAvailable = Boolean(
+    (stats as Record<string, unknown> | null)?.hf_available,
+  );
 
   // During initial load, show a neutral loading badge instead of false "offline"
   const serviceBadge = initialLoad
     ? { label: "loading…", online: false, loading: true }
-    : { label: serviceOnline ? "service online" : "service offline", online: serviceOnline, loading: false };
+    : {
+        label: serviceOnline ? "service online" : "service offline",
+        online: serviceOnline,
+        loading: false,
+      };
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -173,10 +209,10 @@ export default function AiSearchDashboard() {
             className={cn(
               "ml-2 text-[10px] font-mono tabular-nums tracking-tight",
               serviceBadge.loading
-                ? "bg-muted/30 text-muted-foreground border-border/40 animate-pulse"
+                ? "bg-muted/20 text-muted-foreground border-border/40 animate-pulse"
                 : serviceBadge.online
-                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                  : "bg-red-500/10 text-red-400 border-red-500/30",
+                  ? "bg-emerald-500/8 text-emerald-400 border-emerald-500/20"
+                  : "bg-red-500/8 text-red-400 border-red-500/20",
             )}
           >
             {serviceBadge.label}
@@ -186,8 +222,16 @@ export default function AiSearchDashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
-                <Button variant="ghost" size="icon" className="size-7" onClick={load} disabled={isRefreshing}>
-                  <RefreshCw className={cn("size-3.5", isRefreshing && "animate-spin")} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7"
+                  onClick={load}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw
+                    className={cn("size-3.5", isRefreshing && "animate-spin")}
+                  />
                 </Button>
               </span>
             </TooltipTrigger>
@@ -201,11 +245,13 @@ export default function AiSearchDashboard() {
         edgeToEdge
       >
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto p-3 bg-background">
-          <TabsContent value="overview" className="mt-0 outline-none flex-1 min-h-0">
+          <TabsContent
+            value="overview"
+            className="mt-0 outline-none flex-1 min-h-0"
+          >
             <OverviewTab
               stats={stats}
               health={health}
-              groqLimits={llmStats}
               error={error}
               isRefreshing={isRefreshing}
               lastLoadedAt={lastLoadedAt}
@@ -214,7 +260,10 @@ export default function AiSearchDashboard() {
             />
           </TabsContent>
 
-          <TabsContent value="playground" className="mt-0 outline-none flex-1 min-h-0">
+          <TabsContent
+            value="playground"
+            className="mt-0 outline-none flex-1 min-h-0"
+          >
             <PlaygroundTab
               serviceOnline={serviceOnline}
               availableModels={availableModels}

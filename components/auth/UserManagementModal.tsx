@@ -13,7 +13,7 @@ import {
   LogOut,
   Clock,
   MapPin,
-  Monitor,
+
   Search,
   ChevronRight,
   Info,
@@ -24,7 +24,7 @@ import {
   LogIn,
   Zap,
   Copy,
-  Check,
+
   AlertTriangle,
   Send,
 } from "lucide-react";
@@ -195,7 +195,7 @@ export function UserManagementModal({
   const [activeTab, setActiveTab] = useState<"users" | "invite">("users");
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -1000,6 +1000,7 @@ function ActivityTab({ userId }: { userId: string }) {
     setLogs([]);
     setOffset(0);
     fetchLogs(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   // Filter logs based on selected filter
@@ -1501,9 +1502,12 @@ function PermissionsTab({
           prev.map((p) => (p.featureId === featureId ? { ...p, enabled } : p)),
         );
         const perm = permissions.find((p) => p.featureId === featureId);
-        toast.success(enabled ? "✅ Permission enabled" : "🚫 Permission disabled", {
-          description: perm?.displayName,
-        });
+        toast.success(
+          enabled ? "✅ Permission enabled" : "🚫 Permission disabled",
+          {
+            description: perm?.displayName,
+          },
+        );
         onRefresh();
       } else {
         const data = await res.json();
@@ -1547,9 +1551,12 @@ function PermissionsTab({
               : p,
           ),
         );
-        toast.success(enabled ? "✅ Category enabled" : "🚫 Category disabled", {
-          description: CATEGORY_INFO[category]?.label || category,
-        });
+        toast.success(
+          enabled ? "✅ Category enabled" : "🚫 Category disabled",
+          {
+            description: CATEGORY_INFO[category]?.label || category,
+          },
+        );
         onRefresh();
       }
     } catch {

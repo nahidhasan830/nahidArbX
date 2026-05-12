@@ -13,7 +13,7 @@
  *   - /api/providers/9w/overview            (unmatched tickets, autoLogin config)
  *   - /api/accounts/stats                   (turnover, pending, settled counts per provider)
  */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -452,8 +452,6 @@ function PendingTurnoverTile({
 // Leaf components
 // ─────────────────────────────────────────────────────────────────────
 
-
-
 function StatusBadge({
   account,
   reloginBusy,
@@ -692,8 +690,6 @@ function formatRelative(iso: string | null): string {
   const day = Math.round(hr / 24);
   return `${day}d ago`;
 }
-
-
 
 function renderAutoLoginAge(iso: string): string | null {
   const t = Date.parse(iso);

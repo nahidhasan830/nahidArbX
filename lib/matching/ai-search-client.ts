@@ -154,7 +154,11 @@ export async function matchSingle(
       : `AI Search unreachable — ${pairLabel}`,
     error: result ? null : "Service unreachable or timeout",
     metadata: result
-      ? { decision: result.decision, confidence: result.confidence, sourcesCount: result.sources?.length ?? 0 }
+      ? {
+          decision: result.decision,
+          confidence: result.confidence,
+          sourcesCount: result.sources?.length ?? 0,
+        }
       : null,
   }).catch(() => {});
 
@@ -181,8 +185,7 @@ export async function matchBatch(
 
   // Single chunk — call directly
   if (pairs.length <= MAX_BATCH_SIZE) {
-    const timeoutMs =
-      BATCH_BASE_TIMEOUT_MS + pairs.length * BATCH_PER_PAIR_MS;
+    const timeoutMs = BATCH_BASE_TIMEOUT_MS + pairs.length * BATCH_PER_PAIR_MS;
     const result = await postJson<AiSearchBatchResult>(
       "/entity-match-batch",
       { pairs },
@@ -190,8 +193,10 @@ export async function matchBatch(
     );
 
     const durationMs = Date.now() - t0;
-    const same = result?.verdicts.filter((v) => v.decision === "SAME").length ?? 0;
-    const diff = result?.verdicts.filter((v) => v.decision === "DIFFERENT").length ?? 0;
+    const same =
+      result?.verdicts.filter((v) => v.decision === "SAME").length ?? 0;
+    const diff =
+      result?.verdicts.filter((v) => v.decision === "DIFFERENT").length ?? 0;
     recordAiActivity({
       system: "entity-match",
       trigger: "batch",
@@ -204,7 +209,9 @@ export async function matchBatch(
         ? `AI Search batch: ${pairs.length} pairs → ${same} SAME, ${diff} DIFFERENT`
         : `AI Search batch unreachable (${pairs.length} pairs)`,
       error: result ? null : "Service unreachable or timeout",
-      metadata: result ? { same, different: diff, sourcesCount: result.sources?.length ?? 0 } : null,
+      metadata: result
+        ? { same, different: diff, sourcesCount: result.sources?.length ?? 0 }
+        : null,
     }).catch(() => {});
 
     return result;
@@ -218,8 +225,7 @@ export async function matchBatch(
 
   for (let i = 0; i < pairs.length; i += MAX_BATCH_SIZE) {
     const chunk = pairs.slice(i, i + MAX_BATCH_SIZE);
-    const timeoutMs =
-      BATCH_BASE_TIMEOUT_MS + chunk.length * BATCH_PER_PAIR_MS;
+    const timeoutMs = BATCH_BASE_TIMEOUT_MS + chunk.length * BATCH_PER_PAIR_MS;
     const result = await postJson<AiSearchBatchResult>(
       "/entity-match-batch",
       { pairs: chunk },
@@ -243,7 +249,10 @@ export async function matchBatch(
         costUsd: null,
         summary: `AI Search batch chunk ${i / MAX_BATCH_SIZE + 1} failed (${pairs.length} pairs)`,
         error: "Chunk failed, aborting batch",
-        metadata: { failedChunk: i / MAX_BATCH_SIZE + 1, processedSoFar: allVerdicts.length },
+        metadata: {
+          failedChunk: i / MAX_BATCH_SIZE + 1,
+          processedSoFar: allVerdicts.length,
+        },
       }).catch(() => {});
 
       return null;
@@ -284,6 +293,64 @@ export async function matchBatch(
   }).catch(() => {});
 
   return merged;
+}
+
+// ─── Settlement score lookup ──────────────────────────────────────
+
+export interface AiSettlementVerdict {
+  answer: string;
+  confidence: number; // 0-100
+  reasoning: string;
+  sources: AiSearchSourceCitation[];
+  model: string;
+}
+
+/**
+ * Ask the AI Search service to look up the final score of a match
+ * by searching the web and reasoning about the result.
+ *
+ * This is the missing link: for niche leagues (Brazil Serie C, etc.)
+ * that ESPN/API-Football/SofaScore can't resolve, HuggingFace+Search can
+ * find the result on FlashScore, Google Sports, or news sites.
+ *
+ * Returns `null` if the service is unreachable or times out.
+ */
+export async function verifySettlement(
+  event: AiSearchEventInfo,
+  question: string,
+): Promise<AiSettlementVerdict | null> {
+  const t0 = Date.now();
+  const label = `${event.home_team} v ${event.away_team}`;
+
+  const result = await postJson<AiSettlementVerdict>(
+    "/verify-settlement",
+    { event, question },
+    SINGLE_TIMEOUT_MS,
+  );
+
+  const durationMs = Date.now() - t0;
+  recordAiActivity({
+    system: "settlement-score-lookup",
+    trigger: "waterfall",
+    status: result ? "success" : "error",
+    model: result?.model ?? "llama-3.3-70b-versatile",
+    itemCount: 1,
+    durationMs,
+    costUsd: null,
+    summary: result
+      ? `AI Search settlement: "${result.answer}" ${result.confidence}% — ${label}`
+      : `AI Search settlement unreachable — ${label}`,
+    error: result ? null : "Service unreachable or timeout",
+    metadata: result
+      ? {
+          answer: result.answer,
+          confidence: result.confidence,
+          sourcesCount: result.sources?.length ?? 0,
+        }
+      : null,
+  }).catch(() => {});
+
+  return result;
 }
 
 /**

@@ -34,11 +34,7 @@ import { logger } from "@/lib/shared/logger";
 
 const tag = "MatcherLab";
 
-const VALID_STAGES: MatchPairStage[] = [
-  "inbox",
-  "human_review",
-  "history",
-];
+const VALID_STAGES: MatchPairStage[] = ["inbox", "human_review", "history"];
 
 export async function GET(request: NextRequest) {
   try {
@@ -208,7 +204,7 @@ export async function POST(request: NextRequest) {
           aiSearchMaxBatchSize?: number;
         };
 
-        const updates: Record<string, unknown> = {};
+        const updates: Partial<typeof matcherConfig.$inferInsert> = {};
 
         if (typeof enabled === "boolean") {
           updates.enabled = enabled;
@@ -235,7 +231,7 @@ export async function POST(request: NextRequest) {
         if (Object.keys(updates).length > 0) {
           await db
             .update(matcherConfig)
-            .set({ ...updates, updatedAt: new Date().toISOString() } as any)
+            .set({ ...updates, updatedAt: new Date().toISOString() })
             .where(eq(matcherConfig.id, "default"));
         }
 

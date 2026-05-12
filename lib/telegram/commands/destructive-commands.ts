@@ -18,8 +18,6 @@ import { createConfirm } from "../confirm";
 import { registerCommand } from "../registry";
 import { b, esc, kvList, money, signedPct } from "../format";
 
-
-
 registerCommand({
   name: "place",
   usage: "/place <valueBetId> [stake]",
@@ -268,7 +266,6 @@ registerCommand({
     return { alreadyReplied: true };
   },
 });
-
 
 // ── /autoplaceon <provider> ──────────────────────────────────────────────
 // Lifted out of the read-only /autoplace command into its own

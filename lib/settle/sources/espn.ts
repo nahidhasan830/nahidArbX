@@ -27,6 +27,10 @@ import {
   lookupCompetitionSlug,
   normalizeCompetition,
 } from "../aliases";
+import {
+  verifySettlementMatch,
+  AI_MAYBE_FLOOR,
+} from "./ai-match";
 
 const BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer";
 const MATCH_SCORE_THRESHOLD = 0.65;
@@ -174,6 +178,11 @@ const LEAGUE_ALIASES: Record<string, string> = {
   brasileirao: "bra.1",
   "brazil serie a": "bra.1",
   "brazilian serie a": "bra.1",
+  "brazil serie b": "bra.2",
+  "brazilian serie b": "bra.2",
+  "brazil serie c": "bra.3",
+  "brazilian serie c": "bra.3",
+  "brazil serie d": "bra.4",
 
   // Argentina
   "liga profesional": "arg.1",
@@ -226,6 +235,70 @@ const LEAGUE_ALIASES: Record<string, string> = {
   "copa libertadores": "conmebol.libertadores",
   libertadores: "conmebol.libertadores",
   "copa sudamericana": "conmebol.sudamericana",
+
+  // Additional niche leagues (coverage expansion)
+  // Croatia
+  "croatian hnl": "cro.1",
+  "croatia hnl": "cro.1",
+
+  // Czech Republic
+  "czech first league": "cze.1",
+  "czech liga": "cze.1",
+
+  // Romania
+  "romania liga 1": "rou.1",
+
+  // Hungary
+  "nb i": "hun.1",
+  "hungary nb i": "hun.1",
+
+  // Greece
+  "super league greece": "gre.1",
+  "greece super league": "gre.1",
+
+  // Austria
+  "austrian bundesliga": "aut.1",
+  "austria bundesliga": "aut.1",
+
+  // Switzerland
+  "swiss super league": "sui.1",
+  "switzerland super league": "sui.1",
+
+  // Serbia
+  "serbian superliga": "srb.1",
+
+  // Ukraine
+  "ukrainian premier league": "ukr.1",
+
+  // Egypt
+  "egyptian premier league": "egy.1",
+
+  // Mexico
+  "liga mx": "mex.1",
+  "mexico liga mx": "mex.1",
+
+  // Colombia
+  "colombian primera a": "col.1",
+  "colombia primera a": "col.1",
+
+  // Chile
+  "chilean primera": "chi.1",
+
+  // Peru
+  "peruvian primera": "per.1",
+
+  // Paraguay
+  "paraguay primera": "par.1",
+
+  // Uruguay
+  "uruguayan primera": "uru.1",
+
+  // Australia
+  "a league": "aus.1",
+  "a league men": "aus.1",
+
+  // India
+  "indian super league": "ind.1",
 };
 
 /**
@@ -479,7 +552,7 @@ export async function fetchEspnScores(
           teamSimilarity(ours.awayTeam, away.team.abbreviation),
         );
         const combined = (homeSim + awaySim) / 2;
-        if (combined < MATCH_SCORE_THRESHOLD) continue;
+        if (combined < AI_MAYBE_FLOOR) continue; // Too different even for AI
 
         if (!best || combined > best.score) {
           best = { event: theirs, score: combined };
@@ -487,6 +560,31 @@ export async function fetchEspnScores(
       }
 
       if (!best) continue;
+
+      // If the best match is below the deterministic threshold, ask AI
+      // to verify. This is the bridge between Matcher Lab AI and settlement.
+      if (best.score < MATCH_SCORE_THRESHOLD) {
+        const comp = best.event.competitions?.[0];
+        const home = comp?.competitors.find((c) => c.homeAway === "home");
+        const away = comp?.competitors.find((c) => c.homeAway === "away");
+        if (!home || !away) continue;
+
+        const aiResult = await verifySettlementMatch({
+          ourHomeTeam: ours.homeTeam,
+          ourAwayTeam: ours.awayTeam,
+          ourCompetition: ours.competition,
+          ourStartTime: ours.startTime,
+          theirHomeTeam: home.team.displayName,
+          theirAwayTeam: away.team.displayName,
+          theirStartTime: best.event.date,
+          fuzzySimilarity: best.score,
+          sourceProvider: "espn",
+        });
+
+        if (!aiResult?.confirmed) continue; // AI rejected or unavailable
+        // AI confirmed — bump the effective score for confidence calc
+        best.score = Math.max(best.score, 0.85);
+      }
       const confidence = 0.6 + best.score * 0.35;
       const score = eventToScore(best.event, ours.eventId, confidence);
       if (score) {
@@ -530,4 +628,170 @@ export async function fetchEspnScores(
     );
   }
   return out;
+}
+
+// ─── Match-level stats (cards, corners) via /summary ─────────────────────────
+
+/**
+ * ESPN `/summary` boxscore shape. Each team has a flat array of stat rows;
+ * we only need a handful.
+ */
+interface EspnBoxscoreTeam {
+  team: { displayName: string };
+  homeAway: "home" | "away";
+  statistics: { label: string; displayValue: string }[];
+}
+
+interface EspnSummary {
+  boxscore?: {
+    teams?: EspnBoxscoreTeam[];
+  };
+}
+
+interface EspnCardStats {
+  yellowCardsHome: number;
+  redCardsHome: number;
+  yellowCardsAway: number;
+  redCardsAway: number;
+  cornersHome: number;
+  cornersAway: number;
+}
+
+/**
+ * Fetch match-level statistics (cards, corners) for a single ESPN event.
+ * The `/summary` endpoint is free, unauthenticated, and not
+ * Cloudflare-protected — unlike SofaScore.
+ *
+ * Returns null when the endpoint 404s (event not found / league not
+ * supported for summary data) or the boxscore is missing stats.
+ */
+async function fetchEspnMatchStats(
+  espnEventId: string,
+  leagueSlug: string,
+): Promise<EspnCardStats | null> {
+  const url = `${BASE_URL}/${leagueSlug}/summary`;
+  try {
+    const { data } = await axios.get<EspnSummary>(url, {
+      params: { event: espnEventId },
+      timeout: HTTP_TIMEOUT_MS,
+    });
+
+    const teams = data.boxscore?.teams;
+    if (!teams || teams.length < 2) return null;
+
+    const home = teams.find((t) => t.homeAway === "home");
+    const away = teams.find((t) => t.homeAway === "away");
+    if (!home || !away) return null;
+
+    const stat = (
+      team: EspnBoxscoreTeam,
+      label: string,
+    ): number => {
+      const row = team.statistics.find(
+        (s) => s.label.toLowerCase() === label.toLowerCase(),
+      );
+      if (!row) return 0;
+      const n = Number.parseInt(row.displayValue, 10);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    return {
+      yellowCardsHome: stat(home, "Yellow Cards"),
+      redCardsHome: stat(home, "Red Cards"),
+      yellowCardsAway: stat(away, "Yellow Cards"),
+      redCardsAway: stat(away, "Red Cards"),
+      cornersHome: stat(home, "Corner Kicks"),
+      cornersAway: stat(away, "Corner Kicks"),
+    };
+  } catch (err) {
+    const status = (err as { response?: { status?: number } }).response?.status;
+    // 400/404 = league or event not available — silent skip, not an error.
+    if (status === 400 || status === 404) return null;
+    logger.warn(
+      "EspnSource",
+      `GET /${leagueSlug}/summary?event=${espnEventId} failed: ${(err as Error).message}`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Enrich an existing map of scores with card/corner data from ESPN.
+ * Expects scores that were originally resolved by ESPN (i.e. have a
+ * sourceUrl like `https://www.espn.com/soccer/match/_/gameId/{espnId}`).
+ *
+ * This is the **primary** enrichment path for bookings and corners,
+ * replacing the SofaScore dependency. ESPN `/summary` is free, unlimited,
+ * and not behind Cloudflare.
+ *
+ * @param scores   Map of eventId → MatchScore (mutated in-place)
+ * @param events   Original settle events (for competition → slug lookup)
+ * @param opts     Which stats to fetch
+ */
+export async function enrichEspnStats(
+  scores: Map<string, MatchScore>,
+  events: SettleEvent[],
+  opts: { withCorners?: boolean; withBookings?: boolean },
+): Promise<{ enriched: number; skipped: number }> {
+  let enriched = 0;
+  let skipped = 0;
+
+  const metaById = new Map(events.map((e) => [e.eventId, e]));
+
+  for (const [eventId, score] of scores) {
+    // Only enrich scores that came from ESPN (sourceUrl contains espnId).
+    const m = score.sourceUrl?.match(/gameId\/(\d+)/);
+    if (!m) {
+      skipped++;
+      continue;
+    }
+
+    // Check if enrichment is actually needed
+    const needsCorners =
+      opts.withCorners &&
+      (score.cornersHome == null || score.cornersAway == null);
+    const needsBookings =
+      opts.withBookings &&
+      (score.bookingsHome == null || score.bookingsAway == null);
+    if (!needsCorners && !needsBookings) continue;
+
+    // Find the ESPN league slug for this event
+    const meta = metaById.get(eventId);
+    const slug = meta ? espnSlug(meta.competition) : null;
+    if (!slug) {
+      skipped++;
+      continue;
+    }
+
+    const espnId = m[1];
+    const stats = await fetchEspnMatchStats(espnId, slug);
+    if (!stats) {
+      skipped++;
+      continue;
+    }
+
+    if (needsCorners) {
+      score.cornersHome = stats.cornersHome;
+      score.cornersAway = stats.cornersAway;
+    }
+    if (needsBookings) {
+      // Pinnacle convention: 1 pt per yellow, 2 pts per red
+      score.bookingsHome =
+        stats.yellowCardsHome + 2 * stats.redCardsHome;
+      score.bookingsAway =
+        stats.yellowCardsAway + 2 * stats.redCardsAway;
+    }
+    enriched++;
+  }
+
+  if (enriched > 0) {
+    const extras: string[] = [];
+    if (opts.withCorners) extras.push("corners");
+    if (opts.withBookings) extras.push("bookings");
+    logger.info(
+      "EspnSource",
+      `Enriched ${enriched} events with ${extras.join("+")} via ESPN /summary (${skipped} skipped)`,
+    );
+  }
+  return { enriched, skipped };
 }

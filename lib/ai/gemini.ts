@@ -132,7 +132,9 @@ export async function analyzeMatchWithGemini(
       throw new Error(`Gemini returned non-JSON: ${(err as Error).message}`);
     }
 
-    const decision = ["SAME", "DIFFERENT", "UNCERTAIN"].includes(parsed.decision)
+    const decision = ["SAME", "DIFFERENT", "UNCERTAIN"].includes(
+      parsed.decision,
+    )
       ? (parsed.decision as Verdict)
       : "UNCERTAIN";
 

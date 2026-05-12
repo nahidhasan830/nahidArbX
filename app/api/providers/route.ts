@@ -6,10 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import {
-  PROVIDER_REGISTRY,
-  PROVIDER_IDS,
-} from "@/lib/providers/registry";
+import { PROVIDER_REGISTRY, PROVIDER_IDS } from "@/lib/providers/registry";
 import {
   getRuntimeDisabledProviders,
   isProviderRuntimeEnabled,
@@ -45,28 +42,49 @@ export async function POST(request: NextRequest) {
     const result = await enginePost("/engine/providers", body);
     if (result === null) {
       // Engine unreachable — still apply file-config locally
-      const { toggleProviderAction, setDisabledProvidersAction } = await import("@/lib/providers/actions");
+      const { toggleProviderAction, setDisabledProvidersAction } =
+        await import("@/lib/providers/actions");
       const { action } = body;
 
       if (action === "setEnabled") {
         const { provider, enabled } = body;
         if (!PROVIDER_REGISTRY[provider as keyof typeof PROVIDER_REGISTRY]) {
-          return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 400 });
+          return NextResponse.json(
+            { error: `Unknown provider: ${provider}` },
+            { status: 400 },
+          );
         }
         const purged = toggleProviderAction(provider, enabled);
-        return NextResponse.json({ success: true, provider, enabled, purgedEvents: purged, _engineOffline: true });
+        return NextResponse.json({
+          success: true,
+          provider,
+          enabled,
+          purgedEvents: purged,
+          _engineOffline: true,
+        });
       }
 
       if (action === "setDisabled") {
         const { disabled } = body;
         if (!Array.isArray(disabled)) {
-          return NextResponse.json({ error: "disabled must be an array" }, { status: 400 });
+          return NextResponse.json(
+            { error: "disabled must be an array" },
+            { status: 400 },
+          );
         }
         const totalPurged = setDisabledProvidersAction(disabled);
-        return NextResponse.json({ success: true, disabled, purgedEvents: totalPurged, _engineOffline: true });
+        return NextResponse.json({
+          success: true,
+          disabled,
+          purgedEvents: totalPurged,
+          _engineOffline: true,
+        });
       }
 
-      return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Unknown action: ${body.action}` },
+        { status: 400 },
+      );
     }
 
     return NextResponse.json(result);

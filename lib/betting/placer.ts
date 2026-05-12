@@ -112,6 +112,20 @@ export interface PlaceForValueBetArgs {
    */
   kellyStake: number;
   /**
+   * ML-adjusted Kelly multiplier from `computeKellyMultiplier()`.
+   * Applied to the freshly-derived fullKelly in auto mode before
+   * `computeStake()`. Ignored in manual mode.
+   *
+   * - undefined/null: no ML effect (use base fullKelly)
+   * - 0: the ML gate skipped this bet (should not reach placer,
+   *   but handled defensively)
+   * - 0 < x <= 1.0: stake_reduce (shrink fullKelly)
+   * - x > 1.0: stake_increase (grow fullKelly, capped at 2.0)
+   */
+  mlKellyMultiplier?: number | null;
+  /** Raw ML score used by the auto-placer gate; logged for audit. */
+  mlScore?: number | null;
+  /**
    * Optional pre-resolved provider refs (book-native marketId /
    * selectionId / etc.). When omitted the placer calls
    * `adapter.resolveProviderRefs` — that's the standard path. Tests
@@ -214,7 +228,7 @@ function logAutoPlacerOutcome(
     softOdds: Number(vb.softOdds) || null,
     sharpOdds: Number(vb.sharpOdds) || null,
     evPct,
-    mlScore: null,
+    mlScore: args.mlScore ?? null,
     stake: logStake,
     balance: logBalance,
     bookedOdds: "bookedOdds" in outcome ? outcome.bookedOdds : null,
@@ -394,8 +408,31 @@ async function placeBetForValueBetImpl(
         _logBalance: accountInfo.balance,
       };
     }
+
+    // ── ML Kelly adjustment ────────────────────────────────────────────
+    // Apply the ML multiplier to fullKelly before stake computation.
+    // This is where ML permission levels (stake_reduce / stake_increase)
+    // actually affect the submitted stake.
+    const mlMult = args.mlKellyMultiplier;
+    let adjustedFullKelly = fullKelly;
+    if (mlMult != null && mlMult !== 0) {
+      adjustedFullKelly = fullKelly * mlMult;
+      logger.info(
+        "BetPlacer",
+        `ML adjust: fullKelly=${fullKelly.toFixed(4)} × ${mlMult.toFixed(3)} = ${adjustedFullKelly.toFixed(4)}`,
+      );
+    } else if (mlMult === 0) {
+      // ML gate says skip — should have been caught by auto-placer,
+      // but handle defensively.
+      return {
+        status: "skipped",
+        reason: "ML model gated this bet (multiplier=0)",
+        _logBalance: accountInfo.balance,
+      };
+    }
+
     const rawStake = computeStake({
-      fullKelly,
+      fullKelly: adjustedFullKelly,
       bankrollBdt: bankroll,
       kellyCapPct: settings.kellyCapPct,
       kellyFraction: settings.kellyFraction,
@@ -416,7 +453,9 @@ async function placeBetForValueBetImpl(
       "BetPlacer",
       `auto: raw=${rawStake.toFixed(2)} → snapped=${snapped} ` +
         `(bucket=${bucket}, floor=${autoMinStake}, bookMin=${minBet}, ` +
-        `bankroll=${bankroll}, evPct=${evPct.toFixed(2)}, kelly=${fullKelly.toFixed(4)})`,
+        `bankroll=${bankroll}, evPct=${evPct.toFixed(2)}, kelly=${fullKelly.toFixed(4)}` +
+        (mlMult != null ? `, mlMult=${mlMult.toFixed(3)}` : "") +
+        `)`,
     );
     targetStake = snapped;
   } else {
@@ -683,7 +722,6 @@ async function placeBetForValueBetImpl(
         currency: baseInsert.currency,
         providerTicketId: attempt.ticketId ?? null,
         mode,
-
       });
     } catch (err) {
       // UNIQUE-index collision on (event_id, family_id, atom_id): another

@@ -21,9 +21,7 @@ const TIMEOUT_MS = 8_000;
  * GET request to engine HTTP API.
  * Returns parsed JSON or null if engine is unreachable.
  */
-export async function engineGet<T = unknown>(
-  path: string,
-): Promise<T | null> {
+export async function engineGet<T = unknown>(path: string): Promise<T | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -75,11 +73,11 @@ export async function enginePost<T = unknown>(
 export function engineSSEProxy(): ReadableStream | null {
   try {
     const url = `${ENGINE_BASE}/engine/stream`;
-    
+
     return new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        
+
         try {
           const res = await fetch(url, {
             cache: "no-store",

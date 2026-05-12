@@ -12,12 +12,12 @@ Dual-process on **localhost** (`nahidarbx.store` is inactive). Bangladesh IP req
 
 **Dev machine:** MacBook Pro 14″ (Nov 2024), Apple M4 Pro, 24 GB unified memory. Supports local Gemma 4 26B (MoE) via Ollama.
 
-| Component | Where | Notes |
-|-----------|-------|-------|
-| Engine | `npm run engine` (tsx) | 13 background subsystems. `NAHIDARBX_ENGINE=1` |
-| Next.js | `http://localhost:3000` | `npm run dev` — web-only, read-only UI + API |
-| Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job` | ML training sidecar (LightGBM). Project `nahidarbx-6e73`, region `asia-south1` |
-| Database | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | Via Cloud SQL Connector (no local proxy needed) |
+| Component         | Where                                                        | Notes                                                                          |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Engine            | `npm run engine` (tsx)                                       | 13 background subsystems. `NAHIDARBX_ENGINE=1`                                 |
+| Next.js           | `http://localhost:3000`                                      | `npm run dev` — web-only, read-only UI + API                                   |
+| Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job`                  | ML training sidecar (LightGBM). Project `nahidarbx-6e73`, region `asia-south1` |
+| Database          | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | Via Cloud SQL Connector (no local proxy needed)                                |
 
 ## Commands
 
@@ -52,15 +52,15 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 ## Routes
 
-| Route | Purpose |
-|-------|---------|
-| `/dashboard` | Central betting-account dashboard |
-| `/value-bets` | Value-bet / arb finder |
-| `/bets` | Bets history — settlement + review |
-| `/lab/ml` | ML Optimizer — LightGBM model pipeline dashboard |
-| `/api/value-bets` | GET: arb data, POST: manual sync |
-| `/api/ml/pipeline` | GET: ML pipeline stats |
-| `/api/ml/retrain` | POST: trigger Cloud Run training job |
+| Route              | Purpose                                          |
+| ------------------ | ------------------------------------------------ |
+| `/dashboard`       | Central betting-account dashboard                |
+| `/value-bets`      | Value-bet / arb finder                           |
+| `/bets`            | Bets history — settlement + review               |
+| `/lab/ml`          | ML Optimizer — LightGBM model pipeline dashboard |
+| `/api/value-bets`  | GET: arb data, POST: manual sync                 |
+| `/api/ml/pipeline` | GET: ML pipeline stats                           |
+| `/api/ml/retrain`  | POST: trigger Cloud Run training job             |
 
 ## Critical Rules
 
@@ -99,14 +99,14 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 **Copy vocabulary cheatsheet:**
 
-| Don't say | Say instead |
-|-----------|-------------|
-| OOS / out-of-sample | "on bets it has never seen" |
-| Sharpe ratio | "smoothness of returns" |
-| p-value | "how likely this is just chance" |
-| confidence interval | "the believable range" |
-| Pareto frontier | "the trade-off line" |
-| math formulas | (drop — describe the intent) |
+| Don't say           | Say instead                      |
+| ------------------- | -------------------------------- |
+| OOS / out-of-sample | "on bets it has never seen"      |
+| Sharpe ratio        | "smoothness of returns"          |
+| p-value             | "how likely this is just chance" |
+| confidence interval | "the believable range"           |
+| Pareto frontier     | "the trade-off line"             |
+| math formulas       | (drop — describe the intent)     |
 
 ### Workflow & infrastructure
 
@@ -124,6 +124,7 @@ Postgres-backed alias system replacing legacy JSON files. 5 tables: `entities`, 
 **Lookup:** `(provider, surface_normalized, competition_id)` UNIQUE — tournament-scoped. **Ingress:** all writers call `recordObservation` in `lib/matching/entities/observations.ts`.
 
 **4-tier promoter** (`lib/matching/entities/promoter.ts`, every 5 min):
+
 - **Tier 0** — deterministic gates: gender mismatch, team-variant mismatch (U17/U19/U20/U21/U23/Reserves/Academy/Futsal/etc.), group conflict, competing-candidate
 - **Tier 1** — Bayesian evidence with provider/source weights
 - **Tier 2** — LightGBM + conformal calibration (uncertain band [1.0, 3.0], promote at score ≥ 0.92 AND p-value ≤ 0.05)
@@ -159,22 +160,22 @@ Competition names normalized (country adjectives → nouns).
 
 ## File Structure
 
-| Path | Purpose |
-|------|---------|
-| `engine.ts` | Standalone background engine entry point |
-| `instrumentation.ts` | Next.js boot hook — DB init + conditional background tasks |
-| `lib/db/client.ts` | Async DB pool init (`ensureDbReady()`) + Proxy `db` export |
-| `lib/types.ts` | Core types (Provider, NormalizedEvent) |
-| `lib/providers/registry.ts` | Single source of truth for provider metadata |
-| `lib/store.ts` | Events store + SyncStatus |
-| `lib/adapters/*.ts` | Provider event adapters |
-| `lib/atoms/` | Family/atom types, registry, store, fetcher, value-detector, vig-removal |
-| `lib/db/schema.ts` | Postgres `bets` + settlement tables |
-| `lib/db/repositories/bets.ts` | Upsert/list/place/settle repository |
-| `lib/auth/token-manager.ts` | Pinnacle token capture (via cloudflare-bridge) |
-| `lib/shared/cloudflare-bridge.ts` | Shared CF-solve + in-page-fetch pipeline |
-| `lib/matching/matcher.ts` | Event matching with string-similarity |
-| `lib/background/fetcher.ts` | Sync scheduler |
+| Path                              | Purpose                                                                  |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| `engine.ts`                       | Standalone background engine entry point                                 |
+| `instrumentation.ts`              | Next.js boot hook — DB init + conditional background tasks               |
+| `lib/db/client.ts`                | Async DB pool init (`ensureDbReady()`) + Proxy `db` export               |
+| `lib/types.ts`                    | Core types (Provider, NormalizedEvent)                                   |
+| `lib/providers/registry.ts`       | Single source of truth for provider metadata                             |
+| `lib/store.ts`                    | Events store + SyncStatus                                                |
+| `lib/adapters/*.ts`               | Provider event adapters                                                  |
+| `lib/atoms/`                      | Family/atom types, registry, store, fetcher, value-detector, vig-removal |
+| `lib/db/schema.ts`                | Postgres `bets` + settlement tables                                      |
+| `lib/db/repositories/bets.ts`     | Upsert/list/place/settle repository                                      |
+| `lib/auth/token-manager.ts`       | Pinnacle token capture (via cloudflare-bridge)                           |
+| `lib/shared/cloudflare-bridge.ts` | Shared CF-solve + in-page-fetch pipeline                                 |
+| `lib/matching/matcher.ts`         | Event matching with string-similarity                                    |
+| `lib/background/fetcher.ts`       | Sync scheduler                                                           |
 
 ## Provider Adapter Pattern
 
@@ -186,7 +187,10 @@ interface ProviderAdapter {
 
 interface AtomsProviderAdapter {
   providerId: ProviderKey;
-  fetchAndStoreOdds(providerEventId: string, normalizedEventId: string): Promise<number>;
+  fetchAndStoreOdds(
+    providerEventId: string,
+    normalizedEventId: string,
+  ): Promise<number>;
 }
 ```
 

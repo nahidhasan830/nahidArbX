@@ -7,7 +7,7 @@
 import "dotenv/config";
 import { db, ensureDbReady } from "../lib/db/client";
 import { matchSingle } from "../lib/matching/ai-search-client";
-import { logger } from "../lib/shared/logger";
+
 
 async function main() {
   await ensureDbReady();
@@ -31,7 +31,7 @@ async function main() {
      FROM match_pairs
      WHERE stage = 'human_review'
      ORDER BY detected_at DESC
-     LIMIT 5`
+     LIMIT 5`,
   );
 
   const pairs = rows.rows;
@@ -40,7 +40,9 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`Testing ${pairs.length} human_review pairs against AI Search...\n`);
+  console.log(
+    `Testing ${pairs.length} human_review pairs against AI Search...\n`,
+  );
 
   let tested = 0;
   let same = 0;
@@ -54,9 +56,15 @@ async function main() {
 
     console.log(`── Pair ${i + 1}/${pairs.length} ──`);
     console.log(`  ID: ${pairId}`);
-    console.log(`  A: [${p.eventAProvider}] ${p.eventAHome} vs ${p.eventAAway} — ${p.eventAComp} @ ${(p.eventAStart as string)?.slice(0, 16)}`);
-    console.log(`  B: [${p.eventBProvider}] ${p.eventBHome} vs ${p.eventBAway} — ${p.eventBComp} @ ${(p.eventBStart as string)?.slice(0, 16)}`);
-    console.log(`  String: ${((p.stringScore as number) * 100).toFixed(0)}%  ML: ${p.mlScore != null ? ((p.mlScore as number) * 100).toFixed(0) + '%' : '—'}`);
+    console.log(
+      `  A: [${p.eventAProvider}] ${p.eventAHome} vs ${p.eventAAway} — ${p.eventAComp} @ ${(p.eventAStart as string)?.slice(0, 16)}`,
+    );
+    console.log(
+      `  B: [${p.eventBProvider}] ${p.eventBHome} vs ${p.eventBAway} — ${p.eventBComp} @ ${(p.eventBStart as string)?.slice(0, 16)}`,
+    );
+    console.log(
+      `  String: ${((p.stringScore as number) * 100).toFixed(0)}%  ML: ${p.mlScore != null ? ((p.mlScore as number) * 100).toFixed(0) + "%" : "—"}`,
+    );
     console.log(`  Calling /entity-match...`);
 
     const t0 = Date.now();
@@ -85,9 +93,18 @@ async function main() {
     }
 
     tested++;
-    const icon = verdict.decision === "SAME" ? "🔗" : verdict.decision === "DIFFERENT" ? "✗" : "❓";
-    console.log(`  ${icon} ${verdict.decision} (${verdict.confidence}%) · model: ${verdict.model} · ${elapsed}s`);
-    console.log(`  Reasoning: ${verdict.reasoning.slice(0, 250)}${verdict.reasoning.length > 250 ? '…' : ''}`);
+    const icon =
+      verdict.decision === "SAME"
+        ? "🔗"
+        : verdict.decision === "DIFFERENT"
+          ? "✗"
+          : "❓";
+    console.log(
+      `  ${icon} ${verdict.decision} (${verdict.confidence}%) · model: ${verdict.model} · ${elapsed}s`,
+    );
+    console.log(
+      `  Reasoning: ${verdict.reasoning.slice(0, 250)}${verdict.reasoning.length > 250 ? "…" : ""}`,
+    );
 
     if (verdict.sources.length > 0) {
       console.log(`  Sources (${verdict.sources.length}):`);
@@ -98,7 +115,9 @@ async function main() {
     }
 
     if (verdict.search_queries_used.length > 0) {
-      console.log(`  Queries: ${verdict.search_queries_used.map(q => `"${q}"`).join(', ')}`);
+      console.log(
+        `  Queries: ${verdict.search_queries_used.map((q) => `"${q}"`).join(", ")}`,
+      );
     }
 
     if (verdict.decision === "SAME") same++;

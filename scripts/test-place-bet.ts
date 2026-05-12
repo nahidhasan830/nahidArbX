@@ -32,6 +32,36 @@ import { ninewicketsSportsbookAdapter } from "../lib/betting/ninewickets/adapter
 import type { PlaceBetResult } from "../lib/betting/types";
 
 // ────────────────────────────────────────────────────────────────────
+// Genius Sports API response shapes (minimal)
+// ────────────────────────────────────────────────────────────────────
+interface NwSelection {
+  id: number | string;
+  selectionName: string;
+  odds: number;
+  handicap: number;
+  isActive: boolean;
+  apiSiteSelectionId?: string;
+}
+
+interface NwMarket {
+  id: string | number;
+  marketName: string;
+  apiSiteMarketType?: number;
+  apiSiteStatus?: string;
+  selectionTs?: number;
+  min?: number;
+  max?: number;
+  geniusSportsSelection?: NwSelection[];
+}
+
+interface NwCatalogResponse {
+  eventId?: number;
+  eventName?: string;
+  version?: number;
+  geniusSportsMarkets?: NwMarket[];
+}
+
+// ────────────────────────────────────────────────────────────────────
 // CLI arg parsing
 // ────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -167,7 +197,7 @@ async function fetchSoccerEvents(
 }
 
 interface EventMarketsResult {
-  markets: any[];
+  markets: NwMarket[];
   /** Genius Sports internal event id — goes into placeBet.eventId. */
   geniusSportsEventId: number | null;
 }
@@ -186,13 +216,13 @@ async function fetchEventMarkets(
     selectionTsList: ",",
     isDynamicUpdate: "0",
   });
-  const markets = (catalog.geniusSportsMarkets ?? []) as any[];
+  const markets = (catalog.geniusSportsMarkets ?? []) as NwMarket[];
   if (markets.length === 0) return null;
 
   // Step 2 — fetch odds for all markets in a single call
-  const marketIds = markets.map((m: any) => m.id).join(",") + ",";
+  const marketIds = markets.map((m) => m.id).join(",") + ",";
   const selectionTsList =
-    markets.map((m: any) => m.selectionTs ?? -1).join(",") + ",";
+    markets.map((m) => m.selectionTs ?? -1).join(",") + ",";
   const version = catalog.version ?? 0;
   const withOdds = await post(url, queryPass, {
     apiSiteType: "5",
@@ -212,7 +242,7 @@ async function fetchEventMarkets(
         ? catalog.eventId
         : null;
   return {
-    markets: (withOdds.geniusSportsMarkets ?? markets) as any[],
+    markets: (withOdds.geniusSportsMarkets ?? markets) as NwMarket[],
     geniusSportsEventId,
   };
 }
@@ -221,7 +251,7 @@ async function post(
   url: string,
   queryPass: string,
   params: Record<string, string>,
-): Promise<any> {
+): Promise<NwCatalogResponse> {
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -294,7 +324,7 @@ async function discoverTarget(queryPass: string): Promise<Target | null> {
   // Prefer the core three outcome markets — 1X2 / Match Result /
   // Full Time Result. Exotic props close pre-match too often to be
   // reliable probing targets.
-  function isPreferredMarket(market: any): boolean {
+  function isPreferredMarket(market: NwMarket): boolean {
     const name = String(market.marketName ?? "")
       .toLowerCase()
       .trim();
@@ -312,8 +342,8 @@ async function discoverTarget(queryPass: string): Promise<Target | null> {
   // Every selection in the market must be active — a partially-open
   // market (e.g. draw closed but home/away open) often rejects on
   // placement with "Selection X is Close!".
-  function allSelectionsActive(market: any): boolean {
-    const sels = (market.geniusSportsSelection ?? []) as any[];
+  function allSelectionsActive(market: NwMarket): boolean {
+    const sels = market.geniusSportsSelection ?? [];
     if (sels.length < 2) return false;
     return sels.every((s) => Boolean(s.isActive));
   }
@@ -331,7 +361,7 @@ async function discoverTarget(queryPass: string): Promise<Target | null> {
       const sample = catalog.markets
         .slice(0, 5)
         .map(
-          (m: any) =>
+          (m: NwMarket) =>
             `${m.marketName} [type=${m.apiSiteMarketType}, status=${m.apiSiteStatus ?? "?"}]`,
         );
       console.log(dim(`  sample markets: ${sample.join(" | ")}`));
@@ -341,7 +371,7 @@ async function discoverTarget(queryPass: string): Promise<Target | null> {
       if (market.apiSiteStatus !== "OPEN") continue;
       if (!isPreferredMarket(market)) continue;
       if (!allSelectionsActive(market)) continue;
-      const selections = (market.geniusSportsSelection ?? []) as any[];
+      const selections = market.geniusSportsSelection ?? [];
       for (const sel of selections) {
         if (!sel.isActive) continue;
         const odds = Number(sel.odds);
@@ -440,7 +470,7 @@ function renderSummary(results: CaseOutcome[]) {
 // ────────────────────────────────────────────────────────────────────
 // Individual test cases
 // ────────────────────────────────────────────────────────────────────
-function resultDetail(r: PlaceBetResult, want: string): string {
+function resultDetail(r: PlaceBetResult, _want: string): string {
   if (r.status === "placed" || r.status === "pending") {
     const tid = r.ticketId ? ` (ticket ${r.ticketId})` : "";
     const label =

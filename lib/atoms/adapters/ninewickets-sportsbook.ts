@@ -105,7 +105,7 @@ const SportsbookResponseSchema = z.object({
   geniusSportsMarkets: z.array(MarketSchema).optional(),
 });
 
-type SportsbookMarket = z.infer<typeof MarketSchema>;
+export type SportsbookMarket = z.infer<typeof MarketSchema>;
 
 // ============================================
 // Combined Result Type (for 2-step flow)
@@ -125,13 +125,13 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
 
   async fetchAndStoreOdds(
-    providerEventId: string,
-    normalizedEventId: string,
-    homeTeam: string,
-    awayTeam: string,
+    _providerEventId: string,
+    _normalizedEventId: string,
+    _homeTeam: string,
+    _awayTeam: string,
   ): Promise<number> {
-    // LEGACY: The 15-second polling loop calls this. 
-    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not 
+    // LEGACY: The 15-second polling loop calls this.
+    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not
     // fetch odds via REST here anymore to avoid duplicate work.
     // The X-Ray diagnostics UI still uses `debugFetchRawData` below.
     return 0;
@@ -269,10 +269,7 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
         // Piggyback: record the containing market's stake limits keyed
         // by (provider, event, atom). The UI uses this directly — no
         // second call to the book.
-        if (
-          typeof market.min === "number" &&
-          typeof market.max === "number"
-        ) {
+        if (typeof market.min === "number" && typeof market.max === "number") {
           setMarketLimits(
             this.providerId,
             ctx.normalizedEventId,
@@ -290,7 +287,6 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
 
     return entries;
   }
-
 }
 
 // ============================================
@@ -409,4 +405,3 @@ export async function fetchAndStoreNwSportsbookOdds(
     awayTeam,
   );
 }
-

@@ -151,7 +151,10 @@ export async function setMyCommands(
   await call("setMyCommands", {
     commands: commands.map((c) => ({
       // Telegram allows only [a-z0-9_] in command names, max 32 chars.
-      command: c.command.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32),
+      command: c.command
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "")
+        .slice(0, 32),
       description: c.description.slice(0, 256),
     })),
   });

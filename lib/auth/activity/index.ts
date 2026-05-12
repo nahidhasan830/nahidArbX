@@ -92,7 +92,7 @@ export async function getUserActivityLogs(
   const limit = options?.limit ?? 50;
   const offset = options?.offset ?? 0;
 
-  let query = db
+  const query = db
     .select()
     .from(activityLogs)
     .where(eq(activityLogs.userId, userId))

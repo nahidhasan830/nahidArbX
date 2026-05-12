@@ -28,7 +28,13 @@ const oddsAtomStore = new Map<
 
 const eventStore = new Map<
   string,
-  { id: string; startTime: Date; homeTeam: string; awayTeam: string; competition?: string }
+  {
+    id: string;
+    startTime: Date;
+    homeTeam: string;
+    awayTeam: string;
+    competition?: string;
+  }
 >();
 
 const familyStore = new Map<
@@ -73,7 +79,9 @@ vi.mock("@/lib/atoms/odds-history", () => ({
     familyId: string,
     atomId: string,
     provider: string,
-  ) => historyStore.get(makeHistoryKey(eventId, familyId, atomId, provider)) ?? null,
+  ) =>
+    historyStore.get(makeHistoryKey(eventId, familyId, atomId, provider)) ??
+    null,
   getOrderedTicks: (
     eventId: string,
     familyId: string,
@@ -84,7 +92,9 @@ vi.mock("@/lib/atoms/odds-history", () => ({
       makeHistoryKey(eventId, familyId, atomId, provider),
     );
     if (!hist) return [];
-    return hist.ticks.filter((t: { odds: number; timestamp: number; suspended: boolean }) => t != null);
+    return hist.ticks.filter(
+      (t: { odds: number; timestamp: number; suspended: boolean }) => t != null,
+    );
   },
   detectSteamMove: () => null,
   getMovementSummary: () => null,
@@ -92,11 +102,8 @@ vi.mock("@/lib/atoms/odds-history", () => ({
 }));
 
 vi.mock("@/lib/atoms/store", () => ({
-  getAllOddsForAtom: (
-    eventId: string,
-    familyId: string,
-    atomId: string,
-  ) => oddsAtomStore.get(makeAtomKey(eventId, familyId, atomId)) ?? new Map(),
+  getAllOddsForAtom: (eventId: string, familyId: string, atomId: string) =>
+    oddsAtomStore.get(makeAtomKey(eventId, familyId, atomId)) ?? new Map(),
   getFamiliesForEvent: () => [],
   parseDirtyKey: () => ({ eventId: "", familyId: "" }),
 }));
@@ -186,7 +193,9 @@ describe("FEATURE_NAMES", () => {
   it("matches shared ML feature constants", () => {
     expect(FEATURE_COUNT).toBe(ML_FEATURE_COUNT);
     expect(FEATURE_VERSION).toBe(ML_FEATURE_VERSION);
-    expect(FEATURE_NAMES_HASH).toBe("5a3c08405a8444ea5621708ccd7e17933dfd2270d04e37ab503f4b71847cf1f7");
+    expect(FEATURE_NAMES_HASH).toBe(
+      "5a3c08405a8444ea5621708ccd7e17933dfd2270d04e37ab503f4b71847cf1f7",
+    );
   });
 });
 
@@ -214,11 +223,11 @@ describe("extractFeatures", () => {
     const vb = makeSyntheticValueBet();
     const features = extractFeatures(vb);
 
-    expect(features[0]).toBe(2.6);           // ev_pct
-    expect(features[1]).toBe(0.48);          // sharp_true_prob
-    expect(features[2]).toBe(2.25);          // soft_odds
-    expect(features[3]).toBe(2.1375);        // adjusted_soft_odds
-    expect(features[19]).toBe(0.0229);       // kelly_fraction_raw
+    expect(features[0]).toBe(2.6); // ev_pct
+    expect(features[1]).toBe(0.48); // sharp_true_prob
+    expect(features[2]).toBe(2.25); // soft_odds
+    expect(features[3]).toBe(2.1375); // adjusted_soft_odds
+    expect(features[19]).toBe(0.0229); // kelly_fraction_raw
   });
 
   it("rounds all values to 4 decimal places", () => {
@@ -297,21 +306,24 @@ describe("extractFeatures", () => {
     const vb = makeSyntheticValueBet();
     const features = extractFeatures(vb);
 
-    expect(features[5]).toBe(0);   // tick_count
-    expect(features[6]).toBe(0);   // time_to_kickoff_min
-    expect(features[13]).toBe(0);  // convergence_rate
-    expect(features[16]).toBe(0);  // opening_sharp_odds
-    expect(features[20]).toBe(0);  // vig_pct
-    expect(features[21]).toBe(1);  // competition_tier defaults to tier 1
-    expect(features[22]).toBe(0);  // hours_since_line_opened
-    expect(features[24]).toBe(1);  // num_markets_same_event defaults to 1
+    expect(features[5]).toBe(0); // tick_count
+    expect(features[6]).toBe(0); // time_to_kickoff_min
+    expect(features[13]).toBe(0); // convergence_rate
+    expect(features[16]).toBe(0); // opening_sharp_odds
+    expect(features[20]).toBe(0); // vig_pct
+    expect(features[21]).toBe(1); // competition_tier defaults to tier 1
+    expect(features[22]).toBe(0); // hours_since_line_opened
+    expect(features[24]).toBe(1); // num_markets_same_event defaults to 1
   });
 
   it("computes provider_count from odds store", () => {
     const atomKey = makeAtomKey("evt1", "ft_match_result", "ft_1x2_home");
     const providers = new Map();
     providers.set("pinnacle", { odds: 2.1, timestamp: Date.now() });
-    providers.set("ninewickets-exchange", { odds: 2.25, timestamp: Date.now() });
+    providers.set("ninewickets-exchange", {
+      odds: 2.25,
+      timestamp: Date.now(),
+    });
     providers.set("velki-sportsbook", { odds: 2.2, timestamp: Date.now() });
     oddsAtomStore.set(atomKey, providers);
 
@@ -323,7 +335,12 @@ describe("extractFeatures", () => {
 
   it("clamps impossible new feature values", () => {
     const now = Date.now();
-    const sharpKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "pinnacle");
+    const sharpKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+    );
     historyStore.set(sharpKey, {
       ticks: [],
       cursor: 0,
@@ -343,6 +360,92 @@ describe("extractFeatures", () => {
   });
 });
 
+describe("isFeatureWarm", () => {
+  // Import isFeatureWarm here since it's exported from the same module
+  let isFeatureWarm: typeof import("@/lib/ml/features").isFeatureWarm;
+
+  beforeEach(async () => {
+    const mod = await import("@/lib/ml/features");
+    isFeatureWarm = mod.isFeatureWarm;
+  });
+
+  it("returns false when tick_count is 0", () => {
+    const features = new Array(25).fill(0);
+    features[5] = 0; // tick_count
+    expect(isFeatureWarm(features)).toBe(false);
+  });
+
+  it("returns false when tick_count is below threshold", () => {
+    const features = new Array(25).fill(0);
+    features[5] = 2; // below ML_WARMUP_MIN_TICKS (3)
+    expect(isFeatureWarm(features)).toBe(false);
+  });
+
+  it("returns true when tick_count meets threshold", () => {
+    const features = new Array(25).fill(0);
+    features[5] = 3; // exactly ML_WARMUP_MIN_TICKS
+    expect(isFeatureWarm(features)).toBe(true);
+  });
+
+  it("returns true when tick_count exceeds threshold", () => {
+    const features = new Array(25).fill(0);
+    features[5] = 50;
+    expect(isFeatureWarm(features)).toBe(true);
+  });
+
+  it("returns false for empty features array", () => {
+    expect(isFeatureWarm([])).toBe(false);
+  });
+
+  it("integrates with extractFeatures — cold when no history", () => {
+    historyStore.clear();
+    oddsAtomStore.clear();
+    eventStore.clear();
+    familyStore.clear();
+    vigCache.clear();
+
+    const vb = makeSyntheticValueBet();
+    const features = extractFeatures(vb);
+    // No history set up → tick_count = 0 → cold
+    expect(isFeatureWarm(features)).toBe(false);
+  });
+
+  it("integrates with extractFeatures — warm when history has ticks", () => {
+    historyStore.clear();
+    oddsAtomStore.clear();
+    eventStore.clear();
+    familyStore.clear();
+    vigCache.clear();
+
+    const now = Date.now();
+    const sharpKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+    );
+    historyStore.set(sharpKey, {
+      ticks: [
+        { odds: 2.0, timestamp: now - 3000, suspended: false },
+        { odds: 2.05, timestamp: now - 2000, suspended: false },
+        { odds: 2.03, timestamp: now - 1000, suspended: false },
+      ],
+      cursor: 3,
+      totalTicks: 3,
+      openingOdds: 2.0,
+      openingTimestamp: now - 3000,
+      peakOdds: 2.05,
+      troughOdds: 2.0,
+    });
+
+    const vb = makeSyntheticValueBet();
+    const features = extractFeatures(vb);
+    // Sharp history has 3 ticks → warm
+    expect(features[5]).toBe(3);
+    expect(isFeatureWarm(features)).toBe(true);
+  });
+});
+
 describe("computeConvergenceRate", () => {
   beforeEach(() => {
     historyStore.clear();
@@ -350,24 +453,41 @@ describe("computeConvergenceRate", () => {
 
   it("returns 0 when no ticks available", () => {
     const rate = computeConvergenceRate(
-      "evt1", "ft_match_result", "ft_1x2_home",
-      "pinnacle", "ninewickets-exchange",
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+      "ninewickets-exchange",
     );
     expect(rate).toBe(0);
   });
 
   it("returns 0 when fewer than 3 aligned pairs", () => {
     const now = Date.now();
-    const sharpKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "pinnacle");
-    const softKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "ninewickets-exchange");
+    const sharpKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+    );
+    const softKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "ninewickets-exchange",
+    );
 
     historyStore.set(sharpKey, {
       ticks: [
         { odds: 2.0, timestamp: now - 2000, suspended: false },
         { odds: 2.05, timestamp: now - 1000, suspended: false },
       ],
-      cursor: 2, totalTicks: 2, openingOdds: 2.0,
-      openingTimestamp: now - 2000, peakOdds: 2.05, troughOdds: 2.0,
+      cursor: 2,
+      totalTicks: 2,
+      openingOdds: 2.0,
+      openingTimestamp: now - 2000,
+      peakOdds: 2.05,
+      troughOdds: 2.0,
     });
 
     historyStore.set(softKey, {
@@ -375,26 +495,47 @@ describe("computeConvergenceRate", () => {
         { odds: 2.3, timestamp: now - 1500, suspended: false },
         { odds: 2.28, timestamp: now - 500, suspended: false },
       ],
-      cursor: 2, totalTicks: 2, openingOdds: 2.3,
-      openingTimestamp: now - 1500, peakOdds: 2.3, troughOdds: 2.28,
+      cursor: 2,
+      totalTicks: 2,
+      openingOdds: 2.3,
+      openingTimestamp: now - 1500,
+      peakOdds: 2.3,
+      troughOdds: 2.28,
     });
 
     const rate = computeConvergenceRate(
-      "evt1", "ft_match_result", "ft_1x2_home",
-      "pinnacle", "ninewickets-exchange",
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+      "ninewickets-exchange",
     );
     expect(rate).toBe(0);
   });
 
   it("returns negative slope for converging series", () => {
     const now = Date.now();
-    const sharpKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "pinnacle");
-    const softKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "ninewickets-exchange");
+    const sharpKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+    );
+    const softKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "ninewickets-exchange",
+    );
 
     // Sharp odds stable at 2.0
     const sharpTicks = [];
     for (let i = 0; i < 10; i++) {
-      sharpTicks.push({ odds: 2.0, timestamp: now - (10 - i) * 1000, suspended: false });
+      sharpTicks.push({
+        odds: 2.0,
+        timestamp: now - (10 - i) * 1000,
+        suspended: false,
+      });
     }
 
     // Soft odds converging toward sharp (decreasing from 2.4 to 2.13)
@@ -408,18 +549,31 @@ describe("computeConvergenceRate", () => {
     }
 
     historyStore.set(sharpKey, {
-      ticks: sharpTicks, cursor: 10, totalTicks: 10,
-      openingOdds: 2.0, openingTimestamp: now - 10000, peakOdds: 2.0, troughOdds: 2.0,
+      ticks: sharpTicks,
+      cursor: 10,
+      totalTicks: 10,
+      openingOdds: 2.0,
+      openingTimestamp: now - 10000,
+      peakOdds: 2.0,
+      troughOdds: 2.0,
     });
 
     historyStore.set(softKey, {
-      ticks: softTicks, cursor: 10, totalTicks: 10,
-      openingOdds: 2.4, openingTimestamp: now - 9800, peakOdds: 2.4, troughOdds: 2.13,
+      ticks: softTicks,
+      cursor: 10,
+      totalTicks: 10,
+      openingOdds: 2.4,
+      openingTimestamp: now - 9800,
+      peakOdds: 2.4,
+      troughOdds: 2.13,
     });
 
     const rate = computeConvergenceRate(
-      "evt1", "ft_match_result", "ft_1x2_home",
-      "pinnacle", "ninewickets-exchange",
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+      "ninewickets-exchange",
     );
 
     expect(rate).toBeLessThan(0); // gap decreasing → negative slope
@@ -427,12 +581,26 @@ describe("computeConvergenceRate", () => {
 
   it("returns positive slope for diverging series", () => {
     const now = Date.now();
-    const sharpKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "pinnacle");
-    const softKey = makeHistoryKey("evt1", "ft_match_result", "ft_1x2_home", "ninewickets-exchange");
+    const sharpKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+    );
+    const softKey = makeHistoryKey(
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "ninewickets-exchange",
+    );
 
     const sharpTicks = [];
     for (let i = 0; i < 10; i++) {
-      sharpTicks.push({ odds: 2.0, timestamp: now - (10 - i) * 1000, suspended: false });
+      sharpTicks.push({
+        odds: 2.0,
+        timestamp: now - (10 - i) * 1000,
+        suspended: false,
+      });
     }
 
     // Soft odds diverging (increasing from 2.1 to 2.37)
@@ -446,18 +614,31 @@ describe("computeConvergenceRate", () => {
     }
 
     historyStore.set(sharpKey, {
-      ticks: sharpTicks, cursor: 10, totalTicks: 10,
-      openingOdds: 2.0, openingTimestamp: now - 10000, peakOdds: 2.0, troughOdds: 2.0,
+      ticks: sharpTicks,
+      cursor: 10,
+      totalTicks: 10,
+      openingOdds: 2.0,
+      openingTimestamp: now - 10000,
+      peakOdds: 2.0,
+      troughOdds: 2.0,
     });
 
     historyStore.set(softKey, {
-      ticks: softTicks, cursor: 10, totalTicks: 10,
-      openingOdds: 2.1, openingTimestamp: now - 9800, peakOdds: 2.37, troughOdds: 2.1,
+      ticks: softTicks,
+      cursor: 10,
+      totalTicks: 10,
+      openingOdds: 2.1,
+      openingTimestamp: now - 9800,
+      peakOdds: 2.37,
+      troughOdds: 2.1,
     });
 
     const rate = computeConvergenceRate(
-      "evt1", "ft_match_result", "ft_1x2_home",
-      "pinnacle", "ninewickets-exchange",
+      "evt1",
+      "ft_match_result",
+      "ft_1x2_home",
+      "pinnacle",
+      "ninewickets-exchange",
     );
 
     expect(rate).toBeGreaterThan(0); // gap increasing → positive slope

@@ -24,9 +24,7 @@ export type LogDecisionInput = Omit<NewAutoPlacerLogRow, "id" | "createdAt">;
  * Fire-and-forget — never blocks the auto-placer pipeline. Failures
  * are logged but never propagated.
  */
-export async function recordDecision(
-  input: LogDecisionInput,
-): Promise<void> {
+export async function recordDecision(input: LogDecisionInput): Promise<void> {
   try {
     await db.insert(autoPlacerLog).values(input);
   } catch (err) {

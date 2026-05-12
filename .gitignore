@@ -57,6 +57,9 @@ logs/
 /data/
 scratch/
 
+# ONNX model cache (downloaded from GCS on demand)
+.ml-models/
+
 # Python (services/optimizer/)
 __pycache__/
 *.py[cod]

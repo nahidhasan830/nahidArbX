@@ -6,6 +6,12 @@ training examples yet).
 
 Derives binary labels and CLV%, and returns a Polars DataFrame ready for
 CPCV splitting and LightGBM training.
+
+Phase 2 changes:
+  - load_from_training_examples: trust stored sample_weight (no double PnL boost)
+  - load_best_available: sort merged data chronologically
+  - Coverage uses only labeled, current-version examples
+  - Unit return computed from odds+outcome instead of null pnl
 """
 
 from __future__ import annotations
@@ -33,6 +39,17 @@ POSITIVE_OUTCOMES = ("won", "half_won")
 # Outcomes excluded from training — voids are market cancellations (push/refund)
 # that carry no predictive signal. Including them as label=0 adds noise.
 EXCLUDED_OUTCOMES = ("void",)
+
+EXAMPLE_TYPE_PRECEDENCE = {
+    "shadow_scored": 2,
+    "settled_detected": 3,
+    "placed_settled": 4,
+}
+
+COMPETITION_TIER_FEATURE_INDEX = FEATURE_NAMES.index("competition_tier")
+SOFT_ODDS_FEATURE_INDEX = FEATURE_NAMES.index("soft_odds")
+ADJUSTED_SOFT_ODDS_FEATURE_INDEX = FEATURE_NAMES.index("adjusted_soft_odds")
+VALID_COMPETITION_TIERS = {1.0, 2.0, 3.0}
 
 
 @dataclass(frozen=True)
@@ -77,10 +94,27 @@ def load_training_data(session: Session) -> TrainingData:
         WHERE outcome <> 'pending'
           AND outcome <> 'void'
           AND ml_features IS NOT NULL
+          AND ml_feature_version = :version
+          AND ml_feature_count = :feature_count
+          AND ml_feature_names_hash = :feature_hash
+          AND array_length(ml_features, 1) = :feature_count
+          AND soft_odds > 1.01
+          AND sharp_true_prob > 0
+          AND sharp_true_prob < 1
+          AND ml_features[:competition_tier_sql_index] = ANY(:valid_competition_tiers)
         ORDER BY first_seen_at ASC
     """)
 
-    result = session.execute(stmt)
+    result = session.execute(
+        stmt,
+        {
+            "version": FEATURE_VERSION,
+            "feature_count": FEATURE_COUNT,
+            "feature_hash": FEATURE_NAMES_HASH,
+            "competition_tier_sql_index": COMPETITION_TIER_FEATURE_INDEX + 1,
+            "valid_competition_tiers": list(VALID_COMPETITION_TIERS),
+        },
+    )
     rows = result.mappings().all()
 
     if not rows:
@@ -110,14 +144,20 @@ def load_training_data(session: Session) -> TrainingData:
     valid_indices = []
     for i, row in enumerate(coerced):
         fv = row.get("ml_features")
-        if fv is not None and len(fv) == FEATURE_COUNT:
+        if (
+            fv is not None
+            and len(fv) == FEATURE_COUNT
+            and _has_valid_feature_semantics(fv)
+        ):
             raw_features.append(fv)
             valid_indices.append(i)
         else:
-            raise ValueError(
-                f"Feature length drift for row {row.get('id')}: "
-                f"got {len(fv) if fv else None}, expected {FEATURE_COUNT}. "
-                "Run the feature normalization migration before training."
+            log.warning(
+                "Skipping unsuitable bet row %s: length=%s expected=%d competition_tier=%s",
+                row.get("id"),
+                len(fv) if fv else None,
+                FEATURE_COUNT,
+                _feature_at(fv, COMPETITION_TIER_FEATURE_INDEX),
             )
 
     if not raw_features:
@@ -162,10 +202,18 @@ def load_training_data(session: Session) -> TrainingData:
             detection_fair = 1.0 / true_prob
             clv_pct = (detection_fair / closing - 1.0) * 100.0
 
+        # Phase 2: compute unit return instead of using null pnl as zero
+        unit_return = _compute_unit_return(
+            r["outcome"],
+            float(r.get("soft_odds") or 0),
+            float(r.get("soft_commission_pct") or 0),
+        )
+
         meta_records.append({
             "id": r["id"],
             "outcome": r["outcome"],
-            "pnl": float(r.get("pnl") or 0),
+            "pnl": float(r.get("pnl") or 0) if r.get("placed_at") else unit_return,
+            "unit_return": unit_return,
             "soft_odds": float(r.get("soft_odds") or 0),
             "sharp_true_prob": float(r.get("sharp_true_prob") or 0),
             "soft_commission_pct": float(r.get("soft_commission_pct") or 0),
@@ -179,7 +227,7 @@ def load_training_data(session: Session) -> TrainingData:
     metadata = pl.DataFrame(meta_records, infer_schema_length=None, strict=False)
 
     # Coerce numeric columns
-    for col in ("pnl", "soft_odds", "sharp_true_prob", "soft_commission_pct",
+    for col in ("pnl", "unit_return", "soft_odds", "sharp_true_prob", "soft_commission_pct",
                 "closing_sharp_odds", "clv_pct"):
         if col in metadata.columns:
             metadata = metadata.with_columns(
@@ -234,6 +282,7 @@ def _empty_metadata() -> pl.DataFrame:
             "id": pl.Utf8,
             "outcome": pl.Utf8,
             "pnl": pl.Float64,
+            "unit_return": pl.Float64,
             "soft_odds": pl.Float64,
             "sharp_true_prob": pl.Float64,
             "soft_commission_pct": pl.Float64,
@@ -251,16 +300,35 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
 
     Returns None if the table doesn't exist or has no usable rows,
     so the caller can fall back to load_training_data().
+
+    Phase 2 changes:
+      - Trust stored sample_weight directly (no double PnL boost)
+      - Compute unit return from odds+outcome for financial metrics
+      - Only load labeled rows at current feature version
     """
     try:
         count_stmt = text("""
             SELECT count(*) AS n
             FROM ml_training_examples
             WHERE label IS NOT NULL
+              AND label IN ('positive', 'negative')
               AND features IS NOT NULL
               AND feature_version = :version
+              AND array_length(features, 1) = :feature_count
+              AND features[2] > 0
+              AND features[2] < 1
+              AND features[4] > 1.01
+              AND features[:competition_tier_sql_index] = ANY(:valid_competition_tiers)
         """)
-        count_result = session.execute(count_stmt, {"version": FEATURE_VERSION}).scalar()
+        count_result = session.execute(
+            count_stmt,
+            {
+                "version": FEATURE_VERSION,
+                "feature_count": FEATURE_COUNT,
+                "competition_tier_sql_index": COMPETITION_TIER_FEATURE_INDEX + 1,
+                "valid_competition_tiers": list(VALID_COMPETITION_TIERS),
+            },
+        ).scalar()
         if not count_result or count_result == 0:
             return None
     except Exception:
@@ -269,30 +337,50 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
 
     stmt = text("""
         SELECT
-            id,
-            source_bet_id,
-            example_type,
-            event_id,
-            family_id,
-            atom_id,
-            features,
-            feature_version,
-            label,
-            label_source,
-            sample_weight,
-            outcome,
-            pnl,
-            clv_pct,
-            created_at,
-            settled_at
-        FROM ml_training_examples
-        WHERE label IS NOT NULL
-          AND features IS NOT NULL
-          AND feature_version = :version
-        ORDER BY created_at ASC
+            m.id,
+            m.source_bet_id,
+            m.example_type,
+            m.event_id,
+            m.family_id,
+            m.atom_id,
+            m.features,
+            m.feature_version,
+            m.label,
+            m.label_source,
+            m.sample_weight,
+            m.outcome,
+            coalesce(m.pnl, b.pnl) as pnl,
+            coalesce(m.clv_pct, b.clv_pct) as clv_pct,
+            m.created_at,
+            m.settled_at,
+            b.soft_odds,
+            b.sharp_true_prob,
+            b.soft_commission_pct,
+            b.closing_sharp_odds,
+            b.event_start_time
+        FROM ml_training_examples m
+        LEFT JOIN bets b ON m.source_bet_id = b.id
+        WHERE m.label IS NOT NULL
+          AND m.label IN ('positive', 'negative')
+          AND m.features IS NOT NULL
+          AND m.feature_version = :version
+          AND array_length(m.features, 1) = :feature_count
+          AND m.features[2] > 0
+          AND m.features[2] < 1
+          AND m.features[4] > 1.01
+          AND m.features[:competition_tier_sql_index] = ANY(:valid_competition_tiers)
+        ORDER BY coalesce(m.settled_at, m.created_at) ASC
     """)
 
-    result = session.execute(stmt, {"version": FEATURE_VERSION})
+    result = session.execute(
+        stmt,
+        {
+            "version": FEATURE_VERSION,
+            "feature_count": FEATURE_COUNT,
+            "competition_tier_sql_index": COMPETITION_TIER_FEATURE_INDEX + 1,
+            "valid_competition_tiers": list(VALID_COMPETITION_TIERS),
+        },
+    )
     rows = result.mappings().all()
 
     if not rows:
@@ -305,37 +393,62 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
                 d[k] = float(v)
         return d
 
-    coerced = [_coerce(r) for r in rows]
+    coerced = _canonicalize_training_example_rows([_coerce(r) for r in rows])
+    if not coerced:
+        return None
+
+    # Log canonicalization dedup results
+    n_raw = len(rows)
+    n_canonical = len(coerced)
+    if n_raw != n_canonical:
+        type_counts = {}
+        for r in coerced:
+            et = r.get("example_type", "?")
+            type_counts[et] = type_counts.get(et, 0) + 1
+        log.info(
+            "Canonicalized %d raw → %d unique examples (deduped %d). "
+            "Composition: %s",
+            n_raw, n_canonical, n_raw - n_canonical,
+            ", ".join(f"{k}={v}" for k, v in sorted(type_counts.items())),
+        )
 
     raw_features = []
     raw_weights = []
     valid_coerced = []
     for row in coerced:
         fv = row.get("features")
-        if fv is not None and len(fv) == FEATURE_COUNT:
+        if (
+            fv is not None
+            and len(fv) == FEATURE_COUNT
+            and _has_valid_feature_semantics(fv)
+        ):
             raw_features.append(fv)
+            # Phase 2: Trust stored sample_weight directly — the TS writer
+            # already applied PnL boost. Do NOT double-apply.
             raw_weights.append(float(row.get("sample_weight", 1.0)))
             valid_coerced.append(row)
         else:
             log.warning(
-                "Skipping training example %s: feature length %s != %d",
-                row.get("id"), len(fv) if fv else None, FEATURE_COUNT,
+                "Skipping training example %s: invalid feature vector "
+                "(length=%s, expected=%d, competition_tier=%s)",
+                row.get("id"),
+                len(fv) if fv else None,
+                FEATURE_COUNT,
+                _feature_at(fv, COMPETITION_TIER_FEATURE_INDEX),
             )
 
     if not raw_features:
         return None
 
     features = np.array(raw_features, dtype=np.float32)
+
     labels = np.array(
         [1 if r["label"] == "positive" else 0 for r in valid_coerced],
         dtype=np.int32,
     )
 
-    # Apply PnL-magnitude boosting on top of stored sample_weight
+    # Phase 2: Use stored weights directly — no double PnL boost
     sample_weights = np.array(raw_weights, dtype=np.float64)
-    for i, r in enumerate(valid_coerced):
-        pnl_abs = abs(float(r.get("pnl") or 0))
-        sample_weights[i] *= _pnl_boost(pnl_abs)
 
     # Compute conservative scale_pos_weight
     n_pos = int(labels.sum())
@@ -345,22 +458,40 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
     # Build minimal metadata DataFrame
     meta_records = []
     for r in valid_coerced:
+        fv = r.get("features") or []
+        soft_odds = float(
+            r.get("soft_odds")
+            or _feature_at(fv, SOFT_ODDS_FEATURE_INDEX)
+            or _feature_at(fv, ADJUSTED_SOFT_ODDS_FEATURE_INDEX)
+            or 0
+        )
+        commission_pct = float(r.get("soft_commission_pct") or 0)
+        # Phase 2: compute unit return from odds+outcome
+        unit_return = _compute_unit_return(
+            r.get("outcome", ""),
+            soft_odds,
+            commission_pct,
+        )
+
+        source_id = r.get("source_bet_id") or r["id"]
         meta_records.append({
-            "id": str(r.get("source_bet_id", r["id"])),
+            "id": str(source_id),
+            "example_type": r.get("example_type"),
             "outcome": r.get("outcome", ""),
-            "pnl": float(r.get("pnl") or 0),
-            "soft_odds": 0.0,  # Not stored in training examples
-            "sharp_true_prob": 0.0,
-            "soft_commission_pct": 0.0,
-            "closing_sharp_odds": None,
+            "pnl": unit_return if unit_return is not None else 0.0,
+            "unit_return": unit_return,
+            "soft_odds": soft_odds,
+            "sharp_true_prob": float(r.get("sharp_true_prob") or 0),
+            "soft_commission_pct": commission_pct,
+            "closing_sharp_odds": float(r.get("closing_sharp_odds")) if r.get("closing_sharp_odds") else None,
             "clv_pct": float(r.get("clv_pct")) if r.get("clv_pct") else None,
             "first_seen_at": r.get("created_at"),
-            "event_start_time": None,
+            "event_start_time": r.get("event_start_time"),
             "event_id": r.get("event_id"),
         })
 
     metadata = pl.DataFrame(meta_records, infer_schema_length=None, strict=False)
-    for col in ("pnl", "soft_odds", "sharp_true_prob", "soft_commission_pct",
+    for col in ("pnl", "unit_return", "soft_odds", "sharp_true_prob", "soft_commission_pct",
                 "closing_sharp_odds", "clv_pct"):
         if col in metadata.columns:
             metadata = metadata.with_columns(
@@ -389,21 +520,96 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
 def load_best_available(session: Session) -> TrainingData:
     """Load training data from the best available source.
 
-    Tries ml_training_examples first (Phase 4), falls back to bets table.
+    Strategy:
+      1. Prefer ml_training_examples (Phase 4 — curated, canonicalized,
+         one example per bet via _canonicalize_training_example_rows).
+      2. Fall back to bets table only if training_examples is empty.
+
+    The merge/supplement path has been removed: production data shows 100%
+    overlap between ml_training_examples and bets (0 uncovered bets), so
+    the merge only added complexity and dedup risk without adding data.
     """
     from_examples = load_from_training_examples(session)
+
     if from_examples is not None and from_examples.n_samples > 0:
-        log.info("Using ml_training_examples table (%d samples)", from_examples.n_samples)
+        log.info(
+            "Using ml_training_examples table (%d canonical samples)",
+            from_examples.n_samples,
+        )
         return from_examples
 
-    log.info("Falling back to bets table for training data")
-    return load_training_data(session)
+    # Fall back to bets table (pre-Phase 4 or empty training_examples)
+    bets_data = load_training_data(session)
+    log.info("Falling back to bets table for training data (%d samples)", bets_data.n_samples)
+    return bets_data
 
 
+def _canonicalize_training_example_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep one strongest labeled example per source selection.
+
+    `ml_training_examples` may contain several labels for the same bet
+    (`shadow_scored`, `settled_detected`, `placed_settled`).
+    Training on all of them double-counts one decision. The canonical row is
+    the highest-precedence evidence; ties prefer settled/newer rows.
+    """
+    best_by_key: dict[str, dict[str, Any]] = {}
+
+    for row in rows:
+        source_id = row.get("source_bet_id")
+        key = (
+            str(source_id)
+            if source_id is not None
+            else f"{row.get('event_id')}|{row.get('family_id')}|{row.get('atom_id')}"
+        )
+
+        existing = best_by_key.get(key)
+        if existing is None or _example_rank(row) > _example_rank(existing):
+            best_by_key[key] = row
+
+    return sorted(
+        best_by_key.values(),
+        key=lambda r: str(r.get("settled_at") or r.get("created_at") or ""),
+    )
+
+
+def _example_rank(row: dict[str, Any]) -> tuple[int, int, str]:
+    example_type = str(row.get("example_type") or "")
+    precedence = EXAMPLE_TYPE_PRECEDENCE.get(example_type, 0)
+    has_settlement = 1 if row.get("settled_at") is not None else 0
+    recency = str(row.get("settled_at") or row.get("created_at") or "")
+    return (precedence, has_settlement, recency)
+
+
+def _feature_at(features: Any, index: int) -> Any:
+    if features is None or len(features) <= index:
+        return None
+    return features[index]
+
+
+def _has_valid_feature_semantics(features: Any) -> bool:
+    if features is None or len(features) != FEATURE_COUNT:
+        return False
+    try:
+        import math
+        values = [float(v) for v in features]
+        if not all(math.isfinite(v) for v in values):
+            return False
+        competition_tier = float(features[COMPETITION_TIER_FEATURE_INDEX])
+        sharp_prob = float(features[1])
+        adjusted_odds = float(features[ADJUSTED_SOFT_ODDS_FEATURE_INDEX])
+    except (TypeError, ValueError):
+        return False
+    return (
+        competition_tier in VALID_COMPETITION_TIERS
+        and 0.0 < sharp_prob < 1.0
+        and adjusted_odds > 1.01
+    )
 
 # ── Sample weight helpers ──────────────────────────────────────────────────
 
-# Half outcomes get reduced weight; near_miss handled by stored sample_weight.
+# Half outcomes get reduced weight.
 HALF_OUTCOME_WEIGHT = 0.5
 
 # PnL magnitude boost: log1p(|pnl| / scale) so that high-impact bets
@@ -462,3 +668,33 @@ def _compute_scale_pos_weight(n_pos: int, n_neg: int) -> float:
     # Damped correction: sqrt to be conservative
     import math
     return round(math.sqrt(ratio), 4)
+
+
+def _compute_unit_return(
+    outcome: str,
+    soft_odds: float,
+    commission_pct: float,
+) -> float | None:
+    """Compute normalized 1-unit return for a bet based on outcome and odds.
+
+    Phase 2: This is the canonical metric for model evaluation — it simulates
+    what would happen if we staked exactly 1 unit on this bet.
+
+    Must match the TS `computeUnitReturn()` in lib/ml/outcomes.ts.
+    """
+    if soft_odds <= 0:
+        return None
+
+    # Commission-adjusted net return per unit staked
+    b = (soft_odds - 1) * (1 - commission_pct / 100)
+
+    if outcome == "won":
+        return b
+    elif outcome == "half_won":
+        return b * 0.5
+    elif outcome == "lost":
+        return -1.0
+    elif outcome == "half_lost":
+        return -0.5
+    else:
+        return None  # void, pending, cancelled — excluded

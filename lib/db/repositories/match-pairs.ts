@@ -178,7 +178,6 @@ export async function transitionStage(
   return rows.length > 0;
 }
 
-
 // ─── ML score writes ───────────────────────────────────────────────────
 
 export async function updateMlScores(

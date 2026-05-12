@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -17,7 +17,6 @@ import {
   useMarkOutcome,
 } from "@/lib/bets-history/hooks";
 import { aiLabelBets } from "@/lib/bets-history/api-client";
-import { estimateBatchCostUsd } from "@/lib/settle/cost-guard";
 import { useBetsHistoryPrefs } from "@/lib/bets-history/use-bets-history-prefs";
 import { canResettle } from "@/lib/bets-history/resettle";
 import { resolvePreset } from "@/lib/bets-history/date-presets";
@@ -72,7 +71,6 @@ export function BetsHistorySpreadsheet() {
     const id = setInterval(() => setTick((t) => t + 1), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
-
 
   // Cross-page hand-off: dashboard accounts panel links here with
   useEffect(() => {
@@ -196,8 +194,17 @@ export function BetsHistorySpreadsheet() {
       {
         onSuccess: () => {
           const row = rows.find((r) => r.id === id);
-          const label = row ? `${row.homeTeam} vs ${row.awayTeam}`.slice(0, 50) : undefined;
-          const emoji = outcome === "won" || outcome === "half_won" ? "✅" : outcome === "lost" || outcome === "half_lost" ? "❌" : outcome === "void" ? "⚪" : "🟡";
+          const label = row
+            ? `${row.homeTeam} vs ${row.awayTeam}`.slice(0, 50)
+            : undefined;
+          const emoji =
+            outcome === "won" || outcome === "half_won"
+              ? "✅"
+              : outcome === "lost" || outcome === "half_lost"
+                ? "❌"
+                : outcome === "void"
+                  ? "⚪"
+                  : "🟡";
           toast.success(`${emoji} Marked as ${outcome}`, {
             description: label,
           });
@@ -211,7 +218,9 @@ export function BetsHistorySpreadsheet() {
   const handleDeleteBet = (id: string) => {
     setDeletingIds((cur) => new Set(cur).add(id));
     const row = rows.find((r) => r.id === id);
-    const label = row ? `${row.homeTeam} vs ${row.awayTeam}`.slice(0, 50) : undefined;
+    const label = row
+      ? `${row.homeTeam} vs ${row.awayTeam}`.slice(0, 50)
+      : undefined;
     deleteMutation.mutate(id, {
       onSuccess: () => {
         toast.success("🗑️ Bet deleted", {
@@ -236,32 +245,18 @@ export function BetsHistorySpreadsheet() {
 
   // Server caps at 50 per call; batch client-side so N rows always works.
   const AI_BATCH_SIZE = 50;
-  // Fire 2 batches concurrently — respects Gemini rate limits while cutting
-  // wall-clock ~in half vs sequential.
+  // Fire 2 batches concurrently to cut wall-clock ~in half.
   const AI_BATCH_CONCURRENCY = 2;
 
-  const runAiSettle = async (ids: string[]) => {
+  const runAiSettle = async (ids: string[], reqOpts?: {
+    bypassCache?: boolean;
+  }) => {
     if (ids.length === 0) {
       toast.error("⚠️ No rows to settle");
       return;
     }
 
-    // Cost confirmation. We show a conservative worst-case $ estimate
-    // so the user can back out before firing if it's a large batch.
     const candidates = rows.filter((r) => ids.includes(r.id));
-    const uniqueEventCount = new Set(candidates.map((c) => c.eventId)).size;
-    if (uniqueEventCount > 500) {
-      const estUsd = estimateBatchCostUsd(uniqueEventCount, "lite", "fallback");
-      const pretty =
-        estUsd < 0.01 ? "<$0.01" : `~$${estUsd.toFixed(estUsd < 1 ? 3 : 2)}`;
-      const ok = window.confirm(
-        `Run AI settlement on ${ids.length} bet${ids.length === 1 ? "" : "s"} (${uniqueEventCount} unique event${uniqueEventCount === 1 ? "" : "s"})?\n\n` +
-          `Estimated worst-case Tier 3 cost: ${pretty} (lite).\n` +
-          `Most events resolve via the free waterfall first — actual cost is usually much lower.\n\n` +
-          `Proceed?`,
-      );
-      if (!ok) return;
-    }
 
     setSettleCandidates(candidates);
     setSettleResponse({ proposals: [], attempted: 0, missing: [] });
@@ -299,9 +294,8 @@ export function BetsHistorySpreadsheet() {
         const my = nextIndex++;
         const chunk = chunks[my];
         try {
-          // This entry-point is the UI's explicit "AI settle" button —
-          // the user opted in, so go straight to Gemini Tier 3.
-          const data = await aiLabelBets(chunk, { forceAi: true });
+          // All settlement paths use the free waterfall — no paid AI.
+          const data = await aiLabelBets(chunk, reqOpts ?? { bypassCache: true });
           if (data.telemetry) {
             summary.tier0 += data.telemetry.tier0_hits;
             summary.tier1 += data.telemetry.tier1_hits;
@@ -400,11 +394,9 @@ export function BetsHistorySpreadsheet() {
     setAiSettleRunning(true);
     setAiSettleProgress({ done: 0, total: 1 });
     try {
-      const reqOpts =
-        choice.kind === "default"
-          ? { bypassCache: true }
-          : { forceAi: true, aiModel: choice.model };
-      const data = await aiLabelBets([id], reqOpts);
+      // All choices route through the free waterfall — no paid AI.
+      void choice;
+      const data = await aiLabelBets([id], { bypassCache: true });
       setSettleResponse(data);
     } catch (err) {
       toast.error(`❌ Settlement failed: ${(err as Error).message}`);
@@ -431,115 +423,45 @@ export function BetsHistorySpreadsheet() {
     }
     return n;
   }, [selectedIds, rows]);
-
   /**
    * Unified bulk settle: routes based on the RerunChoice the user picked
-   * from the toolbar dropdown.
-   *  - "default" → re-run the free waterfall (bypass cache, no AI)
-   *  - "ai"     → run through AI settle with the chosen model
+   * from the toolbar dropdown. All options run the full waterfall with
+   * cache bypass so scores are freshly resolved.
    */
   const handleBulkSettle = async (choice: RerunChoice) => {
-    if (choice.kind === "default") {
-      const eligible: ValueBetRow[] = [];
-      for (const id of selectedIds) {
-        const row = rows.find((r) => r.id === id);
-        if (row && canResettle(row).allowed) eligible.push(row);
-      }
-      if (eligible.length === 0) {
-        toast.error(
-          "🚫 None of the selected rows can be settled yet — matches still live.",
-        );
-        return;
-      }
-      setResettleRunning(true);
-      setResettlingIds(new Set(eligible.map((r) => r.id)));
-
-      const BATCH = 50;
-      const chunks: string[][] = [];
-      const ids = eligible.map((r) => r.id);
-      for (let i = 0; i < ids.length; i += BATCH) {
-        chunks.push(ids.slice(i, i + BATCH));
-      }
-
-      let unresolved = 0;
-      let errors = 0;
-      const updates: {
-        id: string;
-        outcome: Outcome;
-        source: string | null;
-        score?: string | null;
-      }[] = [];
-
-      for (const chunk of chunks) {
-        try {
-          const data = await aiLabelBets(chunk, { bypassCache: true });
-          for (const p of data.proposals) {
-            if ("error" in p) {
-              errors++;
-              continue;
-            }
-            if (p.proposedOutcome !== "pending") {
-              updates.push({
-                id: p.id,
-                outcome: p.proposedOutcome,
-                source: p.source ?? null,
-                score: p.score,
-              });
-            } else {
-              unresolved++;
-            }
-          }
-        } catch (err) {
-          errors += chunk.length;
-          toast.error(`❌ Settlement batch failed: ${(err as Error).message}`, {
-            description: `${chunk.length} rows skipped`,
-          });
-        }
-      }
-
-      if (updates.length > 0) {
-        try {
-          const res = await bulkMarkMutation.mutateAsync(updates);
-          toast.success(
-            `✅ Settled ${res.applied} of ${eligible.length} selected`,
-            {
-              description: `⚠️ ${unresolved} unresolved${errors > 0 ? ` · ❌ ${errors} errors` : ""}`,
-            },
-          );
-        } catch (err) {
-          toast.error(`❌ Apply failed: ${(err as Error).message}`);
-        }
-      } else {
-        toast.info(
-          `📥 No outcomes changed — ${unresolved} unresolved${errors > 0 ? `, ${errors} errors` : ""}`,
-        );
-      }
-
-      setResettleRunning(false);
-      setResettlingIds(new Set());
-      // Default-path success: drop the selection — the user shouldn't keep
-      // re-running settle on rows they just processed.
-      clearSelection();
-    } else {
-      // AI settle — run through the dialog flow (selection is cleared
-      // inside runAiSettle on its success path).
-      runAiSettle(Array.from(selectedIds));
+    // All settlement paths now go through the review dialog so the user
+    // can inspect proposals, override outcomes, and see telemetry before
+    // applying.
+    const eligible: ValueBetRow[] = [];
+    for (const id of selectedIds) {
+      const row = rows.find((r) => r.id === id);
+      if (row && canResettle(row).allowed) eligible.push(row);
     }
+    if (eligible.length === 0) {
+      toast.error(
+        "🚫 None of the selected rows can be settled yet — matches still live.",
+      );
+      return;
+    }
+
+    const ids = eligible.map((r) => r.id);
+
+    // Both "default" and "ai-search" choices bypass cache to get fresh
+    // scores. The waterfall now includes Groq+Search as Tier 2d
+    // automatically — no need for a separate forceAi flag.
+    void choice; // used for future engine selection
+    runAiSettle(ids, { bypassCache: true });
   };
 
   /**
    * Re-run a single proposal and splice the fresh result back into
-   * `settleResponse`. The choice controls whether we re-fire the free
-   * waterfall (bypassing Tier 0 so the source can actually change) or
-   * skip the free tiers entirely and go straight to a specific Gemini
-   * tier. Errors from the API surface as an error row the dialog
-   * already knows how to render.
+   * `settleResponse`. Re-fires the full free waterfall (bypassing Tier 0
+   * so the source can actually change). Errors from the API surface as
+   * an error row the dialog already knows how to render.
    */
   const handleRerunProposal = async (
     id: string,
-    choice:
-      | { kind: "default" }
-      | { kind: "ai"; model: "lite" | "flash" | "pro" },
+    choice: RerunChoice,
   ) => {
     setRerunningIds((cur) => {
       const next = new Set(cur);
@@ -547,11 +469,9 @@ export function BetsHistorySpreadsheet() {
       return next;
     });
     try {
-      const reqOpts =
-        choice.kind === "default"
-          ? { bypassCache: true }
-          : { forceAi: true, aiModel: choice.model };
-      const data = await aiLabelBets([id], reqOpts);
+      // All choices route through the free waterfall — no paid AI.
+      void choice;
+      const data = await aiLabelBets([id], { bypassCache: true });
       const fresh = data.proposals.find((p) => p.id === id);
       if (!fresh) {
         toast.error(`❌ Re-run returned no proposal for ${id}`);
@@ -565,7 +485,11 @@ export function BetsHistorySpreadsheet() {
         };
       });
       const pathLabel =
-        choice.kind === "default" ? "default pipeline" : `AI · ${choice.model}`;
+        choice.kind === "default"
+          ? "default pipeline"
+          : choice.kind === "ai-search"
+            ? `AI Search · ${choice.engine}`
+            : `AI · ${choice.model}`;
       if ("error" in fresh) {
         toast.error(`❌ Re-run failed: ${fresh.error}`);
       } else {
@@ -626,7 +550,9 @@ export function BetsHistorySpreadsheet() {
   const handleResetToDefaults = () => {
     resetToDefaults();
     toast.success(
-      hasSavedDefaults ? "⚙️ Reset to saved defaults" : "⚙️ Reset to system defaults",
+      hasSavedDefaults
+        ? "⚙️ Reset to saved defaults"
+        : "⚙️ Reset to system defaults",
     );
   };
 

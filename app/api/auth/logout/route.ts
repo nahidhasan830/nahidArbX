@@ -11,7 +11,7 @@ import { validateSession, revokeSession } from "@/lib/auth/session";
 import { logActivity } from "@/lib/auth/activity";
 import { db, users } from "@/lib/auth/db";
 import { eq } from "drizzle-orm";
-import { apiSuccess, apiServerError } from "@/lib/shared/api-response";
+import { apiServerError } from "@/lib/shared/api-response";
 
 export async function POST(request: Request) {
   try {

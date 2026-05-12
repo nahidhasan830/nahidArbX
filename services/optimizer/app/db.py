@@ -39,8 +39,7 @@ def get_engine() -> Engine:
 
     if instance:
         # Route via Cloud SQL connector. Use pg8000 (pure-Python; works inside
-        # the connector's socket factory). Engine is sync; runner uses
-        # asyncio.to_thread to keep the FastAPI loop non-blocking.
+        # the connector's socket factory). Engine is sync.
         connector = _connector()
 
         def getconn():

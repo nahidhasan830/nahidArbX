@@ -34,7 +34,12 @@ export async function GET(request: Request) {
           bestEvPct: null,
         },
         providerCounts: {},
-        stats: { rawTotal: 0, matchedCount: 0, unmatchedCount: 0, storedTotal: 0 },
+        stats: {
+          rawTotal: 0,
+          matchedCount: 0,
+          unmatchedCount: 0,
+          storedTotal: 0,
+        },
         connectionHealth: null,
         providerStatus: {},
         syncStatus: null,
@@ -49,7 +54,9 @@ export async function GET(request: Request) {
 
   // Forward the engine's ETag if present
   const etag = (data as Record<string, unknown>)._etag as string | undefined;
-  const headers: Record<string, string> = { "Cache-Control": "private, no-cache" };
+  const headers: Record<string, string> = {
+    "Cache-Control": "private, no-cache",
+  };
   if (etag) headers["ETag"] = etag;
 
   return NextResponse.json(data, { headers });

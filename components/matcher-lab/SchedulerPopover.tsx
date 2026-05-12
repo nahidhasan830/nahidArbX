@@ -18,7 +18,6 @@ import { updateScheduler, fetchStats } from "./api";
 import type {
   MlSchedulerStats,
   MlRunHistoryEntry,
-  MatcherConfigResponse,
 } from "./types";
 
 interface SchedulerPopoverProps {
@@ -119,11 +118,7 @@ export function SchedulerPopover({
     } finally {
       setSaving(false);
     }
-  }, [
-    enabled,
-    intervalSec,
-    onConfigSaved,
-  ]);
+  }, [enabled, intervalSec, onConfigSaved]);
 
   const handleLoadMore = useCallback(async () => {
     setLoadingMore(true);

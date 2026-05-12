@@ -8,7 +8,7 @@
 import { BaseAtomsAdapter, type FetchContext } from "./base";
 
 import { validateAndParse } from "../../shared/validation";
-import { formatError } from "../../shared/errors";
+
 import { logger } from "../../shared/logger";
 import {
   extractPinnacleOdds,
@@ -29,7 +29,7 @@ import {
   type PinnacleMarket,
 } from "../../adapters/pinnacle/index";
 import { buildEventMarketsUrl } from "../../adapters/pinnacle/urls";
-import { config } from "../../config";
+
 
 // Re-export for backward compatibility
 export {
@@ -194,15 +194,14 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     normalizedEventId: string,
     homeTeam: string,
     awayTeam: string,
-    options: AtomsFetchOptions = {},
+    _options: AtomsFetchOptions = {},
   ): Promise<number> {
-    // LEGACY: The 15-second polling loop calls this. 
-    // We now use real-time STOMP WebSockets (`ws-client.ts`), so we do not 
+    // LEGACY: The 15-second polling loop calls this.
+    // We now use real-time STOMP WebSockets (`ws-client.ts`), so we do not
     // fetch odds via REST anymore to avoid duplicate work and API rate limits.
     // The X-Ray diagnostics UI still uses `debugFetchAndStoreOdds` below.
     return 0;
   }
-
 }
 
 // ============================================
@@ -230,4 +229,3 @@ export async function fetchAndStorePinnacleOdds(
     options,
   );
 }
-

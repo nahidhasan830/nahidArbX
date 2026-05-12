@@ -168,6 +168,31 @@ export async function applySettlementOutcomes(
               // Non-critical — swallow
             }
           }
+
+          // 3. Feed drift detector (ADWIN) with settled bet outcomes
+          //    This tracks model performance drift and triggers retraining
+          try {
+            const { observeBet } = await import("../ml/drift-detector");
+            const { settlePilotBet, settleABBet } = await import("../ml/pilot");
+            for (const row of settledRows) {
+              const outcome = row.outcome;
+              if (!outcome || outcome === "void") continue;
+              const mlScore = row.mlScore;
+              const unitReturn = computeUnitReturnFromRow(row);
+              observeBet({
+                unitReturn,
+                outcome: outcome === "won" || outcome === "half_won" ? 1 : 0,
+                mlScore: mlScore ?? null,
+              });
+              // Feed pilot experiment if active
+              if (unitReturn != null) {
+                try { settlePilotBet(row.id, unitReturn); } catch { /* non-critical */ }
+                try { settleABBet(row.id, unitReturn); } catch { /* non-critical */ }
+              }
+            }
+          } catch {
+            // Non-critical — drift detection feeds are fire-and-forget
+          }
         })
         .catch((err) => {
           logger.warn(
@@ -179,4 +204,20 @@ export async function applySettlementOutcomes(
   }
 
   return applied;
+}
+
+function computeUnitReturnFromRow(row: ValueBetRow): number | null {
+  const outcome = row.outcome;
+  if (!outcome || outcome === "void") return null;
+  const odds = Number(row.softOdds ?? row.odds ?? 0);
+  if (odds <= 1.01) return null;
+  const commissionPct = Number(row.softCommissionPct ?? 0);
+  const b = (odds - 1) * (1 - commissionPct / 100);
+  switch (outcome) {
+    case "won": return b;
+    case "half_won": return b * 0.5;
+    case "lost": return -1;
+    case "half_lost": return -0.5;
+    default: return null;
+  }
 }

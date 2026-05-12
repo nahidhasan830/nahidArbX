@@ -61,7 +61,11 @@ const bridge = createCloudflareBridge({
       fingerprint4: "3cfe78c2633ed6b41ef9e83c6866ff29",
       browserHash: "da570c9355beac82ccd4e6ec22f63c91",
       deviceHash: "ad75c04f51946a8ffc154798f47b71e2",
-      fbp: "", fbc: "", ttp: "", ttc: "", ttclid: "",
+      fbp: "",
+      fbc: "",
+      ttp: "",
+      ttc: "",
+      ttclid: "",
     };
   },
 
@@ -115,7 +119,9 @@ const bridge = createCloudflareBridge({
                 ).toString(),
               );
               if (payload.exp) {
-                tokenData.expiresAt = new Date(payload.exp * 1000).toISOString();
+                tokenData.expiresAt = new Date(
+                  payload.exp * 1000,
+                ).toISOString();
               }
             } catch {
               /* ignore */

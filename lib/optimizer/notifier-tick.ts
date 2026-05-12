@@ -1,63 +1,109 @@
 /**
- * ML Model — Telegram notification for newly deployed models.
+ * ML Model — Telegram notification for newly deployed/rejected/failed models.
  *
  * Called from the retraining scheduler tick. Polls `ml_models` for models
- * that just transitioned to `deployed` status and haven't been notified yet.
+ * that just finished (deployed, rejected, or failed) and haven't been notified yet.
  *
- * Previously this was the Optuna run-completion notifier. Stripped and
- * repurposed for the ML pipeline in Phase 5.
+ * Notification idempotency is DB-persisted via `ml_models.notified_at`,
+ * so restarts cannot duplicate notifications.
  */
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql, or } from "drizzle-orm";
 import { db } from "../db/client";
-import { mlModels, type MlModelRow } from "../db/schema";
+import { mlModels } from "../db/schema";
 import { notify } from "../notifier";
 import { logger } from "../shared/logger";
 
 const tag = "MLModelNotifier";
 
 /**
- * Find newly deployed models that haven't been notified and send a
+ * Find newly finished models that haven't been notified and send a
  * Telegram notification with the model's headline metrics.
  *
- * Idempotency: we stamp `retiredAt` as a notification marker on deployed
- * models. Wait — that's wrong. We need a separate approach since
- * `retiredAt` has semantic meaning. Instead we use `deployedAt IS NOT NULL`
- * and check a time window (deployed within the last 2 minutes and not
- * already notified in this session).
+ * Handles deployed, rejected, and failed outcomes — all use the
+ * structured `ml:training_completed` event type for consistent formatting.
+ *
+ * Idempotency: we stamp `notified_at` on the model row after sending
+ * the Telegram notification. This persists across engine restarts.
  */
-
-// Track notified model IDs in-memory to prevent duplicates within a session.
-const notifiedIds = new Set<string>();
-
 export async function processPendingModelNotifications(): Promise<number> {
   try {
-    // Find models deployed within last 5 minutes that we haven't notified
-    const deployed = await db
+    // Find finished models (deployed/rejected/failed) that have NOT been notified yet
+    const pending = await db
       .select()
       .from(mlModels)
       .where(
         and(
-          eq(mlModels.status, "deployed"),
-          sql`${mlModels.deployedAt} IS NOT NULL`,
-          sql`${mlModels.deployedAt} > now() - interval '5 minutes'`,
+          or(
+            eq(mlModels.status, "deployed"),
+            eq(mlModels.status, "rejected"),
+            eq(mlModels.status, "failed"),
+          ),
+          isNull(mlModels.notifiedAt),
+          // Only notify real models (version > 0 = Python assigned a real version)
+          // or failed placeholder models (version 0 but status = failed)
+          or(
+            sql`${mlModels.version} > 0`,
+            eq(mlModels.status, "failed"),
+          ),
         ),
       );
 
     let sent = 0;
-    for (const model of deployed) {
-      if (notifiedIds.has(model.id)) continue;
-      notifiedIds.add(model.id);
-
+    for (const model of pending) {
       try {
+        const outcome =
+          model.status === "deployed"
+            ? "deployed"
+            : model.status === "rejected"
+              ? "rejected"
+              : "failed";
+
+        const startedAt = model.trainingStartedAt
+          ? new Date(model.trainingStartedAt).getTime()
+          : null;
+        const completedAt = model.trainingCompletedAt
+          ? new Date(model.trainingCompletedAt).getTime()
+          : null;
+        const durationMs =
+          startedAt && completedAt ? completedAt - startedAt : 0;
+
         await notify({
-          type: "system",
+          type: "ml:training_completed",
           at: new Date().toISOString(),
-          severity: "info",
-          message: `🤖 ML Model v${model.version} Deployed\n${formatModelNotification(model)}`,
+          modelId: model.id,
+          version: model.version,
+          outcome,
+          durationMs,
+          trainingSamples: model.trainingSamples,
+          aucRoc: model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
+          dsr:
+            model.deflatedSharpe != null
+              ? Number(model.deflatedSharpe)
+              : undefined,
+          pbo: model.pbo != null ? Number(model.pbo) : undefined,
+          permissionLevel:
+            outcome === "deployed"
+              ? (model.permissionLevel ?? undefined)
+              : undefined,
+          rejectionReasons:
+            model.rejectionReasons &&
+            (model.rejectionReasons as string[]).length > 0
+              ? (model.rejectionReasons as string[])
+              : undefined,
         });
+
+        // Stamp notified_at so we never re-notify, even after restart
+        await db
+          .update(mlModels)
+          .set({ notifiedAt: new Date().toISOString() })
+          .where(eq(mlModels.id, model.id));
+
         sent++;
-        logger.info(tag, `Sent deployment notification for model v${model.version}`);
+        logger.info(
+          tag,
+          `Sent ${outcome} notification for model v${model.version}`,
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.warn(tag, `Failed to notify model ${model.id}: ${msg}`);
@@ -69,21 +115,4 @@ export async function processPendingModelNotifications(): Promise<number> {
     logger.warn(tag, `processPendingModelNotifications failed: ${msg}`);
     return 0;
   }
-}
-
-function formatModelNotification(model: MlModelRow): string {
-  const lines: string[] = [];
-  lines.push(`Version: ${model.version}`);
-  lines.push(`Type: ${model.modelType}`);
-  lines.push(`Training samples: ${model.trainingSamples}`);
-  lines.push(`Features: ${model.featureCount}`);
-
-  if (model.oosAucRoc != null) lines.push(`AUC-ROC: ${Number(model.oosAucRoc).toFixed(4)}`);
-  if (model.deflatedSharpe != null) lines.push(`Deflated Sharpe: ${Number(model.deflatedSharpe).toFixed(4)}`);
-  if (model.pbo != null) lines.push(`PBO: ${Number(model.pbo).toFixed(4)}`);
-  if (model.calibrationError != null) lines.push(`Calibration Error: ${Number(model.calibrationError).toFixed(6)}`);
-  if (model.oosLogLoss != null) lines.push(`Log Loss: ${Number(model.oosLogLoss).toFixed(6)}`);
-  if (model.oosRoiMean != null) lines.push(`OOS ROI: ${Number(model.oosRoiMean).toFixed(4)}%`);
-
-  return lines.join("\n");
 }

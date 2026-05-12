@@ -41,9 +41,7 @@ registerCommand({
         ["Kelly cap", pct(row.kellyCapPct)],
       ]),
       "",
-      kvList([
-        ["Min EV%", pct(row.minEvPct)],
-      ]),
+      kvList([["Min EV%", pct(row.minEvPct)]]),
       "",
       `<i>Last updated ${esc(row.updatedAt)}. Use ${code("/set ev=2.5 kelly=0.25 …")} to change.</i>`,
     ];
@@ -72,7 +70,6 @@ const FIELD_MAP: Record<
     field: "useLiveBalance",
     parse: (s) => s === "true" || s === "on" || s === "1",
   },
-
 };
 
 registerCommand({

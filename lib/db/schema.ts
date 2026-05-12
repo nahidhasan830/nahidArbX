@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
+import type { MarketPhase } from "@/lib/betting/market-phase";
 import {
   bigserial,
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -109,7 +111,7 @@ export const bets = pgTable(
 
     // ML pipeline columns
     mlFeatures: real("ml_features").array(), // 25-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
-    mlScore: real(), // P(profitable) from LightGBM [0,1]
+    mlScore: real(), // Calibrated P(win) from LightGBM [0,1]; staker converts to model EV at offered odds
     mlKellyAdjusted: real(), // Dynamic Kelly multiplier from staker
     mlFeatureVersion: integer(), // Feature contract version at extraction time
     mlFeatureCount: integer(), // Feature vector length at extraction time
@@ -206,10 +208,10 @@ export type NewAutoPlacerLogRow = typeof autoPlacerLog.$inferInsert;
  * Settled match scores — permanent cache keyed by normalized eventId.
  *
  * Populated by the settlement waterfall from the cheapest available source
- * that can resolve the final score (live feeds → free APIs → url_context →
- * batched Gemini). Scores are effectively immutable once status='FT', so
- * this doubles as a long-term archive: every re-settlement hits this table
- * first at tier 0 and costs $0.
+ * that can resolve the final score (live feeds → free APIs → HF+Search).
+ * Scores are effectively immutable once status='FT', so this doubles as a
+ * long-term archive: every re-settlement hits this table first at tier 0
+ * and costs $0.
  */
 export const matchScores = pgTable(
   "match_scores",
@@ -233,7 +235,14 @@ export const matchScores = pgTable(
     cornersAway: integer(),
     htCornersHome: integer(),
     htCornersAway: integer(),
-    source: text().notNull(), // 'pinnacle-ws' | 'betconstruct' | 'football-data' | 'espn' | 'sofascore' | 'openligadb' | 'url-context' | 'gemini-batch' | 'manual'
+    /**
+     * Booking points per team (FT). Pinnacle convention:
+     * 1 pt per yellow + 2 pts per red. NULL on events resolved
+     * before we added bookings support.
+     */
+    bookingsHome: integer(),
+    bookingsAway: integer(),
+    source: text().notNull(), // 'pinnacle-ws' | 'betconstruct' | 'espn' | 'api-football' | 'sofascore' | 'ai-search-hf' | 'ai-search-groq' | 'manual'
     confidence: numeric({ precision: 3, scale: 2, mode: "number" }).notNull(),
     sourceUrl: text(),
     fetchedAt: tsNow(),
@@ -283,15 +292,9 @@ export type NewSettlementRunRow = typeof settlementRuns.$inferInsert;
 
 /**
  * Cases where two settlement tiers disagreed on the score for the same
- * event — usually Tier 2 (football-data) vs Tier 3 (url_context). A
- * human can review the row, decide which source was right, and update
- * match_scores via `upsertScoreForce` to make the correct value permanent.
- *
- * Rare on paper: if football-data resolves a match, we won't call Tier 3
- * for it in the same tick. The discrepancy check runs on the NEXT tick
- * where Tier 0 already has the cached score and a fresh tier might
- * quietly try to resolve the same event and return something different.
- * That quiet disagreement is exactly what we want flagged.
+ * event. A human can review the row, decide which source was right, and
+ * update match_scores via `upsertScoreForce` to make the correct value
+ * permanent.
  */
 export const settlementDisputes = pgTable(
   "settlement_disputes",
@@ -375,6 +378,14 @@ export const bettingSettings = pgTable("betting_settings", {
   minEvPct: numeric({ precision: 5, scale: 2, mode: "number" })
     .notNull()
     .default(2),
+  valueDetectionPhases: jsonb("value_detection_phases")
+    .$type<MarketPhase[]>()
+    .notNull()
+    .default(sql`'["pre_match"]'::jsonb`),
+  betPlacementPhases: jsonb("bet_placement_phases")
+    .$type<MarketPhase[]>()
+    .notNull()
+    .default(sql`'["pre_match"]'::jsonb`),
 
   mlMinScore: numeric({ precision: 4, scale: 2, mode: "number" })
     .notNull()
@@ -417,13 +428,33 @@ export const mlModels = pgTable(
     calibrationError: numeric({ precision: 8, scale: 6, mode: "number" }),
     featureImportance: jsonb(),
     modelArtifactPath: text(),
+    /** Raw ONNX model binary stored in Postgres (bytea). Typically <1MB for LightGBM.
+     *  The scorer reads this blob directly — no GCS or local file cache needed. */
+    onnxBlob: customType<{ data: Buffer; driverData: Buffer }>({
+      dataType() {
+        return "bytea";
+      },
+    })("onnx_blob"),
     trainingReport: jsonb(),
     /** Runtime permission level assigned by the deployment gate. */
     permissionLevel: text().default("shadow"), // shadow|gate_only|stake_reduce|stake_increase
     /** JSON array of reasons why a model was rejected by the deployment gate (null if accepted). */
     rejectionReasons: jsonb().$type<string[] | null>(),
+    // ── Champion-challenger tracking ──────────────────────────────────
+    /** Whether this model is the current champion (scoring live bets). */
+    isChampion: boolean().default(false),
+    /** When this model was promoted to champion. */
+    championToAt: ts(),
+    /** Version of the previous champion this model replaced. */
+    championReplacedVersion: integer(),
+    /** Opdyke two-sample PSR at promotion time (confidence that this model beats the previous champion). */
+    championPsr: numeric({ precision: 6, scale: 4, mode: "number" }),
+    /** ROI improvement over the previous champion (percentage points) at promotion time. */
+    championRoiVsPrev: numeric({ precision: 14, scale: 4, mode: "number" }),
     deployedAt: ts(),
     retiredAt: ts(),
+    /** Telegram notification timestamp — restart-safe idempotency marker. */
+    notifiedAt: ts(),
     createdAt: tsNow(),
   },
   (t) => [
@@ -803,7 +834,7 @@ export type NewAiSearchLogRow = typeof aiSearchLogs.$inferInsert;
 /**
  * Unified AI activity log — append-only audit trail for every AI
  * operation across all subsystems: settlement (Gemini Tier 3),
- * grounding lab (Groq), entity matching, and analysis.
+ * grounding lab (HuggingFace/Groq), entity matching, and analysis.
  *
  * Gives the operator a single "AI Activity" page to inspect spend,
  * latency, outcomes, and error patterns without jumping between
@@ -890,41 +921,10 @@ export const competitionEnrichments = pgTable(
   ],
 );
 
-export type CompetitionEnrichmentRow = typeof competitionEnrichments.$inferSelect;
-export type NewCompetitionEnrichmentRow = typeof competitionEnrichments.$inferInsert;
-
-/**
- * Shadow decisions — per-bet shadow Kelly vs ML Kelly tracking.
- *
- * Created when a bet is placed; resolved when the bet settles.
- * Enables side-by-side performance analysis of shadow vs ML staking.
- */
-export const shadowDecisions = pgTable(
-  "shadow_decisions",
-  {
-    id: text().primaryKey(),
-    betId: text().notNull(),
-    eventId: text().notNull(),
-    placedAt: ts().notNull(),
-    kellyRaw: real().notNull(),
-    shadowKelly: real().notNull(),
-    mlKelly: real().notNull(),
-    mlMultiplier: real().notNull(),
-    outcome: text(),
-    settledAt: ts(),
-    createdAt: tsNow(),
-  },
-  (t) => [
-    index("shadow_decisions_event_idx")
-      .on(t.eventId, t.outcome)
-      .where(sql`${t.outcome} IS NULL`),
-    index("shadow_decisions_bet_idx").on(t.betId),
-    index("shadow_decisions_placed_idx").on(t.placedAt.desc()),
-  ],
-);
-
-export type ShadowDecisionRow = typeof shadowDecisions.$inferSelect;
-export type NewShadowDecisionRow = typeof shadowDecisions.$inferInsert;
+export type CompetitionEnrichmentRow =
+  typeof competitionEnrichments.$inferSelect;
+export type NewCompetitionEnrichmentRow =
+  typeof competitionEnrichments.$inferInsert;
 
 /**
  * ML Training Examples — decouples ML training data from operational bets.
@@ -933,7 +933,6 @@ export type NewShadowDecisionRow = typeof shadowDecisions.$inferInsert;
  * for the LightGBM training pipeline. Supports multiple example types:
  *   - settled_detected: detected value bet that eventually settled
  *   - placed_settled: actually placed bet with real outcome
- *   - near_miss: sub-threshold edge (survival bias mitigation)
  *   - shadow_scored: feature snapshot at detection (outcome attached later)
  */
 export const mlTrainingExamples = pgTable(
@@ -941,7 +940,7 @@ export const mlTrainingExamples = pgTable(
   {
     id: bigserial({ mode: "number" }).primaryKey(),
     sourceBetId: text(),
-    exampleType: text().notNull(), // 'settled_detected' | 'placed_settled' | 'near_miss' | 'shadow_scored'
+    exampleType: text().notNull(), // 'settled_detected' | 'placed_settled' | 'shadow_scored'
     eventId: text().notNull(),
     familyId: text().notNull(),
     atomId: text().notNull(),
@@ -1010,7 +1009,6 @@ export const schema = {
   aiActivityLog,
   competitionTiers,
   competitionEnrichments,
-  shadowDecisions,
   mlTrainingExamples,
   mlSchedulerSettings,
 };

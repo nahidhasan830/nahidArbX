@@ -19,7 +19,8 @@ import {
   getConnectionHealth as getScoresConnectionHealth,
 } from "@/lib/scores/websocket";
 import { isBCPollingActive, getBCPollingCount } from "@/lib/scores/bc-poller";
-import { getProxyStats } from "@/lib/settle/sources/scrapedo-proxy";
+import { getBrowserSessionStats } from "@/lib/settle/sources/sofascore-browser";
+import { getApiFootballQuota } from "@/lib/settle/sources/api-football";
 import {
   PROVIDER_REGISTRY,
   getProviderShortName,
@@ -309,32 +310,46 @@ registerCommand({
 registerCommand({
   name: "proxy",
   usage: "/proxy",
-  description: "Scrape.do proxy status (monthly credits, direct cooldown).",
+  description: "Data-source health: API-Football quota + SofaScore curl_cffi.",
   explanation:
-    "The Scrape.do free-tier proxy exists as a fallback when Cloud Run egress trips Cloudflare on SofaScore. This command shows how many of the 1,000 monthly free credits have been used, and whether a direct-cooldown is currently active (meaning we're routing through Scrape.do right now). Example: '847 credits remaining · direct path: clear'.",
+    "Shows API-Football quota (Tier 2b, 100 req/day free) and SofaScore curl_cffi transport status (Tier 2c). SofaScore uses Python curl_cffi to impersonate Chrome's TLS fingerprint and bypass Cloudflare.",
   group: "read",
   async handler({ reply }) {
-    const stats = getProxyStats();
+    const apiFb = getApiFootballQuota();
+    const sofa = getBrowserSessionStats();
     const lines = [
-      header("🌐", "Scrape.do proxy (SofaScore fallback)"),
+      header("🌐", "Settlement data sources"),
       "",
+      b("API-Football (Tier 2b — 100 req/day)"),
       kvList([
-        ["Service", "scrape.do (free tier)"],
-        ["Monthly limit", num(stats.monthlyLimit)],
-        ["Used", num(stats.usedCredits)],
-        ["Remaining", num(stats.remainingCredits)],
+        ["Daily limit", num(apiFb.dailyLimit)],
+        ["Used today", num(apiFb.used)],
+        ["Remaining", num(apiFb.remaining)],
+        ["Status", apiFb.remaining > 10 ? "🟢 healthy" : apiFb.remaining > 0 ? "🟡 low" : "🔴 exhausted"],
+      ]),
+      "",
+      b("SofaScore (Tier 2c — curl_cffi TLS impersonation)"),
+      kvList([
+        ["Status", sofa.alive ? "🟢 healthy" : "🔴 degraded (5+ failures)"],
+        ["Requests served", num(sofa.requestCount)],
         [
-          "Direct cooldown",
-          stats.directOnCooldown
-            ? `🔴 active (${durationLabel(stats.directCooldownRemainingMs)} left)`
-            : "🟢 clear",
+          "Idle",
+          sofa.lastUsedAt > 0
+            ? durationLabel(sofa.idleMs)
+            : "never used",
         ],
       ]),
     ];
-    if (stats.remainingCredits < 100) {
+    if (apiFb.remaining === 0) {
       lines.push(
         "",
-        "⚠️ <i>Low credits — SofaScore fallback may exhaust soon.</i>",
+        "⚠️ <i>API-Football daily limit exhausted — niche leagues will fall through to SofaScore/AI.</i>",
+      );
+    }
+    if (!sofa.alive) {
+      lines.push(
+        "",
+        "ℹ️ <i>SofaScore session will auto-start on next settlement tick.</i>",
       );
     }
     await reply(lines.join("\n"));

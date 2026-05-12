@@ -12,13 +12,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../client";
 import {
   entities,
   entityNames,
   nameObservations,
-  entityDecisionBlocklist,
   type EntityNameRow,
   type EntityRow,
   type NewEntityNameRow,

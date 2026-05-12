@@ -19,7 +19,10 @@ export async function register() {
   await ensureDbReady();
 
   const { logger } = await import("./lib/shared/logger");
-  logger.info("Boot", "Next.js running in web-only mode (engine runs separately)");
+  logger.info(
+    "Boot",
+    "Next.js running in web-only mode (engine runs separately)",
+  );
 
   // Send frontend-boot Telegram notification
   const hasTgCreds =
@@ -28,7 +31,8 @@ export async function register() {
 
   if (hasTgCreds) {
     const { notify } = await import("./lib/notifier");
-    const { isEngineReachable, ENGINE_BASE_URL } = await import("./lib/engine-proxy");
+    const { isEngineReachable, ENGINE_BASE_URL } =
+      await import("./lib/engine-proxy");
     const reachable = await isEngineReachable();
     // Access Node.js-only globals indirectly to avoid Edge Runtime
     // static-analysis warnings (this code is guarded by NEXT_RUNTIME check above)
@@ -44,7 +48,8 @@ export async function register() {
       engineReachable: reachable,
     };
 
-    const { isUnifiedBoot, writeBootPayload, collectBootPayloads } = await import("./lib/notifier/unified-boot");
+    const { isUnifiedBoot, writeBootPayload, collectBootPayloads } =
+      await import("./lib/notifier/unified-boot");
     if (isUnifiedBoot()) {
       // Write our own payload, then collect all and send one unified notification
       writeBootPayload("frontend", frontendPayload);
@@ -56,16 +61,25 @@ export async function register() {
       notify({
         type: "system:unified_boot",
         at: new Date().toISOString(),
-        engine: engine?.data as import("./lib/notifier/types").SystemBootEvent | undefined,
-        aiSearch: aiSearch?.data as import("./lib/notifier/types").AiEngineStateEvent | undefined,
-        frontend: frontend?.data as import("./lib/notifier/types").SystemBootEvent | undefined,
+        engine: engine?.data as
+          | import("./lib/notifier/types").SystemBootEvent
+          | undefined,
+        aiSearch: aiSearch?.data as
+          | import("./lib/notifier/types").AiEngineStateEvent
+          | undefined,
+        frontend: frontend?.data as
+          | import("./lib/notifier/types").SystemBootEvent
+          | undefined,
       }).catch((err: unknown) => {
         logger.warn(
           "Boot",
           `Telegram unified boot ping failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
-      logger.info("Boot", `Unified boot notification sent (${payloads.map((p) => p.role).join(" + ")})`);
+      logger.info(
+        "Boot",
+        `Unified boot notification sent (${payloads.map((p) => p.role).join(" + ")})`,
+      );
     } else {
       notify(frontendPayload).catch((err: unknown) => {
         logger.warn(

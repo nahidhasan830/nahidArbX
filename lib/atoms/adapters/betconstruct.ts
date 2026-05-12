@@ -109,7 +109,6 @@ export class BetConstructAtomsAdapter extends BaseAtomsAdapter {
 
     return entries;
   }
-
 }
 
 // ============================================

@@ -16,7 +16,10 @@ import { eventLabel } from "@/lib/formatting/event-label";
  * Inline priority score — ranks value bets by quality.
  * No EV cap, no suspicious penalty. Just a simple quality ranking.
  */
-function computePriority(evPct: number | null, timestamp: number): number | null {
+function computePriority(
+  evPct: number | null,
+  timestamp: number,
+): number | null {
   if (evPct === null || evPct <= 0) return null;
   const normalizedEv = Math.min(evPct / 100, 1); // normalize to 0-1, uncapped
   const ageMs = Date.now() - timestamp;
@@ -111,7 +114,13 @@ export interface BulkAtomResult {
   oddsByProvider: Partial<
     Record<
       ProviderKey,
-      { odds: number; timestamp: number; isBest: boolean; suspended?: boolean; movement?: AtomOddsData["movement"] }
+      {
+        odds: number;
+        timestamp: number;
+        isBest: boolean;
+        suspended?: boolean;
+        movement?: AtomOddsData["movement"];
+      }
     >
   >;
   bestOdds: number | null;

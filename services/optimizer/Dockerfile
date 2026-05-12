@@ -10,6 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# LightGBM needs libgomp (OpenMP runtime) — not included in python:slim.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+
 # Install uv — 10× faster than pip, deterministic via uv.lock.
 RUN pip install --no-cache-dir uv==0.5.4
 

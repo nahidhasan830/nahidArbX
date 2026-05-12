@@ -37,6 +37,13 @@ import {
   getVelkiAutoLoginConfig,
   VelkiAutoLoginDisabledError,
 } from "./auto-login-config";
+import {
+  captureStarted,
+  stepCompleted,
+  stepFailed,
+  captureSucceeded,
+  captureFailed,
+} from "../../shared/session-diagnostics";
 
 const SESSION_FILE = path.join("sessions", "velki", "session.json");
 
@@ -104,26 +111,34 @@ export async function getSession(forceRefresh = false): Promise<VelkiSession> {
  * because the caller is usually waiting on a sync cycle.
  */
 async function captureWithRetries(): Promise<VelkiSession> {
-  const MAX_ATTEMPTS = 3;
-  const BACKOFF_MS = [0, 1500, 4000];
+  // The game-launch endpoint enforces an aggressive rate limit that
+  // returns data:null when called too frequently (e.g. rapid re-login
+  // after a session-expired retry). Use generous backoffs to let the
+  // server cool down between attempts.
+  const MAX_ATTEMPTS = 5;
+  const BACKOFF_MS = [0, 3000, 6000, 10000, 15000];
   let lastErr: unknown;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (BACKOFF_MS[attempt] > 0) {
       await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]));
     }
     try {
-      return await captureSession();
+      const session = await captureSession();
+      captureSucceeded("velki-sportsbook");
+      return session;
     } catch (err) {
       lastErr = err;
       // Hard auth failure (bad password, account suspended) should not
-      // retry — the message is signal, not a transient bug. Detect by
-      // sniffing the error message for "refused" (login refused /
-      // game-launch refused) which is what loginForToken / fetchGameLaunchUrl
-      // throw on success:false.
+      // retry — the message is signal, not a transient bug.
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("refused")) throw err;
+      if (msg.includes("refused")) {
+        captureFailed("velki-sportsbook", msg);
+        throw err;
+      }
     }
   }
+  const finalMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  captureFailed("velki-sportsbook", finalMsg);
   throw lastErr ?? new Error("[Velki] capture failed after retries");
 }
 
@@ -168,17 +183,55 @@ export async function captureSession(): Promise<VelkiSession> {
     throw new Error("VELKI_USERNAME / VELKI_PASSWORD missing from .env");
   }
 
+  captureStarted("velki-sportsbook");
+
   // Step 1 — main-tier login → DRF token
-  const token = await loginForToken(username, password);
+  let token: string;
+  let t0 = Date.now();
+  try {
+    token = await loginForToken(username, password);
+    stepCompleted("velki-sportsbook", "login", Date.now() - t0);
+  } catch (err) {
+    stepFailed(
+      "velki-sportsbook",
+      "login",
+      err instanceof Error ? err.message : String(err),
+      Date.now() - t0,
+    );
+    throw err;
+  }
 
   // Step 2 — exchange token for a one-shot signed gameUrl
-  const gameUrl = await fetchGameLaunchUrl(token);
+  let gameUrl: string;
+  t0 = Date.now();
+  try {
+    gameUrl = await fetchGameLaunchUrl(token);
+    stepCompleted("velki-sportsbook", "game-launch", Date.now() - t0);
+  } catch (err) {
+    stepFailed(
+      "velki-sportsbook",
+      "game-launch",
+      err instanceof Error ? err.message : String(err),
+      Date.now() - t0,
+    );
+    throw err;
+  }
 
-  // Step 3 — follow gameUrl manually so we can pluck JSESSIONID out of
-  // the Set-Cookie header. fetch() with redirect: 'manual' returns the
-  // first response (the redirect) without auto-following — exactly
-  // what we need.
-  const jsessionid = await captureJsessionid(gameUrl);
+  // Step 3 — follow gameUrl manually to capture JSESSIONID
+  let jsessionid: string;
+  t0 = Date.now();
+  try {
+    jsessionid = await captureJsessionid(gameUrl);
+    stepCompleted("velki-sportsbook", "jsessionid", Date.now() - t0);
+  } catch (err) {
+    stepFailed(
+      "velki-sportsbook",
+      "jsessionid",
+      err instanceof Error ? err.message : String(err),
+      Date.now() - t0,
+    );
+    throw err;
+  }
 
   const session: VelkiSession = {
     username,
@@ -245,6 +298,15 @@ async function fetchGameLaunchUrl(token: string): Promise<string> {
   if (!parsed.success || parsed.errcode !== "0") {
     throw new Error(
       `[Velki] game-launch refused: ${parsed.message} (errcode=${parsed.errcode})`,
+    );
+  }
+  if (!parsed.data?.gameUrl) {
+    // The game-launch endpoint sometimes returns success:true but
+    // data:null when rate-limited. This is transient — NOT a hard
+    // auth refusal — so use a message that does NOT contain "refused"
+    // to allow captureWithRetries to retry.
+    throw new Error(
+      "[Velki] game-launch returned null data (rate-limited, will retry)",
     );
   }
   return parsed.data.gameUrl;

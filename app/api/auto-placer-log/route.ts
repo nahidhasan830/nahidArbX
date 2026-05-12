@@ -10,8 +10,8 @@ import {
 const querySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
-  statuses: z.string().optional(),     // comma-separated
-  gates: z.string().optional(),        // comma-separated
+  statuses: z.string().optional(), // comma-separated
+  gates: z.string().optional(), // comma-separated
   softProviders: z.string().optional(), // comma-separated
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),

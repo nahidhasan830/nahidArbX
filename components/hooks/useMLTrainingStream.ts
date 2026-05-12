@@ -32,13 +32,15 @@ export interface MLTrainingState {
   /** Whether a model is actively training. */
   isTraining: boolean;
   /** Seed training state from polled pipeline data (called on mount/refresh). */
-  hydrateFromPipeline: (info: {
-    modelId: string;
-    version: number;
-    status: string;
-    startedAt: string;
-    elapsedMs: number | null;
-  }) => void;
+  hydrateFromPipeline: (
+    info: {
+      modelId: string;
+      version: number;
+      status: string;
+      startedAt: string;
+      elapsedMs: number | null;
+    } | null,
+  ) => void;
 }
 
 const TERMINAL_PHASES = new Set(["completed", "failed", "rejected"]);
@@ -46,7 +48,8 @@ const MAX_LOG_ENTRIES = 50;
 
 export function useMLTrainingStream(enabled = true): MLTrainingState {
   const [isConnected, setIsConnected] = useState(false);
-  const [currentTraining, setCurrentTraining] = useState<MLTrainingUpdate | null>(null);
+  const [currentTraining, setCurrentTraining] =
+    useState<MLTrainingUpdate | null>(null);
   const [trainingLog, setTrainingLog] = useState<MLTrainingUpdate[]>([]);
 
   const sourceRef = useRef<EventSource | null>(null);
@@ -57,31 +60,44 @@ export function useMLTrainingStream(enabled = true): MLTrainingState {
    * Seed training state from polled pipeline data.
    * Only applies if we haven't received a more recent SSE update.
    */
-  const hydrateFromPipeline = useCallback((info: {
-    modelId: string;
-    version: number;
-    status: string;
-    startedAt: string;
-    elapsedMs: number | null;
-  }) => {
-    // Don't overwrite SSE-driven state — SSE is more granular
-    if (hasSSEUpdateRef.current) return;
+  const hydrateFromPipeline = useCallback(
+    (
+      info: {
+        modelId: string;
+        version: number;
+        status: string;
+        startedAt: string;
+        elapsedMs: number | null;
+      } | null,
+    ) => {
+      if (!info) {
+        setCurrentTraining((prev) =>
+          prev && !TERMINAL_PHASES.has(prev.phase) ? null : prev,
+        );
+        hasSSEUpdateRef.current = false;
+        return;
+      }
 
-    const update: MLTrainingUpdate = {
-      version: info.version,
-      phase: "training",
-      message: `LightGBM CPCV training in progress (v${info.version})`,
-      updatedAt: Date.now(),
-      modelId: info.modelId,
-      elapsedMs: info.elapsedMs ?? undefined,
-    };
+      // Don't overwrite SSE-driven state — SSE is more granular
+      if (hasSSEUpdateRef.current) return;
 
-    setCurrentTraining((prev) => {
-      // Only set if no current training or same model
-      if (!prev || prev.modelId === info.modelId) return update;
-      return prev;
-    });
-  }, []);
+      const update: MLTrainingUpdate = {
+        version: info.version,
+        phase: "training",
+        message: `LightGBM CPCV training in progress (v${info.version})`,
+        updatedAt: Date.now(),
+        modelId: info.modelId,
+        elapsedMs: info.elapsedMs ?? undefined,
+      };
+
+      setCurrentTraining((prev) => {
+        // Only set if no current training or same model
+        if (!prev || prev.modelId === info.modelId) return update;
+        return prev;
+      });
+    },
+    [],
+  );
 
   const connect = useCallback(() => {
     if (!enabled) return;
@@ -150,7 +166,14 @@ export function useMLTrainingStream(enabled = true): MLTrainingState {
     };
   }, [connect]);
 
-  const isTraining = currentTraining != null && !TERMINAL_PHASES.has(currentTraining.phase);
+  const isTraining =
+    currentTraining != null && !TERMINAL_PHASES.has(currentTraining.phase);
 
-  return { isConnected, currentTraining, trainingLog, isTraining, hydrateFromPipeline };
+  return {
+    isConnected,
+    currentTraining,
+    trainingLog,
+    isTraining,
+    hydrateFromPipeline,
+  };
 }

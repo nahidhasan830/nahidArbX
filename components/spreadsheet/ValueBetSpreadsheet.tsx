@@ -44,7 +44,7 @@ import {
   type SpreadsheetRow as SpreadsheetRowData,
 } from "@/lib/formatting/spreadsheet";
 import { useBulkAnalysisPreferences } from "@/components/hooks/useBulkAnalysisPreferences";
-import { useLocalStorage } from "@/components/hooks/useLocalStorage";
+
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -59,7 +59,6 @@ import { useSpreadsheetColumnWidths } from "./useSpreadsheetColumnWidths";
 import { MovementDetailModal } from "@/components/bets-history/MovementDetailModal";
 import type { OddsMovementData } from "@/lib/bets-history/types";
 
-
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   event: 320,
   ko: 90,
@@ -72,10 +71,107 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   actions: 100,
 };
 
+export interface DegradedProvider {
+  id: string;
+  label: string;
+  reason: string;
+  action: string;
+}
+
+function DegradedProvidersPanel({
+  providers,
+  onReset,
+}: {
+  providers: DegradedProvider[];
+  onReset?: (providerId: string) => Promise<void>;
+}) {
+  const [resettingIds, setResettingIds] = useState<Set<string>>(new Set());
+
+  const handleReset = async (providerId: string) => {
+    if (!onReset) return;
+    setResettingIds((prev) => new Set(prev).add(providerId));
+    try {
+      await onReset(providerId);
+    } finally {
+      setResettingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(providerId);
+        return next;
+      });
+    }
+  };
+
+  const handleResetAll = async () => {
+    if (!onReset) return;
+    for (const p of providers) {
+      await handleReset(p.id);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-4 max-w-lg mx-auto">
+      <span className="text-sm font-medium text-red-400">
+        Provider connectivity issues — no cross-provider odds available
+      </span>
+      <div className="w-full space-y-2">
+        {providers.map((p) => (
+          <div
+            key={p.id}
+            className="flex flex-col gap-0.5 rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2 text-left"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-red-400">
+                {p.label}
+                <span className="ml-1.5 text-[10px] font-normal text-red-400/60">
+                  circuit breaker open
+                </span>
+              </span>
+              {onReset && (
+                <button
+                  onClick={() => handleReset(p.id)}
+                  disabled={resettingIds.has(p.id)}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                >
+                  {resettingIds.has(p.id) ? (
+                    <Loader2 className="w-3 h-3 animate-spin inline" />
+                  ) : (
+                    "Reset"
+                  )}
+                </button>
+              )}
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {p.reason}
+            </span>
+            <span className="text-[11px] text-muted-foreground/70">
+              → {p.action}
+            </span>
+          </div>
+        ))}
+      </div>
+      {onReset && providers.length > 1 && (
+        <button
+          onClick={handleResetAll}
+          disabled={resettingIds.size > 0}
+          className="text-xs px-3 py-1 rounded-md bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors border border-red-500/20 disabled:opacity-50"
+        >
+          Reset All Circuit Breakers
+        </button>
+      )}
+      <span className="text-xs text-muted-foreground/60">
+        Events exist from Pinnacle only — value detection requires at least 2
+        providers with odds.
+      </span>
+    </div>
+  );
+}
+
 interface ValueBetSpreadsheetProps {
   events: ValueBetEvent[];
   isLoading?: boolean;
   isEngineWarming?: boolean;
+  degradedProviders?: DegradedProvider[];
+  onResetCircuitBreaker?: (providerId: string) => Promise<void>;
   onRefreshComplete?: () => void;
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
@@ -107,7 +203,9 @@ export function ValueBetSpreadsheet({
   events,
   isLoading = false,
   isEngineWarming = false,
-  onRefreshComplete,
+  degradedProviders = [],
+  onResetCircuitBreaker,
+  onRefreshComplete: _onRefreshComplete,
   hasNextPage = false,
   isFetchingNextPage = false,
   onLoadMore,
@@ -163,7 +261,9 @@ export function ValueBetSpreadsheet({
       if (vbd) {
         const sharpId = getSharpProviders()[0];
         const sharpMov = sharpId ? oddsRow[sharpId]?.movement : undefined;
-        const softMov = vbd.softProvider ? oddsRow[vbd.softProvider]?.movement : undefined;
+        const softMov = vbd.softProvider
+          ? oddsRow[vbd.softProvider]?.movement
+          : undefined;
 
         // Tick velocity from soft sparkline
         let tickVelocity = 0;
@@ -171,24 +271,40 @@ export function ValueBetSpreadsheet({
           const first = softMov.sparkline[0];
           const last = softMov.sparkline[softMov.sparkline.length - 1];
           const spanMs = last[0] - first[0];
-          if (spanMs > 0) tickVelocity = (softMov.sparkline.length / spanMs) * 60_000;
+          if (spanMs > 0)
+            tickVelocity = (softMov.sparkline.length / spanMs) * 60_000;
         }
 
         // Time to kickoff
         let timeToKickoffMin = 0;
         if (context.startTime) {
-          timeToKickoffMin = Math.round((new Date(context.startTime).getTime() - Date.now()) / 60_000);
+          timeToKickoffMin = Math.round(
+            (new Date(context.startTime).getTime() - Date.now()) / 60_000,
+          );
         }
 
         // Market type encoding
         const MT_ORD: Record<string, number> = {
-          MATCH_RESULT: 0, TOTAL_GOALS: 1, ASIAN_HANDICAP: 2,
-          EUROPEAN_HANDICAP: 3, BTTS: 4, DNB: 5, DOUBLE_CHANCE: 6,
-          HOME_TEAM_TOTAL: 7, AWAY_TEAM_TOTAL: 8, CORNERS: 9,
-          CORNERS_HANDICAP: 10, CORNERS_EUROPEAN_HANDICAP: 11,
-          HOME_CORNERS_TOTAL: 12, AWAY_CORNERS_TOTAL: 13,
-          BOOKINGS: 14, BOOKINGS_HANDICAP: 15, ODD_EVEN_GOALS: 16,
-          CLEAN_SHEET: 17, WIN_TO_NIL: 18, TO_SCORE: 19,
+          MATCH_RESULT: 0,
+          TOTAL_GOALS: 1,
+          ASIAN_HANDICAP: 2,
+          EUROPEAN_HANDICAP: 3,
+          BTTS: 4,
+          DNB: 5,
+          DOUBLE_CHANCE: 6,
+          HOME_TEAM_TOTAL: 7,
+          AWAY_TEAM_TOTAL: 8,
+          CORNERS: 9,
+          CORNERS_HANDICAP: 10,
+          CORNERS_EUROPEAN_HANDICAP: 11,
+          HOME_CORNERS_TOTAL: 12,
+          AWAY_CORNERS_TOTAL: 13,
+          BOOKINGS: 14,
+          BOOKINGS_HANDICAP: 15,
+          ODD_EVEN_GOALS: 16,
+          CLEAN_SHEET: 17,
+          WIN_TO_NIL: 18,
+          TO_SCORE: 19,
         };
         const marketTypeEncoded = MT_ORD[context.marketType ?? ""] ?? 0;
 
@@ -200,42 +316,44 @@ export function ValueBetSpreadsheet({
         }
 
         // Direction encoding
-        const dir = (d?: "up" | "down" | "stable") => d === "up" ? 1 : d === "down" ? -1 : 0;
+        const dir = (d?: "up" | "down" | "stable") =>
+          d === "up" ? 1 : d === "down" ? -1 : 0;
 
         const commission = getProviderCommission(vbd.softProvider);
-        const adjustedSoftOdds = commission > 0
-          ? 1 + (vbd.softOdds - 1) * (1 - commission / 100)
-          : vbd.softOdds;
+        const adjustedSoftOdds =
+          commission > 0
+            ? 1 + (vbd.softOdds - 1) * (1 - commission / 100)
+            : vbd.softOdds;
 
         features = [
-          vbd.evPct,                                                          // 0  ev_pct
-          vbd.trueProb,                                                       // 1  sharp_true_prob
-          vbd.softOdds,                                                       // 2  soft_odds
-          adjustedSoftOdds,                                                   // 3  adjusted_soft_odds
-          vbd.trueProb - 1 / vbd.softOdds,                                   // 4  implied_prob_gap
-          sharpMov?.totalTicks ?? 0,                                          // 5  tick_count
-          timeToKickoffMin,                                                   // 6  time_to_kickoff_min
-          sharpMov?.changePct ?? 0,                                           // 7  movement_pct_sharp
-          softMov?.changePct ?? 0,                                            // 8  movement_pct_soft
-          sharpMov?.steamMove ? 1 : 0,                                        // 9  steam_move_sharp
-          softMov?.steamMove ? 1 : 0,                                         // 10 steam_move_soft
-          dir(sharpMov?.direction),                                           // 11 sharp_direction
-          dir(softMov?.direction),                                            // 12 soft_direction
-          0,                                                                  // 13 convergence_rate (not available client-side)
-          tickVelocity,                                                       // 14 tick_velocity
-          context.providerCount ?? Object.keys(oddsRow).length,               // 15 provider_count
-          sharpMov?.openingOdds ?? 0,                                         // 16 opening_sharp_odds
-          marketTypeEncoded,                                                  // 17 market_type_encoded
-          isAsianLine,                                                        // 18 is_asian_line
-          vbd.kellyFraction,                                                  // 19 kelly_fraction_raw
-          vbd.familyOdds?.vigPct ?? 0,                                        // 20 vig_pct
-          1,                                                                  // 21 competition_tier (cache unavailable client-side)
-          0,                                                                  // 22 hours_since_line_opened (not available client-side)
-          Number.isFinite(vbd.softOdds - (1 / vbd.trueProb))                  // 23 sharp_soft_spread
-            ? vbd.softOdds - (1 / vbd.trueProb)
+          vbd.evPct, // 0  ev_pct
+          vbd.trueProb, // 1  sharp_true_prob
+          vbd.softOdds, // 2  soft_odds
+          adjustedSoftOdds, // 3  adjusted_soft_odds
+          vbd.trueProb - 1 / vbd.softOdds, // 4  implied_prob_gap
+          sharpMov?.totalTicks ?? 0, // 5  tick_count
+          timeToKickoffMin, // 6  time_to_kickoff_min
+          sharpMov?.changePct ?? 0, // 7  movement_pct_sharp
+          softMov?.changePct ?? 0, // 8  movement_pct_soft
+          sharpMov?.steamMove ? 1 : 0, // 9  steam_move_sharp
+          softMov?.steamMove ? 1 : 0, // 10 steam_move_soft
+          dir(sharpMov?.direction), // 11 sharp_direction
+          dir(softMov?.direction), // 12 soft_direction
+          0, // 13 convergence_rate (not available client-side)
+          tickVelocity, // 14 tick_velocity
+          context.providerCount ?? Object.keys(oddsRow).length, // 15 provider_count
+          sharpMov?.openingOdds ?? 0, // 16 opening_sharp_odds
+          marketTypeEncoded, // 17 market_type_encoded
+          isAsianLine, // 18 is_asian_line
+          vbd.kellyFraction, // 19 kelly_fraction_raw
+          vbd.familyOdds?.vigPct ?? 0, // 20 vig_pct
+          1, // 21 competition_tier (cache unavailable client-side)
+          0, // 22 hours_since_line_opened (not available client-side)
+          Number.isFinite(vbd.softOdds - 1 / vbd.trueProb) // 23 sharp_soft_spread
+            ? vbd.softOdds - 1 / vbd.trueProb
             : 0,
-          Math.max(1, context.providerCount ?? Object.keys(oddsRow).length),  // 24 num_markets_same_event fallback
-        ].map(v => {
+          Math.max(1, context.providerCount ?? Object.keys(oddsRow).length), // 24 num_markets_same_event fallback
+        ].map((v) => {
           const safe = Number.isFinite(v) ? v : 0;
           return Math.round(safe * 10000) / 10000;
         });
@@ -289,8 +407,6 @@ export function ValueBetSpreadsheet({
     }),
     [deferredFilters, prefs.showOnlyValue],
   );
-
-
 
   const [copyingRawData, setCopyingRawData] = useState<string | null>(null);
   const [hiddenFamilies, setHiddenFamilies] = useState<Set<string>>(new Set());
@@ -391,7 +507,6 @@ export function ValueBetSpreadsheet({
     [runtimeEnabledProviders, prefs.selectedProviders],
   );
 
-
   const allRows = useMemo(
     () => transformToSpreadsheetRows(events, transformFilters),
     [events, transformFilters],
@@ -407,7 +522,6 @@ export function ValueBetSpreadsheet({
         (row) => !hiddenFamilies.has(`${row.eventId}|${row.familyId}`),
       );
     }
-
 
     // Event-group sort: click-to-sort reorders events without splitting
     // family groups. Each event's score is derived from its atoms.
@@ -500,7 +614,6 @@ export function ValueBetSpreadsheet({
     return unique.size;
   }, [rows]);
 
-
   // Keep the open modal's details in sync when the underlying row data
   // refreshes (e.g. after the reactive engine pushes new odds).
   useEffect(() => {
@@ -521,7 +634,7 @@ export function ValueBetSpreadsheet({
     const providerEventIdsChanged =
       nextProviderEventIds !== undefined &&
       JSON.stringify(nextProviderEventIds) !==
-      JSON.stringify(selectedValueBet.providerEventIds);
+        JSON.stringify(selectedValueBet.providerEventIds);
 
     if (matchingRow && matchingRow.valueBetDetails) {
       const nextDetails = matchingRow.valueBetDetails;
@@ -532,14 +645,14 @@ export function ValueBetSpreadsheet({
         setSelectedValueBet((prev) =>
           prev
             ? {
-              ...prev,
-              details: detailsChanged ? nextDetails : prev.details,
-              outcomeLabel: matchingRow.outcomeLabel,
-              marketLabel: matchingRow.marketLabel,
-              atomOdds: detailsChanged ? matchingRow.odds : prev.atomOdds,
-              providerEventIds: nextProviderEventIds ?? prev.providerEventIds,
-              liveScore: nextLiveScore,
-            }
+                ...prev,
+                details: detailsChanged ? nextDetails : prev.details,
+                outcomeLabel: matchingRow.outcomeLabel,
+                marketLabel: matchingRow.marketLabel,
+                atomOdds: detailsChanged ? matchingRow.odds : prev.atomOdds,
+                providerEventIds: nextProviderEventIds ?? prev.providerEventIds,
+                liveScore: nextLiveScore,
+              }
             : null,
         );
       }
@@ -800,7 +913,9 @@ export function ValueBetSpreadsheet({
                         Syncing provider data
                       </span>
                       <span className="text-xs text-muted-foreground/70">
-                        Pulling fixtures from all sportsbooks and matching across providers — this usually takes 4–5 minutes after a cold start.
+                        Pulling fixtures from all sportsbooks and matching
+                        across providers — this usually takes 4–5 minutes after
+                        a cold start.
                       </span>
                     </div>
                   ) : searchTerm ? (
@@ -810,6 +925,11 @@ export function ValueBetSpreadsheet({
                   ) : (
                     "No matched events found. Odds will appear as the engine processes data."
                   )
+                ) : degradedProviders.length > 0 ? (
+                  <DegradedProvidersPanel
+                    providers={degradedProviders}
+                    onReset={onResetCircuitBreaker}
+                  />
                 ) : searchTerm ? (
                   `No events found matching "${searchTerm}". Try a different search term.`
                 ) : (
@@ -836,7 +956,6 @@ export function ValueBetSpreadsheet({
                       rows[index + 1]?.familyId !== row.familyId ||
                       rows[index + 1]?.eventId !== row.eventId
                     }
-
                     eventProviders={eventInfo?.providers || []}
                     providerEventIds={eventInfo?.providerEventIds || {}}
                     copyingRawData={copyingRawData}
@@ -947,7 +1066,9 @@ export function ValueBetSpreadsheet({
 
       <MovementDetailModal
         open={movementModal !== null}
-        onOpenChange={(open) => { if (!open) setMovementModal(null); }}
+        onOpenChange={(open) => {
+          if (!open) setMovementModal(null);
+        }}
         data={movementModal?.data ?? null}
         eventLabel={movementModal?.eventLabel ?? ""}
         marketLabel={movementModal?.marketLabel ?? ""}

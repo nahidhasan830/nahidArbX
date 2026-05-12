@@ -44,6 +44,17 @@ class QuotaStore:
         entry["updated_at"] = datetime.now().isoformat()
         self._save()
 
+    def get_provider_usage(self, provider_name: str) -> int:
+        providers = self._data.get("search_providers", {})
+        return providers.get(provider_name, {}).get("total_requests", 0)
+
+    def set_provider_usage(self, provider_name: str, total_requests: int) -> None:
+        providers = self._data.setdefault("search_providers", {})
+        entry = providers.setdefault(provider_name, {})
+        entry["total_requests"] = total_requests
+        entry["updated_at"] = datetime.now().isoformat()
+        self._save()
+
     # ── Internal ─────────────────────────────────────────────────────
 
     def _load(self) -> dict[str, Any]:

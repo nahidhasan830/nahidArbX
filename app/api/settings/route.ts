@@ -8,6 +8,7 @@ import {
   getBettingSettings,
   updateBettingSettings,
 } from "@/lib/db/repositories/betting-settings";
+import { MARKET_PHASES } from "@/lib/betting/market-phase";
 import { logger } from "@/lib/shared/logger";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,10 @@ export const revalidate = 0;
 
 const positiveNumber = z.number().positive();
 const nonNegativeNumber = z.number().min(0);
+const marketPhaseList = z
+  .array(z.enum(MARKET_PHASES))
+  .min(1)
+  .transform((phases) => Array.from(new Set(phases)));
 
 const PatchSchema = z
   .object({
@@ -26,6 +31,8 @@ const PatchSchema = z
     minStakeBdt: nonNegativeNumber,
     stakeBucketBdt: positiveNumber,
     minEvPct: nonNegativeNumber,
+    valueDetectionPhases: marketPhaseList,
+    betPlacementPhases: marketPhaseList,
   })
   .partial();
 

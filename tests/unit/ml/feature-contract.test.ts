@@ -13,8 +13,13 @@ import { FEATURE_CATALOG } from "@/lib/ml/feature-catalog";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 
 function parsePythonFeatureNames(): string[] {
-  const source = readFileSync(resolve(process.cwd(), "services/optimizer/app/feature_names.py"), "utf8");
-  const listMatch = source.match(/FEATURE_NAMES:\s*list\[str\]\s*=\s*\[([\s\S]*?)\]\s*\n\nFEATURE_COUNT/);
+  const source = readFileSync(
+    resolve(process.cwd(), "services/optimizer/app/feature_names.py"),
+    "utf8",
+  );
+  const listMatch = source.match(
+    /FEATURE_NAMES:\s*list\[str\]\s*=\s*\[([\s\S]*?)\]\s*\n\nFEATURE_COUNT/,
+  );
   expect(listMatch).not.toBeNull();
   return Array.from(listMatch![1].matchAll(/"([^"]+)"/g), (m) => m[1]);
 }
@@ -33,9 +38,17 @@ describe("ML feature contract", () => {
   });
 
   it("hashes feature names with the persisted contract hash", () => {
-    const hash = createHash("sha256").update(FEATURE_NAMES.join(",")).digest("hex");
-    const pythonSource = readFileSync(resolve(process.cwd(), "services/optimizer/app/feature_names.py"), "utf8");
-    const exporterSource = readFileSync(resolve(process.cwd(), "services/optimizer/app/exporter.py"), "utf8");
+    const hash = createHash("sha256")
+      .update(FEATURE_NAMES.join(","))
+      .digest("hex");
+    const pythonSource = readFileSync(
+      resolve(process.cwd(), "services/optimizer/app/feature_names.py"),
+      "utf8",
+    );
+    const exporterSource = readFileSync(
+      resolve(process.cwd(), "services/optimizer/app/exporter.py"),
+      "utf8",
+    );
 
     expect(FEATURE_NAMES_HASH).toBe(hash);
     expect(pythonSource).toContain("FEATURE_NAMES_HASH");

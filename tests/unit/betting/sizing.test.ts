@@ -76,6 +76,7 @@ describe("computeStake", () => {
       fullKelly: 0.2,
       bankrollBdt: 1000,
       kellyCapPct: 10,
+      kellyFraction: 0.25,
     });
     // 0.2 * 0.25 * 1000 = 50; cap = 1000 * 10/100 = 100; min(50, 100) = 50
     expect(stake).toBeCloseTo(50, 6);
@@ -86,6 +87,7 @@ describe("computeStake", () => {
       fullKelly: 1.0, // 100% Kelly
       bankrollBdt: 1000,
       kellyCapPct: 5,
+      kellyFraction: 0.25,
     });
     // 1.0 * 0.25 * 1000 = 250; cap = 1000 * 5/100 = 50; min(250, 50) = 50
     expect(stake).toBeCloseTo(50, 6);
@@ -96,6 +98,7 @@ describe("computeStake", () => {
       fullKelly: -0.5,
       bankrollBdt: 1000,
       kellyCapPct: 10,
+      kellyFraction: 0.25,
     });
     expect(stake).toBe(0);
   });
@@ -105,6 +108,7 @@ describe("computeStake", () => {
       fullKelly: 0,
       bankrollBdt: 1000,
       kellyCapPct: 10,
+      kellyFraction: 0.25,
     });
     expect(stake).toBe(0);
   });
@@ -114,11 +118,13 @@ describe("computeStake", () => {
       fullKelly: 0.1,
       bankrollBdt: 1000,
       kellyCapPct: 20,
+      kellyFraction: 0.25,
     });
     const s2 = computeStake({
       fullKelly: 0.1,
       bankrollBdt: 2000,
       kellyCapPct: 20,
+      kellyFraction: 0.25,
     });
     expect(s2).toBeCloseTo(s1 * 2, 6);
   });

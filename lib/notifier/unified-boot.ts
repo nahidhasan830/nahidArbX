@@ -33,7 +33,10 @@ export function isUnifiedBoot(): boolean {
  * Persist a boot payload so the collector (frontend) can pick it up.
  * Creates the directory if it doesn't exist yet.
  */
-export function writeBootPayload(role: BootRole, data: Record<string, unknown>): void {
+export function writeBootPayload(
+  role: BootRole,
+  data: Record<string, unknown>,
+): void {
   mkdirSync(BOOT_DIR, { recursive: true });
   const payload: BootPayload = {
     role,

@@ -37,9 +37,14 @@ export const VelkiLoginResponseSchema = z.object({
 export const VelkiGameLaunchResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
-  data: z.object({
-    gameUrl: z.string().url(),
-  }),
+  // data is null when the game-launch endpoint is rate-limited
+  // (success:true but data:null). Our session.ts handles this with a
+  // retryable error rather than treating it as a hard schema failure.
+  data: z
+    .object({
+      gameUrl: z.string().url(),
+    })
+    .nullable(),
   errcode: z.string(),
 });
 

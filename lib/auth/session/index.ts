@@ -7,8 +7,8 @@
 
 import { db, users, sessions, type Session } from "../db";
 import { eq, and, lt } from "drizzle-orm";
-import { signJwt, verifyJwt, type AuthJwtPayload } from "../jwt";
-import { logActivity } from "../activity";
+import { signJwt, verifyJwt } from "../jwt";
+
 import type { GeoLocation } from "../geo";
 
 // ============================================
@@ -223,7 +223,7 @@ export async function getUserSessions(
   userId: string,
   options?: { activeOnly?: boolean; limit?: number },
 ): Promise<Session[]> {
-  let query = db.select().from(sessions).where(eq(sessions.userId, userId));
+  const query = db.select().from(sessions).where(eq(sessions.userId, userId));
 
   const allSessions = await query;
 

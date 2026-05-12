@@ -1,0 +1,655 @@
+"""LightGBM training with CPCV cross-validation and quality metrics.
+
+Trains a binary classifier (P(profitable) for each bet) using Combinatorial
+Purged Cross-Validation to avoid look-ahead bias. Computes comprehensive
+quality metrics including DSR, PBO, AUC-ROC, calibration error, and SHAP
+feature importance.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass, field
+
+import lightgbm as lgb
+import numpy as np
+from scipy import stats
+from sklearn.calibration import calibration_curve
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    log_loss,
+    roc_auc_score,
+)
+
+from .cpcv import CpcvConfig, CpcvSplit, make_cpcv_splits
+from .feature_names import FEATURE_COUNT, FEATURE_NAMES
+from .loader import TrainingData
+from .scoring import deflated_sharpe, pbo_score, score_bucket_analysis, ScoreBucketReport
+
+log = logging.getLogger(__name__)
+
+# Default LightGBM hyperparameters — Phase 6 conservative tuning for
+# small/medium betting datasets (typically 500-5000 samples).
+#
+# Monotone constraints enforce directional relationships between key
+# value-signal features and the prediction score.
+#
+# IMPORTANT: Only constrain EDGE features (ev_pct, kelly_fraction_raw),
+# NOT probability features (sharp_true_prob, implied_prob_gap). The model
+# predicts P(profitable), not P(win). Constraining sharp_true_prob forces
+# the model to rank high-probability favorites higher, but favorites have
+# LOW ROI — this creates inverted score-bucket ROI monotonicity where the
+# lowest-scored longshots generate the highest returns. Relaxing these
+# constraints lets the model learn the non-linear relationship between
+# raw probability and financial profitability.
+#
+# Feature index reference (from feature_names.py):
+#   0: ev_pct (+1)              1: sharp_true_prob (0) — relaxed
+#   2: soft_odds (0)            3: adjusted_soft_odds (0)
+#   4: implied_prob_gap (0)     5: tick_count (0) — relaxed
+#   6: time_to_kickoff_min (0)  7-8: movement_pct_* (0)
+#   9-10: steam_move_* (0)     11-12: *_direction (0)
+#  13: convergence_rate (0)    14: tick_velocity (0)
+#  15: provider_count (0)      16: opening_sharp_odds (0)
+#  17: market_type_encoded (0) 18: is_asian_line (0)
+#  19: kelly_fraction_raw (+1) 20: vig_pct (0)
+#  21: competition_tier (0)    22: hours_since_line_opened (0)
+#  23: sharp_soft_spread (0)   24: num_markets_same_event (0)
+DEFAULT_LGBM_PARAMS: dict = {
+    "objective": "binary",
+    "metric": "binary_logloss",
+    "boosting_type": "gbdt",
+    "num_leaves": 15,
+    "max_depth": 5,
+    "learning_rate": 0.03,
+    "n_estimators": 500,
+    # min_child_samples is injected adaptively by _adaptive_min_child_samples()
+    "subsample": 0.8,
+    "colsample_bytree": 0.6,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "verbose": -1,
+    "force_col_wise": True,
+    # scale_pos_weight is injected dynamically from TrainingData.scale_pos_weight
+    # Monotone constraints: +1 = prediction must increase as feature increases
+    # Only edge-magnitude features are constrained; probability features are
+    # left unconstrained so the model can learn that longshot value (low prob,
+    # high odds) is often more profitable than favourite value (high prob,
+    # low odds).
+    "monotone_constraints": [
+        1,   # ev_pct — higher edge % → must score higher
+        0,   # sharp_true_prob — relaxed: high prob ≠ high profit
+        0,   # soft_odds
+        0,   # adjusted_soft_odds
+        0,   # implied_prob_gap — relaxed: correlated with prob, not edge
+        0,   # tick_count
+        0,   # time_to_kickoff_min
+        0,   # movement_pct_sharp
+        0,   # movement_pct_soft
+        0,   # steam_move_sharp
+        0,   # steam_move_soft
+        0,   # sharp_direction
+        0,   # soft_direction
+        0,   # convergence_rate
+        0,   # tick_velocity
+        0,   # provider_count
+        0,   # opening_sharp_odds
+        0,   # market_type_encoded
+        0,   # is_asian_line
+        1,   # kelly_fraction_raw — higher Kelly → must score higher
+        0,   # vig_pct
+        0,   # competition_tier
+        0,   # hours_since_line_opened
+        0,   # sharp_soft_spread
+        0,   # num_markets_same_event
+    ],
+}
+
+# CPCV config: 10 groups, pick 2 for test → 45 paths.
+DEFAULT_CPCV_CONFIG = CpcvConfig(n_groups=10, n_test_groups=2, embargo_pct=0.01)
+
+# Runtime policy score: calibrated P(win) is converted to expected unit return
+# at the offered commission-adjusted soft odds. A bet only passes ML gating
+# when model EV is positive.
+POLICY_EDGE_THRESHOLD_PCT = 0.0
+ADJUSTED_SOFT_ODDS_INDEX = FEATURE_NAMES.index("adjusted_soft_odds")
+SOFT_ODDS_INDEX = FEATURE_NAMES.index("soft_odds")
+
+
+@dataclass(frozen=True)
+class TrainingMetrics:
+    """Quality metrics from the CPCV training run."""
+
+    # Classification metrics (aggregated OOS)
+    auc_roc: float
+    accuracy: float
+    log_loss_val: float
+    calibration_error: float
+
+    # Financial metrics (aggregated OOS)
+    oos_roi_mean: float
+    oos_clv_mean: float
+    policy_roi_mean: float
+    policy_sample_size: int
+    policy_coverage: float
+    policy_edge_threshold_pct: float
+
+    # Overfitting diagnostics
+    dsr: float   # Deflated Sharpe Ratio
+    pbo: float   # Probability of Backtest Overfitting
+
+    # Training info
+    n_samples: int
+    n_positive: int
+    n_negative: int
+    n_folds: int
+    scale_pos_weight: float | None = None
+
+    # Per-fold metrics for PBO/DSR computation
+    per_fold_sharpes: list[float] = field(default_factory=list)
+
+    # SHAP feature importance (feature_name → mean |SHAP|)
+    feature_importance: dict[str, float] = field(default_factory=dict)
+
+    # Score bucket calibration (Phase 6)
+    score_bucket_report: ScoreBucketReport | None = None
+
+    # Runtime probability calibration. The final LightGBM ONNX model emits a
+    # raw probability; the Node scorer applies this Platt transform before
+    # staking logic sees the score.
+    calibration_method: str = "platt_logit"
+    calibration_params: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
+class TrainingResult:
+    """Complete training output: model + metrics."""
+
+    model: lgb.LGBMClassifier
+    metrics: TrainingMetrics
+    oos_predictions: np.ndarray   # shape (n,) — P(positive) for each sample
+    oos_labels: np.ndarray        # shape (n,) — true labels
+
+
+@dataclass(frozen=True)
+class PolicyEvaluation:
+    """Out-of-sample policy metrics for the live ML gate."""
+
+    edge_scores_pct: np.ndarray
+    roi_pct: float
+    sample_size: int
+    coverage: float
+
+
+def train(
+    data: TrainingData,
+    *,
+    lgbm_params: dict | None = None,
+    cpcv_config: CpcvConfig | None = None,
+) -> TrainingResult:
+    """Train LightGBM via CPCV and compute quality metrics.
+
+    Returns a TrainingResult with the final model trained on ALL data
+    (for deployment) plus metrics computed from OOS predictions only
+    (for honest evaluation).
+    """
+    params = {**DEFAULT_LGBM_PARAMS, **(lgbm_params or {})}
+    cfg = cpcv_config or DEFAULT_CPCV_CONFIG
+
+    # Inject adaptive min_child_samples based on dataset size
+    if "min_child_samples" not in params and "min_child_samples" not in (lgbm_params or {}):
+        params["min_child_samples"] = _adaptive_min_child_samples(len(data.labels))
+
+    # Do not inject scale_pos_weight by default. LightGBM warns that class
+    # balancing can degrade probability estimates, and this pipeline uses
+    # calibrated probabilities for expected-return staking. Per-sample
+    # weights still capture half outcomes and PnL importance.
+
+    X = data.features
+    y = data.labels
+    w = data.sample_weights  # may be None
+    n_samples = len(y)
+
+    log.info(
+        "Training LightGBM: %d samples, %d features, scale_pos_weight=%s, sample_weights=%s",
+        n_samples, FEATURE_COUNT,
+        params.get("scale_pos_weight", "none"),
+        "yes" if w is not None else "no",
+    )
+
+    # ── Build CPCV splits ──────────────────────────────────────────────
+    # CPCV operates on a time-sorted DataFrame. We use the metadata's
+    # first_seen_at ordering (loader guarantees ORDER BY first_seen_at).
+    # Build a dummy Polars DataFrame with just event_id for purging.
+    import polars as pl
+
+    splitter_df = pl.DataFrame({
+        "event_id": data.metadata["event_id"].to_list(),
+    })
+
+    splits = make_cpcv_splits(splitter_df, cfg)
+    n_folds = len(splits)
+    log.info("CPCV: %d folds (groups=%d, test_groups=%d)", n_folds, cfg.n_groups, cfg.n_test_groups)
+
+    # ── Fold-level training ────────────────────────────────────────────
+    # CPCV tests each row multiple times across paths. Accumulate and average
+    # OOS predictions instead of overwriting a row with whichever path ran
+    # last.
+    oos_pred_sum = np.zeros(n_samples, dtype=np.float64)
+    oos_pred_count = np.zeros(n_samples, dtype=np.int32)
+    per_fold_sharpes: list[float] = []
+    per_fold_rois: list[float] = []  # For PBO matrix
+
+    for split in splits:
+        train_idx = split.train_indices
+        test_idx = split.test_indices
+
+        if len(train_idx) < 10 or len(test_idx) < 5:
+            log.debug("Fold %d: too few samples (train=%d, test=%d), skipping",
+                      split.path_index, len(train_idx), len(test_idx))
+            continue
+
+        fit_idx, val_idx = _split_train_validation(train_idx, y)
+        if len(fit_idx) < 10:
+            log.debug(
+                "Fold %d: too few fit samples (fit=%d, val=%d), skipping",
+                split.path_index, len(fit_idx), len(val_idx),
+            )
+            continue
+
+        X_train, y_train = X[fit_idx], y[fit_idx]
+        X_test = X[test_idx]
+        w_train = w[fit_idx] if w is not None else None
+
+        model = lgb.LGBMClassifier(**params)
+        fit_kwargs = {
+            "sample_weight": w_train,
+            "callbacks": [lgb.log_evaluation(period=0)],
+        }
+        if len(val_idx) >= 5:
+            X_val, y_val = X[val_idx], y[val_idx]
+            fit_kwargs["eval_set"] = [(X_val, y_val)]
+            fit_kwargs["eval_metric"] = "binary_logloss"
+            fit_kwargs["callbacks"] = [
+                lgb.early_stopping(stopping_rounds=50, first_metric_only=True, verbose=False),
+                lgb.log_evaluation(period=0),
+            ]
+        model.fit(X_train, y_train, **fit_kwargs)
+
+        # P(positive) for OOS samples
+        fold_preds = model.predict_proba(X_test)[:, 1]
+        oos_pred_sum[test_idx] += fold_preds
+        oos_pred_count[test_idx] += 1
+
+        # Per-fold financial Sharpe (for DSR/PBO)
+        fold_meta = data.metadata[test_idx.tolist()]
+        fold_pnl = fold_meta["pnl"].to_numpy().astype(np.float64)
+        fold_pnl = np.nan_to_num(fold_pnl, nan=0.0)
+
+        fold_stakes = fold_meta["soft_odds"].to_numpy().astype(np.float64)
+        fold_stakes = np.where(fold_stakes > 0, 1.0, 0.0)  # unit stakes
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            returns = np.where(fold_stakes > 0, fold_pnl / fold_stakes, 0.0)
+
+        if len(returns) > 1 and returns.std() > 0:
+            sharpe = float(returns.mean() / returns.std() * math.sqrt(len(returns)))
+        else:
+            sharpe = 0.0
+        per_fold_sharpes.append(sharpe)
+
+        total_stake = float(fold_stakes.sum()) if fold_stakes.sum() > 0 else 1.0
+        roi = float(fold_pnl.sum() / total_stake * 100.0)
+        per_fold_rois.append(roi)
+
+    # ── Aggregate OOS metrics ──────────────────────────────────────────
+    # Only use samples that got OOS predictions
+    oos_preds = np.full(n_samples, np.nan, dtype=np.float64)
+    predicted_mask = oos_pred_count > 0
+    oos_preds[predicted_mask] = oos_pred_sum[predicted_mask] / oos_pred_count[predicted_mask]
+    valid_mask = ~np.isnan(oos_preds)
+    oos_valid = oos_preds[valid_mask]
+    labels_valid = y[valid_mask]
+
+    if len(oos_valid) < 10:
+        log.warning("Too few OOS predictions (%d), metrics will be unreliable", len(oos_valid))
+
+    calibration_params = _fit_platt_calibrator(oos_valid, labels_valid)
+    calibrated_oos_valid = _apply_platt_calibration(oos_valid, calibration_params)
+
+    # AUC-ROC
+    try:
+        auc = float(roc_auc_score(labels_valid, calibrated_oos_valid))
+    except ValueError:
+        auc = 0.5  # Single class in labels
+
+    # Accuracy (at 0.5 threshold)
+    acc = float(accuracy_score(labels_valid, (calibrated_oos_valid > 0.5).astype(int)))
+
+    # Log loss
+    ll = float(log_loss(labels_valid, np.clip(calibrated_oos_valid, 1e-7, 1 - 1e-7)))
+
+    # Calibration error (ECE — expected calibration error)
+    cal_err = _expected_calibration_error(labels_valid, calibrated_oos_valid)
+
+    # OOS ROI
+    oos_roi = float(np.mean(per_fold_rois)) if per_fold_rois else 0.0
+
+    # OOS CLV — average CLV% across OOS samples that have valid CLV data
+    clv_col = data.metadata["clv_pct"].to_numpy().astype(np.float64)
+    clv_valid = clv_col[valid_mask]
+    finite_clv = clv_valid[np.isfinite(clv_valid)]
+    oos_clv = float(finite_clv.mean()) if len(finite_clv) > 0 else 0.0
+
+    # ── Overfitting diagnostics ────────────────────────────────────────
+    # DSR measures confidence that the observed Sharpe is real after
+    # accounting for multiple-testing. n_trials = number of *independent
+    # strategies* evaluated, NOT the number of CPCV folds. Since we train
+    # a single LightGBM model (no hyperparameter search / Optuna sweep),
+    # n_trials=1. The 45 CPCV folds evaluate the SAME model on different
+    # data slices — they're cross-validation, not independent trials.
+    # With n_trials=1, DSR reduces to plain PSR (no multiple-testing
+    # penalty), which is correct for single-model evaluation.
+    sharpe_arr = np.array(per_fold_sharpes)
+    # Use mean Sharpe across folds — the best single-model estimator.
+    mean_sharpe = float(sharpe_arr.mean()) if len(sharpe_arr) > 0 else 0.0
+    sharpe_var = float(np.var(sharpe_arr, ddof=1)) if len(sharpe_arr) > 1 else 0.0
+
+    raw_skew = float(stats.skew(sharpe_arr)) if len(sharpe_arr) > 2 else 0.0
+    raw_kurt = float(stats.kurtosis(sharpe_arr, fisher=False)) if len(sharpe_arr) > 3 else 3.0
+    
+    skew_val = 0.0 if math.isnan(raw_skew) else raw_skew
+    kurt_val = 3.0 if math.isnan(raw_kurt) else raw_kurt
+
+    dsr = deflated_sharpe(
+        mean_sharpe,
+        n=n_samples,
+        n_trials=1,
+        sharpe_variance_across_trials=sharpe_var,
+        skew=skew_val,
+        kurtosis=kurt_val,
+    )
+
+    # PBO: build a per-fold ROI matrix (1 trial × N paths)
+    # With a single model type, PBO tests whether the specific CPCV fold
+    # selection is overfit.
+    pbo_val = pbo_score(
+        [per_fold_rois],  # single "trial" — the LightGBM model
+        n_subsamples=200,
+        seed=42,
+    )
+
+    # ── Train final model on ALL data ──────────────────────────────────
+    log.info("Training final model on all %d samples", n_samples)
+    final_model = lgb.LGBMClassifier(**params)
+    final_model.fit(X, y, sample_weight=w)
+
+    # ── SHAP feature importance ────────────────────────────────────────
+    feature_importance = _compute_shap_importance(final_model, X)
+
+    # ── Score bucket calibration (Phase 6) ─────────────────────────────
+    # Use unit_return (normalized 1-unit return) instead of raw pnl for
+    # bucket analysis. Raw pnl varies by stake size for placed bets,
+    # making cross-sample ROI comparisons unfair. unit_return normalizes
+    # all samples to a 1-unit stake, giving stake-independent bucket ROI.
+    if "unit_return" in data.metadata.columns:
+        ur_arr = data.metadata["unit_return"].to_numpy().astype(np.float64)
+        pnl_valid = np.nan_to_num(ur_arr[valid_mask], nan=0.0)
+    else:
+        pnl_arr = data.metadata["pnl"].to_numpy().astype(np.float64)
+        pnl_valid = np.nan_to_num(pnl_arr[valid_mask], nan=0.0)
+
+    # Policy evaluation: the live system does not stake on "high P(win)".
+    # It stakes only when calibrated P(win) clears the break-even probability
+    # implied by the offered odds.
+    policy = _evaluate_policy(
+        calibrated_oos_valid,
+        features=data.features[valid_mask],
+        metadata=data.metadata.filter(valid_mask.tolist()),
+    )
+
+    clv_for_buckets = clv_valid if len(finite_clv) > 0 else None
+    bucket_report = score_bucket_analysis(
+        policy.edge_scores_pct, labels_valid, pnl_valid, clv_for_buckets,
+    )
+
+    _log_bucket_report(bucket_report)
+
+    metrics = TrainingMetrics(
+        auc_roc=round(auc, 4),
+        accuracy=round(acc, 4),
+        log_loss_val=round(ll, 6),
+        calibration_error=round(cal_err, 6),
+        oos_roi_mean=round(oos_roi, 4),
+        oos_clv_mean=round(oos_clv, 4),
+        policy_roi_mean=round(policy.roi_pct, 4),
+        policy_sample_size=policy.sample_size,
+        policy_coverage=round(policy.coverage, 4),
+        policy_edge_threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
+        dsr=round(dsr, 4),
+        pbo=round(pbo_val, 4),
+        n_samples=n_samples,
+        n_positive=int(y.sum()),
+        n_negative=int((y == 0).sum()),
+        n_folds=n_folds,
+        scale_pos_weight=data.scale_pos_weight,
+        per_fold_sharpes=[round(s, 4) for s in per_fold_sharpes],
+        feature_importance=feature_importance,
+        score_bucket_report=bucket_report,
+        calibration_params=calibration_params,
+    )
+
+    log.info(
+        "Training complete: AUC=%.4f, DSR=%.4f, PBO=%.4f, ROI=%.2f%%, "
+        "policyROI=%.2f%%, policyN=%d, CLV=%.2f%%, bucket_monotonicity=%.2f",
+        metrics.auc_roc, metrics.dsr, metrics.pbo, metrics.oos_roi_mean,
+        metrics.policy_roi_mean, metrics.policy_sample_size,
+        metrics.oos_clv_mean, bucket_report.roi_monotonicity,
+    )
+
+    calibrated_oos_preds = oos_preds.copy()
+    calibrated_oos_preds[valid_mask] = calibrated_oos_valid
+
+    return TrainingResult(
+        model=final_model,
+        metrics=metrics,
+        oos_predictions=calibrated_oos_preds,
+        oos_labels=y,
+    )
+
+
+def _split_train_validation(train_idx: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Chronological inner split for early stopping without touching test rows."""
+    if len(train_idx) < 20:
+        return train_idx, np.array([], dtype=np.int64)
+
+    val_size = max(5, int(round(len(train_idx) * 0.2)))
+    val_idx = train_idx[-val_size:]
+    fit_idx = train_idx[:-val_size]
+
+    # LightGBM validation must contain both classes for binary logloss to be useful.
+    if len(np.unique(y[val_idx])) < 2 or len(np.unique(y[fit_idx])) < 2:
+        return train_idx, np.array([], dtype=np.int64)
+
+    return fit_idx, val_idx
+
+
+def _fit_platt_calibrator(raw_probs: np.ndarray, labels: np.ndarray) -> dict[str, float]:
+    """Fit a one-dimensional Platt-style logit calibrator on OOS predictions."""
+    if len(raw_probs) < 20 or len(np.unique(labels)) < 2:
+        return {"intercept": 0.0, "slope": 1.0}
+
+    clipped = np.clip(raw_probs.astype(np.float64), 1e-6, 1 - 1e-6)
+    logits = np.log(clipped / (1.0 - clipped)).reshape(-1, 1)
+
+    try:
+        lr = LogisticRegression(solver="lbfgs", C=1.0, max_iter=1000)
+        lr.fit(logits, labels)
+        slope = float(lr.coef_[0][0])
+        intercept = float(lr.intercept_[0])
+        if not math.isfinite(slope) or not math.isfinite(intercept):
+            raise ValueError("non-finite Platt parameters")
+        return {"intercept": intercept, "slope": slope}
+    except Exception as exc:
+        log.warning("Platt calibration failed, using identity transform: %s", exc)
+        return {"intercept": 0.0, "slope": 1.0}
+
+
+def _apply_platt_calibration(
+    raw_probs: np.ndarray,
+    params: dict[str, float],
+) -> np.ndarray:
+    clipped = np.clip(raw_probs.astype(np.float64), 1e-6, 1 - 1e-6)
+    logits = np.log(clipped / (1.0 - clipped))
+    z = params.get("intercept", 0.0) + params.get("slope", 1.0) * logits
+    z = np.clip(z, -35.0, 35.0)
+    return 1.0 / (1.0 + np.exp(-z))
+
+
+def _evaluate_policy(
+    calibrated_probs: np.ndarray,
+    *,
+    features: np.ndarray,
+    metadata,
+) -> PolicyEvaluation:
+    """Simulate the live ML gate on OOS rows using calibrated model EV."""
+    if len(calibrated_probs) == 0:
+        return PolicyEvaluation(
+            edge_scores_pct=np.empty(0, dtype=np.float64),
+            roi_pct=0.0,
+            sample_size=0,
+            coverage=0.0,
+        )
+
+    adjusted_odds = features[:, ADJUSTED_SOFT_ODDS_INDEX].astype(np.float64)
+    fallback_odds = features[:, SOFT_ODDS_INDEX].astype(np.float64)
+    adjusted_odds = np.where(adjusted_odds > 1.01, adjusted_odds, fallback_odds)
+    adjusted_odds = np.where(adjusted_odds > 1.01, adjusted_odds, np.nan)
+
+    edge_scores_pct = (calibrated_probs * adjusted_odds - 1.0) * 100.0
+    edge_scores_pct = np.nan_to_num(edge_scores_pct, nan=-100.0, posinf=-100.0, neginf=-100.0)
+    policy_mask = edge_scores_pct > POLICY_EDGE_THRESHOLD_PCT
+
+    if "unit_return" in metadata.columns:
+        unit_returns = metadata["unit_return"].to_numpy().astype(np.float64)
+    else:
+        unit_returns = metadata["pnl"].to_numpy().astype(np.float64)
+    unit_returns = np.nan_to_num(unit_returns, nan=0.0)
+
+    sample_size = int(policy_mask.sum())
+    roi_pct = float(unit_returns[policy_mask].mean() * 100.0) if sample_size > 0 else 0.0
+    coverage = float(sample_size / len(calibrated_probs)) if len(calibrated_probs) > 0 else 0.0
+
+    return PolicyEvaluation(
+        edge_scores_pct=edge_scores_pct,
+        roi_pct=roi_pct,
+        sample_size=sample_size,
+        coverage=coverage,
+    )
+
+
+def _expected_calibration_error(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """Compute Expected Calibration Error (ECE).
+
+    Measures how well predicted probabilities match observed frequencies.
+    Lower is better. 0.0 = perfectly calibrated.
+    """
+    try:
+        fraction_of_positives, mean_predicted = calibration_curve(
+            y_true, y_prob, n_bins=n_bins, strategy="uniform",
+        )
+    except ValueError:
+        return 0.0
+
+    # Compute bin counts for weighting
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    bin_indices = np.digitize(y_prob, bin_edges[1:-1])
+    bin_counts = np.array([np.sum(bin_indices == i) for i in range(n_bins)])
+
+    # Only use bins that calibration_curve actually returned
+    # (it skips empty bins)
+    n_returned = len(fraction_of_positives)
+    if n_returned == 0:
+        return 0.0
+
+    # Weight by bin count
+    non_empty = bin_counts[bin_counts > 0][:n_returned]
+    weights = non_empty / non_empty.sum() if non_empty.sum() > 0 else np.ones(n_returned)
+
+    ece = float(np.sum(weights * np.abs(fraction_of_positives - mean_predicted)))
+    return ece
+
+
+def _compute_shap_importance(
+    model: lgb.LGBMClassifier,
+    X: np.ndarray,
+    max_samples: int = 500,
+) -> dict[str, float]:
+    """Compute mean |SHAP| per feature for interpretability.
+
+    Uses a subsample for speed on large datasets.
+    """
+    try:
+        import shap
+
+        if X.shape[0] > max_samples:
+            rng = np.random.default_rng(42)
+            idx = rng.choice(X.shape[0], max_samples, replace=False)
+            X_sub = X[idx]
+        else:
+            X_sub = X
+
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_sub)
+
+        # For binary classification, shap_values may be a list [neg, pos]
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]  # positive class
+
+        mean_abs = np.abs(shap_values).mean(axis=0)
+        importance = {}
+        for i, name in enumerate(FEATURE_NAMES):
+            importance[name] = round(float(mean_abs[i]), 6)
+
+        return importance
+    except Exception as e:
+        log.warning("SHAP computation failed: %s", e)
+        return {}
+
+
+def _adaptive_min_child_samples(n_samples: int) -> int:
+    """Compute adaptive min_child_samples based on dataset size.
+
+    Small datasets need fewer min_child_samples to avoid underfitting.
+    Ranges from 5 (n≤200) to 20 (n≥2000), linearly interpolated.
+    """
+    if n_samples <= 200:
+        return 5
+    if n_samples >= 2000:
+        return 20
+    # Linear interpolation between 5 and 20 over [200, 2000]
+    return int(5 + (n_samples - 200) / (2000 - 200) * 15)
+
+
+def _log_bucket_report(report: 'ScoreBucketReport') -> None:
+    """Log the score bucket report in a readable table format."""
+    log.info("Score bucket calibration report:")
+    log.info("  %-10s %6s %8s %8s %8s %8s", "Bucket", "Count", "WinRate", "ROI%", "CLV%", "MeanScr")
+    for b in report.buckets:
+        clv_str = f"{b.mean_clv_pct:8.2f}" if math.isfinite(b.mean_clv_pct) else "     N/A"
+        log.info(
+            "  %-10s %6d %7.1f%% %7.1f%% %s %8.4f",
+            b.label, b.count, b.win_rate * 100, b.roi_pct, clv_str, b.mean_score,
+        )
+    log.info(
+        "  Monotonicity: ROI=%.2f, CLV=%.2f, WinRate=%.2f | Directional=%s",
+        report.roi_monotonicity, report.clv_monotonicity,
+        report.win_rate_monotonicity, report.is_directionally_monotonic,
+    )

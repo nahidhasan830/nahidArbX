@@ -290,7 +290,14 @@ function detectMarketType(
   ) {
     if (line !== null) {
       // Pass marketName so we can match team later
-      return { marketType: lower.includes("away") ? "AWAY_TEAM_TOTAL" : "HOME_TEAM_TOTAL", timeScope, line, marketName };
+      return {
+        marketType: lower.includes("away")
+          ? "AWAY_TEAM_TOTAL"
+          : "HOME_TEAM_TOTAL",
+        timeScope,
+        line,
+        marketName,
+      };
     }
   }
 
@@ -307,10 +314,7 @@ function detectMarketType(
   // Card Asian Handicap → mapped to BOOKINGS_HANDICAP (check BEFORE cards totals!)
   // 9W market: "Card Asian Handicap -0.5", Pinnacle: SPREAD with Bookings period.
   // Same sign convention as regular AH: negate 9W's line.
-  if (
-    lower.startsWith("card asian handicap ") &&
-    line !== null
-  ) {
+  if (lower.startsWith("card asian handicap ") && line !== null) {
     const extractedLine = extractSignedLine(marketName);
     const signedLine = extractedLine !== null ? -extractedLine : undefined;
     return { marketType: "BOOKINGS_HANDICAP", timeScope, line, signedLine };
@@ -382,7 +386,11 @@ function generateAtomId(
     case "MATCH_RESULT": {
       if (selection === "draw") return `${timePrefix}_draw`;
       // Compare both teams and pick the better match to avoid false positives
-      const side = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const side = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
       if (side === "home") return `${timePrefix}_home_win`;
       if (side === "away") return `${timePrefix}_away_win`;
       return null;
@@ -403,7 +411,11 @@ function generateAtomId(
       // Compare both teams and pick the better match
       // NW-SB uses same convention as Pinnacle: home gives, away receives
       // Line negation converts "+X" to "-X", selections map directly (no swap needed)
-      const ahSide = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const ahSide = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
 
       if (ahSide === "home") {
         const ahLine = formatHandicapLine(signedLine);
@@ -426,7 +438,11 @@ function generateAtomId(
       }
       // Compare both teams and pick the better match
       // NW-SB uses same convention: home gives, away receives (no swap needed)
-      const ehSide = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const ehSide = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
 
       if (ehSide === "home") return `${timePrefix}_home_eh_${ehLine}`;
       if (ehSide === "away") return `${timePrefix}_away_eh_${ehLine}`;
@@ -441,7 +457,11 @@ function generateAtomId(
 
     case "DNB": {
       // Compare both teams and pick the better match
-      const dnbSide = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const dnbSide = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
       if (dnbSide === "home") return `${timePrefix}_dnb_home`;
       if (dnbSide === "away") return `${timePrefix}_dnb_away`;
       return null;
@@ -475,7 +495,11 @@ function generateAtomId(
 
       // Compare both teams and pick the better match
       // NW-SB uses same convention: home gives, away receives (no swap needed)
-      const cornersSide = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const cornersSide = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
 
       if (cornersSide === "home") {
         const ahLine = formatHandicapLine(signedLine);
@@ -499,7 +523,11 @@ function generateAtomId(
         return `${timePrefix}_corners_draw_eh_${ehLine}`;
       }
       // Compare both teams and pick the better match
-      const cornersEhSide = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const cornersEhSide = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
 
       if (cornersEhSide === "home")
         return `${timePrefix}_corners_home_eh_${ehLine}`;
@@ -523,7 +551,11 @@ function generateAtomId(
         ttTeam = "away";
       } else {
         // Extract team name from market (everything before " goals over")
-        ttTeam = matchTeamSide(resolveSelection(detected.marketName ?? "", resolvedSelections), homeTeam, awayTeam);
+        ttTeam = matchTeamSide(
+          resolveSelection(detected.marketName ?? "", resolvedSelections),
+          homeTeam,
+          awayTeam,
+        );
       }
       if (!ttTeam) return null;
 
@@ -550,7 +582,11 @@ function generateAtomId(
         csTeam = "away";
       } else {
         // Compare both teams and pick the better match
-        csTeam = matchTeamSide(resolveSelection(detected.marketName ?? "", resolvedSelections), homeTeam, awayTeam);
+        csTeam = matchTeamSide(
+          resolveSelection(detected.marketName ?? "", resolvedSelections),
+          homeTeam,
+          awayTeam,
+        );
       }
       if (!csTeam) return null;
       if (selection === "yes") return `${timePrefix}_${csTeam}_cs_yes`;
@@ -568,7 +604,11 @@ function generateAtomId(
         wtnTeam = "away";
       } else {
         // Compare both teams and pick the better match
-        wtnTeam = matchTeamSide(resolveSelection(detected.marketName ?? "", resolvedSelections), homeTeam, awayTeam);
+        wtnTeam = matchTeamSide(
+          resolveSelection(detected.marketName ?? "", resolvedSelections),
+          homeTeam,
+          awayTeam,
+        );
       }
       if (!wtnTeam) return null;
       if (selection === "yes") return `${timePrefix}_${wtnTeam}_wtn_yes`;
@@ -579,7 +619,8 @@ function generateAtomId(
     case "BOOKINGS": {
       if (!lineStr) return null;
       if (selection === "over") return `${timePrefix}_bookings_over_${lineStr}`;
-      if (selection === "under") return `${timePrefix}_bookings_under_${lineStr}`;
+      if (selection === "under")
+        return `${timePrefix}_bookings_under_${lineStr}`;
       return null;
     }
 
@@ -587,7 +628,11 @@ function generateAtomId(
       const signedLine = detected.signedLine ?? detected.line;
       if (signedLine === undefined) return null;
 
-      const bhSide = matchTeamSide(resolveSelection(selectionName, resolvedSelections), homeTeam, awayTeam);
+      const bhSide = matchTeamSide(
+        resolveSelection(selectionName, resolvedSelections),
+        homeTeam,
+        awayTeam,
+      );
       if (bhSide === "home") {
         const ahLine = formatHandicapLine(signedLine);
         return `${timePrefix}_bookings_home_ah_${ahLine}`;
@@ -610,7 +655,11 @@ function generateAtomId(
       } else if (tcMarket.includes("away")) {
         tcTeam = "away";
       } else {
-        tcTeam = matchTeamSide(resolveSelection(detected.marketName ?? "", resolvedSelections), homeTeam, awayTeam);
+        tcTeam = matchTeamSide(
+          resolveSelection(detected.marketName ?? "", resolvedSelections),
+          homeTeam,
+          awayTeam,
+        );
       }
       if (!tcTeam) return null;
 
@@ -648,7 +697,13 @@ export function mapSportsbookToAtom(
   if (!detected) return null;
 
   // Generate atom ID
-  const atomId = generateAtomId(detected, selectionName, homeTeam, awayTeam, resolvedSelections);
+  const atomId = generateAtomId(
+    detected,
+    selectionName,
+    homeTeam,
+    awayTeam,
+    resolvedSelections,
+  );
   if (!atomId) return null;
 
   // Verify atom exists in registry

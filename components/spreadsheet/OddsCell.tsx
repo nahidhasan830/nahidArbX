@@ -13,7 +13,7 @@
  * always fresh. Movement data is populated from the in-memory ring buffer.
  */
 
-import { useRef, useEffect, useState, memo } from "react";
+import { memo } from "react";
 import {
   Tooltip,
   TooltipTrigger,
@@ -36,31 +36,14 @@ interface OddsCellProps {
 
 /** Threshold (%) below which we don't show direction arrow / flash. */
 const DIRECTION_THRESHOLD = 0.5;
-/** Flash animation duration in ms. */
-const FLASH_DURATION_MS = 600;
-
-function OddsCellInner({ odds, onClick, providerLabel, onMovementClick, onOpenMovementModal, sharpRef }: OddsCellProps) {
-  // Flash state: briefly highlight cell on significant price change
-  const prevValueRef = useRef(odds?.value ?? 0);
-  const [flashDir, setFlashDir] = useState<"up" | "down" | null>(null);
-
-  useEffect(() => {
-    if (!odds) return;
-    const prev = prevValueRef.current;
-    prevValueRef.current = odds.value;
-    if (prev === odds.value) return;
-
-    const pctChange =
-      prev !== 0
-        ? Math.abs(((odds.value - prev) / prev) * 100)
-        : 0;
-    if (pctChange < DIRECTION_THRESHOLD) return;
-
-    setFlashDir(odds.value > prev ? "up" : "down");
-    const timer = setTimeout(() => setFlashDir(null), FLASH_DURATION_MS);
-    return () => clearTimeout(timer);
-  }, [odds?.value]); // eslint-disable-line react-hooks/exhaustive-deps
-
+function OddsCellInner({
+  odds,
+  onClick,
+  providerLabel,
+  onMovementClick,
+  onOpenMovementModal,
+  sharpRef,
+}: OddsCellProps) {
   if (!odds) {
     return (
       <td className="text-center px-2 text-muted-foreground/40 font-mono text-[11px] tabular-nums">
@@ -83,7 +66,13 @@ function OddsCellInner({ odds, onClick, providerLabel, onMovementClick, onOpenMo
   // Steam move badge
   const steam = movement?.steamMove;
 
-  // Flash background class
+  const flashDir =
+    showArrow && movement.direction === "up"
+      ? "up"
+      : showArrow && movement.direction === "down"
+        ? "down"
+        : null;
+
   const flashClass =
     flashDir === "up"
       ? "animate-flash-green"
@@ -93,7 +82,14 @@ function OddsCellInner({ odds, onClick, providerLabel, onMovementClick, onOpenMo
 
   const cell = (
     <td
-      onClick={clickable ? onClick : onMovementClick ? () => onMovementClick() : undefined}
+      key={`${providerLabel ?? "odds"}-${odds.value}`}
+      onClick={
+        clickable
+          ? onClick
+          : onMovementClick
+            ? () => onMovementClick()
+            : undefined
+      }
       className={`text-center px-2 font-mono text-[11px] tabular-nums relative transition-colors ${
         isSuspended
           ? "text-muted-foreground/60"
@@ -107,9 +103,7 @@ function OddsCellInner({ odds, onClick, providerLabel, onMovementClick, onOpenMo
         {showArrow && !isSuspended && (
           <span
             className={`text-[8px] leading-none ${
-              movement.direction === "up"
-                ? "text-emerald-400"
-                : "text-red-400"
+              movement.direction === "up" ? "text-emerald-400" : "text-red-400"
             }`}
           >
             {movement.direction === "up" ? "▲" : "▼"}

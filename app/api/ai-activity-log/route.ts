@@ -10,9 +10,9 @@ import {
 const querySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
-  systems: z.string().optional(),      // comma-separated
-  statuses: z.string().optional(),     // comma-separated
-  triggers: z.string().optional(),     // comma-separated
+  systems: z.string().optional(), // comma-separated
+  statuses: z.string().optional(), // comma-separated
+  triggers: z.string().optional(), // comma-separated
   search: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
   offset: z.coerce.number().int().min(0).default(0),

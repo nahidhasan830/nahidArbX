@@ -8,12 +8,12 @@ Sub-second event-driven pipeline: WS/HTTP odds → in-memory atoms store → 500
 
 ## 1. Pipeline Overview
 
-| Tier | Name | Components | Role |
-|:----:|------|------------|------|
-| **1** | Data Sources | Pinnacle WS, BetConstruct WS, NineWickets HTTP, Velki HTTP | Raw odds ingestion (4 providers) |
-| **2** | Atoms Store | `store.ts`, `odds-history.ts` | In-memory state + dirty tracking + ring buffer |
-| **3** | Reactive Detector | `reactive-detector.ts`, `value-detector.ts` | 500ms-debounced EV detection on dirty families only |
-| **4** | Actions | PostgreSQL, AutoPlacer, SSE, Telegram | Persist, place, notify |
+| Tier  | Name              | Components                                                 | Role                                                |
+| :---: | ----------------- | ---------------------------------------------------------- | --------------------------------------------------- |
+| **1** | Data Sources      | Pinnacle WS, BetConstruct WS, NineWickets HTTP, Velki HTTP | Raw odds ingestion (4 providers)                    |
+| **2** | Atoms Store       | `store.ts`, `odds-history.ts`                              | In-memory state + dirty tracking + ring buffer      |
+| **3** | Reactive Detector | `reactive-detector.ts`, `value-detector.ts`                | 500ms-debounced EV detection on dirty families only |
+| **4** | Actions           | PostgreSQL, AutoPlacer, SSE, Telegram                      | Persist, place, notify                              |
 
 ---
 
@@ -25,13 +25,13 @@ All providers converge to `setOddsBatch(NormalizedOddsEntry[]) → Atoms Store �
 
 Foundation of value detection — defines true probability baseline.
 
-| Property | Value |
-|----------|-------|
-| Protocol | STOMP over WS (`wss://www.ps388win.com/proteus-websocket/mews`) |
-| Auth | Bearer token (auto-refreshed via Cloudflare Bridge) |
-| Topic | `/market/decimal/{eventId}/A` |
-| Update freq | Real-time push (~1-2s per event) |
-| Reconnect | Auto, 5s backoff + full re-subscribe |
+| Property    | Value                                                           |
+| ----------- | --------------------------------------------------------------- |
+| Protocol    | STOMP over WS (`wss://www.ps388win.com/proteus-websocket/mews`) |
+| Auth        | Bearer token (auto-refreshed via Cloudflare Bridge)             |
+| Topic       | `/market/decimal/{eventId}/A`                                   |
+| Update freq | Real-time push (~1-2s per event)                                |
+| Reconnect   | Auto, 5s backoff + full re-subscribe                            |
 
 Flow: STOMP frame → `PinnacleWsClient` → `parsePinnacleWsMessage()` → `extractPinnacleOdds()` (maps MONEYLINE/SPREAD/TOTAL_POINTS/TEAM_TOTAL → atom IDs) → `setOddsBatch()`.
 
@@ -39,12 +39,12 @@ Flow: STOMP frame → `PinnacleWsClient` → `parsePinnacleWsMessage()` → `ext
 
 ### 2.2 NineWickets / Velki — HTTP Polling (soft)
 
-| | NineWickets | Velki |
-|--|:-:|:-:|
-| Poll interval | 1.5s/event | 1.5s/event |
-| Delta mode | ✅ version + selectionTs | ✅ version + selectionTs |
-| Auth overlay | Every 60s (real account) | None (guest) |
-| Concurrency | 1 loop/matched event | 1 loop/matched event |
+|               |       NineWickets        |          Velki           |
+| ------------- | :----------------------: | :----------------------: |
+| Poll interval |        1.5s/event        |        1.5s/event        |
+| Delta mode    | ✅ version + selectionTs | ✅ version + selectionTs |
+| Auth overlay  | Every 60s (real account) |       None (guest)       |
+| Concurrency   |   1 loop/matched event   |   1 loop/matched event   |
 
 Flow: HTTP POST (delta) → `GeniusSportsSyncService` → `BaseAtomsAdapter.extractOdds()` → `setOddsBatch()`.
 
@@ -52,12 +52,12 @@ Flow: HTTP POST (delta) → `GeniusSportsSyncService` → `BaseAtomsAdapter.extr
 
 ### 2.3 BetConstruct — Swarm WS (soft, disabled by default)
 
-| Property | Value |
-|----------|-------|
-| Protocol | Swarm JSON over WS (`wss://eu-swarm-newm.betconstruct.com/`) |
-| Auth | Session-based (`request_session` → `sid`) |
-| Update mode | Server pushes deltas on market/price change |
-| Reconnect | Auto, 2s backoff + full re-subscribe |
+| Property    | Value                                                        |
+| ----------- | ------------------------------------------------------------ |
+| Protocol    | Swarm JSON over WS (`wss://eu-swarm-newm.betconstruct.com/`) |
+| Auth        | Session-based (`request_session` → `sid`)                    |
+| Update mode | Server pushes deltas on market/price change                  |
+| Reconnect   | Auto, 2s backoff + full re-subscribe                         |
 
 Flow: Swarm delta → `BetConstructSyncService` → `fetchGameMarkets(gameId)` → `BaseAtomsAdapter.processRawOdds()` → `setOddsBatch()`.
 
@@ -117,11 +117,11 @@ Replaces the old 30s timer with event-driven 500ms detection.
 
 ### Safety Nets
 
-| Mechanism | Interval | Purpose |
-|-----------|:--------:|---------|
-| Heartbeat | 30s | Flush orphan dirty families |
-| Stale cleanup | 5 min | Prune odds + history for inactive events |
-| Closing capture | 30s | Snapshot closing odds within 5 min of kickoff |
+| Mechanism       | Interval | Purpose                                       |
+| --------------- | :------: | --------------------------------------------- |
+| Heartbeat       |   30s    | Flush orphan dirty families                   |
+| Stale cleanup   |  5 min   | Prune odds + history for inactive events      |
+| Closing capture |   30s    | Snapshot closing odds within 5 min of kickoff |
 
 **File:** [reactive-detector.ts](file:///Users/nahidhasan/nahidArbX/lib/background/reactive-detector.ts)
 
@@ -149,17 +149,17 @@ VALUE BET    = EV% > MIN_EV_PCT
 
 ### `bets` Table (key columns)
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | `text PK` | Deterministic: `eventId\|familyId\|atomId` |
-| `sharp_provider` | `text` | Always `"pinnacle"` |
-| `sharp_odds` / `sharp_true_prob` | `numeric` | Current Pinnacle price + vig-removed prob |
-| `soft_provider` / `soft_odds` / `soft_commission_pct` | `text/numeric` | Best soft book (by effective payout) |
-| `odds_movement` | `jsonb` | Movement snapshot |
-| `closing_sharp_odds` | `numeric` | Pinnacle closing line (CLV baseline) |
-| `tick_count` | `integer` | Re-detection counter |
-| `placed_at` | `timestamp` | Null until auto-placed |
-| `outcome` | `text` | `pending/won/lost/void` |
+| Column                                                | Type           | Description                                |
+| ----------------------------------------------------- | -------------- | ------------------------------------------ |
+| `id`                                                  | `text PK`      | Deterministic: `eventId\|familyId\|atomId` |
+| `sharp_provider`                                      | `text`         | Always `"pinnacle"`                        |
+| `sharp_odds` / `sharp_true_prob`                      | `numeric`      | Current Pinnacle price + vig-removed prob  |
+| `soft_provider` / `soft_odds` / `soft_commission_pct` | `text/numeric` | Best soft book (by effective payout)       |
+| `odds_movement`                                       | `jsonb`        | Movement snapshot                          |
+| `closing_sharp_odds`                                  | `numeric`      | Pinnacle closing line (CLV baseline)       |
+| `tick_count`                                          | `integer`      | Re-detection counter                       |
+| `placed_at`                                           | `timestamp`    | Null until auto-placed                     |
+| `outcome`                                             | `text`         | `pending/won/lost/void`                    |
 
 > Schema cleanup (2026-04-30): Dropped `request_payload`, `response_payload`, `sharp_odds_age_ms`, `closing_soft_odds`.
 
@@ -173,12 +173,12 @@ Sharp side always updated. Soft side updated only if new `effective_payout > exi
 
 ### Write-Performance Tuning (HOT optimization)
 
-| Setting | Value | Purpose |
-|---------|-------|---------|
-| `fillfactor` | 80 | 20% free space → HOT updates stay on same page |
-| `autovacuum_vacuum_scale_factor` | 0.02 | Vacuum at 2% dead tuples (vs default 20%) |
-| `autovacuum_vacuum_threshold` | 50 | Or after 50 dead rows |
-| `autovacuum_analyze_scale_factor` | 0.02 | Aggressive re-analyze |
+| Setting                           | Value | Purpose                                        |
+| --------------------------------- | ----- | ---------------------------------------------- |
+| `fillfactor`                      | 80    | 20% free space → HOT updates stay on same page |
+| `autovacuum_vacuum_scale_factor`  | 0.02  | Vacuum at 2% dead tuples (vs default 20%)      |
+| `autovacuum_vacuum_threshold`     | 50    | Or after 50 dead rows                          |
+| `autovacuum_analyze_scale_factor` | 0.02  | Aggressive re-analyze                          |
 
 **Dropped indexes** (blocked HOT): `bets_soft_provider_idx`, `bets_market_idx`, `bets_event_start_idx`. Remaining 7 indexes (PK + 6 functional) cover sort, settlement, placement dedup, provider reconciliation.
 
@@ -188,37 +188,37 @@ Monitor: `SELECT relname, n_tup_upd, n_tup_hot_upd, round((n_tup_hot_upd::numeri
 
 ## 8. Event Lifecycle
 
-| Stage | Trigger | Action |
-|:-----:|---------|--------|
-| Discovered | `syncFixturesOnly()` every 2 min | Fetch raw fixtures |
-| Matched | Entity Resolution | Cross-provider name matching |
-| Subscribed | Sync services (60s check) | WS subscribe or HTTP poll loop |
-| Active | Odds flowing | Dirty callbacks → detection |
-| Stale | Event ends/kickoff | Removed from roster |
-| Cleaned | Multiple mechanisms | Memory freed, subscriptions closed |
+|   Stage    | Trigger                          | Action                             |
+| :--------: | -------------------------------- | ---------------------------------- |
+| Discovered | `syncFixturesOnly()` every 2 min | Fetch raw fixtures                 |
+|  Matched   | Entity Resolution                | Cross-provider name matching       |
+| Subscribed | Sync services (60s check)        | WS subscribe or HTTP poll loop     |
+|   Active   | Odds flowing                     | Dirty callbacks → detection        |
+|   Stale    | Event ends/kickoff               | Removed from roster                |
+|  Cleaned   | Multiple mechanisms              | Memory freed, subscriptions closed |
 
 ### Cleanup Responsibilities
 
-| Component | Cleans | Cadence |
-|-----------|--------|:-------:|
-| `PinnacleSyncService` | WS subscriptions (diff active vs subscribed) | 60s |
-| `BetConstructSyncService` | Swarm WS subscriptions | 60s |
-| `GeniusSportsSyncService` | HTTP poll loops (`isRunning = false`) | 60s |
-| `ReactiveDetector` | Atoms store + history buffers | 5 min |
-| `valueCache` | Stale detection entries | Every pass |
+| Component                 | Cleans                                       |  Cadence   |
+| ------------------------- | -------------------------------------------- | :--------: |
+| `PinnacleSyncService`     | WS subscriptions (diff active vs subscribed) |    60s     |
+| `BetConstructSyncService` | Swarm WS subscriptions                       |    60s     |
+| `GeniusSportsSyncService` | HTTP poll loops (`isRunning = false`)        |    60s     |
+| `ReactiveDetector`        | Atoms store + history buffers                |   5 min    |
+| `valueCache`              | Stale detection entries                      | Every pass |
 
 ---
 
 ## 9. Performance: Before vs After
 
-| Metric | Batch (before) | Reactive (after) | Δ |
-|--------|:-:|:-:|:-:|
-| Detection latency | ~30,000 ms | ~500 ms | **60×** |
-| Pass duration | ~4-5s | ~0-2 ms | **~2,500×** |
-| Families/pass | ~3,000+ (all) | ~20-120 (dirty) | O(dirty) |
-| HTTP requests/cycle | ~100+ | 0 (WS push) | Eliminated |
-| Pinnacle API calls | 100/cycle at 4/min | 0 (WebSocket) | Eliminated |
-| Memory | Fetch cycle set | Ring buffers (~13 MB) | Bounded |
+| Metric              |   Batch (before)   |   Reactive (after)    |      Δ      |
+| ------------------- | :----------------: | :-------------------: | :---------: |
+| Detection latency   |     ~30,000 ms     |        ~500 ms        |   **60×**   |
+| Pass duration       |       ~4-5s        |        ~0-2 ms        | **~2,500×** |
+| Families/pass       |   ~3,000+ (all)    |    ~20-120 (dirty)    |  O(dirty)   |
+| HTTP requests/cycle |       ~100+        |      0 (WS push)      | Eliminated  |
+| Pinnacle API calls  | 100/cycle at 4/min |     0 (WebSocket)     | Eliminated  |
+| Memory              |  Fetch cycle set   | Ring buffers (~13 MB) |   Bounded   |
 
 ---
 
@@ -230,31 +230,31 @@ Monitor: `SELECT relname, n_tup_upd, n_tup_hot_upd, round((n_tup_hot_upd::numeri
 
 ## 11. System Timers
 
-| Timer | Interval | Component |
-|-------|:--------:|-----------|
-| Fixture sync | 2 min | `fetcher.ts` |
-| Pinnacle WS check | 60s | `pinnacle-sync-service.ts` |
-| BetConstruct WS check | 60s | `betconstruct-sync-service.ts` |
-| GeniusSports check | 60s | `genius-sports-sync-service.ts` |
-| **Reactive debounce** | **500ms** | **`reactive-detector.ts`** |
-| Heartbeat | 30s | `reactive-detector.ts` |
-| Stale cleanup | 5 min | `reactive-detector.ts` |
-| Auto-settle | configurable | `settle/scheduler.ts` |
-| Reconciler | 30s | `reconciler.ts` |
-| NW auth overlay | 60s | `genius-sports-sync-service.ts` |
+| Timer                 |   Interval   | Component                       |
+| --------------------- | :----------: | ------------------------------- |
+| Fixture sync          |    2 min     | `fetcher.ts`                    |
+| Pinnacle WS check     |     60s      | `pinnacle-sync-service.ts`      |
+| BetConstruct WS check |     60s      | `betconstruct-sync-service.ts`  |
+| GeniusSports check    |     60s      | `genius-sports-sync-service.ts` |
+| **Reactive debounce** |  **500ms**   | **`reactive-detector.ts`**      |
+| Heartbeat             |     30s      | `reactive-detector.ts`          |
+| Stale cleanup         |    5 min     | `reactive-detector.ts`          |
+| Auto-settle           | configurable | `settle/scheduler.ts`           |
+| Reconciler            |     30s      | `reconciler.ts`                 |
+| NW auth overlay       |     60s      | `genius-sports-sync-service.ts` |
 
 ---
 
 ## 12. Telegram Commands
 
-| Command | Action |
-|---------|--------|
-| `/sync fixtures` | Immediate fixture sync |
-| `/sync odds` | Trigger detection pass |
-| `/sync` | Full sync (fixtures + matching + detection) |
-| `/scheduler pause/resume` | Pause/resume fixture timer |
-| `/cache reset` | Clear value + vig + response caches |
-| `/provider pinnacle off` | Disable Pinnacle (stops WS + purge) |
+| Command                   | Action                                      |
+| ------------------------- | ------------------------------------------- |
+| `/sync fixtures`          | Immediate fixture sync                      |
+| `/sync odds`              | Trigger detection pass                      |
+| `/sync`                   | Full sync (fixtures + matching + detection) |
+| `/scheduler pause/resume` | Pause/resume fixture timer                  |
+| `/cache reset`            | Clear value + vig + response caches         |
+| `/provider pinnacle off`  | Disable Pinnacle (stops WS + purge)         |
 
 ---
 
@@ -262,45 +262,45 @@ Monitor: `SELECT relname, n_tup_upd, n_tup_hot_upd, round((n_tup_hot_upd::numeri
 
 ### Core Pipeline
 
-| # | File | Role |
-|:-:|------|------|
-| 1 | [ws-client.ts](file:///Users/nahidhasan/nahidArbX/lib/adapters/pinnacle/ws-client.ts) | STOMP WS client |
-| 2 | [ws-parser.ts](file:///Users/nahidhasan/nahidArbX/lib/adapters/pinnacle/ws-parser.ts) | Parse WS → NormalizedOddsEntry[] |
-| 3 | [genius-sports-sync-service.ts](file:///Users/nahidhasan/nahidArbX/lib/services/genius-sports-sync-service.ts) | HTTP polling for 9W/Velki |
-| 3b | [betconstruct-sync-service.ts](file:///Users/nahidhasan/nahidArbX/lib/services/betconstruct-sync-service.ts) | Swarm WS for BetConstruct |
-| 4 | [pinnacle-sync-service.ts](file:///Users/nahidhasan/nahidArbX/lib/services/pinnacle-sync-service.ts) | WS subscription lifecycle |
-| 5 | [store.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/store.ts) | In-memory odds + dirty tracking |
-| 6 | [odds-history.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/odds-history.ts) | Ring buffer |
-| 7 | [reactive-detector.ts](file:///Users/nahidhasan/nahidArbX/lib/background/reactive-detector.ts) | Detection engine |
-| 8 | [value-detector.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/value-detector.ts) | EV calc + cache |
-| 9 | [vig-removal.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/vig-removal.ts) | Vig removal (power method) |
-| 10 | [bets.ts](file:///Users/nahidhasan/nahidArbX/lib/db/repositories/bets.ts) | Upsert value bets |
-| 11 | [auto-placer.ts](file:///Users/nahidhasan/nahidArbX/lib/betting/auto-placer.ts) | Strategy → placement |
-| 12 | [fetcher.ts](file:///Users/nahidhasan/nahidArbX/lib/background/fetcher.ts) | Fixture scheduler |
-| 13 | [instrumentation.ts](file:///Users/nahidhasan/nahidArbX/instrumentation.ts) | Boot orchestration |
+|  #  | File                                                                                                           | Role                             |
+| :-: | -------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+|  1  | [ws-client.ts](file:///Users/nahidhasan/nahidArbX/lib/adapters/pinnacle/ws-client.ts)                          | STOMP WS client                  |
+|  2  | [ws-parser.ts](file:///Users/nahidhasan/nahidArbX/lib/adapters/pinnacle/ws-parser.ts)                          | Parse WS → NormalizedOddsEntry[] |
+|  3  | [genius-sports-sync-service.ts](file:///Users/nahidhasan/nahidArbX/lib/services/genius-sports-sync-service.ts) | HTTP polling for 9W/Velki        |
+| 3b  | [betconstruct-sync-service.ts](file:///Users/nahidhasan/nahidArbX/lib/services/betconstruct-sync-service.ts)   | Swarm WS for BetConstruct        |
+|  4  | [pinnacle-sync-service.ts](file:///Users/nahidhasan/nahidArbX/lib/services/pinnacle-sync-service.ts)           | WS subscription lifecycle        |
+|  5  | [store.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/store.ts)                                              | In-memory odds + dirty tracking  |
+|  6  | [odds-history.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/odds-history.ts)                                | Ring buffer                      |
+|  7  | [reactive-detector.ts](file:///Users/nahidhasan/nahidArbX/lib/background/reactive-detector.ts)                 | Detection engine                 |
+|  8  | [value-detector.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/value-detector.ts)                            | EV calc + cache                  |
+|  9  | [vig-removal.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/vig-removal.ts)                                  | Vig removal (power method)       |
+| 10  | [bets.ts](file:///Users/nahidhasan/nahidArbX/lib/db/repositories/bets.ts)                                      | Upsert value bets                |
+| 11  | [auto-placer.ts](file:///Users/nahidhasan/nahidArbX/lib/betting/auto-placer.ts)                                | Strategy → placement             |
+| 12  | [fetcher.ts](file:///Users/nahidhasan/nahidArbX/lib/background/fetcher.ts)                                     | Fixture scheduler                |
+| 13  | [instrumentation.ts](file:///Users/nahidhasan/nahidArbX/instrumentation.ts)                                    | Boot orchestration               |
 
 ### Mappings & Config
 
-| File | Purpose |
-|------|---------|
-| [pinnacle.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/mappings/pinnacle.ts) | Pinnacle → atom IDs |
-| [betconstruct.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/mappings/betconstruct.ts) | BetConstruct → atom IDs |
-| [constants.ts](file:///Users/nahidhasan/nahidArbX/lib/shared/constants.ts) | Timing constants + thresholds |
-| [schema.ts](file:///Users/nahidhasan/nahidArbX/lib/db/schema.ts) | Drizzle table definitions |
+| File                                                                                     | Purpose                       |
+| ---------------------------------------------------------------------------------------- | ----------------------------- |
+| [pinnacle.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/mappings/pinnacle.ts)         | Pinnacle → atom IDs           |
+| [betconstruct.ts](file:///Users/nahidhasan/nahidArbX/lib/atoms/mappings/betconstruct.ts) | BetConstruct → atom IDs       |
+| [constants.ts](file:///Users/nahidhasan/nahidArbX/lib/shared/constants.ts)               | Timing constants + thresholds |
+| [schema.ts](file:///Users/nahidhasan/nahidArbX/lib/db/schema.ts)                         | Drizzle table definitions     |
 
 ---
 
 ## 14. Decommissioned
 
-| Removed | Replaced By |
-|---------|------------|
-| `syncOddsOnly()` | ReactiveDetector |
-| `scheduleNextOdds()` | 500ms debounce callback |
-| `fetchAllOddsForMatchedEvents()` | PinnacleSyncService + GeniusSportsSyncService |
-| `beginFetchCycle()` / `endFetchCycleCleanup()` | `pruneOddsForStaleEvents()` |
-| `isOddsSyncInProgress()` | `getReactiveDetectorStats().passInProgress` |
-| 30s `oddsTimer` chain | 500ms debounce + 30s heartbeat |
-| `bets.sharp_odds_age_ms` | Runtime staleness gate in `value-detector.ts` |
-| `bets.closing_soft_odds` | `bets.closing_sharp_odds` (industry-standard CLV) |
-| `bets.request_payload/response_payload` | Placement-confirmation tracker fields |
-| `bets_soft_provider_idx/market_idx/event_start_idx` | Dropped — blocked HOT, <10k rows |
+| Removed                                             | Replaced By                                       |
+| --------------------------------------------------- | ------------------------------------------------- |
+| `syncOddsOnly()`                                    | ReactiveDetector                                  |
+| `scheduleNextOdds()`                                | 500ms debounce callback                           |
+| `fetchAllOddsForMatchedEvents()`                    | PinnacleSyncService + GeniusSportsSyncService     |
+| `beginFetchCycle()` / `endFetchCycleCleanup()`      | `pruneOddsForStaleEvents()`                       |
+| `isOddsSyncInProgress()`                            | `getReactiveDetectorStats().passInProgress`       |
+| 30s `oddsTimer` chain                               | 500ms debounce + 30s heartbeat                    |
+| `bets.sharp_odds_age_ms`                            | Runtime staleness gate in `value-detector.ts`     |
+| `bets.closing_soft_odds`                            | `bets.closing_sharp_odds` (industry-standard CLV) |
+| `bets.request_payload/response_payload`             | Placement-confirmation tracker fields             |
+| `bets_soft_provider_idx/market_idx/event_start_idx` | Dropped — blocked HOT, <10k rows                  |

@@ -28,6 +28,9 @@ export interface EngineStatus {
   };
   firstSyncComplete: boolean;
   isSyncing: boolean;
+  matchedCount?: number;
+  totalEvents?: number;
+  circuitBreakers?: Record<string, { state: string; failures: number }>;
 }
 
 export interface ConnectionHealth {

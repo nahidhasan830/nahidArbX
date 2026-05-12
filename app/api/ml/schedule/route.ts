@@ -30,12 +30,15 @@ async function getOrCreateSettings() {
     .onConflictDoNothing()
     .returning();
 
-  return created ?? (await db
-    .select()
-    .from(mlSchedulerSettings)
-    .where(eq(mlSchedulerSettings.id, "default"))
-    .limit(1)
-    .then((r) => r[0]));
+  return (
+    created ??
+    (await db
+      .select()
+      .from(mlSchedulerSettings)
+      .where(eq(mlSchedulerSettings.id, "default"))
+      .limit(1)
+      .then((r) => r[0]))
+  );
 }
 
 export async function GET() {
@@ -46,11 +49,14 @@ export async function GET() {
     let engineState: Record<string, unknown> | null = null;
     try {
       const enginePort = process.env.ENGINE_PORT || "3001";
-      const resp = await fetch(`http://127.0.0.1:${enginePort}/engine/ml/scheduler`, {
-        signal: AbortSignal.timeout(2000),
-      });
+      const resp = await fetch(
+        `http://127.0.0.1:${enginePort}/engine/ml/scheduler`,
+        {
+          signal: AbortSignal.timeout(2000),
+        },
+      );
       if (resp.ok) {
-        engineState = await resp.json() as Record<string, unknown>;
+        engineState = (await resp.json()) as Record<string, unknown>;
       }
     } catch {
       // Engine not running — fine for dev
@@ -78,13 +84,25 @@ export async function POST(req: NextRequest) {
     if (typeof body.enabled === "boolean") {
       updates.enabled = body.enabled;
     }
-    if (typeof body.cadenceHours === "number" && body.cadenceHours >= 1 && body.cadenceHours <= 168) {
+    if (
+      typeof body.cadenceHours === "number" &&
+      body.cadenceHours >= 1 &&
+      body.cadenceHours <= 168
+    ) {
       updates.cadenceHours = Math.round(body.cadenceHours);
     }
-    if (typeof body.minNewSettledExamples === "number" && body.minNewSettledExamples >= 10 && body.minNewSettledExamples <= 1000) {
+    if (
+      typeof body.minNewSettledExamples === "number" &&
+      body.minNewSettledExamples >= 10 &&
+      body.minNewSettledExamples <= 1000
+    ) {
       updates.minNewSettledExamples = Math.round(body.minNewSettledExamples);
     }
-    if (typeof body.minGrowthPct === "number" && body.minGrowthPct >= 5 && body.minGrowthPct <= 100) {
+    if (
+      typeof body.minGrowthPct === "number" &&
+      body.minGrowthPct >= 5 &&
+      body.minGrowthPct <= 100
+    ) {
       updates.minGrowthPct = Math.round(body.minGrowthPct);
     }
 

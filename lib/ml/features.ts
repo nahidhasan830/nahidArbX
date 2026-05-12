@@ -22,7 +22,11 @@ import { getCachedVigData } from "@/lib/atoms/value-detector";
 import { getEvent } from "@/lib/store";
 import { computeConvergenceRate } from "@/lib/ml/convergence";
 import { getCompetitionTier } from "@/lib/ml/competition-enrichment";
-import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
+import {
+  ML_FEATURE_COUNT,
+  ML_FEATURE_VERSION,
+  ML_WARMUP_MIN_TICKS,
+} from "@/lib/shared/constants";
 import { differenceInMinutes } from "date-fns";
 import { createHash } from "node:crypto";
 import type { AtomMarketType } from "@/lib/atoms/types";
@@ -32,30 +36,30 @@ import type { AtomMarketType } from "@/lib/atoms/types";
 // ============================================
 
 export const FEATURE_NAMES: string[] = [
-  "ev_pct",                // 0
-  "sharp_true_prob",       // 1
-  "soft_odds",             // 2
-  "adjusted_soft_odds",    // 3
-  "implied_prob_gap",      // 4
-  "tick_count",            // 5
-  "time_to_kickoff_min",   // 6
-  "movement_pct_sharp",    // 7
-  "movement_pct_soft",     // 8
-  "steam_move_sharp",      // 9
-  "steam_move_soft",       // 10
-  "sharp_direction",       // 11
-  "soft_direction",        // 12
-  "convergence_rate",      // 13
-  "tick_velocity",         // 14
-  "provider_count",        // 15
-  "opening_sharp_odds",    // 16
-  "market_type_encoded",   // 17
-  "is_asian_line",         // 18
-  "kelly_fraction_raw",    // 19
-  "vig_pct",               // 20
-  "competition_tier",      // 21
+  "ev_pct", // 0
+  "sharp_true_prob", // 1
+  "soft_odds", // 2
+  "adjusted_soft_odds", // 3
+  "implied_prob_gap", // 4
+  "tick_count", // 5
+  "time_to_kickoff_min", // 6
+  "movement_pct_sharp", // 7
+  "movement_pct_soft", // 8
+  "steam_move_sharp", // 9
+  "steam_move_soft", // 10
+  "sharp_direction", // 11
+  "soft_direction", // 12
+  "convergence_rate", // 13
+  "tick_velocity", // 14
+  "provider_count", // 15
+  "opening_sharp_odds", // 16
+  "market_type_encoded", // 17
+  "is_asian_line", // 18
+  "kelly_fraction_raw", // 19
+  "vig_pct", // 20
+  "competition_tier", // 21
   "hours_since_line_opened", // 22
-  "sharp_soft_spread",     // 23
+  "sharp_soft_spread", // 23
   "num_markets_same_event", // 24
 ];
 
@@ -112,7 +116,10 @@ function encodeDirection(dir: "up" | "down" | "stable" | undefined): number {
  * All values default to 0 for null/undefined sources.
  * All values rounded to 4 decimal places.
  */
-export function extractFeatures(vb: ValueBet, numMarketsInEvent?: number): number[] {
+export function extractFeatures(
+  vb: ValueBet,
+  numMarketsInEvent?: number,
+): number[] {
   const eId = vb.eventId;
   const fId = vb.familyId;
   const aId = vb.atomId;
@@ -166,8 +173,10 @@ export function extractFeatures(vb: ValueBet, numMarketsInEvent?: number): numbe
   }
   hoursSinceLineOpened = Math.max(0, hoursSinceLineOpened);
 
-  const sharpSoftSpread = vb.softOdds - (1 / vb.trueProb);
-  const safeSharpSoftSpread = Number.isFinite(sharpSoftSpread) ? sharpSoftSpread : 0;
+  const sharpSoftSpread = vb.softOdds - 1 / vb.trueProb;
+  const safeSharpSoftSpread = Number.isFinite(sharpSoftSpread)
+    ? sharpSoftSpread
+    : 0;
   const safeMarketCount = Math.max(1, numMarketsInEvent ?? 1);
 
   const features: number[] = [
@@ -180,11 +189,31 @@ export function extractFeatures(vb: ValueBet, numMarketsInEvent?: number): numbe
     /* 6  time_to_kickoff   */ timeToKickoffMin,
     /* 7  movement_pct_sharp */ sharpMovement?.changePct ?? 0,
     /* 8  movement_pct_soft */ softMovement?.changePct ?? 0,
-    /* 9  steam_move_sharp  */ detectSteamMove(eId, fId, aId, vb.sharpProvider) != null ? 1 : 0,
-    /* 10 steam_move_soft   */ detectSteamMove(eId, fId, aId, vb.softProvider) != null ? 1 : 0,
+    /* 9  steam_move_sharp  */ detectSteamMove(
+      eId,
+      fId,
+      aId,
+      vb.sharpProvider,
+    ) != null
+      ? 1
+      : 0,
+    /* 10 steam_move_soft   */ detectSteamMove(
+      eId,
+      fId,
+      aId,
+      vb.softProvider,
+    ) != null
+      ? 1
+      : 0,
     /* 11 sharp_direction   */ encodeDirection(sharpMovement?.direction),
     /* 12 soft_direction    */ encodeDirection(softMovement?.direction),
-    /* 13 convergence_rate  */ computeConvergenceRate(eId, fId, aId, vb.sharpProvider, vb.softProvider),
+    /* 13 convergence_rate  */ computeConvergenceRate(
+      eId,
+      fId,
+      aId,
+      vb.sharpProvider,
+      vb.softProvider,
+    ),
     /* 14 tick_velocity     */ tickVelocity,
     /* 15 provider_count    */ getAllOddsForAtom(eId, fId, aId).size,
     /* 16 opening_sharp_odds */ sharpHistory?.openingOdds ?? 0,
@@ -203,4 +232,29 @@ export function extractFeatures(vb: ValueBet, numMarketsInEvent?: number): numbe
     const safe = Number.isFinite(v) ? v : 0;
     return Math.round(safe * 10000) / 10000;
   });
+}
+
+// ============================================
+// Warmup Quality Gate
+// ============================================
+
+/**
+ * Check whether the history-dependent features for a bet are warm enough
+ * to produce a trustworthy ML score.
+ *
+ * After an engine restart, odds history starts cold — tick_count,
+ * movement, steam, convergence, tick_velocity, opening sharp odds, and
+ * hours_since_line_opened are all zero or near-zero. Scoring such
+ * features produces misleading confidence. This function lets callers
+ * know when to suppress ML scoring.
+ *
+ * Returns true when the sharp-provider tick count meets the minimum
+ * warmup threshold (ML_WARMUP_MIN_TICKS). The threshold is intentionally
+ * low (3) because even partial history is better than none once
+ * opening odds have been observed.
+ */
+export function isFeatureWarm(features: number[]): boolean {
+  // Feature index 5 = tick_count (sharp provider)
+  const tickCount = features[5] ?? 0;
+  return tickCount >= ML_WARMUP_MIN_TICKS;
 }

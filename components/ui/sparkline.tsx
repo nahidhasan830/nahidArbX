@@ -42,9 +42,10 @@ function SparklineInner({
   if (data.length < 2) return null;
 
   const values = data.map((d) => d[1]);
-  const refValues = referenceData && referenceData.length >= 2
-    ? referenceData.map((d) => d[1])
-    : null;
+  const refValues =
+    referenceData && referenceData.length >= 2
+      ? referenceData.map((d) => d[1])
+      : null;
 
   // Compute global min/max across both series so they share the same Y-axis
   const allValues = refValues ? [...values, ...refValues] : values;
@@ -140,11 +141,7 @@ function SparklineInner({
       {/* End dot — highlights the current price */}
       <circle
         cx={padX + plotW}
-        cy={
-          padY +
-          plotH -
-          ((values[values.length - 1] - min) / range) * plotH
-        }
+        cy={padY + plotH - ((values[values.length - 1] - min) / range) * plotH}
         r={1.5}
         fill={lineColor}
       />

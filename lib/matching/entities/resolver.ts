@@ -22,6 +22,7 @@
  */
 
 import { Client } from "pg";
+import { Connector, IpAddressTypes } from "@google-cloud/cloud-sql-connector";
 import { db } from "../../db/client";
 import { sql } from "drizzle-orm";
 import {
@@ -307,6 +308,11 @@ const listenerState = singleton<ListenerState>(
  * singleton means HMR reloads in dev don't multiply listeners. Failures
  * are logged but don't throw — the resolver still works without it
  * (just relying on the 30 s LRU TTL for consistency).
+ *
+ * Uses Cloud SQL Connector when CLOUD_SQL_INSTANCE is set, matching
+ * the dual-path logic in lib/db/client.ts. Without this, the raw
+ * DATABASE_URL (often pointing to localhost:5432) would fail when no
+ * local Postgres is running.
  */
 export async function startResolverCacheListener(): Promise<void> {
   if (listenerState.active) return;
@@ -316,7 +322,27 @@ export async function startResolverCacheListener(): Promise<void> {
     return;
   }
   try {
-    const client = new Client({ connectionString: url });
+    const instance = process.env.CLOUD_SQL_INSTANCE;
+    let client: Client;
+
+    if (instance) {
+      // Cloud SQL path — use the Connector for IAM/TLS transport
+      const parsed = new URL(url);
+      const user = decodeURIComponent(parsed.username);
+      const password = decodeURIComponent(parsed.password);
+      const database = parsed.pathname.slice(1);
+
+      const connector = new Connector();
+      const clientOpts = await connector.getOptions({
+        instanceConnectionName: instance,
+        ipType: IpAddressTypes.PUBLIC,
+      });
+      client = new Client({ ...clientOpts, user, password, database });
+    } else {
+      // Local Postgres fallback
+      client = new Client({ connectionString: url });
+    }
+
     await client.connect();
     await client.query(`LISTEN ${ENTITY_CACHE_INVAL_CHANNEL}`);
     client.on("notification", () => clearResolverCache());
@@ -325,7 +351,10 @@ export async function startResolverCacheListener(): Promise<void> {
     });
     listenerState.client = client;
     listenerState.active = true;
-    logger.info(tag, "Cache invalidation listener started");
+    logger.info(
+      tag,
+      `Cache invalidation listener started (${instance ? "Cloud SQL" : "local"})`,
+    );
   } catch (err) {
     logger.warn(
       tag,

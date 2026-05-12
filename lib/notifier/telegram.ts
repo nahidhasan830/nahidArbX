@@ -32,6 +32,8 @@ import type {
   NotificationChannel,
   NotificationEvent,
   MlRunCompletedEvent,
+  MlTrainingStartedEvent,
+  MlTrainingCompletedEvent,
   SystemEvent,
   SystemBootEvent,
   UnifiedBootEvent,
@@ -77,6 +79,108 @@ function formatMlRunCompleted(e: MlRunCompletedEvent): FormattedMessage {
   return {
     text: lines.join("\n"),
   };
+}
+
+function formatMlTrainingStarted(e: MlTrainingStartedEvent): FormattedMessage {
+  const lines: string[] = [];
+
+  lines.push(`🏋️ <b>ML Training Started — v${e.version}</b>`);
+  lines.push(``);
+  lines.push(
+    `${e.trigger === "manual" ? "✋" : "🤖"} ${e.trigger === "manual" ? "Manual" : "Scheduler"} trigger`,
+  );
+  lines.push(
+    `📊 <b>${e.trainerExpectedSamples.toLocaleString()}</b> training samples`,
+  );
+
+  // Growth comparison vs previous model
+  if (e.previousModelSamples != null && e.previousModelSamples > 0) {
+    const growth = e.trainerExpectedSamples - e.previousModelSamples;
+    const growthPct = Math.round((growth / e.previousModelSamples) * 100);
+    if (growth > 0) {
+      lines.push(
+        `📈 <b>+${growth.toLocaleString()}</b> new since v${e.previousModelVersion ?? "?"} (+${growthPct}% growth)`,
+      );
+    }
+  }
+
+  lines.push(``);
+  if (e.gitSha) lines.push(`🔗 <code>${esc(e.gitSha)}</code>`);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
+}
+
+function formatMlTrainingCompleted(
+  e: MlTrainingCompletedEvent,
+): FormattedMessage {
+  const lines: string[] = [];
+
+  const outcomeIcon =
+    e.outcome === "deployed" ? "✅" : e.outcome === "rejected" ? "🚫" : "💥";
+  const outcomeLabel =
+    e.outcome === "deployed"
+      ? "Model Deployed"
+      : e.outcome === "rejected"
+        ? "Model Rejected"
+        : "Training Failed";
+
+  lines.push(`${outcomeIcon} <b>${esc(outcomeLabel)} — v${e.version}</b>`);
+  lines.push(``);
+  const durationPart = e.durationMs > 0 ? ` · ${esc(durationLabel(e.durationMs))}` : "";
+  lines.push(
+    `📊 ${e.trainingSamples.toLocaleString()} samples${durationPart}`,
+  );
+
+  // Metrics block
+  if (e.aucRoc != null || e.dsr != null || e.pbo != null) {
+    lines.push(``);
+    lines.push(`<b>Quality</b>`);
+    if (e.aucRoc != null) {
+      const aucIcon = e.aucRoc >= 0.55 ? "✅" : e.aucRoc >= 0.5 ? "⚠️" : "❌";
+      lines.push(`${aucIcon} AUC-ROC: <b>${e.aucRoc.toFixed(4)}</b>`);
+    }
+    if (e.dsr != null) {
+      const dsrIcon = e.dsr >= 1.0 ? "✅" : e.dsr >= 0 ? "⚠️" : "❌";
+      lines.push(`${dsrIcon} Sharpe: <b>${e.dsr.toFixed(3)}</b>`);
+    }
+    if (e.pbo != null) {
+      const pboIcon = e.pbo <= 0.5 ? "✅" : e.pbo <= 0.7 ? "⚠️" : "❌";
+      lines.push(`${pboIcon} PBO: <b>${e.pbo.toFixed(3)}</b>`);
+    }
+  }
+
+  // Rejection reasons
+  if (e.rejectionReasons && e.rejectionReasons.length > 0) {
+    lines.push(``);
+    lines.push(`<b>Reasons</b>`);
+    for (const reason of e.rejectionReasons.slice(0, 5)) {
+      lines.push(`⚠️ ${esc(reason)}`);
+    }
+    if (e.rejectionReasons.length > 5) {
+      lines.push(`… and ${e.rejectionReasons.length - 5} more`);
+    }
+  }
+
+  if (e.outcome === "deployed" && e.permissionLevel) {
+    const PERM_LABELS: Record<string, { emoji: string; label: string }> = {
+      stake_increase: { emoji: "🟢", label: "Full ML Sizing" },
+      stake_reduce: { emoji: "🟡", label: "Stake Reduce" },
+      gate_only: { emoji: "🟠", label: "Gate Only (skip low scores)" },
+      shadow: { emoji: "🔵", label: "Shadow (log only)" },
+    };
+    const perm = PERM_LABELS[e.permissionLevel] ?? {
+      emoji: "🔵",
+      label: e.permissionLevel,
+    };
+    lines.push(``);
+    lines.push(`${perm.emoji} Permission: <b>${esc(perm.label)}</b>`);
+  }
+
+  lines.push(``);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
+  return { text: lines.join("\n") };
 }
 
 export const telegramChannel: NotificationChannel = {
@@ -153,6 +257,10 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatAiModelState(event);
     case "ml:run_completed":
       return formatMlRunCompleted(event);
+    case "ml:training_started":
+      return formatMlTrainingStarted(event);
+    case "ml:training_completed":
+      return formatMlTrainingCompleted(event);
   }
 }
 
@@ -369,8 +477,6 @@ const REASON_CATEGORY_LABEL: Record<
   unknown: "unknown",
 };
 
-
-
 // --------------------------------------------------------------------
 // ai engine/model lifecycle
 // --------------------------------------------------------------------
@@ -389,7 +495,7 @@ function formatAiEngineState(e: AiEngineStateEvent): FormattedMessage {
   lines.push(`${icon} <b>${title}</b>`);
   lines.push(`🔗 <code>${esc(e.serviceUrl)}</code>`);
   lines.push(`🧠 Model <code>${esc(e.configuredModel)}</code>`);
-  lines.push(`☁️ Engine <code>${esc(e.llmEngine)}</code>`);
+  lines.push(`☁️ Engine <code>${esc(formatAiEngineLabel(e.llmEngine))}</code>`);
 
   if (typeof e.llmHealthy === "boolean") {
     lines.push(
@@ -623,7 +729,9 @@ function formatUnifiedBoot(e: UnifiedBootEvent): FormattedMessage {
         typeof ai.providersTotal === "number"
           ? ` · ${ai.providersTotal} providers`
           : "";
-      lines.push(`✅ Groq OK · ${esc(ai.configuredModel)}${provLabel}`);
+      lines.push(
+        `✅ ${esc(formatAiEngineLabel(ai.llmEngine))} OK · ${esc(ai.configuredModel)}${provLabel}`,
+      );
     }
   }
 
@@ -658,6 +766,12 @@ function buildButtons(
   if (dashboardUrl) btns.push({ text: "📊 Dashboard", url: dashboardUrl });
   if (gradeUrl) btns.push({ text: "🧠 Google AI", url: gradeUrl });
   return btns.length > 0 ? btns : undefined;
+}
+
+function formatAiEngineLabel(engine: string): string {
+  if (engine === "huggingface") return "HuggingFace (primary)";
+  if (engine === "groq") return "Groq (fallback)";
+  return engine;
 }
 
 /**
@@ -796,34 +910,6 @@ function buildScoreLine(score: MatchScoreInfo): string | null {
   const extrasPart =
     extras.length > 0 ? `  <i>(${esc(extras.join(" · "))})</i>` : "";
   return `📊 <b>${esc(badge)}</b> · <b>${esc(mainScore)}</b>${extrasPart}`;
-}
-
-/**
- * One-liner that explains who won and by how much. Only meaningful for
- * 1X2-style markets — skipped for Asian Handicap, O/U, BTTS, etc.,
- * where "Home wins by 2" is misleading (the bet may still lose).
- */
-function buildResultHint(
-  marketName: string,
-  score: MatchScoreInfo,
-): string | null {
-  if (score.status === "POSTPONED" || score.status === "ABD") return null;
-  const m = marketName.toUpperCase();
-  const isOneXTwo =
-    m === "MATCH_ODDS" ||
-    m === "MATCH_RESULT" ||
-    m === "MONEYLINE" ||
-    m === "DNB" ||
-    m === "DRAW_NO_BET";
-  if (!isOneXTwo) return null;
-  const { ftHome, ftAway } = score;
-  if (ftHome > ftAway) {
-    return `Home wins by ${ftHome - ftAway}`;
-  }
-  if (ftAway > ftHome) {
-    return `Away wins by ${ftAway - ftHome}`;
-  }
-  return `Draw`;
 }
 
 function capitalize(s: string): string {

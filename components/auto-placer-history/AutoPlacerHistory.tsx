@@ -17,7 +17,10 @@ import {
   useQuery,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { resolvePreset, type DatePresetKey } from "@/lib/bets-history/date-presets";
+import {
+  resolvePreset,
+  type DatePresetKey,
+} from "@/lib/bets-history/date-presets";
 import { useAutoPlacerPrefs } from "@/lib/auto-placer-history/use-auto-placer-prefs";
 import { AutoPlacerToolbar, type LogFilters } from "./AutoPlacerToolbar";
 import { AutoPlacerLogTable } from "./AutoPlacerTable";
@@ -37,9 +40,11 @@ async function fetchLog(
   const params = new URLSearchParams();
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
-  if (filters.statuses?.length) params.set("statuses", filters.statuses.join(","));
+  if (filters.statuses?.length)
+    params.set("statuses", filters.statuses.join(","));
   if (filters.gates?.length) params.set("gates", filters.gates.join(","));
-  if (filters.softProviders?.length) params.set("softProviders", filters.softProviders.join(","));
+  if (filters.softProviders?.length)
+    params.set("softProviders", filters.softProviders.join(","));
   if (filters.search) params.set("search", filters.search);
   params.set("limit", String(filters.limit));
   params.set("offset", String(filters.offset));
@@ -53,9 +58,11 @@ async function fetchLogStats(filters: LogFilters): Promise<AutoPlacerLogStats> {
   params.set("aggregate", "true");
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
-  if (filters.statuses?.length) params.set("statuses", filters.statuses.join(","));
+  if (filters.statuses?.length)
+    params.set("statuses", filters.statuses.join(","));
   if (filters.gates?.length) params.set("gates", filters.gates.join(","));
-  if (filters.softProviders?.length) params.set("softProviders", filters.softProviders.join(","));
+  if (filters.softProviders?.length)
+    params.set("softProviders", filters.softProviders.join(","));
   if (filters.search) params.set("search", filters.search);
   const res = await fetch(`/api/auto-placer-log?${params.toString()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -130,7 +137,10 @@ export function AutoPlacerHistory() {
         search: f.search,
         // Store statuses and gates in the filter state
         // They'll be passed through as-is since ListFilters allows extra keys
-        ...({ statuses: f.statuses, gates: f.gates } as Record<string, unknown>),
+        ...({ statuses: f.statuses, gates: f.gates } as Record<
+          string,
+          unknown
+        >),
       });
     },
     [setFilters],
@@ -152,8 +162,12 @@ export function AutoPlacerHistory() {
     to: rawFilters.to,
     softProviders: rawFilters.softProviders,
     search: rawFilters.search,
-    statuses: (rawFilters as Record<string, unknown>).statuses as string[] | undefined,
-    gates: (rawFilters as Record<string, unknown>).gates as string[] | undefined,
+    statuses: (rawFilters as Record<string, unknown>).statuses as
+      | string[]
+      | undefined,
+    gates: (rawFilters as Record<string, unknown>).gates as
+      | string[]
+      | undefined,
   };
 
   return (

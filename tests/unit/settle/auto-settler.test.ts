@@ -18,6 +18,10 @@ vi.mock("@/lib/db/repositories/settlement-runs", () => ({
   recordSettlementRun: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/notifier", () => ({
+  notify: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/shared/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -36,6 +40,7 @@ const mockTelemetry = {
   tier4_hits: 0,
   unresolved: 0,
   durationMs: 10,
+  sourceIssues: [],
   settledDeterministically: 1,
   unsupported: 0,
   unresolvedEvents: 0,

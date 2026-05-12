@@ -53,11 +53,14 @@ interface DeploymentGateState {
   lastRefreshedAt: number;
 }
 
-const state = singleton("ml:deployment-gate", (): DeploymentGateState => ({
-  permissionLevel: "shadow",
-  modelVersion: null,
-  lastRefreshedAt: 0,
-}));
+const state = singleton(
+  "ml:deployment-gate",
+  (): DeploymentGateState => ({
+    permissionLevel: "shadow",
+    modelVersion: null,
+    lastRefreshedAt: 0,
+  }),
+);
 
 /** How often to re-read permission level from DB (ms). */
 const REFRESH_INTERVAL_MS = 60_000;
@@ -156,9 +159,10 @@ export function getDeploymentGateStatus() {
     canGate: canGateBets(),
     canReduceStake: canReduceStake(),
     canIncreaseStake: canIncreaseStake(),
-    lastRefreshedAt: state.lastRefreshedAt > 0
-      ? new Date(state.lastRefreshedAt).toISOString()
-      : null,
+    lastRefreshedAt:
+      state.lastRefreshedAt > 0
+        ? new Date(state.lastRefreshedAt).toISOString()
+        : null,
   };
 }
 
@@ -170,7 +174,9 @@ export function getDeploymentGateStatus() {
  * Parse a permission level string into a typed value.
  * Falls back to "shadow" for unknown values.
  */
-function parsePermissionLevel(raw: string | null | undefined): MLPermissionLevel {
+function parsePermissionLevel(
+  raw: string | null | undefined,
+): MLPermissionLevel {
   if (raw && (PERMISSION_LEVELS as readonly string[]).includes(raw)) {
     return raw as MLPermissionLevel;
   }

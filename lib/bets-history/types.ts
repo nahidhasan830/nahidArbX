@@ -97,7 +97,6 @@ export type ValueBetRow = {
   sharpOdds: number;
   sharpTrueProb: number;
 
-
   softProvider: SoftProvider | string;
   softCommissionPct: number;
   softOdds: number;
@@ -107,7 +106,6 @@ export type ValueBetRow = {
   tickCount: number;
 
   closingSharpOdds: number | null;
-
 
   outcome: Outcome | string;
   /** Pipeline tier/source that produced the outcome — null while pending. */

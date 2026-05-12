@@ -1,7 +1,7 @@
 """GroundedAI — search-grounded inference orchestrator.
 
-Combines the SearchRouter (multi-provider web search) with GroqEngine
-(cloud LLM via Groq API) to produce verdicts backed by web evidence.
+Combines the SearchRouter (multi-provider web search) with HuggingFace Router
+(primary) or GroqEngine (fallback) to produce verdicts backed by web evidence.
 
 Two modes of operation:
 1. **Pre-search** — search first, inject results as context, then LLM.
@@ -307,14 +307,100 @@ class GroundedAI:
     async def _settlement_presearch(
         self, event: EventInfo, question: str
     ) -> SettlementVerdict:
-        """Pre-search settlement verification."""
+        """Pre-search settlement verification.
+
+        Uses multiple search queries in parallel to maximise the chance
+        of finding the actual score in snippet text or page content:
+          1. Generic query  — "{home} vs {away} {comp} {date} final score"
+          2. FlashScore      — site:flashscore.com {home} {away}
+          3. Score keywords  — "{home} {away} {date} resultado placar score"
+        Then scrapes the top 3 most promising URLs for actual page text
+        (search snippets rarely contain the score for niche leagues).
+        """
+        import asyncio
+        import httpx
+
         date_str = (
             event.start_time[:10] if len(event.start_time) >= 10 else event.start_time
         )
-        query = f"{event.home_team} vs {event.away_team} {event.competition} {date_str} result score"
-        results, _ = await self.search.search(query, max_results=5)
 
-        evidence_text = self._format_evidence(results)
+        # Build multiple search queries for better coverage
+        queries = [
+            f"{event.home_team} vs {event.away_team} {event.competition} {date_str} final score result",
+            f"{event.home_team} {event.away_team} {date_str} score flashscore livescore",
+            f"{event.home_team} {event.away_team} resultado {date_str}",
+        ]
+
+        # Run all queries concurrently with fan_out for broader coverage
+        search_tasks = [
+            self.search.search(q, max_results=5, fan_out=2)
+            for q in queries
+        ]
+        raw_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+        # Merge and deduplicate all results
+        all_results: list[SearchResult] = []
+        seen_urls: set[str] = set()
+        for res in raw_results:
+            if isinstance(res, Exception):
+                continue
+            results, _ = res
+            for r in results:
+                url_key = r.url.rstrip("/").lower()
+                if url_key not in seen_urls:
+                    seen_urls.add(url_key)
+                    all_results.append(r)
+
+        # Scrape the top score-looking URLs for actual page content.
+        # Search snippets rarely contain the score for niche leagues —
+        # the actual score is on the page behind the link.
+        SCORE_DOMAINS = {"flashscore", "livescore", "sofascore", "futbol24", "xscores", "soccerway"}
+        score_urls = []
+        for r in all_results:
+            if any(domain in r.url.lower() for domain in SCORE_DOMAINS):
+                score_urls.append(r.url)
+            if len(score_urls) >= 3:
+                break
+        # If no score-domain URLs found, try the top 2 anyway
+        if not score_urls:
+            score_urls = [r.url for r in all_results[:2]]
+
+        scraped_texts: list[str] = []
+        if score_urls:
+            async def _fetch_page(url: str) -> str | None:
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=10.0,
+                        follow_redirects=True,
+                        headers={"User-Agent": "Mozilla/5.0 (compatible; ScoreBot/1.0)"},
+                    ) as client:
+                        resp = await client.get(url)
+                        if resp.status_code == 200:
+                            text = resp.text
+                            # Strip HTML tags for a rough text extraction
+                            import re as _re
+                            text = _re.sub(r"<script[^>]*>.*?</script>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+                            text = _re.sub(r"<style[^>]*>.*?</style>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+                            text = _re.sub(r"<[^>]+>", " ", text)
+                            text = _re.sub(r"\s+", " ", text).strip()
+                            # Take first 2000 chars — enough to find a score
+                            return text[:2000]
+                except Exception:
+                    pass
+                return None
+
+            fetch_tasks = [_fetch_page(url) for url in score_urls]
+            fetched = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+            for i, content in enumerate(fetched):
+                if isinstance(content, str) and content:
+                    scraped_texts.append(f"[PAGE {i+1}] {score_urls[i]}\n{content}")
+
+        # Build evidence text: search snippets + scraped page content
+        evidence_text = self._format_evidence(all_results, max_items=10)
+        if scraped_texts:
+            evidence_text += "\n\nSCRAPED PAGE CONTENT (may contain the actual score):\n\n"
+            evidence_text += "\n\n".join(scraped_texts)
+
         prompt = SETTLEMENT_PROMPT_TEMPLATE.format(
             home=event.home_team,
             away=event.away_team,
@@ -330,7 +416,7 @@ class GroundedAI:
             json_schema=SETTLEMENT_SCHEMA,
         )
 
-        return self._parse_settlement_verdict(resp.text, resp.model, results)
+        return self._parse_settlement_verdict(resp.text, resp.model, all_results)
 
     async def _settlement_with_tools(
         self, event: EventInfo, question: str

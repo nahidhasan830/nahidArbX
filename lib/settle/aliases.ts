@@ -149,20 +149,105 @@ export const learnCompetitionSlug = (
 };
 
 // ─── Team-name canonicalization (entity-resolver bridge) ─────────────────
+//
+// The settlement score-source matchers (espn.ts, api-football.ts, sofascore.ts)
+// call `applyTeamAlias(name)` synchronously inside tight fuzzy-match loops.
+// To avoid making every comparison async, we use a two-phase approach:
+//
+//   1. **Pre-resolve** (async, batch): before the fuzzy-matching loop starts,
+//      call `preResolveTeams(names)` which queries the entity DB for canonical
+//      names and populates an in-memory cache.
+//
+//   2. **Apply** (sync, hot path): `applyTeamAlias(name)` checks the cache
+//      first; if a canonical entity name was found during pre-resolve, it
+//      returns that. Otherwise falls back to pure string normalization.
+//
+// This means every team merge in Matcher Lab immediately lifts settlement
+// matching accuracy — when "Ypiranga FC" and "Ypiranga-RS" share the same
+// entity, both resolve to the entity's `canonical_name` before the fuzzy
+// comparison, guaranteeing a perfect 1.0 similarity.
+
+import { resolveTeamSurface } from "../matching/entities";
+
+/**
+ * In-memory cache: normalized surface → canonical entity name.
+ * Populated by `preResolveTeams()`, consumed by `applyTeamAlias()`.
+ * Cleared at the start of each batch to avoid stale data.
+ */
+const canonicalCache = new Map<string, string>();
+
+/**
+ * Pre-resolve a batch of team names against the entity DB. Call this
+ * once at the top of each score-source fetch function with all unique
+ * team names in the batch. The results are cached so the synchronous
+ * `applyTeamAlias()` can return canonical names without await.
+ *
+ * Pass `provider` and `competitionRaw` when available to get
+ * tournament-scoped resolution (the most accurate tier).
+ */
+export async function preResolveTeams(
+  names: string[],
+  opts: { provider?: string; competitionRaw?: string | null } = {},
+): Promise<void> {
+  // Dedupe and normalize
+  const unique = [...new Set(names.filter(Boolean))];
+  if (unique.length === 0) return;
+
+  // Resolve competition entity ID if we have the raw string
+  let competitionId: string | null = null;
+  if (opts.competitionRaw) {
+    try {
+      const compEntity = await ensureCompetitionEntity(opts.competitionRaw);
+      competitionId = compEntity?.id ?? null;
+    } catch {
+      // Non-fatal — proceed without competition scoping
+    }
+  }
+
+  const provider = opts.provider ?? "settle";
+
+  for (const name of unique) {
+    const norm = entityNormalize(name);
+    if (!norm || canonicalCache.has(norm)) continue;
+    try {
+      const resolved = await resolveTeamSurface({
+        provider,
+        surface: name,
+        competitionId,
+      });
+      if (resolved?.entity?.canonicalName) {
+        canonicalCache.set(norm, resolved.entity.canonicalName);
+      }
+    } catch {
+      // Non-fatal — applyTeamAlias will fall back to pure normalization
+    }
+  }
+}
+
+/**
+ * Clear the canonical cache. Called at the start of each settlement batch
+ * to ensure we don't serve stale resolutions across runs.
+ */
+export function clearCanonicalCache(): void {
+  canonicalCache.clear();
+}
 
 /**
  * Sync team-name normalization used by the score-source matchers
  * (espn.ts, sofascore.ts) before they fuzzy-compare against scoreboard
- * data. Delegates to the entity-resolution normalizer, which handles
- * lowercase + NFD diacritic strip + Cyrillic/Greek/Vietnamese
- * transliteration + club-token strip in one pass.
+ * data.
  *
- * No DB lookup happens here — this is a pure function. Persistent
- * canonicalization is the entity-resolver's job and is consulted via
- * `learnTeamAlias` below when a settle pipeline confirms a name pair.
+ * Resolution order:
+ *   1. Check the pre-resolved canonical cache (populated by `preResolveTeams()`)
+ *      → returns the entity's canonical_name if known.
+ *   2. Fall back to pure string normalization (lowercase + NFD diacritic
+ *      strip + transliteration + club-token strip).
  */
 export function applyTeamAlias(raw: string): string {
-  return entityNormalize(raw);
+  const norm = entityNormalize(raw);
+  // If we have a canonical name from the entity DB, use it — this is
+  // where Matcher Lab knowledge actually lifts settlement accuracy.
+  return canonicalCache.get(norm) ?? norm;
 }
 
 /**

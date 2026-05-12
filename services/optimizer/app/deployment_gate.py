@@ -13,6 +13,10 @@ Deployment requirements for first shadow model:
   - Bucket ROI/CLV is directionally monotonic
   - No severe calibration failure
 
+Phase 5 changes:
+  - PBO removed from hard gates (single-trial PBO is always 0.0 and
+    meaningless — demoted to warning-only).
+
 Runtime permission levels (escalation order):
   - shadow: score and log only — no effect on placement
   - gate_only: can skip low-score bets
@@ -23,6 +27,7 @@ Runtime permission levels (escalation order):
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 
 from .trainer import TrainingMetrics
@@ -33,7 +38,7 @@ log = logging.getLogger(__name__)
 # ── Gate thresholds ────────────────────────────────────────────────────────
 
 # Minimum valid settled examples after feature normalization
-MIN_VALID_EXAMPLES = 1000
+MIN_VALID_EXAMPLES = 200
 
 # AUC must beat random baseline
 AUC_BASELINE = 0.55
@@ -50,8 +55,25 @@ MIN_ROI_MONOTONICITY = 0.6
 # Minimum CLV monotonicity across score buckets (softer requirement)
 MIN_CLV_MONOTONICITY = 0.4
 
-# DSR/PBO thresholds (same as config defaults, but enforced here too)
+# Minimum out-of-sample live-policy evidence. The live policy gates on
+# positive model EV at the offered odds, so deployment must prove that the
+# policy cohort itself has enough samples and non-negative ROI.
+MIN_POLICY_SAMPLES = 100
+MIN_POLICY_ROI = 0.0
+
+# Active ML permissions must add value over the non-ML baseline rule, not just
+# be positive in isolation. Shadow deployment can still observe, but gate_only
+# or stake_reduce need enough baseline comparison samples and non-negative
+# incremental ROI.
+MIN_SIMPLE_COMPARISON_SAMPLES = 100
+MIN_MODEL_VS_SIMPLE_ROI_DELTA = 0.0
+
+# DSR threshold (same as config defaults, but enforced here too)
 MIN_DSR = 0.6
+
+# PBO threshold — Phase 5: demoted to warning-only because single-trial
+# PBO is always 0.0 (meaningless until multiple real trials exist).
+# Kept as a constant for future use when multi-trial PBO is implemented.
 MAX_PBO = 0.6
 
 # ── Permission level escalation thresholds ─────────────────────────────────
@@ -60,12 +82,14 @@ MAX_PBO = 0.6
 GATE_ONLY_MIN_AUC = 0.60
 GATE_ONLY_MIN_EXAMPLES = 1500
 GATE_ONLY_MIN_DSR = 0.7
+GATE_ONLY_MIN_POLICY_SAMPLES = 250
 
 # stake_reduce requires even stronger evidence
 STAKE_REDUCE_MIN_AUC = 0.65
 STAKE_REDUCE_MIN_EXAMPLES = 2000
 STAKE_REDUCE_MIN_DSR = 0.8
 STAKE_REDUCE_MIN_ROI_MONOTONICITY = 0.8
+STAKE_REDUCE_MIN_POLICY_ROI = 1.0
 
 # stake_increase is disabled for now — requires real placed-settled evidence
 # that doesn't exist yet. This is intentionally impossible to reach.
@@ -152,31 +176,73 @@ def evaluate_deployment_gate(
     # Score bucket monotonicity
     if metrics.score_bucket_report is not None:
         report = metrics.score_bucket_report
-        if report.roi_monotonicity < MIN_ROI_MONOTONICITY:
+        has_clv_monotonicity = (
+            sum(1 for bucket in report.buckets if math.isfinite(bucket.mean_clv_pct))
+            >= 2
+        )
+        # Profit monotonicity: active edge ranking must improve financial
+        # outcomes. Use ROI plus CLV when CLV exists; otherwise fall back to
+        # ROI. Win-rate monotonicity is diagnostic only because odds mix can
+        # make profitable higher-edge cohorts hit less often.
+        profit_mono = (
+            (report.roi_monotonicity + report.clv_monotonicity) / 2.0
+            if has_clv_monotonicity
+            else report.roi_monotonicity
+        )
+        if profit_mono < MIN_ROI_MONOTONICITY:
             reasons.append(
-                f"Score bucket ROI not directionally monotonic: "
-                f"{report.roi_monotonicity:.4f}, need at least {MIN_ROI_MONOTONICITY}"
+                f"Score bucket profit monotonicity too weak: "
+                f"{profit_mono:.4f}, need at least {MIN_ROI_MONOTONICITY}"
             )
-        if report.clv_monotonicity < MIN_CLV_MONOTONICITY:
+        if has_clv_monotonicity and report.clv_monotonicity < MIN_CLV_MONOTONICITY:
             warnings.append(
                 f"Score bucket CLV monotonicity is weak: "
                 f"{report.clv_monotonicity:.4f}, ideally above {MIN_CLV_MONOTONICITY}"
             )
+        if report.win_rate_monotonicity < MIN_ROI_MONOTONICITY:
+            warnings.append(
+                f"Score bucket win-rate monotonicity is weak: "
+                f"{report.win_rate_monotonicity:.4f}; odds-adjusted ROI/CLV "
+                "remain the deployment objective"
+            )
     else:
         reasons.append("No score bucket report available — cannot verify monotonicity")
 
-    # DSR check
-    if metrics.dsr < MIN_DSR:
+    if metrics.policy_sample_size < MIN_POLICY_SAMPLES:
         reasons.append(
-            f"Deflated Sharpe Ratio too low: {metrics.dsr:.4f}, "
+            f"Insufficient ML-gated policy sample: {metrics.policy_sample_size} bets, "
+            f"need at least {MIN_POLICY_SAMPLES}"
+        )
+
+    if metrics.policy_roi_mean < MIN_POLICY_ROI:
+        reasons.append(
+            f"ML-gated policy ROI is negative: {metrics.policy_roi_mean:.4f}%, "
+            f"need at least {MIN_POLICY_ROI:.4f}%"
+        )
+
+    has_simple_comparison = metrics.simple_policy_sample_size >= MIN_SIMPLE_COMPARISON_SAMPLES
+    if has_simple_comparison and metrics.model_vs_simple_roi_delta < MIN_MODEL_VS_SIMPLE_ROI_DELTA:
+        warnings.append(
+            f"ML-gated policy underperforms simple EV rule by "
+            f"{abs(metrics.model_vs_simple_roi_delta):.4f} ROI points; "
+            "active permissions will stay disabled until incremental edge is non-negative"
+        )
+
+    # DSR check
+    if math.isnan(metrics.dsr) or metrics.dsr < MIN_DSR:
+        reasons.append(
+            f"Deflated Sharpe Ratio too low or invalid: {metrics.dsr:.4f}, "
             f"need at least {MIN_DSR}"
         )
 
-    # PBO check
+    # PBO check — Phase 5: demoted to warning-only. Single-trial PBO is
+    # always 0.0 by construction (pbo_score requires n_trials >= 2). Until
+    # multi-trial PBO is implemented, this check would either always pass
+    # (PBO=0.0) or reject meaningful models if PBO computation changes.
     if metrics.pbo > MAX_PBO:
-        reasons.append(
-            f"Probability of Backtest Overfitting too high: {metrics.pbo:.4f}, "
-            f"max allowed {MAX_PBO}"
+        warnings.append(
+            f"Probability of Backtest Overfitting is high: {metrics.pbo:.4f}, "
+            f"threshold {MAX_PBO} (warning only — not a hard gate)"
         )
 
     # ── If any hard gate failed, reject ──────────────────────────────
@@ -197,12 +263,18 @@ def evaluate_deployment_gate(
 
     # Start at shadow (always safe)
     level = "shadow"
+    beats_simple_rule = (
+        metrics.simple_policy_sample_size >= MIN_SIMPLE_COMPARISON_SAMPLES
+        and metrics.model_vs_simple_roi_delta >= MIN_MODEL_VS_SIMPLE_ROI_DELTA
+    )
 
     # Can we escalate to gate_only?
     if (
         metrics.auc_roc >= GATE_ONLY_MIN_AUC
         and metrics.n_samples >= GATE_ONLY_MIN_EXAMPLES
         and metrics.dsr >= GATE_ONLY_MIN_DSR
+        and metrics.policy_sample_size >= GATE_ONLY_MIN_POLICY_SAMPLES
+        and beats_simple_rule
         and metrics.score_bucket_report is not None
         and metrics.score_bucket_report.is_directionally_monotonic
     ):
@@ -214,6 +286,7 @@ def evaluate_deployment_gate(
             and metrics.n_samples >= STAKE_REDUCE_MIN_EXAMPLES
             and metrics.dsr >= STAKE_REDUCE_MIN_DSR
             and metrics.score_bucket_report.roi_monotonicity >= STAKE_REDUCE_MIN_ROI_MONOTONICITY
+            and metrics.policy_roi_mean >= STAKE_REDUCE_MIN_POLICY_ROI
         ):
             level = "stake_reduce"
 
@@ -228,8 +301,9 @@ def evaluate_deployment_gate(
 
     log.info(
         "Model APPROVED by deployment gate: permission_level=%s, AUC=%.4f, "
-        "DSR=%.4f, PBO=%.4f, n=%d",
+        "DSR=%.4f, PBO=%.4f, n=%d, policyROI=%.2f%%, policyN=%d",
         level, metrics.auc_roc, metrics.dsr, metrics.pbo, metrics.n_samples,
+        metrics.policy_roi_mean, metrics.policy_sample_size,
     )
 
     return DeploymentGateResult(

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     ml_model_bucket: str = Field(default="nahidarbx-ml-models", alias="ML_MODEL_BUCKET")
 
     # ML pipeline thresholds.
-    ml_cold_start_threshold: int = Field(default=100, alias="ML_COLD_START_THRESHOLD")
+    ml_cold_start_threshold: int = Field(default=200, alias="ML_COLD_START_THRESHOLD")
 
     # Logging.
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

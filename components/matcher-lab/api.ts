@@ -129,7 +129,10 @@ export async function runMlStream(
 
 export async function verifyAiMatch(
   id: string,
-  opts?: { engine?: "gemini" | "ai-search" | "huggingface"; model?: "lite" | "flash" | "pro" },
+  opts?: {
+    engine?: "gemini" | "ai-search" | "huggingface";
+    model?: "lite" | "flash" | "pro";
+  },
 ): Promise<{
   decision: string;
   confidence: number;

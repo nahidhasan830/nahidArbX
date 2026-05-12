@@ -15,7 +15,9 @@ export type NotificationEvent =
   | UnifiedBootEvent
   | AiEngineStateEvent
   | AiModelStateEvent
-  | MlRunCompletedEvent;
+  | MlRunCompletedEvent
+  | MlTrainingStartedEvent
+  | MlTrainingCompletedEvent;
 
 export interface MlRunCompletedEvent {
   type: "ml:run_completed";
@@ -25,6 +27,59 @@ export interface MlRunCompletedEvent {
   rejected: number;
   escalated: number;
   durationMs: number;
+}
+
+/**
+ * Fired when a LightGBM training run starts (Cloud Run Job triggered).
+ */
+export interface MlTrainingStartedEvent {
+  type: "ml:training_started";
+  at: string;
+  modelId: string;
+  version: number;
+  qualifiedBets: number;
+  rawLabeledExamples: number;
+  canonicalExamples: number;
+  uncoveredQualifiedBets: number;
+  trainerExpectedSamples: number;
+  /** Feature version (should be 2). */
+  featureVersion: number;
+  /** Feature dimensions (should be 25). */
+  featureCount: number;
+  /** Trigger source: "manual" (dashboard button) or "scheduler". */
+  trigger: "manual" | "scheduler";
+  /** Git SHA of the training image (if available). */
+  gitSha?: string;
+  /** Previous deployed model version (for growth comparison). */
+  previousModelVersion?: number;
+  /** Previous deployed model's training sample count. */
+  previousModelSamples?: number;
+}
+
+/**
+ * Fired when a LightGBM training run finishes — deployed, rejected, or failed.
+ */
+export interface MlTrainingCompletedEvent {
+  type: "ml:training_completed";
+  at: string;
+  modelId: string;
+  version: number;
+  /** Final outcome. */
+  outcome: "deployed" | "rejected" | "failed";
+  /** Permission level granted (only for deployed). */
+  permissionLevel?: string;
+  /** Training duration in ms. */
+  durationMs: number;
+  /** Number of training samples used. */
+  trainingSamples: number;
+  /** OOS AUC-ROC score. */
+  aucRoc?: number;
+  /** Deflated Sharpe Ratio. */
+  dsr?: number;
+  /** Probability of Backtest Overfitting. */
+  pbo?: number;
+  /** Rejection reasons (for rejected/failed). */
+  rejectionReasons?: string[];
 }
 
 export interface AiEngineStateEvent {

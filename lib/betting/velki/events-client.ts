@@ -65,7 +65,7 @@ async function postJson<T = unknown>(path: string, body: string): Promise<T> {
       headers: browserHeaders(session.jsessionid),
       body,
     });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401 || res.status === 403 || res.status === 410) {
       throw new VelkiSessionExpiredError(`${path} HTTP ${res.status}`);
     }
     if (!res.ok) {

@@ -12,11 +12,23 @@ from __future__ import annotations
 
 import abc
 import logging
+import re
 from datetime import datetime
 
 from app.models import SearchResult
+from app.quota_store import get_store
 
 log = logging.getLogger("ai-search.provider")
+
+
+class QueryValidationError(Exception):
+    """Raised when a query is rejected by the provider (e.g. 422).
+
+    This is a *query-level* problem, not a provider outage.  The router
+    should NOT mark the provider unhealthy when this is raised.
+    """
+
+    pass
 
 
 class BaseSearchProvider(abc.ABC):
@@ -43,7 +55,7 @@ class BaseSearchProvider(abc.ABC):
         self._last_error = None
         self._last_used_at = None
         self._unhealthy_until = None
-        self._session_requests = 0  # requests in this process lifetime
+        self._session_requests = get_store().get_provider_usage(name)  # requests in this process lifetime
 
         # Server-side quota — populated by subclasses that support live data
         self._server_remaining: int | None = None
@@ -62,8 +74,10 @@ class BaseSearchProvider(abc.ABC):
 
         Raises on failure so the router can fall through.
         """
-        results = await self._do_search(query, max_results)
+        normalized_query = self._normalize_query(query)
+        results = await self._do_search(normalized_query, max_results)
         self._session_requests += 1
+        get_store().set_provider_usage(self.name, self._session_requests)
         self._last_used_at = datetime.now()
         self._healthy = True
         self._last_error = None
@@ -116,6 +130,7 @@ class BaseSearchProvider(abc.ABC):
     def reset_usage(self) -> None:
         """Reset session usage counter."""
         self._session_requests = 0
+        get_store().set_provider_usage(self.name, 0)
 
     def enable(self) -> None:
         """Enable provider for request routing."""
@@ -128,6 +143,40 @@ class BaseSearchProvider(abc.ABC):
     @property
     def enabled(self) -> bool:
         return self._enabled
+
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        """Sanitize a query for safe dispatch to all providers.
+
+        Brave in particular returns 422 on queries containing:
+        - Fancy Unicode (em-dashes, arrows, smart quotes)
+        - Excessive double-quote wrapping
+        - Question marks and other punctuation that confuse its parser
+
+        We strip these aggressively -- search engines work fine with
+        plain-text keywords and don't need operator punctuation.
+        """
+        cleaned = query
+        # Replace smart quotes / fancy Unicode with ASCII equivalents
+        cleaned = cleaned.replace("\u2014", " ")   # em-dash
+        cleaned = cleaned.replace("\u2013", " ")   # en-dash
+        cleaned = cleaned.replace("\u2194", " ")   # left-right arrow
+        cleaned = cleaned.replace("\u201c", " ")   # left double quote
+        cleaned = cleaned.replace("\u201d", " ")   # right double quote
+        cleaned = cleaned.replace("\u2018", " ")   # left single quote
+        cleaned = cleaned.replace("\u2019", " ")   # right single quote
+
+        # Strip characters that trigger 422 on Brave / other providers.
+        # Keep: alphanumeric, spaces, hyphens, periods, commas, colons, slashes.
+        # Remove: quotes, question marks, exclamation marks, parentheses,
+        #         brackets, and other special punctuation.
+        cleaned = re.sub(r'["?\'!()\[\]{}<>@#$%^&*+=|~`;\\]', " ", cleaned)
+
+        # Collapse whitespace
+        cleaned = " ".join(cleaned.split()).strip()
+        if not cleaned:
+            raise ValueError("Search query is empty after normalization")
+        return cleaned[:400]
 
     def stats(self) -> dict:
         """Return provider stats for the /stats endpoint."""

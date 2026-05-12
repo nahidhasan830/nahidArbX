@@ -9,7 +9,7 @@ import { db, users, userPermissions } from "./db";
 import { hashPassword } from "./password";
 import { FEATURE_IDS } from "./features/registry";
 import { eq } from "drizzle-orm";
-import { sql } from "drizzle-orm";
+
 
 // ============================================
 // Database Initialization
@@ -22,7 +22,7 @@ export async function initializeDatabase(): Promise<void> {
   // Create tables if they don't exist
   // Using raw SQL since Drizzle doesn't have built-in migration for better-sqlite3
 
-  const sqlite = (db as any).$client;
+  const sqlite = (db as unknown as { $client: { exec: (sql: string) => void } }).$client;
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS users (

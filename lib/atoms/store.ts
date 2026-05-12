@@ -47,10 +47,9 @@ const state = singleton("atoms:state", () => ({
 // Singleton so both Turbopack module graphs share the same callback ref.
 // Without this, the reactive detector registers in one graph while
 // setOdds fires in another, causing orphaned dirty families.
-const dirtyCallbackHolder = singleton(
-  "atoms:dirtyCallback",
-  () => ({ fn: null as (() => void) | null }),
-);
+const dirtyCallbackHolder = singleton("atoms:dirtyCallback", () => ({
+  fn: null as (() => void) | null,
+}));
 
 /**
  * Register a callback to fire whenever dirtyFamilies gains entries.
@@ -214,6 +213,56 @@ export function pruneOddsForStaleEvents(activeEventIds: Set<string>): number {
   return pruned;
 }
 
+/**
+ * Remove all odds for a specific provider across all atoms in an event.
+ *
+ * Called before processing a full-snapshot message so any atoms the provider
+ * DROPPED from the feed are deleted. The fresh snapshot below restores the
+ * present ones via setOdds.
+ *
+ * Marks affected families as dirty so the reactive detector re-evaluates.
+ */
+export function removeProviderAtomsForEvent(
+  eventId: string,
+  provider: ProviderKey,
+): void {
+  const familyMap = oddsStore.get(eventId);
+  if (!familyMap) return;
+
+  for (const [familyId, atomMap] of familyMap) {
+    let familyDirty = false;
+    for (const [atomId, providerMap] of atomMap) {
+      const hadRecord = providerMap.delete(provider);
+      if (hadRecord) {
+        state._totalOddsRecords--;
+        const remaining = providerMap.size;
+        if (remaining < 2) state._matchedMarkets--;
+        familyDirty = true;
+        if (remaining === 0) {
+          atomMap.delete(atomId);
+          state._totalAtoms--;
+        }
+      }
+    }
+    if (familyDirty) {
+      dirtyFamilies.add(`${eventId}|${familyId}`);
+      state.storeVersion++;
+    }
+    if (atomMap.size === 0) {
+      familyMap.delete(familyId);
+      state._totalFamilies--;
+    }
+  }
+
+  if (dirtyFamilies.size > 0) {
+    dirtyCallbackHolder.fn?.();
+  }
+
+  if (familyMap.size === 0) {
+    oddsStore.delete(eventId);
+  }
+}
+
 // ============================================
 // Read Operations
 // ============================================
@@ -304,6 +353,23 @@ export function getBestOddsForFamily(
 export function getFamiliesForEvent(eventId: string): string[] {
   const familyMap = oddsStore.get(eventId);
   return familyMap ? Array.from(familyMap.keys()) : [];
+}
+
+/**
+ * Count matched markets (atoms with ≥2 providers) for an event.
+ * Used for ML feature[24] (num_markets_same_event) so it reflects
+ * actual market coverage, not just the number of value bets detected.
+ */
+export function getActiveMarketCountForEvent(eventId: string): number {
+  const familyMap = oddsStore.get(eventId);
+  if (!familyMap) return 0;
+  let count = 0;
+  for (const atomMap of familyMap.values()) {
+    for (const providerMap of atomMap.values()) {
+      if (providerMap.size >= 2) count++;
+    }
+  }
+  return count;
 }
 
 /**

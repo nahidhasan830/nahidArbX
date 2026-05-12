@@ -76,7 +76,10 @@ export class BetConstructSyncService {
   public stop() {
     this.isRunning = false;
     if (this.intervalId) clearInterval(this.intervalId);
-    if (this.busUnsubscribe) { this.busUnsubscribe(); this.busUnsubscribe = undefined; }
+    if (this.busUnsubscribe) {
+      this.busUnsubscribe();
+      this.busUnsubscribe = undefined;
+    }
 
     // Unsubscribe all
     for (const [, { gameId }] of this.trackedEvents) {
@@ -101,10 +104,7 @@ export class BetConstructSyncService {
     this.trackedEvents.clear();
     // Re-run subscription logic
     this.syncTrackedEntities();
-    logger.info(
-      "BCSyncService",
-      "Re-subscribing all events after reconnect",
-    );
+    logger.info("BCSyncService", "Re-subscribing all events after reconnect");
   }
 
   private syncTrackedEntities() {
@@ -115,7 +115,10 @@ export class BetConstructSyncService {
           unsubscribeFromGame(gameId).catch(() => {});
         }
         this.trackedEvents.clear();
-        logger.info("BCSyncService", "Provider disabled — all subscriptions removed");
+        logger.info(
+          "BCSyncService",
+          "Provider disabled — all subscriptions removed",
+        );
       }
       return;
     }

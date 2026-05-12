@@ -62,7 +62,7 @@ export async function queryPlayerInfo(): Promise<VelkiPlayerInfoResponse> {
         Cookie: `JSESSIONID=${session.jsessionid}`,
       },
     });
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401 || res.status === 403 || res.status === 410) {
       throw new VelkiSessionExpiredError(`queryPlayerInfo ${res.status}`);
     }
     if (!res.ok) {

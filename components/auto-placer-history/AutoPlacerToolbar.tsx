@@ -8,13 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Clock,
-  ChevronDown,
-  Loader2,
-  Search,
-  X,
-} from "lucide-react";
+import { Clock, ChevronDown, Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -49,64 +43,130 @@ import type { AutoPlacerLogStats } from "@/lib/db/repositories/auto-placer-log";
 
 // ── Status tabs ──
 
-type StatusFilter = "all" | "placed" | "pending" | "skipped" | "rejected" | "error";
+type StatusFilter =
+  | "all"
+  | "placed"
+  | "pending"
+  | "skipped"
+  | "rejected"
+  | "error";
 
-const STATUS_TAB_COLORS: Record<StatusFilter, { active: string; dot: string }> = {
-  all:      { active: "bg-zinc-800 text-zinc-100 border-zinc-600", dot: "bg-zinc-400" },
-  placed:   { active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30", dot: "bg-emerald-400" },
-  pending:  { active: "bg-amber-500/15 text-amber-300 border-amber-500/30", dot: "bg-amber-400" },
-  skipped:  { active: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30", dot: "bg-zinc-400" },
-  rejected: { active: "bg-rose-500/15 text-rose-300 border-rose-500/30", dot: "bg-rose-400" },
-  error:    { active: "bg-red-500/15 text-red-300 border-red-500/30", dot: "bg-red-400" },
-};
+const STATUS_TAB_COLORS: Record<StatusFilter, { active: string; dot: string }> =
+  {
+    all: {
+      active: "bg-zinc-800 text-zinc-100 border-zinc-600",
+      dot: "bg-zinc-400",
+    },
+    placed: {
+      active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+      dot: "bg-emerald-400",
+    },
+    pending: {
+      active: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+      dot: "bg-amber-400",
+    },
+    skipped: {
+      active: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30",
+      dot: "bg-zinc-400",
+    },
+    rejected: {
+      active: "bg-rose-500/15 text-rose-300 border-rose-500/30",
+      dot: "bg-rose-400",
+    },
+    error: {
+      active: "bg-red-500/15 text-red-300 border-red-500/30",
+      dot: "bg-red-400",
+    },
+  };
 
 const STATUS_TABS: { id: StatusFilter; label: string; title: string }[] = [
-  { id: "all",      label: "All",      title: "Every auto-placer decision" },
-  { id: "placed",   label: "Placed",   title: "Successfully placed bets" },
-  { id: "pending",  label: "Pending",  title: "Accepted by book, awaiting confirmation" },
-  { id: "skipped",  label: "Skipped",  title: "Skipped by a gate (balance, EV, ML, etc.)" },
+  { id: "all", label: "All", title: "Every auto-placer decision" },
+  { id: "placed", label: "Placed", title: "Successfully placed bets" },
+  {
+    id: "pending",
+    label: "Pending",
+    title: "Accepted by book, awaiting confirmation",
+  },
+  {
+    id: "skipped",
+    label: "Skipped",
+    title: "Skipped by a gate (balance, EV, ML, etc.)",
+  },
   { id: "rejected", label: "Rejected", title: "Book rejected the bet" },
-  { id: "error",    label: "Error",    title: "Transport/auth/parse errors" },
+  { id: "error", label: "Error", title: "Transport/auth/parse errors" },
 ];
 
 // ── Gate filter options ──
 
 const GATE_OPTIONS: { value: string; label: string }[] = [
-  { value: "toggle",      label: "Toggle Off" },
-  { value: "adapter",     label: "No Adapter" },
-  { value: "ml_score",    label: "ML Gate" },
+  { value: "toggle", label: "Toggle Off" },
+  { value: "adapter", label: "No Adapter" },
+  { value: "ml_score", label: "ML Gate" },
   { value: "row_missing", label: "Row Missing" },
-  { value: "inflight",    label: "In-Flight" },
-  { value: "refs",        label: "Ref Resolve" },
-  { value: "account",     label: "Account" },
-  { value: "ev_floor",    label: "EV Floor" },
-  { value: "balance",     label: "Balance" },
-  { value: "market_max",  label: "Market Max" },
-  { value: "stake_min",   label: "Stake Min" },
-  { value: "dedup",       label: "Dedup" },
+  { value: "inflight", label: "In-Flight" },
+  { value: "refs", label: "Ref Resolve" },
+  { value: "account", label: "Account" },
+  { value: "ev_floor", label: "EV Floor" },
+  { value: "balance", label: "Balance" },
+  { value: "market_max", label: "Market Max" },
+  { value: "stake_min", label: "Stake Min" },
+  { value: "dedup", label: "Dedup" },
   { value: "book_reject", label: "Book Reject" },
-  { value: "book_error",  label: "Book Error" },
-  { value: "placed",      label: "Placed ✓" },
-  { value: "pending",     label: "Pending…" },
+  { value: "book_error", label: "Book Error" },
+  { value: "placed", label: "Placed ✓" },
+  { value: "pending", label: "Pending…" },
 ];
 
 // ── Date preset helpers ──
 
 const DATE_PRESET_GROUPS: { title: string; keys: DatePresetKey[] }[] = [
-  { title: "Hours", keys: ["last1h", "last3h", "last6h", "last12h", "last24h", "last48h"] },
-  { title: "Days", keys: ["today", "yesterday", "thisWeek", "lastWeek", "last3d", "last7d", "last15d"] },
-  { title: "Months", keys: ["thisMonth", "last30d", "last60d", "last90d", "all"] },
+  {
+    title: "Hours",
+    keys: ["last1h", "last3h", "last6h", "last12h", "last24h", "last48h"],
+  },
+  {
+    title: "Days",
+    keys: [
+      "today",
+      "yesterday",
+      "thisWeek",
+      "lastWeek",
+      "last3d",
+      "last7d",
+      "last15d",
+    ],
+  },
+  {
+    title: "Months",
+    keys: ["thisMonth", "last30d", "last60d", "last90d", "all"],
+  },
 ];
 
 function getCompactPresetLabel(key: DatePresetKey) {
   const shortLabels: Partial<Record<DatePresetKey, string>> = {
-    last1h: "1h", last3h: "3h", last6h: "6h", last12h: "12h",
-    last24h: "24h", last48h: "48h", today: "Today", yesterday: "Yday",
-    thisWeek: "Week", lastWeek: "Prev wk", last3d: "3d", last7d: "7d",
-    last15d: "15d", thisMonth: "Month", last30d: "30d", last60d: "60d",
-    last90d: "90d", all: "All", custom: "Custom",
+    last1h: "1h",
+    last3h: "3h",
+    last6h: "6h",
+    last12h: "12h",
+    last24h: "24h",
+    last48h: "48h",
+    today: "Today",
+    yesterday: "Yday",
+    thisWeek: "Week",
+    lastWeek: "Prev wk",
+    last3d: "3d",
+    last7d: "7d",
+    last15d: "15d",
+    thisMonth: "Month",
+    last30d: "30d",
+    last60d: "60d",
+    last90d: "90d",
+    all: "All",
+    custom: "Custom",
   };
-  return shortLabels[key] ?? DATE_PRESETS.find((p) => p.key === key)?.label ?? key;
+  return (
+    shortLabels[key] ?? DATE_PRESETS.find((p) => p.key === key)?.label ?? key
+  );
 }
 
 // ── Shared style primitives ──
@@ -197,7 +257,7 @@ export function AutoPlacerToolbar({
   filteredCount,
   stats,
   statsLoading,
-  loading,
+  loading: _loading,
 }: Props) {
   const update = useCallback(
     (patch: Partial<LogFilters>) => {
@@ -369,7 +429,10 @@ export function AutoPlacerToolbar({
                 <ChevronDown className="size-3 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48 max-h-80 overflow-y-auto">
+            <DropdownMenuContent
+              align="start"
+              className="w-48 max-h-80 overflow-y-auto"
+            >
               <DropdownMenuLabel className="text-[10px]">
                 Filter by Gate
               </DropdownMenuLabel>
@@ -401,10 +464,10 @@ export function AutoPlacerToolbar({
           {/* Provider */}
           <ProvidersFilter
             selected={filters.softProviders ?? []}
-            onChange={(v) => update({ softProviders: v.length ? v : undefined })}
+            onChange={(v) =>
+              update({ softProviders: v.length ? v : undefined })
+            }
           />
-
-
         </div>
 
         {/* ── Row 3: Summary stats strip ── */}
@@ -417,14 +480,18 @@ export function AutoPlacerToolbar({
           ) : stats ? (
             <>
               <span className="shrink-0">
-                <span className="font-medium text-foreground tabular-nums">{stats.total}</span>{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {stats.total}
+                </span>{" "}
                 decisions
               </span>
 
               <span className="text-border">·</span>
 
               <span className="shrink-0">
-                <span className="text-emerald-400 font-medium tabular-nums">{stats.placed}</span>
+                <span className="text-emerald-400 font-medium tabular-nums">
+                  {stats.placed}
+                </span>
                 {" placed"}
               </span>
 
@@ -432,7 +499,9 @@ export function AutoPlacerToolbar({
                 <>
                   <span className="text-border">·</span>
                   <span className="shrink-0">
-                    <span className="text-amber-400 font-medium tabular-nums">{stats.pending}</span>
+                    <span className="text-amber-400 font-medium tabular-nums">
+                      {stats.pending}
+                    </span>
                     {" pending"}
                   </span>
                 </>
@@ -441,7 +510,9 @@ export function AutoPlacerToolbar({
               <span className="text-border">·</span>
 
               <span className="shrink-0">
-                <span className="text-zinc-400 font-medium tabular-nums">{stats.skipped}</span>
+                <span className="text-zinc-400 font-medium tabular-nums">
+                  {stats.skipped}
+                </span>
                 {" skipped"}
               </span>
 
@@ -449,7 +520,9 @@ export function AutoPlacerToolbar({
                 <>
                   <span className="text-border">·</span>
                   <span className="shrink-0">
-                    <span className="text-rose-400 font-medium tabular-nums">{stats.rejected}</span>
+                    <span className="text-rose-400 font-medium tabular-nums">
+                      {stats.rejected}
+                    </span>
                     {" rejected"}
                   </span>
                 </>
@@ -459,7 +532,9 @@ export function AutoPlacerToolbar({
                 <>
                   <span className="text-border">·</span>
                   <span className="shrink-0">
-                    <span className="text-red-400 font-medium tabular-nums">{stats.errored}</span>
+                    <span className="text-red-400 font-medium tabular-nums">
+                      {stats.errored}
+                    </span>
                     {" errors"}
                   </span>
                 </>
@@ -478,7 +553,8 @@ export function AutoPlacerToolbar({
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Placed / Total decisions (success rate of attempted placements)
+                      Placed / Total decisions (success rate of attempted
+                      placements)
                     </TooltipContent>
                   </Tooltip>
                 </>

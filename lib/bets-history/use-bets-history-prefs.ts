@@ -10,7 +10,8 @@ export type SortKey =
   | "evPctMax"
   | "kellyFraction"
   | "tickCount"
-  | "eventStartTime";
+  | "eventStartTime"
+  | "mlScore";
 export type SortDir = "asc" | "desc" | "none";
 
 export type BetsHistoryPrefs = {

@@ -9,19 +9,18 @@ import {
   getAllProviderStatus,
 } from "../store";
 import { matchEvents } from "../matching";
-import { getStoreStats } from "../atoms/store";
+
 import type { NormalizedEvent } from "../types";
-import {
-  getEnabledProviderIds,
-  getProviderShortName,
-  type ProviderKey,
-} from "../providers/registry";
+
 import { logger } from "../shared/logger";
 import { getTokenTTL, refreshTokenIfNeeded } from "../auth/token-manager";
-import { FIXTURE_INTERVAL_MS, HEARTBEAT_INTERVAL_MS } from "../shared/constants";
+import {
+  FIXTURE_INTERVAL_MS,
+  HEARTBEAT_INTERVAL_MS,
+} from "../shared/constants";
 import { triggerDetection } from "./reactive-detector";
 import { invalidateResponseCache } from "../cache/response-cache";
-import { computeDelta, signalFixturesChanged } from "../cache/delta";
+import { signalFixturesChanged } from "../cache/delta";
 import { registerEventMappings } from "../scores/multi-source-store";
 import { startBCScorePolling, stopBCScorePolling } from "../scores/bc-poller";
 import type { ScoreSource } from "../scores/types";
@@ -51,6 +50,8 @@ import { singleton } from "../util/singleton";
 import { getIdToken } from "../matching/entities/matcher-client";
 import { notify } from "../notifier";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
+import { getBettingSettings } from "../db/repositories/betting-settings";
+import { getMarketPhase } from "../betting/market-phase";
 // ML scheduler now runs on the entity-matcher Cloud Run Service (reads
 // config from matcher_config table). No more in-process setTimeout loop.
 
@@ -271,29 +272,39 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     const fixturesDelta = signalFixturesChanged(syncBus.version);
     syncBus.emitBus({ type: "data:delta", delta: fixturesDelta });
 
-    // Return matched events for odds fetching.
-    //
-    // PRE-MATCH ONLY gate: odds fetching, value detection, and atoms-store
-    // refresh should never run against events whose kickoff has already
-    // passed. The system is pre-match only — in-play detection requires
-    // a different architecture (push feeds, sub-second comparisons, state
-    // tracking). See `in-play.md` for the full rationale and the plan to
-    // reintroduce in-play as a separate product later.
-    //
-    // A small +5 min grace is allowed so closing-line capture has a window
-    // to succeed for events that kick off between sync cycles.
+    // Return matched events for odds fetching. Strategy & limits controls
+    // whether value-detection odds are kept for pre-match, in-play, or both.
+    // The default remains pre-match only. A small +5 min pre-match grace is
+    // retained so closing-line capture succeeds for events that kick off
+    // between sync cycles.
     //
     // Note: score polling and score-event-mapping registration happen
-    // ABOVE this filter (lines 213, 216) — they intentionally see the full
-    // matched set so settlement can track scores for pre-match bets whose
-    // matches are now live or finished.
+    // ABOVE this filter — they intentionally see the full matched set so
+    // settlement can track scores for pre-match bets whose matches are now
+    // live or finished.
     const nowMs = Date.now();
     const closingCaptureGraceMs = 5 * 60 * 1000;
+    const inPlayOddsWindowMs = 3 * 60 * 60 * 1000;
+    const { row: bettingSettings } = await getBettingSettings();
+    const detectionPhases = bettingSettings.valueDetectionPhases;
     return matchedEvents
       .filter((e) => Object.keys(e.providers).length > 1)
-      .filter(
-        (e) => new Date(e.startTime).getTime() > nowMs - closingCaptureGraceMs,
-      );
+      .filter((e) => {
+        const startMs = new Date(e.startTime).getTime();
+        if (!Number.isFinite(startMs)) return false;
+        if (startMs > nowMs) return detectionPhases.includes("pre_match");
+        if (startMs > nowMs - closingCaptureGraceMs) {
+          return (
+            detectionPhases.includes("pre_match") ||
+            detectionPhases.includes("in_play")
+          );
+        }
+        return (
+          getMarketPhase(e.startTime, nowMs) === "in_play" &&
+          detectionPhases.includes("in_play") &&
+          startMs > nowMs - inPlayOddsWindowMs
+        );
+      });
   } finally {
     sch.fixturesSyncing = false;
 
@@ -529,12 +540,17 @@ export function startScheduler(): void {
   // (Swarm subscriptions are lost when the session reconnects) and trigger detection
   if (isProviderRuntimeEnabled("betconstruct")) {
     onBCReconnect(() => {
-      logger.info("Sync", "BetConstruct reconnected - re-subscribing all events");
+      logger.info(
+        "Sync",
+        "BetConstruct reconnected - re-subscribing all events",
+      );
       invalidateResponseCache();
       // Lazy import to avoid circular dependency
-      import("../services/betconstruct-sync-service").then(({ betconstructSyncService }) => {
-        betconstructSyncService.resubscribeAll();
-      });
+      import("../services/betconstruct-sync-service").then(
+        ({ betconstructSyncService }) => {
+          betconstructSyncService.resubscribeAll();
+        },
+      );
       triggerDetection();
     });
 
@@ -687,7 +703,7 @@ export function startScheduler(): void {
             }
           }
         }
-      } catch (err) {
+      } catch (_err) {
         // Silent catch for network errors
       }
 
@@ -705,9 +721,7 @@ export function startScheduler(): void {
   scheduleNextMl();
 }
 
-export function restartScheduler(
-  fixtureIntervalMs?: number,
-): void {
+export function restartScheduler(fixtureIntervalMs?: number): void {
   if (fixtureIntervalMs !== undefined) {
     sch.fixtureInterval = fixtureIntervalMs;
   }

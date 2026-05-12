@@ -2,9 +2,8 @@
  * Pure, deterministic bet settlement.
  *
  * Given a ValueBetRow + a MatchScore, returns an Outcome without any I/O.
- * This is the engine that replaces per-bet Gemini calls once a score is
- * known — the AI tiers above only need to answer "what was the score?",
- * never "did this bet win?".
+ * The waterfall only needs to answer "what was the score?" — this function
+ * handles "did this bet win?" via pure logic.
  *
  * Returns `null` for markets we don't yet settle deterministically; callers
  * should fall through to the AI tier for those rows rather than guessing.
@@ -182,6 +181,16 @@ const parseBtts = (atomId: string): "yes" | "no" | null => {
   return null;
 };
 
+/** Parse European Handicap side from atom ID. */
+const parseEhSide = (atomId: string): Side | null => {
+  // Atoms like: ft_home_eh_m1, ft_away_eh_p2, ft_draw_eh_m1
+  if (atomId.includes("_home_eh_")) return "home";
+  if (atomId.includes("_away_eh_")) return "away";
+  if (atomId.includes("_draw_eh_")) return "draw";
+  // Fallback: try the same pattern as MATCH_RESULT
+  return parseMatchResultSide(atomId);
+};
+
 // ─── Terminal-state helpers ──────────────────────────────────────────────────
 
 const voidResult = (
@@ -203,6 +212,95 @@ const unsupported = (note: string): SettleResult => ({
   reasoning: note,
   reason: "unsupported-market",
 });
+
+const unknownAtom = (
+  market: string,
+  atomId: string,
+  scope: ScopeScore,
+): SettleResult => ({
+  outcome: "pending",
+  scopeScore: fmt(scope),
+  confidence: 0,
+  reasoning: `Unrecognized ${market} atom ${atomId}`,
+  reason: "unknown-atom",
+});
+
+const missingLine = (
+  market: string,
+  atomId: string,
+  scope: ScopeScore,
+): SettleResult => ({
+  outcome: "pending",
+  scopeScore: fmt(scope),
+  confidence: 0,
+  reasoning: `Unrecognized ${market} atom ${atomId} or missing line`,
+  reason: "unknown-atom",
+});
+
+const resolved = (outcome: Outcome, scope: ScopeScore, reasoning: string): SettleResult => ({
+  outcome,
+  scopeScore: fmt(scope),
+  confidence: 1,
+  reasoning,
+  reason: "resolved",
+});
+
+// ─── Reusable settlement primitives ──────────────────────────────────────────
+//
+// These encapsulate the full OU/AH lifecycle — quarter-line detection, fold,
+// and standard legs — in a single call. Every OU-like market (goals, corners,
+// bookings, team totals) and every AH-like market (goals, bookings, corners)
+// calls one of these instead of duplicating the quarter-line logic.
+
+/**
+ * Settle any over/under market (goals, corners, bookings) in one call.
+ * Handles standard, half, and quarter lines with push/void correctly.
+ */
+const settleOverUnder = (
+  total: number,
+  line: number,
+  side: "over" | "under",
+): Outcome => {
+  if (isQuarterLine(line)) {
+    const [a, b] = splitQuarterLine(line);
+    return foldLegs(settleOuLeg(total, a, side), settleOuLeg(total, b, side));
+  }
+  const v = settleOuLeg(total, line, side);
+  return v === "won" ? "won" : v === "lost" ? "lost" : "void";
+};
+
+/**
+ * Settle any Asian handicap market (goals, bookings, corners) in one call.
+ * Handles standard, half, and quarter lines with push/void correctly.
+ */
+const settleHandicap = (
+  scope: ScopeScore,
+  backed: Leg,
+  line: number,
+): Outcome => {
+  if (isQuarterLine(line)) {
+    const [a, b] = splitQuarterAhLine(line);
+    return foldLegs(settleAhLeg(scope, backed, a), settleAhLeg(scope, backed, b));
+  }
+  const v = settleAhLeg(scope, backed, line);
+  return v === "won" ? "won" : v === "lost" ? "lost" : "void";
+};
+
+/**
+ * Settle a 1X2 / match-result-like market (including European Handicap
+ * with an applied handicap offset).
+ */
+const settleMatchResult = (
+  scope: ScopeScore,
+  picked: Side,
+  handicapHome = 0,
+): Outcome => {
+  const adjHome = scope.home + handicapHome;
+  const adjAway = scope.away;
+  const realSide: Side =
+    adjHome > adjAway ? "home" : adjHome < adjAway ? "away" : "draw";
+  return picked === realSide ? "won" : "lost";
+};
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
 
@@ -230,209 +328,69 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
   // ── MATCH_RESULT (1X2) ────────────────────────────────────────────────────
   if (row.marketType === "MATCH_RESULT") {
     const side = parseMatchResultSide(atomId);
-    if (!side)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized MATCH_RESULT atom ${atomId}`,
-        reason: "unknown-atom",
-      };
+    if (!side) return unknownAtom("MATCH_RESULT", atomId, scope);
+    const outcome = settleMatchResult(scope, side);
     const realSide: Side =
-      scope.home > scope.away
-        ? "home"
-        : scope.home < scope.away
-          ? "away"
-          : "draw";
-    return {
-      outcome: side === realSide ? "won" : "lost",
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `1X2 ${side} vs result ${realSide} @ ${fmt(scope)}.`,
-      reason: "resolved",
-    };
+      scope.home > scope.away ? "home" : scope.home < scope.away ? "away" : "draw";
+    return resolved(outcome, scope, `1X2 ${side} vs result ${realSide} @ ${fmt(scope)}.`);
   }
 
   // ── TOTAL_GOALS (OU) ──────────────────────────────────────────────────────
   if (row.marketType === "OVER_UNDER" || row.marketType === "TOTAL_GOALS") {
     const side = parseOverUnder(atomId);
-    if (!side || row.familyLine == null)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized OU atom ${atomId} or missing line`,
-        reason: "unknown-atom",
-      };
-    const line = row.familyLine;
+    if (!side || row.familyLine == null) return missingLine("OU", atomId, scope);
     const total = scope.home + scope.away;
-    if (isQuarterLine(line)) {
-      const [a, b] = splitQuarterLine(line);
-      const outcome = foldLegs(
-        settleOuLeg(total, a, side),
-        settleOuLeg(total, b, side),
-      );
-      return {
-        outcome,
-        scopeScore: fmt(scope),
-        confidence: 1,
-        reasoning: `OU ${side} ${line} split [${a}, ${b}] on total ${total}.`,
-        reason: "resolved",
-      };
-    }
-    const verdict = settleOuLeg(total, line, side);
-    const mapped: Outcome =
-      verdict === "won" ? "won" : verdict === "lost" ? "lost" : "void";
-    return {
-      outcome: mapped,
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `OU ${side} ${line} on total ${total}.`,
-      reason: "resolved",
-    };
+    const outcome = settleOverUnder(total, row.familyLine, side);
+    return resolved(outcome, scope, `OU ${side} ${row.familyLine} on total ${total}.`);
   }
 
   // ── ASIAN_HANDICAP ────────────────────────────────────────────────────────
   if (row.marketType === "ASIAN_HANDICAP") {
     const backed = parseAhBacked(atomId);
-    if (!backed || row.familyLine == null)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized AH atom ${atomId} or missing line`,
-        reason: "unknown-atom",
-      };
-    const line = row.familyLine;
-    if (isQuarterLine(line)) {
-      const [a, b] = splitQuarterAhLine(line);
-      const outcome = foldLegs(
-        settleAhLeg(scope, backed, a),
-        settleAhLeg(scope, backed, b),
-      );
-      return {
-        outcome,
-        scopeScore: fmt(scope),
-        confidence: 1,
-        reasoning: `AH ${backed} ${line} split [${a}, ${b}] on ${fmt(scope)}.`,
-        reason: "resolved",
-      };
-    }
-    const verdict = settleAhLeg(scope, backed, line);
-    const mapped: Outcome =
-      verdict === "won" ? "won" : verdict === "lost" ? "lost" : "void";
-    return {
-      outcome: mapped,
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `AH ${backed} ${line} on ${fmt(scope)}.`,
-      reason: "resolved",
-    };
+    if (!backed || row.familyLine == null) return missingLine("AH", atomId, scope);
+    const outcome = settleHandicap(scope, backed, row.familyLine);
+    return resolved(outcome, scope, `AH ${backed} ${row.familyLine} on ${fmt(scope)}.`);
   }
 
   // ── BTTS ──────────────────────────────────────────────────────────────────
   if (row.marketType === "BTTS") {
     const pick = parseBtts(atomId);
-    if (!pick)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized BTTS atom ${atomId}`,
-        reason: "unknown-atom",
-      };
+    if (!pick) return unknownAtom("BTTS", atomId, scope);
     const both = scope.home > 0 && scope.away > 0;
     const won = pick === "yes" ? both : !both;
-    return {
-      outcome: won ? "won" : "lost",
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `BTTS ${pick} on ${fmt(scope)}.`,
-      reason: "resolved",
-    };
+    return resolved(won ? "won" : "lost", scope, `BTTS ${pick} on ${fmt(scope)}.`);
   }
 
   // ── DNB (Draw No Bet) — AH +0 for backed leg ──────────────────────────────
   if (row.marketType === "DNB") {
     const backed = parseDnbBacked(atomId);
-    if (!backed)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized DNB atom ${atomId}`,
-        reason: "unknown-atom",
-      };
-    const verdict = settleAhLeg(scope, backed, 0);
-    const mapped: Outcome =
-      verdict === "won" ? "won" : verdict === "lost" ? "lost" : "void";
-    return {
-      outcome: mapped,
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `DNB ${backed} on ${fmt(scope)}.`,
-      reason: "resolved",
-    };
+    if (!backed) return unknownAtom("DNB", atomId, scope);
+    const outcome = settleHandicap(scope, backed, 0);
+    return resolved(outcome, scope, `DNB ${backed} on ${fmt(scope)}.`);
   }
 
   // ── HOME_TEAM_TOTAL / AWAY_TEAM_TOTAL ─────────────────────────────────────
-  //
-  // Per-team over/under. Atom IDs are `ft_home_{over|under}_X` or
-  // `ft_away_{over|under}_X`. Line comes from `row.familyLine`. Only FT
-  // scope exists for these in our atom tree.
   if (
     row.marketType === "HOME_TEAM_TOTAL" ||
     row.marketType === "AWAY_TEAM_TOTAL"
   ) {
     const side = parseOverUnder(atomId);
     if (!side || row.familyLine == null)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized team-total atom ${atomId} or missing line`,
-        reason: "unknown-atom",
-      };
+      return missingLine("team-total", atomId, scope);
     const teamGoals =
       row.marketType === "HOME_TEAM_TOTAL" ? scope.home : scope.away;
-    const line = row.familyLine;
-    if (isQuarterLine(line)) {
-      const [a, b] = splitQuarterLine(line);
-      const outcome = foldLegs(
-        settleOuLeg(teamGoals, a, side),
-        settleOuLeg(teamGoals, b, side),
-      );
-      return {
-        outcome,
-        scopeScore: fmt(scope),
-        confidence: 1,
-        reasoning: `${row.marketType} ${side} ${line} split on team goals ${teamGoals}.`,
-        reason: "resolved",
-      };
-    }
-    const verdict = settleOuLeg(teamGoals, line, side);
-    const mapped: Outcome =
-      verdict === "won" ? "won" : verdict === "lost" ? "lost" : "void";
-    return {
-      outcome: mapped,
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `${row.marketType} ${side} ${line} on team goals ${teamGoals}.`,
-      reason: "resolved",
-    };
+    const outcome = settleOverUnder(teamGoals, row.familyLine, side);
+    return resolved(
+      outcome,
+      scope,
+      `${row.marketType} ${side} ${row.familyLine} on team goals ${teamGoals}.`,
+    );
   }
 
   // ── DOUBLE_CHANCE ─────────────────────────────────────────────────────────
   if (row.marketType === "DOUBLE_CHANCE") {
     const combo = parseDcCombo(atomId);
-    if (!combo)
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized DC atom ${atomId}`,
-        reason: "unknown-atom",
-      };
+    if (!combo) return unknownAtom("DC", atomId, scope);
     const realSide: Side =
       scope.home > scope.away
         ? "home"
@@ -443,13 +401,24 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
       (combo === "1x" && (realSide === "home" || realSide === "draw")) ||
       (combo === "12" && (realSide === "home" || realSide === "away")) ||
       (combo === "x2" && (realSide === "away" || realSide === "draw"));
-    return {
-      outcome: won ? "won" : "lost",
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: `DC ${combo} vs ${realSide} @ ${fmt(scope)}.`,
-      reason: "resolved",
-    };
+    return resolved(won ? "won" : "lost", scope, `DC ${combo} vs ${realSide} @ ${fmt(scope)}.`);
+  }
+
+  // ── EUROPEAN_HANDICAP ─────────────────────────────────────────────────────
+  //
+  // 3-way handicap (1X2 with a goal offset). Unlike Asian Handicap, a draw
+  // after applying the handicap is a valid outcome (not push/void). The line
+  // is an integer applied to the home team's score.
+  if (row.marketType === "EUROPEAN_HANDICAP") {
+    const side = parseEhSide(atomId);
+    if (!side || row.familyLine == null)
+      return missingLine("EUROPEAN_HANDICAP", atomId, scope);
+    const outcome = settleMatchResult(scope, side, row.familyLine);
+    return resolved(
+      outcome,
+      scope,
+      `EH ${side} (handicap ${row.familyLine}) on ${fmt(scope)}.`,
+    );
   }
 
   // ── CORNERS / HOME_CORNERS_TOTAL / AWAY_CORNERS_TOTAL ────────────────────
@@ -477,50 +446,145 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
       );
     }
     const side = parseOverUnder(atomId);
-    if (!side || row.familyLine == null) {
-      return {
-        outcome: "pending",
-        scopeScore: fmt(scope),
-        confidence: 0,
-        reasoning: `Unrecognized corners atom ${atomId} or missing line`,
-        reason: "unknown-atom",
-      };
-    }
+    if (!side || row.familyLine == null) return missingLine("corners", atomId, scope);
     const cornerTotal =
       row.marketType === "CORNERS"
         ? score.cornersHome + score.cornersAway
         : row.marketType === "HOME_CORNERS_TOTAL"
           ? score.cornersHome
           : score.cornersAway;
-    const line = row.familyLine;
-    const label = `${row.marketType} ${side} ${line} on corners ${score.cornersHome}-${score.cornersAway}`;
-    if (isQuarterLine(line)) {
-      const [a, b] = splitQuarterLine(line);
-      return {
-        outcome: foldLegs(
-          settleOuLeg(cornerTotal, a, side),
-          settleOuLeg(cornerTotal, b, side),
-        ),
-        scopeScore: fmt(scope),
-        confidence: 1,
-        reasoning: `${label} split [${a}, ${b}]`,
-        reason: "resolved",
-      };
-    }
-    const verdict = settleOuLeg(cornerTotal, line, side);
-    const mapped: Outcome =
-      verdict === "won" ? "won" : verdict === "lost" ? "lost" : "void";
-    return {
-      outcome: mapped,
-      scopeScore: fmt(scope),
-      confidence: 1,
-      reasoning: label,
-      reason: "resolved",
-    };
+    const outcome = settleOverUnder(cornerTotal, row.familyLine, side);
+    const label = `${row.marketType} ${side} ${row.familyLine} on corners ${score.cornersHome}-${score.cornersAway}`;
+    return resolved(outcome, scope, label);
   }
 
-  // Unsupported (yet): cards, bookings, odd/even, clean-sheet,
-  // win-to-nil, to-score, European handicap.
+  // ── CORNERS_HANDICAP (AH on per-team corner counts) ──────────────────────
+  if (row.marketType === "CORNERS_HANDICAP") {
+    if (score.cornersHome == null || score.cornersAway == null) {
+      return {
+        outcome: "pending",
+        scopeScore: fmt(scope),
+        confidence: 0,
+        reasoning: `Corners not fetched for this match.`,
+        reason: "missing-ht-score",
+      };
+    }
+    if (row.timeScope !== "FT") {
+      return unsupported(
+        `Only FT corners handicap is supported (${row.timeScope} scope requested).`,
+      );
+    }
+    const backed = parseAhBacked(atomId);
+    if (!backed || row.familyLine == null)
+      return missingLine("CORNERS_HANDICAP", atomId, scope);
+    const cornerScope: ScopeScore = {
+      home: score.cornersHome,
+      away: score.cornersAway,
+    };
+    const outcome = settleHandicap(cornerScope, backed, row.familyLine);
+    return resolved(
+      outcome,
+      scope,
+      `CORNERS_HANDICAP ${backed} ${row.familyLine} on corners ${score.cornersHome}-${score.cornersAway}.`,
+    );
+  }
+
+  // ── CORNERS_EUROPEAN_HANDICAP (3-way handicap on corners) ────────────────
+  if (row.marketType === "CORNERS_EUROPEAN_HANDICAP") {
+    if (score.cornersHome == null || score.cornersAway == null) {
+      return {
+        outcome: "pending",
+        scopeScore: fmt(scope),
+        confidence: 0,
+        reasoning: `Corners not fetched for this match.`,
+        reason: "missing-ht-score",
+      };
+    }
+    if (row.timeScope !== "FT") {
+      return unsupported(
+        `Only FT corners European handicap is supported (${row.timeScope} scope requested).`,
+      );
+    }
+    const side = parseEhSide(atomId);
+    if (!side || row.familyLine == null)
+      return missingLine("CORNERS_EUROPEAN_HANDICAP", atomId, scope);
+    const cornerScope: ScopeScore = {
+      home: score.cornersHome,
+      away: score.cornersAway,
+    };
+    // European handicap is 3-way (1X2) after applying the line offset to home
+    const outcome = settleMatchResult(cornerScope, side, row.familyLine);
+    return resolved(
+      outcome,
+      scope,
+      `CORNERS_EH ${side} (handicap ${row.familyLine}) on corners ${score.cornersHome}-${score.cornersAway}.`,
+    );
+  }
+
+  // ── BOOKINGS (OU on total booking points) ─────────────────────────────
+  //
+  // Bookings only settle when the score source provided card counts
+  // (SofaScore /statistics endpoint). Booking points are computed at
+  // fetch time as: 1 pt per yellow card + 2 pts per red card (Pinnacle
+  // convention). When the score lacks bookings, return pending rather
+  // than guessing.
+  if (row.marketType === "BOOKINGS") {
+    if (score.bookingsHome == null || score.bookingsAway == null) {
+      return {
+        outcome: "pending",
+        scopeScore: fmt(scope),
+        confidence: 0,
+        reasoning: `Bookings (card counts) not fetched for this match.`,
+        reason: "missing-ht-score",
+      };
+    }
+    if (row.timeScope !== "FT") {
+      return unsupported(
+        `Only FT bookings are supported (${row.timeScope} scope requested).`,
+      );
+    }
+    const side = parseOverUnder(atomId);
+    if (!side || row.familyLine == null) return missingLine("bookings", atomId, scope);
+    const bookingTotal = score.bookingsHome + score.bookingsAway;
+    const outcome = settleOverUnder(bookingTotal, row.familyLine, side);
+    const label = `BOOKINGS ${side} ${row.familyLine} on booking points ${score.bookingsHome}-${score.bookingsAway} (total ${bookingTotal})`;
+    return resolved(outcome, scope, label);
+  }
+
+  // ── BOOKINGS_HANDICAP (AH on per-team booking points) ────────────────
+  if (row.marketType === "BOOKINGS_HANDICAP") {
+    if (score.bookingsHome == null || score.bookingsAway == null) {
+      return {
+        outcome: "pending",
+        scopeScore: fmt(scope),
+        confidence: 0,
+        reasoning: `Bookings (card counts) not fetched for this match.`,
+        reason: "missing-ht-score",
+      };
+    }
+    if (row.timeScope !== "FT") {
+      return unsupported(
+        `Only FT bookings handicap is supported (${row.timeScope} scope requested).`,
+      );
+    }
+    const backed = parseAhBacked(atomId);
+    if (!backed || row.familyLine == null)
+      return missingLine("BOOKINGS_HANDICAP", atomId, scope);
+    // Build a ScopeScore-like object using booking points instead of goals
+    // so we can reuse settleHandicap directly.
+    const bookingScope: ScopeScore = {
+      home: score.bookingsHome,
+      away: score.bookingsAway,
+    };
+    const outcome = settleHandicap(bookingScope, backed, row.familyLine);
+    return resolved(
+      outcome,
+      scope,
+      `BOOKINGS_HANDICAP ${backed} ${row.familyLine} on booking pts ${score.bookingsHome}-${score.bookingsAway}.`,
+    );
+  }
+
+  // Unsupported (yet): odd/even, clean-sheet, win-to-nil, to-score.
   return unsupported(
     `Market ${row.marketType} not yet settled deterministically — falling through to AI tier.`,
   );

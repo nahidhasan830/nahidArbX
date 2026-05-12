@@ -11,7 +11,10 @@ const PYTHON = existsSync(VENV_PYTHON) ? VENV_PYTHON : "python3";
 const PORT = process.env.AI_SEARCH_PORT || "8090";
 const HOST = process.env.AI_SEARCH_HOST || "0.0.0.0";
 const SERVICE_URL = process.env.AI_SEARCH_URL || `http://localhost:${PORT}`;
-const CONFIGURED_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const CONFIGURED_MODEL =
+  process.env.HF_MODEL ||
+  process.env.GROQ_MODEL ||
+  "meta-llama/Llama-3.3-70B-Instruct";  // HF format (primary)
 const STARTUP_TIMEOUT_MS = Number(
   process.env.AI_SEARCH_STARTUP_TIMEOUT_MS || "60000",
 );
@@ -146,6 +149,13 @@ async function notifyEngineState(
   if (state !== "started") stopNotified = true;
 
   const health = opts.health;
+  const llmHealthy =
+    typeof health?.llm_engine?.healthy === "boolean"
+      ? health.llm_engine.healthy
+      : health?.status === "ok" || health?.status === "degraded";
+  const llmEngine =
+    health?.llm_engine?.active ??
+    (process.env.HF_API_KEY ? "huggingface" : "groq");
 
   const payload = {
     type: "ai:engine_state" as const,
@@ -156,9 +166,9 @@ async function notifyEngineState(
     exitCode: opts.exitCode,
     signal: opts.signal,
     uptimeMs: Date.now() - startedAt,
-    configuredModel: CONFIGURED_MODEL,
-    llmEngine: "groq",
-    llmHealthy: health?.llm_engine?.healthy ?? false,
+    configuredModel: health?.llm_engine?.model ?? CONFIGURED_MODEL,
+    llmEngine,
+    llmHealthy,
     providersHealthy: health?.search_providers?.healthy,
     providersTotal: health?.search_providers?.total,
     reason: opts.reason,
@@ -168,7 +178,8 @@ async function notifyEngineState(
   // so the frontend collector can merge it into a single notification.
   // Stop/fail events always notify immediately (runtime events, not boot).
   if (state === "started") {
-    const { isUnifiedBoot, writeBootPayload } = await import("../lib/notifier/unified-boot");
+    const { isUnifiedBoot, writeBootPayload } =
+      await import("../lib/notifier/unified-boot");
     if (isUnifiedBoot()) {
       writeBootPayload("ai-search", payload);
       console.log("[ai-search] Wrote boot payload for unified notification");
@@ -195,7 +206,7 @@ function sleep(ms: number): Promise<void> {
 interface AiSearchHealth {
   status: string;
   llm_engine?: {
-    type: string;
+    active?: string;
     model: string;
     healthy: boolean;
   };

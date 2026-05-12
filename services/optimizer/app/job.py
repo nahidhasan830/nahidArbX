@@ -37,17 +37,41 @@ def _count_placed_settled(session) -> int:
 
 
 def _fail_pending_models(reason: str) -> None:
-    """Mark any pending ml_models rows as failed so the UI doesn't stay stuck."""
+    """Mark pending ml_models rows as failed so the UI doesn't stay stuck.
+
+    Phase 5: scoped to TRAINING_MODEL_ID env var when available, so we
+    only fail the specific model row for THIS training run. Without
+    scoping, concurrent training runs could accidentally clobber each
+    other's rows.
+    """
     session = open_session()
     try:
+        import json
         from sqlalchemy import text as sqla_text
 
-        session.execute(sqla_text("""
-            UPDATE ml_models
-            SET status = 'failed',
-                rejection_reasons = :reasons
-            WHERE status = 'training'
-        """), {"reasons": [reason]})
+        # pg8000 needs an explicit JSON string, not a Python list
+        reasons_json = json.dumps([reason])
+
+        training_model_id = os.environ.get("TRAINING_MODEL_ID")
+        if training_model_id:
+            # Scoped update: only this run's model row
+            session.execute(sqla_text("""
+                UPDATE ml_models
+                SET status = 'failed',
+                    rejection_reasons = CAST(:reasons AS jsonb),
+                    training_completed_at = now()
+                WHERE status = 'training'
+                  AND id = :model_id
+            """), {"reasons": reasons_json, "model_id": training_model_id})
+        else:
+            # Fallback: update all training rows (backward compat)
+            session.execute(sqla_text("""
+                UPDATE ml_models
+                SET status = 'failed',
+                    rejection_reasons = CAST(:reasons AS jsonb),
+                    training_completed_at = now()
+                WHERE status = 'training'
+            """), {"reasons": reasons_json})
         session.commit()
     except Exception as e:
         logging.getLogger("ml.job").warning("Failed to update ml_models: %s", e)
@@ -66,6 +90,21 @@ def main() -> None:
     log.info("ML training job starting")
 
     start_time = time.monotonic()
+
+    try:
+        _run_pipeline(settings, log, start_time)
+    except SystemExit:
+        raise  # Don't catch sys.exit() calls
+    except Exception as exc:
+        # ── Catch-all: mark training rows as failed so the UI never stays stuck ──
+        reason = f"Unexpected error in training pipeline: {exc}"
+        log.error(reason, exc_info=True)
+        _fail_pending_models(reason)
+        sys.exit(1)
+
+
+def _run_pipeline(settings, log, start_time: float) -> None:
+    """Inner pipeline logic — separated so main() can wrap it with a catch-all."""
 
     # ── Stale-image preflight ──────────────────────────────────────────
     # The TypeScript trigger passes EXPECTED_FEATURE_VERSION as an env var
@@ -127,10 +166,11 @@ def main() -> None:
     metrics = result.metrics
 
     log.info(
-        "Training complete: AUC=%.4f, DSR=%.4f, PBO=%.4f, ROI=%.2f%%, CLV=%.2f%%, CalErr=%.6f, "
-        "BucketMono=%.2f",
+        "Training complete: AUC=%.4f, DSR=%.4f, PBO=%.4f, ROI=%.2f%%, "
+        "policyROI=%.2f%%, policyN=%d, CLV=%.2f%%, CalErr=%.6f, BucketMono=%.2f",
         metrics.auc_roc, metrics.dsr, metrics.pbo,
-        metrics.oos_roi_mean, metrics.oos_clv_mean, metrics.calibration_error,
+        metrics.oos_roi_mean, metrics.policy_roi_mean, metrics.policy_sample_size,
+        metrics.oos_clv_mean, metrics.calibration_error,
         metrics.score_bucket_report.roi_monotonicity if metrics.score_bucket_report else 0.0,
     )
 

@@ -26,9 +26,7 @@ export type AiActivityInput = Omit<NewAiActivityLogRow, "id" | "createdAt">;
  * Fire-and-forget — never blocks the AI pipeline. Failures
  * are logged but never propagated.
  */
-export async function recordAiActivity(
-  input: AiActivityInput,
-): Promise<void> {
+export async function recordAiActivity(input: AiActivityInput): Promise<void> {
   try {
     await db.insert(aiActivityLog).values(input);
   } catch (err) {

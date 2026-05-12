@@ -6,80 +6,15 @@
  * PinnacleSyncService (WebSocket) and GeniusSportsSyncService (continuous polling).
  */
 
-import pLimit from "p-limit";
 import { getEnabledAtomsAdapters } from "./adapters/registry";
 import { clearOddsForEvent } from "./store";
-import { getProviderConcurrency } from "../providers/registry";
-import { getProviderPolicy } from "../shared/circuit-breaker";
+
 import type { NormalizedEvent } from "../types";
-
-// ============================================
-// Types
-// ============================================
-
-/** Provider-level stats (internal helper). */
-interface ProviderStats {
-  events: number;
-  odds: number;
-  errors: number;
-}
 
 /** Result for a single-event refresh request. */
 export interface SingleEventFetchResult {
   totalOdds: number;
   byProvider: Record<string, number>;
-}
-
-// ============================================
-// Per-Provider Concurrency Limiters
-// ============================================
-
-const providerLimiters = new Map<string, ReturnType<typeof pLimit>>();
-
-function getProviderLimiter(providerId: string): ReturnType<typeof pLimit> {
-  let limiter = providerLimiters.get(providerId);
-  if (!limiter) {
-    limiter = pLimit(getProviderConcurrency(providerId));
-    providerLimiters.set(providerId, limiter);
-  }
-  return limiter;
-}
-// ============================================
-// Helpers
-// ============================================
-
-/**
- * Fetch odds from a provider using p-limit for optimal concurrency.
- * Unlike batching, p-limit keeps exactly N requests in-flight at all times
- * (no idle gaps between batches).
- */
-async function fetchProviderOdds(
-  events: NormalizedEvent[],
-  fetchFn: (event: NormalizedEvent) => Promise<number>,
-  stats: ProviderStats,
-  providerId: string,
-  onProgress?: (current: number, total: number) => void,
-): Promise<void> {
-  const limiter = getProviderLimiter(providerId);
-  let processed = 0;
-
-  const policy = getProviderPolicy(providerId);
-
-  const tasks = events.map((event) =>
-    limiter(async () => {
-      try {
-        const count = await policy.execute(() => fetchFn(event));
-        stats.events++;
-        stats.odds += count;
-      } catch {
-        stats.errors++;
-      }
-      processed++;
-      onProgress?.(processed, events.length);
-    }),
-  );
-
-  await Promise.all(tasks);
 }
 
 /**

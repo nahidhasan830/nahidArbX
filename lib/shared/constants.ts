@@ -32,7 +32,6 @@ export const MAX_VALUE_ODDS_AGE_MS = 180_000; // Max age of sharp odds snapshot 
 export const AUTO_PLACE_STAKE_BUCKET = 100;
 export const MIN_AUTO_PLACE_STAKE = 200;
 
-
 // API
 export const DEFAULT_PAGE_SIZE = 1000;
 export const PINNACLE_DAYS_AHEAD = 1;
@@ -48,12 +47,8 @@ export const STEAM_MOVE_MODERATE_PCT = 3; // ≥3% move in window = moderate
 export const STEAM_MOVE_STRONG_PCT = 5; // ≥5% move in ≤30s = strong
 
 // ML pipeline
-export const ML_MIN_SCORE = 0.4;           // Below this, don't auto-place
-export const ML_COLD_START_THRESHOLD = 100; // Need this many settled bets for first ML model (retrain as data grows)
-export const ML_FEATURE_COUNT = 25;        // Dimensionality of feature vector
-export const ML_FEATURE_VERSION = 2;       // Contract version for persisted ML feature vectors
-
-// Phase 9: Near-miss + shadow data collection
-export const NEAR_MISS_MIN_EV_PCT = 0.5;   // Floor: ignore EV below this (noise)
-export const NEAR_MISS_MAX_PER_PASS = 5;   // Cap near-miss examples per detection pass
-export const NEAR_MISS_COOLDOWN_MS = 10 * 60 * 1000; // Rate limit: one near-miss per bet key per 10 min
+export const ML_MIN_SCORE = 0.4; // Legacy UI score band only; auto-place now gates on model EV at offered odds
+export const ML_COLD_START_THRESHOLD = 200; // Aligned with Python deployment gate MIN_VALID_EXAMPLES (avoids noisy rejected training runs)
+export const ML_FEATURE_COUNT = 25; // Dimensionality of feature vector
+export const ML_FEATURE_VERSION = 2; // Contract version for persisted ML feature vectors
+export const ML_WARMUP_MIN_TICKS = 3; // Min sharp-provider ticks before trusting history-dependent features

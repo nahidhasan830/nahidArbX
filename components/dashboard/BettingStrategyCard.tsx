@@ -15,7 +15,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Loader2, Settings2, SlidersHorizontal, Check, CircleHelp, Info } from "lucide-react";
+import {
+  Loader2,
+  Settings2,
+  SlidersHorizontal,
+  Check,
+  CircleHelp,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +45,11 @@ import {
 } from "@/components/ui/tooltip";
 
 import { cn } from "@/lib/utils";
+import {
+  MARKET_PHASES,
+  marketPhaseLabel,
+  type MarketPhase,
+} from "@/lib/betting/market-phase";
 import { toast } from "sonner";
 
 interface Settings {
@@ -51,6 +62,8 @@ interface Settings {
   minStakeBdt: number;
   stakeBucketBdt: number;
   minEvPct: number;
+  valueDetectionPhases: MarketPhase[];
+  betPlacementPhases: MarketPhase[];
   updatedAt: string;
 }
 
@@ -60,8 +73,6 @@ function toDraft(s: Settings): Draft {
   const { id: _id, updatedAt: _updatedAt, ...rest } = s;
   return rest;
 }
-
-
 
 /**
  * Popover wrapper — the public entry point. Renders a Settings icon
@@ -310,6 +321,29 @@ export function BettingStrategyForm() {
             </Row>
           </Section>
 
+          <Section
+            title="Market phases"
+            hint="Choose whether the detector and auto-placer may operate before kickoff, after kickoff, or both. Pre-Match remains the safer default."
+          >
+            <Row
+              label="Value detect"
+              help="Controls which matched events can become value bets. In Play only works when live odds are still available from the providers."
+            >
+              <PhaseMultiSelect
+                value={draft.valueDetectionPhases}
+                onChange={(v) => setField("valueDetectionPhases", v)}
+              />
+            </Row>
+            <Row
+              label="Bet place"
+              help="Controls which detected rows can spend money. Leave In Play off to block auto-placement after kickoff."
+            >
+              <PhaseMultiSelect
+                value={draft.betPlacementPhases}
+                onChange={(v) => setField("betPlacementPhases", v)}
+              />
+            </Row>
+          </Section>
 
           {/* ROUNDING — stake shaping applied after Kelly. */}
           <Section
@@ -341,7 +375,6 @@ export function BettingStrategyForm() {
               />
             </Row>
           </Section>
-
         </div>
 
         {/* ── Sticky save bar (appears only when dirty) ───────────── */}
@@ -401,7 +434,6 @@ function formatKellyFractionLabel(v: number): string {
   if (Math.abs(v - 0.125) < 0.01) return "⅛ Kelly";
   return `${v.toFixed(3).replace(/\.?0+$/, "")}× Kelly`;
 }
-
 
 // ------------------------------------------------------------------
 // Strategy summary pill in the header. Compact neutral chip — the
@@ -612,6 +644,51 @@ function NumericField({
   );
 }
 
+function PhaseMultiSelect({
+  value,
+  onChange,
+}: {
+  value: MarketPhase[];
+  onChange: (value: MarketPhase[]) => void;
+}) {
+  const toggle = (phase: MarketPhase, checked: boolean) => {
+    if (checked) {
+      onChange(Array.from(new Set([...value, phase])));
+      return;
+    }
+    if (value.length <= 1) return;
+    onChange(value.filter((p) => p !== phase));
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-1">
+      {MARKET_PHASES.map((phase) => {
+        const checked = value.includes(phase);
+        const locked = checked && value.length <= 1;
+        return (
+          <label
+            key={phase}
+            className={cn(
+              "flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors select-none",
+              checked
+                ? "border-cyan-500/50 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+                : "border-border/70 bg-muted/30 text-muted-foreground hover:text-foreground",
+              locked && "cursor-default opacity-80",
+            )}
+          >
+            <Checkbox
+              checked={checked}
+              disabled={locked}
+              onCheckedChange={(v) => toggle(phase, v === true)}
+            />
+            <span className="truncate">{marketPhaseLabel(phase)}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------
 // Kelly fraction dropdown. Four presets with inline descriptions so the
 // user doesn't need to know Kelly theory to pick one. Stored as the raw
@@ -693,4 +770,3 @@ function KellyFractionSelect({
     </Select>
   );
 }
-

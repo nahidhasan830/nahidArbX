@@ -17,6 +17,15 @@ import {
   recordSettlementRun,
 } from "../db/repositories/settlement-runs";
 import { applySettlementOutcomes } from "./apply-outcomes";
+import { notify } from "../notifier";
+import { singleton } from "../util/singleton";
+
+// ── Source-health alert debounce ─────────────────────────────────────────
+// Avoids spamming Telegram on every tick when SofaScore is down.
+const SOURCE_ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const alertState = singleton<{ lastSentAt: number }>("settle:source-alert", () => ({
+  lastSentAt: 0,
+}));
 
 export interface AutoSettleResult {
   scannedBets: number;
@@ -29,6 +38,8 @@ export interface AutoSettleResult {
     unresolvedEvents: number;
   };
   errors: string[];
+  /** Non-fatal data-source access warnings (SofaScore 403, etc). */
+  sourceIssues: string[];
 }
 
 const DEFAULT_BATCH_SIZE = 500;
@@ -100,6 +111,7 @@ export async function runAutoSettle(
     tier4_hits: 0,
     unresolved: 0,
     durationMs: 0,
+    sourceIssues: [] as string[],
     settledDeterministically: 0,
     unsupported: 0,
     unresolvedEvents: 0,
@@ -133,6 +145,7 @@ export async function runAutoSettle(
       applied: 0,
       telemetry: emptyTelemetry,
       errors,
+      sourceIssues: [],
     };
     await persistRun(startedAt, new Date().toISOString(), result, null);
     return result;
@@ -158,6 +171,7 @@ export async function runAutoSettle(
         unsupported: ids.length,
       },
       errors,
+      sourceIssues: [],
     };
     await persistRun(startedAt, new Date().toISOString(), result, msg);
     return result;
@@ -191,19 +205,6 @@ export async function runAutoSettle(
   if (updates.length > 0) {
     try {
       applied += await applySettlementOutcomes(updates);
-      // Resolve shadow decisions after settlement outcomes are applied.
-      // Import here to avoid circular dependency at module level.
-      const { resolveShadowDecision } = await import("@/lib/ml/shadow-mode");
-      await Promise.allSettled(
-        updates.map((u) =>
-          resolveShadowDecision(u.id, u.outcome, new Date()).catch((err) =>
-            logger.warn(
-              "AutoSettle",
-              `resolveShadowDecision failed (non-fatal): ${u.id} | ${(err as Error).message}`,
-            ),
-          ),
-        ),
-      );
     } catch (err) {
       const msg = (err as Error).message;
       errors.push(`applySettlementOutcomes failed: ${msg}`);
@@ -218,7 +219,28 @@ export async function runAutoSettle(
     applied,
     telemetry: batchResult.telemetry,
     errors,
+    sourceIssues: batchResult.telemetry.sourceIssues,
   };
+
+  // ── Source-health Telegram alert ────────────────────────────────────────
+  // Fires at most once per hour to avoid flooding the chat when SofaScore
+  // is persistently blocked.
+  if (
+    batchResult.telemetry.sourceIssues.length > 0 &&
+    Date.now() - alertState.lastSentAt > SOURCE_ALERT_COOLDOWN_MS
+  ) {
+    alertState.lastSentAt = Date.now();
+    notify({
+      type: "system",
+      at: new Date().toISOString(),
+      severity: "warn",
+      message:
+        `⚠️ Settlement data-source issues:\n` +
+        batchResult.telemetry.sourceIssues.join("\n") +
+        `\n\nAffected bets: ${result.stillPending} still pending. ` +
+        `Bookings/corners enrichment may be degraded.`,
+    }).catch(() => {});
+  }
 
   logger.info(
     "AutoSettle",

@@ -237,8 +237,8 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
           logger.warn(
             "Reconciler",
             `purged orphaned pending placed_bet ${row.id} ` +
-            `(event ${row.eventId}, stake ${stake}@${odds}, ` +
-            `age ${Math.round((nowMs - placedMs) / 1000)}s) — never surfaced in myBets feed`,
+              `(event ${row.eventId}, stake ${stake}@${odds}, ` +
+              `age ${Math.round((nowMs - placedMs) / 1000)}s) — never surfaced in myBets feed`,
           );
         }
       }
@@ -260,7 +260,7 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
       logger.info(
         "Reconciler",
         `attached ticket ${ticketId} to placed_bet ${row.id} ` +
-        `(event ${row.eventId}, stake ${stake}@${odds})`,
+          `(event ${row.eventId}, stake ${stake}@${odds})`,
       );
       // Intentionally NO Telegram here. The placement-confirmation path
       // (lib/betting/ninewickets/placement-confirmation.ts) is the

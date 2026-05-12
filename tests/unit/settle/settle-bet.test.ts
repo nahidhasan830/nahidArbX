@@ -292,7 +292,7 @@ describe("settleBet — DNB", () => {
 
 describe("settleBet — unsupported market", () => {
   it("returns pending with unsupported-market reason", () => {
-    const row = makeRow({ marketType: "EUROPEAN_HANDICAP" });
+    const row = makeRow({ marketType: "ODD_EVEN_GOALS" });
     const result = settleBet(row, makeScore());
     expect(result.outcome).toBe("pending");
     expect(result.reason).toBe("unsupported-market");

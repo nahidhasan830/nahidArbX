@@ -29,9 +29,7 @@ import {
   subscribeToScores,
 } from "../scores";
 import { buildConnectionHealth } from "./engine-health-builder";
-import {
-  getResponseETag,
-} from "../cache/response-cache";
+import { getResponseETag } from "../cache/response-cache";
 
 function serializeSyncStatus(syncStatus: SyncStatus) {
   return {
@@ -65,7 +63,10 @@ export async function analyzeAndSerialize(
   const selectedProviders: Set<ProviderKey> | null = providersParam
     ? new Set(providersParam.split(",").filter(Boolean) as ProviderKey[])
     : null;
-  const timeFilter = (params.get("timeFilter") || "all") as "all" | "live" | "upcoming";
+  const timeFilter = (params.get("timeFilter") || "all") as
+    | "all"
+    | "live"
+    | "upcoming";
   const marketTypesParam = params.get("marketTypes");
   const selectedMarketTypes: Set<string> | null = marketTypesParam
     ? new Set(marketTypesParam.split(",").filter(Boolean))
@@ -82,7 +83,8 @@ export async function analyzeAndSerialize(
   for (const vb of allValueBets) {
     if (vb.evPct < evMin || vb.evPct > evMax) continue;
     if (vb.softOdds < oddsMin || vb.softOdds > oddsMax) continue;
-    if (softProviders.length > 0 && !softProviders.includes(vb.softProvider)) continue;
+    if (softProviders.length > 0 && !softProviders.includes(vb.softProvider))
+      continue;
     const key = `${vb.eventId}:${vb.familyId}:${vb.atomId}`;
     const existing = valuesByAtom.get(key);
     if (!existing || vb.evPct > existing.evPct) {
@@ -124,9 +126,12 @@ export async function analyzeAndSerialize(
         e.homeTeam.toLowerCase().includes(search) ||
         e.awayTeam.toLowerCase().includes(search) ||
         e.competition.toLowerCase().includes(search)
-      ) return true;
+      )
+        return true;
       const fids = getFamiliesForEvent(e.id);
-      return fids.some((fid) => formatFamilyLabel(fid).toLowerCase().includes(search));
+      return fids.some((fid) =>
+        formatFamilyLabel(fid).toLowerCase().includes(search),
+      );
     });
     totalBeforePagination = eventsToAnalyze.length;
   }
@@ -153,7 +158,8 @@ export async function analyzeAndSerialize(
     for (const familyId of familyIds) {
       const family = getFamily(familyId);
       if (!family) continue;
-      if (selectedMarketTypes && !selectedMarketTypes.has(family.market_type)) continue;
+      if (selectedMarketTypes && !selectedMarketTypes.has(family.market_type))
+        continue;
       _totalFamilies++;
       const atomResults = [];
 
@@ -175,12 +181,15 @@ export async function analyzeAndSerialize(
             timestamp: record.timestamp,
             isBest: false,
             suspended: record.suspended,
-            movement: getMovementSummary(event.id, familyId, atomId, provider) ?? undefined,
+            movement:
+              getMovementSummary(event.id, familyId, atomId, provider) ??
+              undefined,
           };
         }
 
         if (bestProviderVal && oddsByProvider[bestProviderVal]) {
-          (oddsByProvider[bestProviderVal] as Record<string, unknown>).isBest = true;
+          (oddsByProvider[bestProviderVal] as Record<string, unknown>).isBest =
+            true;
         }
 
         const valueKey = `${event.id}:${familyId}:${atomId}`;
@@ -223,7 +232,8 @@ export async function analyzeAndSerialize(
               : undefined,
           };
           _totalValueBetsInView++;
-          if (bestEvPct === null || valueBet.evPct > bestEvPct) bestEvPct = valueBet.evPct;
+          if (bestEvPct === null || valueBet.evPct > bestEvPct)
+            bestEvPct = valueBet.evPct;
         }
 
         atomResults.push(atomResult);
@@ -252,9 +262,16 @@ export async function analyzeAndSerialize(
       liveScore = multiScore;
     } else {
       const pinnacleEventId = providerEventIds["pinnacle"];
-      const legacyScore = pinnacleEventId ? getDisplayScore(pinnacleEventId) : undefined;
+      const legacyScore = pinnacleEventId
+        ? getDisplayScore(pinnacleEventId)
+        : undefined;
       if (legacyScore) {
-        liveScore = { ...legacyScore, primarySource: "pinnacle", confidence: "medium", hasDiscrepancy: false };
+        liveScore = {
+          ...legacyScore,
+          primarySource: "pinnacle",
+          confidence: "medium",
+          hasDiscrepancy: false,
+        };
       }
     }
 

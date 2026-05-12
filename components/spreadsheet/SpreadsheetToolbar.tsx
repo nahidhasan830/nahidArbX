@@ -1,9 +1,6 @@
 "use client";
 
-import {
-  useRef,
-  useLayoutEffect,
-} from "react";
+import { useRef, useLayoutEffect } from "react";
 import { ChevronDown, X, Save, RotateCcw } from "lucide-react";
 import { OddsRangeDropdown } from "@/components/filters/OddsRangeDropdown";
 import { MarketsFilter } from "@/components/filters/MarketsFilter";
@@ -111,7 +108,6 @@ export function SpreadsheetToolbar({
     }
   }, [searchTerm]);
 
-
   // Prefs store 0/100 as "no constraint"; shared EvRangeFilter uses undefined
   const evMin = evRangeMin === 0 ? undefined : evRangeMin;
   const evMax = evRangeMax === 100 ? undefined : evRangeMax;
@@ -199,7 +195,6 @@ export function SpreadsheetToolbar({
             {valueRowCount}
           </span>
         </div>
-
 
         <Separator />
 

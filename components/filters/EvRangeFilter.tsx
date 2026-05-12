@@ -7,7 +7,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -57,22 +57,7 @@ export function EvRangeFilter({
 }: EvRangeFilterProps) {
   const isActive = min != null || max != null;
 
-  // Local state for smooth drag
-  const [local, setLocal] = useState<[number, number]>([
-    toSlider(min, EV_MIN),
-    toSlider(max, EV_MAX),
-  ]);
-
-  // Sync from parent (e.g., after reset)
-  const prevMin = useRef(min);
-  const prevMax = useRef(max);
-  useEffect(() => {
-    if (prevMin.current !== min || prevMax.current !== max) {
-      prevMin.current = min;
-      prevMax.current = max;
-      setLocal([toSlider(min, EV_MIN), toSlider(max, EV_MAX)]);
-    }
-  }, [min, max]);
+  const value: [number, number] = [toSlider(min, EV_MIN), toSlider(max, EV_MAX)];
 
   const handleCommit = useCallback(
     ([lo, hi]: number[]) => {
@@ -103,7 +88,6 @@ export function EvRangeFilter({
             <button
               type="button"
               onClick={() => {
-                setLocal([EV_MIN, EV_MAX]);
                 onChange(undefined, undefined);
               }}
               className="text-[10px] text-muted-foreground hover:text-foreground"
@@ -116,17 +100,17 @@ export function EvRangeFilter({
           min={EV_MIN}
           max={EV_MAX}
           step={EV_STEP}
-          value={local}
-          onValueChange={(v) => setLocal(v as [number, number])}
+          value={value}
+          onValueChange={handleCommit}
           onValueCommit={handleCommit}
           className="mb-2"
         />
         <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
           <span>
-            {fromSlider(local[0], EV_MIN) == null ? "Min" : `${local[0]}%`}
+            {fromSlider(value[0], EV_MIN) == null ? "Min" : `${value[0]}%`}
           </span>
           <span>
-            {fromSlider(local[1], EV_MAX) == null ? "Max" : `${local[1]}%`}
+            {fromSlider(value[1], EV_MAX) == null ? "Max" : `${value[1]}%`}
           </span>
         </div>
       </DropdownMenuContent>

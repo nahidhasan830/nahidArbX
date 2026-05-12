@@ -6,11 +6,11 @@ In simple words: **the optimizer learns which value bets actually win and which 
 
 Without the optimizer, every bet that passes the EV% threshold gets placed with a fixed stake. With the optimizer, a trained ML model scores each bet with a **P(profitable)** confidence score from 0 to 1:
 
-| Score | Meaning | What Happens |
-|-------|---------|-------------|
-| **0.9** | "This bet looks very similar to past winners" | Placed with **larger** stake (up to 2× Kelly) |
-| **0.6** | "Decent chance, but some red flags" | Placed with **normal** stake |
-| **< 0.4** | "This looks like past losers" | **Skipped entirely** — not placed |
+| Score     | Meaning                                       | What Happens                                  |
+| --------- | --------------------------------------------- | --------------------------------------------- |
+| **0.9**   | "This bet looks very similar to past winners" | Placed with **larger** stake (up to 2× Kelly) |
+| **0.6**   | "Decent chance, but some red flags"           | Placed with **normal** stake                  |
+| **< 0.4** | "This looks like past losers"                 | **Skipped entirely** — not placed             |
 
 ---
 
@@ -22,7 +22,7 @@ graph TB
         direction TB
         SCRAPER["📡 Scrapers<br/>(Pinnacle, NineWickets, etc.)"]
         DETECTOR["🔍 Reactive Detector<br/>(finds value bets)"]
-        FEATURES["📊 Feature Extractor<br/>(21 dimensions)"]
+        FEATURES["📊 Feature Extractor<br/>(25 dimensions)"]
         SCORER["🤖 ONNX Scorer<br/>(P(profitable))"]
         STAKER["💰 Kelly Staker<br/>(adjusted stake size)"]
         PLACER["🎯 Auto-Placer<br/>(places on bookmaker)"]
@@ -30,11 +30,11 @@ graph TB
 
     subgraph DB["🗄 Postgres Database"]
         BETS["bets table<br/>(ml_features, ml_score,<br/>outcome, pnl)"]
-        MODELS["ml_models table<br/>(version, metrics,<br/>ONNX artifact path)"]
+        MODELS["ml_models table<br/>(version, metrics,<br/>ONNX artifact blob)"]
     end
 
     subgraph OPTIMIZER["🐍 Python Optimizer Service"]
-        LOADER["📥 Loader<br/>(load settled bets)"]
+        LOADER["📥 Loader<br/>(load ml_training_examples)"]
         TRAINER["🏋️ Trainer<br/>(LightGBM + CPCV)"]
         EXPORTER["📦 Exporter<br/>(ONNX + GCS)"]
     end
@@ -45,12 +45,12 @@ graph TB
 
     SCRAPER -->|"live odds"| DETECTOR
     DETECTOR -->|"value bets"| FEATURES
-    FEATURES -->|"21-dim vector"| SCORER
+    FEATURES -->|"25-dim vector"| SCORER
     SCORER -->|"P(profitable)"| STAKER
     STAKER -->|"adjusted Kelly"| PLACER
     DETECTOR -->|"persist with<br/>ml_features + ml_score"| BETS
     BETS -->|"settled bets<br/>with outcomes"| LOADER
-    LOADER -->|"training data"| TRAINER
+    LOADER -->|"labelled training data"| TRAINER
     TRAINER -->|"trained model"| EXPORTER
     EXPORTER -->|"upload"| ONNX_FILE
     EXPORTER -->|"write model row"| MODELS
@@ -67,7 +67,7 @@ graph TB
 
 ## Part 1: How Data is Collected (Automatic)
 
-Every time the engine detects a value bet, it **automatically** computes and stores a 21-dimension feature vector alongside the bet. You don't need to do anything — this happens on every detection pass (~500ms after any odds change).
+Every time the engine detects a value bet, it **automatically** computes and stores a 25-dimension feature vector alongside the bet. You don't need to do anything — this happens on every detection pass (~500ms after any odds change).
 
 ```mermaid
 sequenceDiagram
@@ -79,41 +79,45 @@ sequenceDiagram
     S->>D: New odds arrived (dirty families)
     D->>D: detectAllValueBetsIncremental()
     D->>F: extractFeatures(valueBet)
-    F-->>D: [5.56, 0.285, 3.70, ..., 6.54] (21 numbers)
+    F-->>D: [5.56, 0.285, 3.70, ..., 6.54] (25 numbers)
     D->>DB: INSERT/UPDATE bets SET ml_features = [...]
     Note over DB: Feature vector is stored<br/>alongside the bet for<br/>future training
 ```
 
-### What Are the 21 Features?
+### What Are the 25 Features?
 
-The features capture **everything the model needs to learn** what makes a winning bet:
+The features capture **everything the model needs to learn** what makes a winning bet (features 0–20 are the originals, 21–24 were added in the Phase 2–4 pipeline audit):
 
-| # | Feature | Category | What It Captures |
-|---|---------|----------|-----------------|
-| 0 | `ev_pct` | Value | How much edge (EV%) this bet has |
-| 1 | `sharp_true_prob` | Value | Pinnacle's vig-removed probability |
-| 2 | `soft_odds` | Odds | Raw soft bookmaker odds |
-| 3 | `adjusted_soft_odds` | Odds | Soft odds after commission |
-| 4 | `implied_prob_gap` | Value | Gap between sharp and soft implied probability |
-| 5 | `tick_count` | Movement | How many odds updates recorded (market liquidity) |
-| 6 | `time_to_kickoff_min` | Market | Minutes until match starts |
-| 7 | `movement_pct_sharp` | Movement | How much sharp odds moved from opening |
-| 8 | `movement_pct_soft` | Movement | How much soft odds moved from opening |
-| 9 | `steam_move_sharp` | Movement | Binary: sudden sharp movement detected? |
-| 10 | `steam_move_soft` | Movement | Binary: sudden soft movement detected? |
-| 11 | `sharp_direction` | Movement | Is sharp line going up (+1) or down (-1)? |
-| 12 | `soft_direction` | Movement | Is soft line going up (+1) or down (-1)? |
-| 13 | `convergence_rate` | Movement | How fast soft odds are converging toward sharp |
-| 14 | `tick_velocity` | Movement | Rate of odds updates per minute |
-| 15 | `provider_count` | Market | How many bookmakers offer this market |
-| 16 | `opening_sharp_odds` | Odds | Earliest recorded sharp odds (line origin) |
-| 17 | `market_type_encoded` | Market | Market type (Match Result=0, Total Goals=1, AH=2, etc.) |
-| 18 | `is_asian_line` | Market | Is this a quarter-ball Asian line? |
-| 19 | `kelly_fraction_raw` | Staking | Raw Kelly fraction (optimal stake sizing) |
-| 20 | `vig_pct` | Staking | Sharp bookmaker's overround |
+| #   | Feature                   | Category | What It Captures                                        |
+| --- | ------------------------- | -------- | ------------------------------------------------------- |
+| 0   | `ev_pct`                  | Value    | How much edge (EV%) this bet has                        |
+| 1   | `sharp_true_prob`         | Value    | Pinnacle's vig-removed probability                      |
+| 2   | `soft_odds`               | Odds     | Raw soft bookmaker odds                                 |
+| 3   | `adjusted_soft_odds`      | Odds     | Soft odds after commission                              |
+| 4   | `implied_prob_gap`        | Value    | Gap between sharp and soft implied probability          |
+| 5   | `tick_count`              | Movement | How many odds updates recorded (market liquidity)       |
+| 6   | `time_to_kickoff_min`     | Market   | Minutes until match starts                              |
+| 7   | `movement_pct_sharp`      | Movement | How much sharp odds moved from opening                  |
+| 8   | `movement_pct_soft`       | Movement | How much soft odds moved from opening                   |
+| 9   | `steam_move_sharp`        | Movement | Binary: sudden sharp movement detected?                 |
+| 10  | `steam_move_soft`         | Movement | Binary: sudden soft movement detected?                  |
+| 11  | `sharp_direction`         | Movement | Is sharp line going up (+1) or down (-1)?               |
+| 12  | `soft_direction`          | Movement | Is soft line going up (+1) or down (-1)?                |
+| 13  | `convergence_rate`        | Movement | How fast soft odds are converging toward sharp          |
+| 14  | `tick_velocity`           | Movement | Rate of odds updates per minute                         |
+| 15  | `provider_count`          | Market   | How many bookmakers offer this market                   |
+| 16  | `opening_sharp_odds`      | Odds     | Earliest recorded sharp odds (line origin)              |
+| 17  | `market_type_encoded`     | Market   | Market type (Match Result=0, Total Goals=1, AH=2, etc.) |
+| 18  | `is_asian_line`           | Market   | Is this a quarter-ball Asian line?                      |
+| 19  | `kelly_fraction_raw`      | Staking  | Raw Kelly fraction (optimal stake sizing)               |
+| 20  | `vig_pct`                 | Staking  | Sharp bookmaker's overround                             |
+| 21  | `competition_tier`        | Market   | Competition quality tier (1=top, 2=mid, 3=low)          |
+| 22  | `hours_since_line_opened` | Market   | How long the sharp line has been available              |
+| 23  | `sharp_soft_spread`       | Value    | Raw odds gap between soft and implied sharp             |
+| 24  | `num_markets_same_event`  | Market   | Active markets on this event (not just value bets)      |
 
 > [!NOTE]
-> Features are stored as a JSON array in `bets.ml_features`. After the bet settles (won/lost), that row becomes a **training sample** — the features are the input, the outcome is the label.
+> Features are stored as a JSON array in `bets.ml_features`. After the bet settles (won/lost), a labelled row is written to `ml_training_examples` — the canonical deduplicated training corpus. The features are the input, the outcome is the label.
 
 ---
 
@@ -121,13 +125,15 @@ The features capture **everything the model needs to learn** what makes a winnin
 
 Training runs as a **Cloud Run Job** (or locally via `python -m app.job`). It is NOT automatic — you trigger it manually when you have enough settled bets.
 
+Training data now lives in the `ml_training_examples` table (canonical, deduplicated by `(source_bet_id, example_type)`).
+
 ### Training Pipeline — Step by Step
 
 ```mermaid
 graph TD
     START["🚀 Training Job Starts"] --> LOAD
-    LOAD["📥 Step 1: Load Data<br/>Query all settled bets with ml_features<br/>from Postgres"] --> CHECK
-    CHECK{"❄️ Step 2: Cold Start Check<br/>Do we have ≥100 settled bets?"}
+    LOAD["📥 Step 1: Load Data<br/>Load from ml_training_examples<br/>(canonical training corpus)"] --> CHECK
+    CHECK{"❄️ Step 2: Cold Start Check<br/>Do we have ≥200 labelled examples?"}
     CHECK -->|"No (too few)"| EXIT_COLD["⏹ Exit: Not enough data yet<br/>Come back when more bets settle"]
     CHECK -->|"Yes"| CPCV
 
@@ -135,9 +141,9 @@ graph TD
 
     FOLD_TRAIN["🏋️ Step 4: Fold Training<br/>For each of 45 combinations:<br/>• Train LightGBM on train split<br/>• Predict on held-out test split<br/>• Record Sharpe ratio per fold"] --> METRICS
 
-    METRICS["📊 Step 5: Compute Quality Metrics<br/>• AUC-ROC (classification accuracy)<br/>• DSR (Deflated Sharpe Ratio)<br/>• PBO (Probability of Overfitting)<br/>• Calibration Error<br/>• OOS ROI"] --> GATE
+    METRICS["📊 Step 5: Compute Quality Metrics<br/>• AUC-ROC (classification accuracy)<br/>• DSR (Deflated Sharpe Ratio)<br/>• Calibration Error<br/>• Score-bucket monotonicity<br/>• OOS ROI"] --> GATE
 
-    GATE{"🚦 Step 6: Quality Gate<br/>DSR > 0.8 AND PBO < 0.5?"}
+    GATE{"🚦 Step 6: Quality Gate<br/>AUC-ROC > 0.52 AND DSR > 0.8?"}
     GATE -->|"FAIL"| REJECT["❌ Model Rejected<br/>Write audit row (status='validated')<br/>Old model stays active"]
     GATE -->|"PASS"| FINAL
 
@@ -187,6 +193,7 @@ graph LR
 ```
 
 **Key concepts:**
+
 - **10 groups, pick 2 for testing** → C(10,2) = **45 different train/test paths**
 - **Purging**: removes training rows that overlap with test events (same match)
 - **Embargo**: removes a 1% buffer zone around test boundaries to prevent data leakage
@@ -194,13 +201,18 @@ graph LR
 
 ### Quality Gates — What They Mean
 
-| Metric | Threshold | Plain English |
-|--------|-----------|--------------|
-| **DSR** (Deflated Sharpe) | > 0.8 | "After accounting for how many model variants we tried, is the performance still statistically significant? Not just luck?" |
-| **PBO** (Probability of Backtest Overfitting) | < 0.5 | "If we pick the best-performing fold combination in-sample, what's the chance it's actually the worst out-of-sample? Lower = less overfit." |
+| Metric                        | Threshold | Plain English                                                                                                               |
+| ----------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **AUC-ROC**                   | > 0.52    | "Can the model rank winners above losers better than a coin flip?"                                                          |
+| **DSR** (Deflated Sharpe)     | > 0.80    | "After accounting for how many model variants we tried, is the performance still statistically significant? Not just luck?" |
+| **Calibration Error**         | (soft)    | "When the model says 70%, do ~70% of bets actually win? Lower is better."                                                   |
+| **Score-bucket monotonicity** | (soft)    | "Higher-scored bets should have higher win rates. If not, the model is confused."                                           |
+
+> [!NOTE]
+> PBO (Probability of Backtest Overfitting) is computed and logged for audit purposes, but is **not** a hard deployment gate. With the current single-trial setup, PBO always returns 0.0 and is meaningless.
 
 > [!IMPORTANT]
-> If either gate fails, the model is **rejected** — it gets recorded in `ml_models` with `status='validated'` for audit purposes, but the previous deployed model stays active. No bad model can accidentally go live.
+> If the hard gates fail, the model is **rejected** — it gets recorded in `ml_models` with `status='rejected'` for audit purposes, but the previous deployed model stays active. No bad model can accidentally go live.
 
 ---
 
@@ -229,7 +241,7 @@ sequenceDiagram
     ENG->>SCORER: Hot-reload ONNX session (no restart needed)
 
     Note over ENG: On every value bet detection...
-    ENG->>SCORER: scoreBatch([features_1, features_2, ...])
+    ENG->>SCORER: scoreBatch([features_1, features_2, ...])  (25-dim each)
     SCORER-->>ENG: [0.87, 0.23, ...]
     ENG->>STAKER: computeAdjustedKelly(baseKelly, 0.87, features)
     STAKER-->>ENG: adjustedKelly = 0.042 (bet more!)
@@ -240,14 +252,14 @@ sequenceDiagram
 
 ### The ML Scoring Pipeline in the Engine
 
-Every 500ms when new odds arrive, this happens **automatically** inside the Reactive Detector:
+Every 500ms when new odds arrive, this happens **automatically** inside the Reactive Detector (features are re-extracted for all live bets each pass to keep time-moving signals fresh):
 
 ```
-Odds change detected
+Odds change detected (or periodic rescore tick)
     ↓
 detectAllValueBetsIncremental()    →  finds value bets
     ↓
-extractFeatures(bet)               →  [5.56, 0.285, 3.70, ..., 6.54]
+extractFeatures(bet)               →  [5.56, 0.285, 3.70, ..., 6.54] (25-dim)
     ↓
 scoreBatch(featureVectors)         →  [0.87, 0.23, 0.91, ...]
     ↓
@@ -298,6 +310,7 @@ graph TD
 ### Before Training (Current State — No Model Deployed)
 
 Without a model, the scorer runs in **pass-through mode**: every bet gets `mlScore = 1.0`, which means:
+
 - ✅ Every value bet that passes EV% threshold gets auto-placed
 - ✅ All bets use the same base Kelly fraction
 - ✅ Features are still being collected and stored for future training
@@ -307,21 +320,27 @@ Without a model, the scorer runs in **pass-through mode**: every bet gets `mlSco
 You'll see the ML impact in several places:
 
 #### 1. Bets History Table
+
 Each bet row will have:
+
 - **`ml_score`**: The model's P(profitable) prediction (0 to 1)
 - **`ml_kelly_adjusted`**: The dynamically adjusted Kelly fraction
 - **`ml_features`**: The full 21-dim feature vector (viewable in Feature Inspector)
 
 #### 2. Engine Logs
+
 ```
 [MLScorer] Model v2 loaded successfully (.ml-models/model-v2.onnx)
 [ReactiveDetector] Pass #1234: 5 dirty → 12 value bets (45ms)
 ```
+
 You'll also see bets being **skipped** when their ML score is below 0.4:
+
 - Before ML: "12 value bets → 12 placed"
 - After ML: "12 value bets → 8 placed (4 filtered by ML)"
 
 #### 3. ML Scorer Status (Engine HTTP API)
+
 ```json
 {
   "modelLoaded": true,
@@ -334,6 +353,7 @@ You'll also see bets being **skipped** when their ML score is below 0.4:
 ```
 
 #### 4. ml_models Table
+
 ```
 id       | version | status   | oos_auc_roc | deflated_sharpe | pbo  | training_samples
 ---------|---------|----------|-------------|-----------------|------|------------------
@@ -349,16 +369,16 @@ id       | version | status   | oos_auc_roc | deflated_sharpe | pbo  | training_
 
 ```mermaid
 graph TD
-    A["📊 Phase 1: Collect Data<br/>(CURRENT STAGE)<br/>Let the engine run normally.<br/>Every bet auto-stores 21 features.<br/>Wait for bets to settle."] --> B
+    A["📊 Phase 1: Collect Data<br/>(CURRENT STAGE)<br/>Let the engine run normally.<br/>Every bet auto-stores 25 features.<br/>Wait for bets to settle."] --> B
 
-    B{"Do you have ≥100<br/>settled bets?"}
-    B -->|"Not yet<br/>(you have 8)"| WAIT["⏳ Keep running the engine.<br/>All bets auto-collect features.<br/>Check: SELECT COUNT(*) FROM bets<br/>WHERE outcome != 'pending'<br/>AND ml_features IS NOT NULL"]
+    B{"Do you have ≥200<br/>labelled training examples?"}
+    B -->|"Not yet"| WAIT["⏳ Keep running the engine.<br/>All bets auto-collect features.<br/>Check: SELECT COUNT(*) FROM<br/>ml_training_examples<br/>WHERE label IS NOT NULL"]
     WAIT --> B
 
     B -->|"Yes!"| C["🏋️ Phase 2: Train<br/>Run the training job:<br/>cd services/optimizer<br/>source .venv/bin/activate<br/>python -m app.job"]
 
     C --> D{"Did the model<br/>pass quality gates?"}
-    D -->|"Rejected<br/>(DSR < 0.8 or PBO > 0.5)"| E["🔧 Phase 2b: Iterate<br/>• Collect more data<br/>• Review feature importance<br/>• Wait for more diverse outcomes"]
+    D -->|"Rejected<br/>(AUC < 0.52 or DSR < 0.8)"| E["🔧 Phase 2b: Iterate<br/>• Collect more data<br/>• Review feature importance<br/>• Wait for more diverse outcomes"]
     E --> B
 
     D -->|"Passed!"| F["🚀 Phase 3: Deploy<br/>Model auto-uploads to GCS.<br/>Engine detects within 60s.<br/>ONNX scorer hot-reloads."]
@@ -375,22 +395,22 @@ graph TD
 
 ### Commands You'll Use
 
-| Action | Command |
-|--------|---------|
-| **Check settled bet count** | `SELECT COUNT(*) FROM bets WHERE outcome != 'pending' AND ml_features IS NOT NULL;` |
-| **Run training** | `cd services/optimizer && source .venv/bin/activate && python -m app.job` |
-| **Run smoke test** | `cd services/optimizer && source .venv/bin/activate && python tests/smoke_real_data.py` |
-| **Check deployed model** | `SELECT version, status, oos_auc_roc, deflated_sharpe, pbo FROM ml_models ORDER BY version DESC;` |
-| **Check model in engine** | Engine HTTP API → ML scorer status endpoint |
+| Action                           | Command                                                                                      |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Check training example count** | `SELECT COUNT(*) FROM ml_training_examples WHERE label IS NOT NULL;`                         |
+| **Run training**                 | `cd services/optimizer && uv run python -m app.job`                                          |
+| **Check deployed model**         | `SELECT version, status, oos_auc_roc, deflated_sharpe FROM ml_models ORDER BY version DESC;` |
+| **Run verification**             | `npx tsx scripts/ml-verify.ts`                                                               |
+| **Check model in engine**        | Engine HTTP API → ML scorer status endpoint                                                  |
 
 ### What to Look For After Deployment
 
-| Metric | Good Sign | Bad Sign |
-|--------|-----------|----------|
-| **Win rate of ML-placed bets** | Higher than overall win rate | Same or lower |
-| **Win rate of ML-filtered bets** | Lower than overall (the model correctly filtered losers) | Higher (model is filtering good bets!) |
-| **ROI** | Improving over time as more data → better model | Declining (model may be stale) |
-| **Bets filtered ratio** | 10-30% filtered (removing noise) | >60% filtered (model too aggressive) or 0% (model isn't discriminating) |
+| Metric                           | Good Sign                                                | Bad Sign                                                                |
+| -------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Win rate of ML-placed bets**   | Higher than overall win rate                             | Same or lower                                                           |
+| **Win rate of ML-filtered bets** | Lower than overall (the model correctly filtered losers) | Higher (model is filtering good bets!)                                  |
+| **ROI**                          | Improving over time as more data → better model          | Declining (model may be stale)                                          |
+| **Bets filtered ratio**          | 10-30% filtered (removing noise)                         | >60% filtered (model too aggressive) or 0% (model isn't discriminating) |
 
 ### The Feedback Loop
 
@@ -412,7 +432,7 @@ graph LR
 ```
 
 > [!TIP]
-> **You are currently in Phase 1** — collecting data. You have 8 settled bets out of the 100 minimum needed. The engine is already storing features on every value bet it detects. Just let it run, and once enough bets settle, run the training job.
+> **The engine is always collecting data.** Features are stored on every value bet detection. Once 200+ labelled training examples have accumulated (settled bets with outcomes), training can produce a deployable model.
 
 ---
 
@@ -421,7 +441,7 @@ graph LR
 ```
 ┌─────────────────────────── REAL-TIME (Engine, every 500ms) ────────────────────────────┐
 │                                                                                         │
-│  Odds change → Detect value bet → Extract 21 features → Score with ONNX model           │
+│  Odds change → Detect value bet → Extract 25 features → Score with ONNX model           │
 │                                   → Adjust Kelly stake → Auto-place if score ≥ 0.4      │
 │                                   → Persist bet + features + score to DB                 │
 │                                                                                         │
@@ -431,9 +451,9 @@ graph LR
                                           ▼
 ┌───────────────────────── TRAINING (Python Job, on-demand) ─────────────────────────────┐
 │                                                                                         │
-│  Load settled bets → CPCV split (45 paths) → Train LightGBM per fold                   │
-│  → Compute DSR + PBO → Quality gate → Train final model on all data                    │
-│  → Export ONNX → Upload to GCS → Write ml_models row → Engine hot-reloads               │
+│  Load ml_training_examples → CPCV split (45 paths) → Train LightGBM per fold            │
+│  → Compute AUC-ROC + DSR → Quality gate → Train final model on all data                │
+│  → Export ONNX → Store blob in ml_models + upload GCS → Engine hot-reloads               │
 │                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```

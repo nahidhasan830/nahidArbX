@@ -268,7 +268,8 @@ const CORNERS_AH_ATOMS: Record<number, { home: string; away: string }> = {
   [7]: { home: "ft_corners_home_ah_p7", away: "ft_corners_away_ah_m7" },
   [7.5]: { home: "ft_corners_home_ah_p7_5", away: "ft_corners_away_ah_m7_5" },
   [8]: { home: "ft_corners_home_ah_p8", away: "ft_corners_away_ah_m8" },
-  [8.5]: { home: "ft_corners_home_ah_p8_5", away: "ft_corners_away_ah_m8_5" },};
+  [8.5]: { home: "ft_corners_home_ah_p8_5", away: "ft_corners_away_ah_m8_5" },
+};
 
 // ============================================
 // Corners Team Totals Mapping
@@ -472,7 +473,7 @@ export function mapPinnacleToAtom(
   if (period === "corners") {
     // Treat halfIndicator=1 as 1H for corners, otherwise FT
     const timeScope = halfIndicator === 1 ? "1h" : "ft";
-    
+
     switch (marketType) {
       case "TOTAL_POINTS": {
         const key = `${timeScope}|${handicap}`;

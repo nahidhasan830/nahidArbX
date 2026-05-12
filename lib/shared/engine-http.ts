@@ -60,7 +60,14 @@ export function registerEngineRoutes() {
 
   // ── GET /engine/value-bets ──────────────────────────────────────────
   addRoute("GET", "/engine/value-bets", async (_req, res) => {
-    const { getAllProviderStatus, getLastUpdate, getSyncStatus, getValueBets, getCachedStats, getMatchingStats } = await import("../store");
+    const {
+      getAllProviderStatus,
+      getLastUpdate,
+      getSyncStatus,
+      getValueBets,
+      getCachedStats,
+      getMatchingStats,
+    } = await import("../store");
     const { buildConnectionHealth } = await import("./engine-health-builder");
 
     const params = queryParams(_req);
@@ -68,7 +75,7 @@ export function registerEngineRoutes() {
 
     // Fast path: field-selection (e.g. ?fields=connectionHealth)
     if (fieldsParam) {
-      const fields = new Set(fieldsParam.split(",").map(f => f.trim()));
+      const fields = new Set(fieldsParam.split(",").map((f) => f.trim()));
       const response: Record<string, unknown> = {};
       if (fields.has("connectionHealth")) {
         response.connectionHealth = buildConnectionHealth();
@@ -118,11 +125,14 @@ export function registerEngineRoutes() {
   addRoute("GET", "/engine/health", async (_req, res) => {
     const { buildConnectionHealth } = await import("./engine-health-builder");
     const { getSyncStatus, getEvents, getValueBets } = await import("../store");
-    const { getStoreStats, getMatchedMarketsCount } = await import("../atoms/store");
+    const { getStoreStats, getMatchedMarketsCount } =
+      await import("../atoms/store");
     const { getMatchCacheStats } = await import("../matching");
-    const { getSimilarityCacheStats } = await import("../matching/similarity-cache");
+    const { getSimilarityCacheStats } =
+      await import("../matching/similarity-cache");
     const { isSchedulerRunning } = await import("../background/fetcher");
-    const { getSystemHealth, getUptimeString, getMemoryStats } = await import("./health-manager");
+    const { getSystemHealth, getUptimeString, getMemoryStats } =
+      await import("./health-manager");
     const { getAllCircuitBreakerStats } = await import("./circuit-breaker");
 
     const syncStatus = getSyncStatus();
@@ -151,7 +161,12 @@ export function registerEngineRoutes() {
       circuitBreakers: Object.fromEntries(
         Object.entries(circuitBreakers).map(([id, stats]) => [
           id,
-          { state: stats.state, failures: stats.failures, successes: stats.successes, timeouts: stats.timeouts },
+          {
+            state: stats.state,
+            failures: stats.failures,
+            successes: stats.successes,
+            timeouts: stats.timeouts,
+          },
         ]),
       ),
       memory: {
@@ -180,7 +195,10 @@ export function registerEngineRoutes() {
         components: Object.fromEntries(
           Object.entries(systemHealth.components).map(([id, health]) => [
             id,
-            { status: health.status, consecutiveFailures: health.consecutiveFailures },
+            {
+              status: health.status,
+              consecutiveFailures: health.consecutiveFailures,
+            },
           ]),
         ),
       },
@@ -210,11 +228,17 @@ export function registerEngineRoutes() {
         if (id !== undefined) msg += `id: ${id}\n`;
         msg += `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
         res.write(msg);
-      } catch { /* closed */ }
+      } catch {
+        /* closed */
+      }
     }
 
     res.write("retry: 5000\n\n");
-    send("connected", { connectionId, version: syncBus.version, serverTime: Date.now() }, syncBus.version);
+    send(
+      "connected",
+      { connectionId, version: syncBus.version, serverTime: Date.now() },
+      syncBus.version,
+    );
 
     const unsubscribe = syncBus.subscribeWithId(connectionId, (event) => {
       if (event.type === "data:delta") {
@@ -225,7 +249,11 @@ export function registerEngineRoutes() {
     });
 
     const heartbeat = setInterval(() => {
-      send("heartbeat", { time: Date.now(), version: syncBus.version, clients: syncBus.clientCount });
+      send("heartbeat", {
+        time: Date.now(),
+        version: syncBus.version,
+        clients: syncBus.clientCount,
+      });
     }, 30_000);
 
     _req.on("close", () => {
@@ -236,11 +264,16 @@ export function registerEngineRoutes() {
 
   // ── POST /engine/providers ──────────────────────────────────────────
   addRoute("POST", "/engine/providers", async (_req, res, body) => {
-    const { toggleProviderAction, setDisabledProvidersAction } = await import("../providers/actions");
+    const { toggleProviderAction, setDisabledProvidersAction } =
+      await import("../providers/actions");
     const { PROVIDER_REGISTRY } = await import("../providers/registry");
 
     let parsed: Record<string, unknown>;
-    try { parsed = JSON.parse(body); } catch { return jsonResponse(res, { error: "Invalid JSON" }, 400); }
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return jsonResponse(res, { error: "Invalid JSON" }, 400);
+    }
 
     const action = parsed.action as string;
 
@@ -248,10 +281,22 @@ export function registerEngineRoutes() {
       const provider = parsed.provider as string;
       const enabled = parsed.enabled as boolean;
       if (!PROVIDER_REGISTRY[provider as keyof typeof PROVIDER_REGISTRY]) {
-        return jsonResponse(res, { error: `Unknown provider: ${provider}` }, 400);
+        return jsonResponse(
+          res,
+          { error: `Unknown provider: ${provider}` },
+          400,
+        );
       }
-      const purged = toggleProviderAction(provider as keyof typeof PROVIDER_REGISTRY, enabled);
-      return jsonResponse(res, { success: true, provider, enabled, purgedEvents: purged });
+      const purged = toggleProviderAction(
+        provider as keyof typeof PROVIDER_REGISTRY,
+        enabled,
+      );
+      return jsonResponse(res, {
+        success: true,
+        provider,
+        enabled,
+        purgedEvents: purged,
+      });
     }
 
     if (action === "setDisabled") {
@@ -259,8 +304,14 @@ export function registerEngineRoutes() {
       if (!Array.isArray(disabled)) {
         return jsonResponse(res, { error: "disabled must be an array" }, 400);
       }
-      const totalPurged = setDisabledProvidersAction(disabled as (keyof typeof PROVIDER_REGISTRY)[]);
-      return jsonResponse(res, { success: true, disabled, purgedEvents: totalPurged });
+      const totalPurged = setDisabledProvidersAction(
+        disabled as (keyof typeof PROVIDER_REGISTRY)[],
+      );
+      return jsonResponse(res, {
+        success: true,
+        disabled,
+        purgedEvents: totalPurged,
+      });
     }
 
     return jsonResponse(res, { error: `Unknown action: ${action}` }, 400);
@@ -268,23 +319,47 @@ export function registerEngineRoutes() {
 
   // ── POST /engine/scheduler ──────────────────────────────────────────
   addRoute("POST", "/engine/scheduler", async (_req, res, body) => {
-    const { startScheduler, stopScheduler, restartScheduler, pauseScheduler, resumeScheduler, syncAll } = await import("../background/fetcher");
+    const {
+      startScheduler,
+      stopScheduler,
+      restartScheduler,
+      pauseScheduler,
+      resumeScheduler,
+      syncAll,
+    } = await import("../background/fetcher");
     const { getSyncStatus } = await import("../store");
 
     let parsed: Record<string, unknown>;
-    try { parsed = JSON.parse(body); } catch { return jsonResponse(res, { error: "Invalid JSON" }, 400); }
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return jsonResponse(res, { error: "Invalid JSON" }, 400);
+    }
 
     const action = parsed.action as string;
     const interval = parsed.interval as number | undefined;
 
     switch (action) {
-      case "startScheduler": startScheduler(); break;
-      case "stopScheduler": stopScheduler(); break;
-      case "restartScheduler": restartScheduler(interval); break;
-      case "pauseScheduler": pauseScheduler(); break;
-      case "resumeScheduler": resumeScheduler(); break;
-      case "syncNow": syncAll(); break;
-      default: return jsonResponse(res, { ok: false, error: "Unknown action" }, 400);
+      case "startScheduler":
+        startScheduler();
+        break;
+      case "stopScheduler":
+        stopScheduler();
+        break;
+      case "restartScheduler":
+        restartScheduler(interval);
+        break;
+      case "pauseScheduler":
+        pauseScheduler();
+        break;
+      case "resumeScheduler":
+        resumeScheduler();
+        break;
+      case "syncNow":
+        syncAll();
+        break;
+      default:
+        return jsonResponse(res, { ok: false, error: "Unknown action" }, 400);
     }
 
     const ss = getSyncStatus();
@@ -301,7 +376,11 @@ export function registerEngineRoutes() {
   // ── POST /engine/health ─────────────────────────────────────────────
   addRoute("POST", "/engine/health", async (_req, res, body) => {
     let parsed: Record<string, unknown>;
-    try { parsed = JSON.parse(body); } catch { return jsonResponse(res, { error: "Invalid JSON" }, 400); }
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return jsonResponse(res, { error: "Invalid JSON" }, 400);
+    }
 
     const action = parsed.action as string;
     if (action === "heal") {
@@ -314,6 +393,22 @@ export function registerEngineRoutes() {
       const results = await healAll();
       return jsonResponse(res, { ok: true, results });
     }
+    if (action === "resetCircuitBreaker") {
+      const { resetCircuitBreaker, getCircuitBreakerStats } = await import(
+        "./circuit-breaker"
+      );
+      const providerId = parsed.provider as string;
+      if (!providerId) {
+        return jsonResponse(res, { error: "provider is required" }, 400);
+      }
+      resetCircuitBreaker(providerId);
+      const stats = getCircuitBreakerStats(providerId);
+      return jsonResponse(res, {
+        ok: true,
+        provider: providerId,
+        state: stats?.state ?? "closed",
+      });
+    }
     return jsonResponse(res, { ok: false, error: "Unknown action" }, 400);
   });
 
@@ -323,7 +418,10 @@ export function registerEngineRoutes() {
     const { getActivityLog } = await import("../settle/activity-log");
 
     const params = queryParams(_req);
-    const logLimit = Math.min(Math.max(Number(params.get("log") ?? 100), 0), 200);
+    const logLimit = Math.min(
+      Math.max(Number(params.get("log") ?? 100), 0),
+      200,
+    );
     const activity = logLimit > 0 ? getActivityLog(logLimit) : [];
 
     return jsonResponse(res, {
@@ -345,7 +443,11 @@ export function registerEngineRoutes() {
     } = await import("../settle/scheduler");
 
     let parsed: Record<string, unknown>;
-    try { parsed = JSON.parse(body || "{}"); } catch { return jsonResponse(res, { error: "Invalid JSON" }, 400); }
+    try {
+      parsed = JSON.parse(body || "{}");
+    } catch {
+      return jsonResponse(res, { error: "Invalid JSON" }, 400);
+    }
 
     const action = (parsed.action as string) ?? "run";
     const intervalMs = parsed.intervalMs as number | undefined;
@@ -374,7 +476,11 @@ export function registerEngineRoutes() {
         }
       }
     } catch (err) {
-      return jsonResponse(res, { error: err instanceof Error ? err.message : String(err) }, 500);
+      return jsonResponse(
+        res,
+        { error: err instanceof Error ? err.message : String(err) },
+        500,
+      );
     }
   });
 
@@ -405,9 +511,8 @@ export function registerEngineRoutes() {
   // ── GET /engine/ml/scheduler ── retraining scheduler state ─────────
   addRoute("GET", "/engine/ml/scheduler", async (_req, res) => {
     try {
-      const { getModelRetrainingSchedulerStatus } = await import(
-        "../optimizer/scheduler"
-      );
+      const { getModelRetrainingSchedulerStatus } =
+        await import("../optimizer/scheduler");
       return jsonResponse(res, getModelRetrainingSchedulerStatus());
     } catch (err) {
       return jsonResponse(res, {
@@ -463,7 +568,10 @@ export function startEngineHttp(): Promise<void> {
       try {
         await handler(req, res, body);
       } catch (err) {
-        logger.error("EngineHTTP", `Handler error: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error(
+          "EngineHTTP",
+          `Handler error: ${err instanceof Error ? err.message : String(err)}`,
+        );
         if (!res.headersSent) {
           jsonResponse(res, { error: "Internal server error" }, 500);
         }
@@ -472,14 +580,24 @@ export function startEngineHttp(): Promise<void> {
 
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
-        logger.warn("EngineHTTP", `Port ${ENGINE_PORT} in use — killing stale process and retrying...`);
+        logger.warn(
+          "EngineHTTP",
+          `Port ${ENGINE_PORT} in use — killing stale process and retrying...`,
+        );
         import("child_process").then(({ execSync }) => {
           try {
-            execSync(`lsof -ti:${ENGINE_PORT} | xargs kill -9 2>/dev/null`, { stdio: "ignore" });
-          } catch { /* nothing to kill */ }
+            execSync(`lsof -ti:${ENGINE_PORT} | xargs kill -9 2>/dev/null`, {
+              stdio: "ignore",
+            });
+          } catch {
+            /* nothing to kill */
+          }
           setTimeout(() => {
             server!.listen(ENGINE_PORT, () => {
-              logger.info("EngineHTTP", `Engine HTTP API listening on port ${ENGINE_PORT} (retry)`);
+              logger.info(
+                "EngineHTTP",
+                `Engine HTTP API listening on port ${ENGINE_PORT} (retry)`,
+              );
               resolve();
             });
           }, 500);
@@ -490,7 +608,10 @@ export function startEngineHttp(): Promise<void> {
     });
 
     server.listen(ENGINE_PORT, () => {
-      logger.info("EngineHTTP", `Engine HTTP API listening on port ${ENGINE_PORT}`);
+      logger.info(
+        "EngineHTTP",
+        `Engine HTTP API listening on port ${ENGINE_PORT}`,
+      );
       resolve();
     });
   });

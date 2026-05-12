@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * ML Pipeline Operations Verification Script (Phase 11)
+ * ML Pipeline Operations Verification Script
  *
  * Repeatable post-change checks that catch drift quickly:
  *   1. Feature length distribution (DB)
@@ -25,7 +25,12 @@ import { createHash } from "node:crypto";
 
 // ── Static contract check (no DB required) ────────────────────────
 
-import { FEATURE_NAMES, FEATURE_COUNT, FEATURE_NAMES_HASH, FEATURE_VERSION } from "../lib/ml/features";
+import {
+  FEATURE_NAMES,
+  FEATURE_COUNT,
+  FEATURE_NAMES_HASH,
+  FEATURE_VERSION,
+} from "../lib/ml/features";
 import { FEATURE_CATALOG } from "../lib/ml/feature-catalog";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "../lib/shared/constants";
 
@@ -40,7 +45,12 @@ interface CheckResult {
 
 const results: CheckResult[] = [];
 
-function push(name: string, severity: Severity, message: string, detail?: string): void {
+function push(
+  name: string,
+  severity: Severity,
+  message: string,
+  detail?: string,
+): void {
   results.push({ name, severity, message, detail });
   const icon = severity === "pass" ? "✅" : severity === "warn" ? "⚠️" : "❌";
   console.log(`${icon}  ${name}: ${message}`);
@@ -53,10 +63,21 @@ function push(name: string, severity: Severity, message: string, detail?: string
 
 // ── Parse Python feature_names.py ─────────────────────────────────
 
-function parsePythonFeatureNames(): { names: string[]; count: number; version: number; hash: string } {
-  const source = readFileSync(resolve(process.cwd(), "services/optimizer/app/feature_names.py"), "utf8");
-  const listMatch = source.match(/FEATURE_NAMES:\s*list\[str\]\s*=\s*\[([\s\S]*?)\]\s*\n\nFEATURE_COUNT/);
-  if (!listMatch) throw new Error("Could not parse FEATURE_NAMES from feature_names.py");
+function parsePythonFeatureNames(): {
+  names: string[];
+  count: number;
+  version: number;
+  hash: string;
+} {
+  const source = readFileSync(
+    resolve(process.cwd(), "services/optimizer/app/feature_names.py"),
+    "utf8",
+  );
+  const listMatch = source.match(
+    /FEATURE_NAMES:\s*list\[str\]\s*=\s*\[([\s\S]*?)\]\s*\n\nFEATURE_COUNT/,
+  );
+  if (!listMatch)
+    throw new Error("Could not parse FEATURE_NAMES from feature_names.py");
   const names = Array.from(listMatch[1].matchAll(/"([^"]+)"/g), (m) => m[1]);
 
   const countMatch = source.match(/FEATURE_COUNT\s*=\s*(\d+)/);
@@ -82,17 +103,35 @@ function runContractChecks(): void {
 
   // 2. TS feature names length
   if (FEATURE_NAMES.length === FEATURE_COUNT) {
-    push("TS FEATURE_NAMES length", "pass", `${FEATURE_NAMES.length} matches FEATURE_COUNT`);
+    push(
+      "TS FEATURE_NAMES length",
+      "pass",
+      `${FEATURE_NAMES.length} matches FEATURE_COUNT`,
+    );
   } else {
-    push("TS FEATURE_NAMES length", "fail", `${FEATURE_NAMES.length} !== ${FEATURE_COUNT}`);
+    push(
+      "TS FEATURE_NAMES length",
+      "fail",
+      `${FEATURE_NAMES.length} !== ${FEATURE_COUNT}`,
+    );
   }
 
   // 3. TS shared constants match
-  if (ML_FEATURE_COUNT === FEATURE_COUNT && ML_FEATURE_VERSION === FEATURE_VERSION) {
-    push("Shared constants", "pass", `ML_FEATURE_COUNT=${ML_FEATURE_COUNT}, ML_FEATURE_VERSION=${ML_FEATURE_VERSION}`);
+  if (
+    ML_FEATURE_COUNT === FEATURE_COUNT &&
+    ML_FEATURE_VERSION === FEATURE_VERSION
+  ) {
+    push(
+      "Shared constants",
+      "pass",
+      `ML_FEATURE_COUNT=${ML_FEATURE_COUNT}, ML_FEATURE_VERSION=${ML_FEATURE_VERSION}`,
+    );
   } else {
-    push("Shared constants", "fail",
-      `ML_FEATURE_COUNT=${ML_FEATURE_COUNT} vs ${FEATURE_COUNT}, ML_FEATURE_VERSION=${ML_FEATURE_VERSION} vs ${FEATURE_VERSION}`);
+    push(
+      "Shared constants",
+      "fail",
+      `ML_FEATURE_COUNT=${ML_FEATURE_COUNT} vs ${FEATURE_COUNT}, ML_FEATURE_VERSION=${ML_FEATURE_VERSION} vs ${FEATURE_VERSION}`,
+    );
   }
 
   // 4. Python ↔ TS alignment
@@ -102,46 +141,86 @@ function runContractChecks(): void {
     if (py.count === FEATURE_COUNT) {
       push("Python FEATURE_COUNT", "pass", `${py.count}`);
     } else {
-      push("Python FEATURE_COUNT", "fail", `${py.count} !== TS ${FEATURE_COUNT}`);
+      push(
+        "Python FEATURE_COUNT",
+        "fail",
+        `${py.count} !== TS ${FEATURE_COUNT}`,
+      );
     }
 
     if (py.version === FEATURE_VERSION) {
       push("Python FEATURE_VERSION", "pass", `${py.version}`);
     } else {
-      push("Python FEATURE_VERSION", "fail", `${py.version} !== TS ${FEATURE_VERSION}`);
+      push(
+        "Python FEATURE_VERSION",
+        "fail",
+        `${py.version} !== TS ${FEATURE_VERSION}`,
+      );
     }
 
-    const namesMatch = JSON.stringify(py.names) === JSON.stringify(FEATURE_NAMES);
+    const namesMatch =
+      JSON.stringify(py.names) === JSON.stringify(FEATURE_NAMES);
     if (namesMatch) {
       push("Python ↔ TS names", "pass", "All 25 feature names match exactly");
     } else {
       // Find mismatches
       const diffs: string[] = [];
-      for (let i = 0; i < Math.max(py.names.length, FEATURE_NAMES.length); i++) {
+      for (
+        let i = 0;
+        i < Math.max(py.names.length, FEATURE_NAMES.length);
+        i++
+      ) {
         if (py.names[i] !== FEATURE_NAMES[i]) {
-          diffs.push(`  [${i}] Python="${py.names[i] ?? "MISSING"}" TS="${FEATURE_NAMES[i] ?? "MISSING"}"`);
+          diffs.push(
+            `  [${i}] Python="${py.names[i] ?? "MISSING"}" TS="${FEATURE_NAMES[i] ?? "MISSING"}"`,
+          );
         }
       }
-      push("Python ↔ TS names", "fail", `${diffs.length} mismatches`, diffs.join("\n"));
+      push(
+        "Python ↔ TS names",
+        "fail",
+        `${diffs.length} mismatches`,
+        diffs.join("\n"),
+      );
     }
 
     if (py.hash === FEATURE_NAMES_HASH) {
-      push("Feature names hash", "pass", `SHA-256 match: ${py.hash.slice(0, 16)}…`);
+      push(
+        "Feature names hash",
+        "pass",
+        `SHA-256 match: ${py.hash.slice(0, 16)}…`,
+      );
     } else {
-      push("Feature names hash", "fail",
-        `Python=${py.hash.slice(0, 16)}… TS=${FEATURE_NAMES_HASH.slice(0, 16)}…`);
+      push(
+        "Feature names hash",
+        "fail",
+        `Python=${py.hash.slice(0, 16)}… TS=${FEATURE_NAMES_HASH.slice(0, 16)}…`,
+      );
     }
   } catch (err) {
-    push("Python contract", "fail", `Could not parse: ${(err as Error).message}`);
+    push(
+      "Python contract",
+      "fail",
+      `Could not parse: ${(err as Error).message}`,
+    );
   }
 
   // 5. UI catalog match
   const catalogNames = FEATURE_CATALOG.map((f) => f.name);
-  const catalogMatch = JSON.stringify(catalogNames) === JSON.stringify(FEATURE_NAMES);
+  const catalogMatch =
+    JSON.stringify(catalogNames) === JSON.stringify(FEATURE_NAMES);
   if (catalogMatch) {
-    push("UI FEATURE_CATALOG", "pass", `All ${FEATURE_CATALOG.length} entries match TS FEATURE_NAMES`);
+    push(
+      "UI FEATURE_CATALOG",
+      "pass",
+      `All ${FEATURE_CATALOG.length} entries match TS FEATURE_NAMES`,
+    );
   } else {
-    push("UI FEATURE_CATALOG", "fail", `Catalog names do not match FEATURE_NAMES`);
+    push(
+      "UI FEATURE_CATALOG",
+      "fail",
+      `Catalog names do not match FEATURE_NAMES`,
+    );
   }
 }
 
@@ -153,7 +232,8 @@ async function runDbChecks(): Promise<void> {
   // Dynamic import to avoid crash when DATABASE_URL is not set
   const { db, ensureDbReady } = await import("../lib/db/client");
   await ensureDbReady();
-  const { bets, competitionEnrichments, mlModels, mlTrainingExamples } = await import("../lib/db/schema");
+  const { bets, competitionEnrichments, mlModels, mlTrainingExamples } =
+    await import("../lib/db/schema");
   const { sql, isNotNull, desc, eq } = await import("drizzle-orm");
 
   // 1. Feature length distribution
@@ -171,8 +251,11 @@ async function runDbChecks(): Promise<void> {
   if (featureLengths.length === 0) {
     push("Feature lengths", "warn", "No bets with features yet");
   } else {
-    const detail = featureLengths.map((r) => `  length=${r.len}: ${r.cnt} rows`).join("\n");
-    const allCorrect = featureLengths.length === 1 && featureLengths[0].len === ML_FEATURE_COUNT;
+    const detail = featureLengths
+      .map((r) => `  length=${r.len}: ${r.cnt} rows`)
+      .join("\n");
+    const allCorrect =
+      featureLengths.length === 1 && featureLengths[0].len === ML_FEATURE_COUNT;
     push(
       "Feature lengths",
       allCorrect ? "pass" : "warn",
@@ -197,8 +280,12 @@ async function runDbChecks(): Promise<void> {
   if (featureVersions.length === 0) {
     push("Feature versions", "warn", "No bets with features yet");
   } else {
-    const detail = featureVersions.map((r) => `  v${r.version ?? "NULL"}: ${r.cnt} rows`).join("\n");
-    const allCurrent = featureVersions.length === 1 && featureVersions[0].version === ML_FEATURE_VERSION;
+    const detail = featureVersions
+      .map((r) => `  v${r.version ?? "NULL"}: ${r.cnt} rows`)
+      .join("\n");
+    const allCurrent =
+      featureVersions.length === 1 &&
+      featureVersions[0].version === ML_FEATURE_VERSION;
     push(
       "Feature versions",
       allCurrent ? "pass" : "warn",
@@ -225,7 +312,8 @@ async function runDbChecks(): Promise<void> {
     .from(competitionEnrichments)
     .where(sql`${competitionEnrichments.confidence} >= 70`);
 
-  const coveragePct = distinctComps > 0 ? Math.round((enrichedCount / distinctComps) * 100) : 0;
+  const coveragePct =
+    distinctComps > 0 ? Math.round((enrichedCount / distinctComps) * 100) : 0;
   push(
     "Enrichment coverage",
     coveragePct >= 80 ? "pass" : coveragePct >= 50 ? "warn" : "warn",
@@ -243,15 +331,18 @@ async function runDbChecks(): Promise<void> {
     .groupBy(mlTrainingExamples.exampleType);
 
   const totalExamples = exampleCounts.reduce((s, r) => s + r.cnt, 0);
-  const settledDetected = exampleCounts.find((r) => r.exampleType === "settled_detected")?.cnt ?? 0;
-  const nearMiss = exampleCounts.find((r) => r.exampleType === "near_miss")?.cnt ?? 0;
-  const shadowScored = exampleCounts.find((r) => r.exampleType === "shadow_scored")?.cnt ?? 0;
+  const settledDetected =
+    exampleCounts.find((r) => r.exampleType === "settled_detected")?.cnt ?? 0;
+  const shadowScored =
+    exampleCounts.find((r) => r.exampleType === "shadow_scored")?.cnt ?? 0;
 
-  const detail = exampleCounts.map((r) => `  ${r.exampleType}: ${r.cnt}`).join("\n");
+  const detail = exampleCounts
+    .map((r) => `  ${r.exampleType}: ${r.cnt}`)
+    .join("\n");
   push(
     "Training samples",
     totalExamples >= 1000 ? "pass" : totalExamples >= 100 ? "warn" : "warn",
-    `${totalExamples} total (settled=${settledDetected}, near_miss=${nearMiss}, shadow=${shadowScored})`,
+    `${totalExamples} total (settled=${settledDetected}, shadow=${shadowScored})`,
     detail,
   );
 
@@ -265,7 +356,11 @@ async function runDbChecks(): Promise<void> {
 
   push(
     "Settled bets with features",
-    settledWithFeatures >= 1000 ? "pass" : settledWithFeatures >= 100 ? "warn" : "warn",
+    settledWithFeatures >= 1000
+      ? "pass"
+      : settledWithFeatures >= 100
+        ? "warn"
+        : "warn",
     `${settledWithFeatures} (cold start threshold: 100)`,
   );
 
@@ -288,8 +383,9 @@ async function runDbChecks(): Promise<void> {
       winRate: sql<number>`coalesce(avg(CASE WHEN ${bets.outcome} IN ('won', 'half_won') THEN 1.0 ELSE 0.0 END), 0)::float`,
     })
     .from(bets)
-    .where(sql`${bets.mlScore} IS NOT NULL AND ${bets.outcome} NOT IN ('pending', 'void')`)
-    .groupBy(sql`
+    .where(
+      sql`${bets.mlScore} IS NOT NULL AND ${bets.outcome} NOT IN ('pending', 'void')`,
+    ).groupBy(sql`
       CASE
         WHEN ${bets.mlScore} < 0.4 THEN '<0.4'
         WHEN ${bets.mlScore} < 0.5 THEN '0.4–0.5'
@@ -300,7 +396,11 @@ async function runDbChecks(): Promise<void> {
       END`);
 
   if (buckets.length === 0) {
-    push("Score buckets", "warn", "No scored+settled bets yet — cannot measure bucket performance");
+    push(
+      "Score buckets",
+      "warn",
+      "No scored+settled bets yet — cannot measure bucket performance",
+    );
   } else {
     const table = buckets
       .map(
@@ -352,9 +452,17 @@ async function runDbChecks(): Promise<void> {
     .limit(1);
 
   if (deployed) {
-    push("Deployed model", "pass", `v${deployed.version} — permission=${deployed.permissionLevel}`);
+    push(
+      "Deployed model",
+      "pass",
+      `v${deployed.version} — permission=${deployed.permissionLevel}`,
+    );
   } else {
-    push("Deployed model", "warn", "No deployed model — ML is in pass-through mode");
+    push(
+      "Deployed model",
+      "warn",
+      "No deployed model — ML is in pass-through mode",
+    );
   }
 
   // 7. Outcome distribution sanity check
@@ -370,9 +478,17 @@ async function runDbChecks(): Promise<void> {
     .orderBy(sql`count(*) DESC`);
 
   const outcomeDetail = outcomes
-    .map((r) => `  ${r.outcome.padEnd(12)} total=${String(r.total).padStart(5)} withFeatures=${String(r.withFeatures).padStart(5)}`)
+    .map(
+      (r) =>
+        `  ${r.outcome.padEnd(12)} total=${String(r.total).padStart(5)} withFeatures=${String(r.withFeatures).padStart(5)}`,
+    )
     .join("\n");
-  push("Outcome distribution", "pass", `${outcomes.length} distinct outcomes`, outcomeDetail);
+  push(
+    "Outcome distribution",
+    "pass",
+    `${outcomes.length} distinct outcomes`,
+    outcomeDetail,
+  );
 }
 
 // ── Main ─────────────────────────────────────────────────────────
@@ -381,7 +497,7 @@ async function main(): Promise<void> {
   const mode = process.argv[2]; // 'contract' | 'db' | undefined (all)
 
   console.log("╔══════════════════════════════════════════════╗");
-  console.log("║  ML Pipeline Verification (Phase 11)        ║");
+  console.log("║  ML Pipeline Verification                   ║");
   console.log("╚══════════════════════════════════════════════╝");
 
   if (!mode || mode === "contract") {
@@ -392,7 +508,11 @@ async function main(): Promise<void> {
     try {
       await runDbChecks();
     } catch (err) {
-      push("DB connection", "fail", `Cannot connect: ${(err as Error).message}`);
+      push(
+        "DB connection",
+        "fail",
+        `Cannot connect: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -407,7 +527,9 @@ async function main(): Promise<void> {
   console.log(`  ❌ Fail: ${fails}`);
 
   if (fails > 0) {
-    console.log("\n❌ CRITICAL: Feature contract violations detected. Fix before deploying.");
+    console.log(
+      "\n❌ CRITICAL: Feature contract violations detected. Fix before deploying.",
+    );
     process.exit(2);
   } else if (warns > 0) {
     console.log("\n⚠️  Some warnings — review before production.");

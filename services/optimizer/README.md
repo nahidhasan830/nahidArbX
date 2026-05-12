@@ -10,27 +10,31 @@ This is the engine behind the ML pipeline at `/lab/ml` in the Next.js app.
 
 1. The engine's ML retraining scheduler (`lib/optimizer/scheduler.ts`) triggers
    this Cloud Run Job when retraining criteria are met (enough new settled data).
-2. Sidecar loads settled bets + ML feature vectors from Postgres, trains a
-   LightGBM classifier using CPCV, evaluates deployment-gate quality metrics
-   (DSR, PBO, AUC, score-bucket monotonicity).
+2. Sidecar loads training data from `ml_training_examples` table (canonical
+   deduplicated corpus with precedence: `placed_settled` > `settled_detected` >
+   `shadow_scored`), trains a LightGBM classifier using event-aware
+   CPCV (Combinatorial Purged Cross-Validation), evaluates deployment-gate
+   quality metrics (AUC-ROC, Deflated Sharpe Ratio, score-bucket monotonicity,
+   calibration error).
 3. If the model passes quality gates, it's promoted to `deployed` status in
-   `ml_models` and the engine auto-loads the ONNX artifact.
+   `ml_models` and the ONNX artifact is stored as a blob in the `ml_models`
+   table. The engine auto-loads the ONNX artifact via polling.
 4. The Next.js `/api/ml/retrain` endpoint can also trigger training manually.
 
 The sidecar is **stateless** — all state lives in shared Postgres.
 
 ## Stack
 
-| Concern               | Library                                                                           |
-| --------------------- | --------------------------------------------------------------------------------- |
-| ML framework          | LightGBM 4.x with isotonic calibration                                            |
-| Cross-validation      | [skfolio](https://skfolio.org/) `CombinatorialPurgedCV`                           |
-| Bootstrap             | [arch](https://arch.readthedocs.io/) `StationaryBootstrap` (time-series-aware)    |
-| Overfit penalties     | Closed-form DSR / PSR + PBO                                                       |
-| Data engine           | [Polars](https://pola.rs/) (Rust core, lazy eval)                                 |
-| Service               | FastAPI 0.115 + uvicorn                                                           |
-| DB                    | SQLAlchemy 2.x + `google-cloud-sql-connector[pg8000]` (mirrors Next.js connector) |
-| Package manager       | [uv](https://docs.astral.sh/uv/) (≈10× faster than pip; deterministic `uv.lock`)  |
+| Concern          | Library                                                                           |
+| ---------------- | --------------------------------------------------------------------------------- |
+| ML framework     | LightGBM 4.x with isotonic calibration                                            |
+| Cross-validation | Event-aware Combinatorial Purged CV (custom `cpcv.py`)                            |
+| Bootstrap        | [arch](https://arch.readthedocs.io/) `StationaryBootstrap` (time-series-aware)    |
+| Overfit metrics  | Closed-form DSR / PSR (PBO computed but not a hard deployment gate)               |
+| Data engine      | [Polars](https://pola.rs/) (Rust core, lazy eval)                                 |
+| Execution        | Cloud Run Job (batch entry via `python -m app.job`, no HTTP server)               |
+| DB               | SQLAlchemy 2.x + `google-cloud-sql-connector[pg8000]` (mirrors Next.js connector) |
+| Package manager  | [uv](https://docs.astral.sh/uv/) (≈10× faster than pip; deterministic `uv.lock`)  |
 
 ## Local development
 
@@ -44,11 +48,8 @@ cd services/optimizer
 # Install deps into a managed venv.
 uv sync
 
-# Run the dev server (hot-reload). Reads `.env` two levels up.
-uv run uvicorn app.main:app --port 8001 --reload
-
-# Health check.
-curl -s localhost:8001/health
+# Run training job locally.
+uv run python -m app.job
 ```
 
 ## Production deployment (Google Cloud)
@@ -62,15 +63,34 @@ The sidecar runs as **Cloud Run Job `nahidarbx-optimizer-job`** in
 bash services/optimizer/redeploy.sh
 ```
 
+## Key parameters
+
+| Parameter            | Value | Where                                        |
+| -------------------- | ----- | -------------------------------------------- |
+| Feature count        | 25    | `app/feature_names.py`, `lib/ml/features.ts` |
+| Feature version      | 2     | Same files                                   |
+| Cold start threshold | 200   | `app/config.py`, `lib/shared/constants.ts`   |
+| CPCV groups          | 10    | `app/cpcv.py`                                |
+| CPCV test size       | 2     | `app/cpcv.py`                                |
+| AUC-ROC gate         | 0.52  | `app/deployment_gate.py`                     |
+| DSR gate             | 0.80  | `app/deployment_gate.py`                     |
+
 ## Module map
 
 ```
 app/
-  main.py          FastAPI app (/run/start, /health)
-  config.py        env loading (DB conn, default RNG, max workers)
-  db.py            SQLAlchemy session + Cloud SQL connector
-  loader.py        load_settled_bets(run_id) → polars.DataFrame
-  ml/              LightGBM training + CPCV + deployment gate
+  __init__.py        Package marker
+  config.py          env loading (DB conn, default RNG, thresholds)
+  db.py              SQLAlchemy session + Cloud SQL connector
+  loader.py          load training data → polars.DataFrame
+  cpcv.py            Event-aware Combinatorial Purged CV
+  trainer.py         LightGBM training + CPCV evaluation
+  scoring.py         DSR, calibration, score-bucket analysis
+  deployment_gate.py Quality gate decisions
+  exporter.py        ONNX export + GCS upload + ml_models write
+  bootstrap.py       Stationary bootstrap for DSR
+  feature_names.py   Canonical feature names (synced with TS)
+  job.py             Cloud Run Job entry point (python -m app.job)
 ```
 
 ## Testing

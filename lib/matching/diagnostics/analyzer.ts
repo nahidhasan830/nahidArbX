@@ -8,11 +8,7 @@
 import { cachedCompareTwoStrings as compareTwoStrings } from "../similarity-cache";
 import type { NormalizedEvent } from "../../types";
 import type { ProviderKey } from "../../providers/registry";
-import type {
-  MatchScoreBreakdown,
-  NearMatch,
-  FailureReason,
-} from "./types";
+import type { MatchScoreBreakdown, NearMatch, FailureReason } from "./types";
 import {
   NEAR_MATCH_MIN_SCORE,
   NEAR_MATCH_MAX_SCORE,

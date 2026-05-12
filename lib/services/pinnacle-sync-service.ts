@@ -1,5 +1,9 @@
 import { pinnacleWsClient } from "../adapters/pinnacle/ws-client";
-import { getPinnacleToken, isTokenValid, refreshTokenIfNeeded } from "../auth/token-manager";
+import {
+  getPinnacleToken,
+  isTokenValid,
+  refreshTokenIfNeeded,
+} from "../auth/token-manager";
 import { logger } from "../shared/logger";
 import { getMatchedEvents } from "../store";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
@@ -43,7 +47,10 @@ export class PinnacleSyncService {
     this.isRunning = false;
     if (this.intervalId) clearInterval(this.intervalId);
     if (this.tokenCheckIntervalId) clearInterval(this.tokenCheckIntervalId);
-    if (this.busUnsubscribe) { this.busUnsubscribe(); this.busUnsubscribe = undefined; }
+    if (this.busUnsubscribe) {
+      this.busUnsubscribe();
+      this.busUnsubscribe = undefined;
+    }
     pinnacleWsClient.deactivate();
     logger.info("PinnacleSync", "Stopped real-time WebSocket sync service");
   }
@@ -51,15 +58,21 @@ export class PinnacleSyncService {
   private async ensureValidToken() {
     try {
       if (!isTokenValid()) {
-        logger.info("PinnacleSync", "Token invalid or expiring soon. Attempting refresh...");
+        logger.info(
+          "PinnacleSync",
+          "Token invalid or expiring soon. Attempting refresh...",
+        );
         await refreshTokenIfNeeded();
       }
-      
+
       const token = await getPinnacleToken(false, true);
       if (token) {
         pinnacleWsClient.setToken(token);
       } else {
-        logger.warn("PinnacleSync", "Could not obtain valid Pinnacle token for WS connection");
+        logger.warn(
+          "PinnacleSync",
+          "Could not obtain valid Pinnacle token for WS connection",
+        );
       }
     } catch (err) {
       logger.error("PinnacleSync", `Error in ensureValidToken: ${err}`);
@@ -88,7 +101,8 @@ export class PinnacleSyncService {
     }
 
     // Unsubscribe from events no longer in the active roster
-    const staleIds = pinnacleWsClient.getSubscribedIds()
+    const staleIds = pinnacleWsClient
+      .getSubscribedIds()
       .filter((id) => !activeProviderIds.has(id));
 
     for (const id of staleIds) {

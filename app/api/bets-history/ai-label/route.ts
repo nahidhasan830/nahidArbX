@@ -6,12 +6,13 @@ import {
   apiSuccess,
 } from "@/lib/shared/api-response";
 import { settleBatch } from "@/lib/settle/settle-batch";
-import { AiBudgetError } from "@/lib/settle/cost-guard";
 
 /**
- * Settlement endpoint. Wraps the waterfall (`settleBatch`) — Tier 0/1/2
- * deterministic resolution by default; Gemini Tier 3 only when the
- * caller explicitly sets `forceAi`.
+ * Settlement endpoint. Wraps the waterfall (`settleBatch`) — runs the
+ * full free waterfall: Tier 0 (cache) → Tier 1 (live) → Tier 2a (ESPN)
+ * → Tier 2b (API-Football) → Tier 2c (SofaScore) → Tier 2d (Groq+Search).
+ *
+ * No paid AI tiers. All resolution is free.
  *
  * Bets that remain pending after the waterfall are returned as-is so
  * the UI can surface them for manual verification.
@@ -25,11 +26,7 @@ const BodySchema = z.object({
    * stale entry exists. "Re-run default pipeline" in the UI sends this.
    */
   bypassCache: z.boolean().default(false),
-  /**
-   * Operator-triggered: send events straight to Gemini Tier 3. The ONLY
-   * way to invoke paid AI from this route. "Re-run with Lite/Flash/Pro"
-   * sends this along with aiModel.
-   */
+  // Legacy fields — accepted but ignored (Gemini removed from pipeline).
   forceAi: z.boolean().default(false),
   aiModel: z.enum(["lite", "flash", "pro"]).optional(),
 });
@@ -48,9 +45,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await settleBatch(parsed.data.ids, {
-      bypassCache: parsed.data.bypassCache,
-      forceAi: parsed.data.forceAi,
-      aiModel: parsed.data.aiModel,
+      bypassCache: parsed.data.bypassCache || parsed.data.forceAi,
     });
     return apiSuccess({
       proposals: result.proposals,
@@ -60,11 +55,6 @@ export async function POST(request: NextRequest) {
       unresolvedEventCount: result.telemetry.unresolvedEvents,
     });
   } catch (err) {
-    // Budget violations are user-actionable — surface the message as a
-    // 400 rather than a generic 500 so the UI shows it intact.
-    if (err instanceof AiBudgetError) {
-      return apiBadRequest(err.message);
-    }
     return apiServerError(err, "Backtest:settle");
   }
 }

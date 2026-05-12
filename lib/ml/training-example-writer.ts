@@ -9,76 +9,36 @@
  * Example types:
  *   - settled_detected: detected value bet that eventually settled
  *   - placed_settled: actually placed bet with real outcome
- *   - near_miss: sub-threshold edge (Phase 9, survival bias)
  *   - shadow_scored: feature snapshot at detection (outcome later)
+ *
+ * Uniqueness:
+ *   - Rows with source_bet_id: unique on (source_bet_id, example_type)
+ *   - Rows without source_bet_id: unique on (event_id, family_id, atom_id, example_type)
+ *
+ * Phase 2 changes:
+ *   - Uses shared outcomes module for label derivation and weights
+ *   - Computes unit returns for financial metrics
+ *   - Writer counts only increment on actual DB changes
  */
 
 import { db } from "@/lib/db/client";
-import { mlTrainingExamples, type BetRow } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { bets, mlTrainingExamples, type BetRow } from "@/lib/db/schema";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { logger } from "@/lib/shared/logger";
-import { ML_FEATURE_VERSION } from "@/lib/shared/constants";
+import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import {
+  deriveLabel,
+  deriveSampleWeight,
+  type ExampleType,
+} from "@/lib/ml/outcomes";
 
 const tag = "TrainingExampleWriter";
 
-type ExampleType = "settled_detected" | "placed_settled" | "near_miss" | "shadow_scored";
-
-/**
- * Derive label from bet outcome.
- *   won, half_won → positive
- *   lost, half_lost → negative
- *   void → excluded (returns null)
- */
-function deriveLabel(outcome: string): "positive" | "negative" | null {
-  switch (outcome) {
-    case "won":
-    case "half_won":
-      return "positive";
-    case "lost":
-    case "half_lost":
-      return "negative";
-    default:
-      return null; // void, pending, cancelled — excluded
-  }
-}
-
-/** PnL-magnitude boost scale and cap — must match Python _pnl_boost(). */
-const PNL_BOOST_SCALE = 5.0;
-const PNL_BOOST_CAP = 2.0;
-
-/**
- * Multiplicative boost from absolute PnL — higher impact → more weight.
- * Returns a multiplier in [1.0, PNL_BOOST_CAP]. Zero PnL → 1.0.
- */
-function pnlBoost(pnlAbs: number): number {
-  if (pnlAbs <= 0) return 1.0;
-  const boost = 1.0 + Math.log1p(pnlAbs / PNL_BOOST_SCALE) * 0.3;
-  return Math.min(boost, PNL_BOOST_CAP);
-}
-
-/**
- * Derive sample weight from outcome, example type, and PnL magnitude.
- *
- * Weight formula:
- *   base = 0.4 for near_miss, 0.5 for half outcomes, 1.0 otherwise
- *   boost = pnlBoost(|pnl|)
- *   final = base × boost
- *
- * Shadow-scored examples start at 1.0 (adjusted when resolved).
- */
-function deriveSampleWeight(outcome: string, exampleType: ExampleType, pnl: number | null): number {
-  if (exampleType === "near_miss") return 0.4;
-  let base: number;
-  switch (outcome) {
-    case "half_won":
-    case "half_lost":
-      base = 0.5;
-      break;
-    default:
-      base = 1.0;
-  }
-  return base * pnlBoost(Math.abs(pnl ?? 0));
-}
+const isUniqueViolation = (err: unknown): boolean => {
+  const e = err as { code?: string; cause?: { code?: string } };
+  return e.code === "23505" || e.cause?.code === "23505";
+};
 
 /**
  * Write training examples from settled bets.
@@ -86,10 +46,18 @@ function deriveSampleWeight(outcome: string, exampleType: ExampleType, pnl: numb
  * Called after settlement outcomes are applied. Only creates examples
  * for bets that have features and a non-void outcome.
  *
+ * Uses ON CONFLICT on (source_bet_id, example_type) unique index to
+ * prevent duplicate rows. If a row already exists for the same bet+type,
+ * the insert is skipped (settled data doesn't change once written).
+ *
+ * Phase 2: Also stores unit_return for simulated financial metrics.
+ *
  * @param settledBets - Bet rows that just had their outcome set.
- * @returns Number of examples written.
+ * @returns Number of examples actually written (not skipped).
  */
-export async function writeSettledExamples(settledBets: BetRow[]): Promise<number> {
+export async function writeSettledExamples(
+  settledBets: BetRow[],
+): Promise<number> {
   let written = 0;
 
   for (const bet of settledBets) {
@@ -99,10 +67,24 @@ export async function writeSettledExamples(settledBets: BetRow[]): Promise<numbe
     const label = deriveLabel(bet.outcome);
     if (label === null) continue; // void/pending — skip
 
-    const exampleType: ExampleType = bet.placedAt ? "placed_settled" : "settled_detected";
+    const exampleType: ExampleType = bet.placedAt
+      ? "placed_settled"
+      : "settled_detected";
 
     try {
-      await db
+      const [existing] = await db
+        .select({ id: mlTrainingExamples.id })
+        .from(mlTrainingExamples)
+        .where(
+          and(
+            eq(mlTrainingExamples.sourceBetId, bet.id),
+            eq(mlTrainingExamples.exampleType, exampleType),
+          ),
+        )
+        .limit(1);
+      if (existing) continue;
+
+      const result = await db
         .insert(mlTrainingExamples)
         .values({
           sourceBetId: bet.id,
@@ -120,17 +102,64 @@ export async function writeSettledExamples(settledBets: BetRow[]): Promise<numbe
           clvPct: bet.clvPct,
           settledAt: bet.settledAt,
         })
-        .onConflictDoNothing();
-      written++;
+        .returning({ id: mlTrainingExamples.id });
+      if (result.length > 0) {
+        written++;
+      }
     } catch (err) {
-      logger.warn(tag, `Failed to write example for ${bet.id}: ${(err as Error).message}`);
+      if (isUniqueViolation(err)) continue;
+      logger.warn(
+        tag,
+        `Failed to write example for ${bet.id}: ${(err as Error).message}`,
+      );
     }
   }
 
   if (written > 0) {
-    logger.info(tag, `Wrote ${written}/${settledBets.length} training examples`);
+    logger.info(
+      tag,
+      `Wrote ${written}/${settledBets.length} training examples`,
+    );
   }
 
+  return written;
+}
+
+export async function writeMissingSettledExamples(
+  limit = 1000,
+): Promise<number> {
+  const missing = await db
+    .select()
+    .from(bets)
+    .where(sql`
+      ${bets.outcome} NOT IN ('pending', 'void')
+      AND ${bets.mlFeatures} IS NOT NULL
+      AND ${bets.mlFeatureVersion} = ${ML_FEATURE_VERSION}
+      AND ${bets.mlFeatureNamesHash} = ${FEATURE_NAMES_HASH}
+      AND array_length(${bets.mlFeatures}, 1) = ${ML_FEATURE_COUNT}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ${mlTrainingExamples} m
+        WHERE m.source_bet_id = ${bets.id}
+          AND m.example_type IN ('placed_settled', 'settled_detected')
+          AND m.label IS NOT NULL
+          AND m.features IS NOT NULL
+          AND m.feature_version = ${ML_FEATURE_VERSION}
+          AND array_length(m.features, 1) = ${ML_FEATURE_COUNT}
+      )
+    `)
+    .orderBy(bets.settledAt, bets.firstSeenAt)
+    .limit(limit);
+
+  if (missing.length === 0) return 0;
+
+  const written = await writeSettledExamples(missing);
+  if (written > 0) {
+    logger.info(
+      tag,
+      `Reconciled ${written}/${missing.length} missing settled training examples`,
+    );
+  }
   return written;
 }
 
@@ -140,6 +169,10 @@ export async function writeSettledExamples(settledBets: BetRow[]): Promise<numbe
  * Called at detection time to capture the feature state. The outcome
  * and label are null — they get attached when the bet settles via
  * `resolveDetectionSnapshot()`.
+ *
+ * Uses ON CONFLICT on (source_bet_id, example_type) to upsert: if a
+ * shadow_scored row already exists for this bet, update the features
+ * to the latest snapshot (features change as odds move).
  */
 export async function writeDetectionSnapshot(
   betId: string,
@@ -149,9 +182,24 @@ export async function writeDetectionSnapshot(
   features: number[],
 ): Promise<void> {
   try {
-    await db
-      .insert(mlTrainingExamples)
-      .values({
+    const updated = await db
+      .update(mlTrainingExamples)
+      .set({
+        features,
+        featureVersion: ML_FEATURE_VERSION,
+      })
+      .where(
+        and(
+          eq(mlTrainingExamples.sourceBetId, betId),
+          eq(mlTrainingExamples.exampleType, "shadow_scored"),
+        ),
+      )
+      .returning({ id: mlTrainingExamples.id });
+
+    if (updated.length > 0) return;
+
+    try {
+      await db.insert(mlTrainingExamples).values({
         sourceBetId: betId,
         exampleType: "shadow_scored" as ExampleType,
         eventId,
@@ -166,10 +214,27 @@ export async function writeDetectionSnapshot(
         pnl: null,
         clvPct: null,
         settledAt: null,
-      })
-      .onConflictDoNothing();
+      });
+    } catch (insertErr) {
+      if (!isUniqueViolation(insertErr)) throw insertErr;
+      await db
+        .update(mlTrainingExamples)
+        .set({
+          features,
+          featureVersion: ML_FEATURE_VERSION,
+        })
+        .where(
+          and(
+            eq(mlTrainingExamples.sourceBetId, betId),
+            eq(mlTrainingExamples.exampleType, "shadow_scored"),
+          ),
+        );
+    }
   } catch (err) {
-    logger.warn(tag, `Failed to write detection snapshot for ${betId}: ${(err as Error).message}`);
+    logger.warn(
+      tag,
+      `Failed to write detection snapshot for ${betId}: ${(err as Error).message}`,
+    );
   }
 }
 
@@ -218,73 +283,9 @@ export async function resolveDetectionSnapshot(
       })
       .where(eq(mlTrainingExamples.id, existing.id));
   } catch (err) {
-    logger.warn(tag, `Failed to resolve snapshot for ${betId}: ${(err as Error).message}`);
+    logger.warn(
+      tag,
+      `Failed to resolve snapshot for ${betId}: ${(err as Error).message}`,
+    );
   }
-}
-
-/**
- * Write near-miss examples from sub-threshold edges.
- *
- * Phase 9: Near-miss bets are atoms with NEAR_MISS_MIN_EV_PCT ≤ EV% < MIN_EV_PCT.
- * They're stored as lower-weight negatives to reduce survival bias —
- * the model learns what "almost good enough" looks like, not just
- * what cleared the threshold.
- *
- * Labels are set to "negative" immediately (not pending) with
- * labelSource="near_miss" and weight=0.4. The outcome is unknown at
- * collection time, but these bets weren't placed, so we label them
- * as negatives by design (they didn't meet the value threshold).
- *
- * Uses onConflictDoNothing keyed on sourceBetId to naturally rate-limit:
- * the same bet key can only produce one near-miss row. The caller
- * handles per-pass caps and cooldown timing.
- *
- * @param nearMisses - Near-miss bets with extracted features.
- * @returns Number of examples written.
- */
-export async function writeNearMissExamples(
-  nearMisses: Array<{
-    id: string;       // deterministic bet key: eventId|familyId|atomId
-    eventId: string;
-    familyId: string;
-    atomId: string;
-    features: number[];
-  }>,
-): Promise<number> {
-  let written = 0;
-
-  for (const nm of nearMisses) {
-    if (!nm.features || nm.features.length === 0) continue;
-
-    try {
-      await db
-        .insert(mlTrainingExamples)
-        .values({
-          sourceBetId: nm.id,
-          exampleType: "near_miss" as ExampleType,
-          eventId: nm.eventId,
-          familyId: nm.familyId,
-          atomId: nm.atomId,
-          features: nm.features,
-          featureVersion: ML_FEATURE_VERSION,
-          label: "negative",
-          labelSource: "near_miss",
-          sampleWeight: 0.4,
-          outcome: null,
-          pnl: null,
-          clvPct: null,
-          settledAt: null,
-        })
-        .onConflictDoNothing();
-      written++;
-    } catch (err) {
-      logger.warn(tag, `Failed to write near-miss for ${nm.id}: ${(err as Error).message}`);
-    }
-  }
-
-  if (written > 0) {
-    logger.info(tag, `Wrote ${written}/${nearMisses.length} near-miss examples`);
-  }
-
-  return written;
 }

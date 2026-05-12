@@ -8,7 +8,7 @@ import {
   queryGeniusSportsCatalog as queryVelkiCatalog,
   queryGeniusSportsOdds as queryVelkiOdds,
 } from "../betting/velki/events-client";
-import { overlayAuthenticatedLimits } from "../atoms/adapters/ninewickets-sportsbook";
+import { overlayAuthenticatedLimits, type SportsbookMarket } from "../atoms/adapters/ninewickets-sportsbook";
 
 // Unauthenticated 9W endpoint
 const NW_ENDPOINT =
@@ -73,6 +73,33 @@ interface SyncState {
   resolvedSelections?: Record<string, string>;
 }
 
+/** Minimal shape of a NormalizedEvent consumed by the sync loop. */
+interface SyncEntity {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  competition: string;
+}
+
+/** A single Genius Sports market as returned by the catalog/odds endpoints. */
+interface GeniusMarket {
+  id: string | number;
+  selectionTs?: number;
+  min?: number;
+  max?: number;
+}
+
+interface CatalogResult {
+  version?: number;
+  eventName?: string;
+  geniusSportsMarkets?: GeniusMarket[];
+}
+
+interface OddsResult {
+  version?: number;
+  geniusSportsMarkets?: GeniusMarket[];
+}
+
 export class GeniusSportsSyncService {
   private isRunning = false;
   private intervalId?: NodeJS.Timeout;
@@ -106,7 +133,10 @@ export class GeniusSportsSyncService {
   public stop() {
     this.isRunning = false;
     if (this.intervalId) clearInterval(this.intervalId);
-    if (this.busUnsubscribe) { this.busUnsubscribe(); this.busUnsubscribe = undefined; }
+    if (this.busUnsubscribe) {
+      this.busUnsubscribe();
+      this.busUnsubscribe = undefined;
+    }
 
     for (const state of this.nwStates.values()) state.isRunning = false;
     for (const state of this.velkiStates.values()) state.isRunning = false;
@@ -212,20 +242,27 @@ export class GeniusSportsSyncService {
   private async startLoop(
     providerId: "ninewickets-sportsbook" | "velki-sportsbook",
     providerEventId: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    entity: any, // NormalizedEvent
+    entity: SyncEntity,
     state: SyncState,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    catalogFn: (id: string) => Promise<any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    oddsFn: (id: string, version: number, markets: string[], tsList: number[]) => Promise<any>,
+    catalogFn: (id: string) => Promise<CatalogResult>,
+     
+    oddsFn: (
+      id: string,
+      version: number,
+      markets: string[],
+      tsList: number[],
+    ) => Promise<OddsResult>,
   ) {
     const adapter = getAtomsAdapter(providerId);
     if (!adapter) return;
 
     // Access processRawOdds from BaseAtomsAdapter
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const baseAdapter = adapter as any;
+    const baseAdapter = adapter as unknown as {
+      processRawOdds?: (
+        rawData: unknown,
+        ctx: Record<string, unknown>,
+      ) => void;
+    };
 
     // Initial catalog fetch
     try {
@@ -234,42 +271,54 @@ export class GeniusSportsSyncService {
       const allMarkets = catalog.geniusSportsMarkets || [];
       if (allMarkets.length > 0) {
         state.version = catalog.version || 0;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        state.marketIds = allMarkets.map((m: any) => String(m.id));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        state.selectionTsList = allMarkets.map((m: any) => m.selectionTs ?? -1);
+        state.marketIds = allMarkets.map((m) => String(m.id));
+        state.selectionTsList = allMarkets.map((m) => m.selectionTs ?? -1);
       }
 
-      // Pre-resolve aliases for the soft provider's own team names (if available) so that downstream 
+      // Pre-resolve aliases for the soft provider's own team names (if available) so that downstream
       // sync extraction can deterministically match them against Pinnacle's names.
       if (!state.resolvedSelections && catalog.eventName) {
-        const { parseTeamsFromEventName } = await import("../shared/team-matching");
-        const { resolveTeamSurface, resolveCompetitionSurface } = await import("../matching/entities/resolver");
-        
+        const { parseTeamsFromEventName } =
+          await import("../shared/team-matching");
+        const { resolveTeamSurface, resolveCompetitionSurface } =
+          await import("../matching/entities/resolver");
+
         const teams = parseTeamsFromEventName(catalog.eventName);
         if (teams) {
           const resolvedSelections: Record<string, string> = {};
-          
+
           let competitionId: string | null = null;
           try {
-            const compRes = await resolveCompetitionSurface({ provider: providerId, surface: entity.competition });
+            const compRes = await resolveCompetitionSurface({
+              provider: providerId,
+              surface: entity.competition,
+            });
             if (compRes) competitionId = compRes.entity.id;
           } catch {}
 
           try {
-            const homeRes = await resolveTeamSurface({ provider: providerId, surface: teams.home, competitionId });
-            if (homeRes) resolvedSelections[teams.home] = homeRes.entity.canonicalName;
+            const homeRes = await resolveTeamSurface({
+              provider: providerId,
+              surface: teams.home,
+              competitionId,
+            });
+            if (homeRes)
+              resolvedSelections[teams.home] = homeRes.entity.canonicalName;
           } catch {}
-          
+
           try {
-            const awayRes = await resolveTeamSurface({ provider: providerId, surface: teams.away, competitionId });
-            if (awayRes) resolvedSelections[teams.away] = awayRes.entity.canonicalName;
+            const awayRes = await resolveTeamSurface({
+              provider: providerId,
+              surface: teams.away,
+              competitionId,
+            });
+            if (awayRes)
+              resolvedSelections[teams.away] = awayRes.entity.canonicalName;
           } catch {}
-          
+
           state.resolvedSelections = resolvedSelections;
         }
       }
-
     } catch (err) {
       logger.error(
         "GeniusSync",
@@ -313,8 +362,7 @@ export class GeniusSportsSyncService {
           oddsData.geniusSportsMarkets.length > 0
         ) {
           // Update timestamps for next delta request
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          for (const m of oddsData.geniusSportsMarkets as any[]) {
+          for (const m of oddsData.geniusSportsMarkets) {
             const idx = state.marketIds.indexOf(String(m.id));
             if (idx !== -1 && m.selectionTs !== undefined) {
               state.selectionTsList[idx] = m.selectionTs;
@@ -329,15 +377,14 @@ export class GeniusSportsSyncService {
           ) {
             await overlayAuthenticatedLimits(
               providerEventId,
-              oddsData.geniusSportsMarkets,
+              oddsData.geniusSportsMarkets as unknown as SportsbookMarket[],
             );
             state.lastLimitsOverlayTs = now;
           } else if (providerId === "ninewickets-sportsbook") {
             // Strip guest-tier limits so we don't overwrite valid account limits
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            for (const m of oddsData.geniusSportsMarkets as any[]) {
-              delete m.min;
-              delete m.max;
+            for (const m of oddsData.geniusSportsMarkets) {
+              delete (m as unknown as Record<string, unknown>)["min"];
+              delete (m as unknown as Record<string, unknown>)["max"];
             }
           }
 

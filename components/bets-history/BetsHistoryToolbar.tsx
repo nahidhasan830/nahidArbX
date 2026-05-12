@@ -790,6 +790,9 @@ export function BetsHistoryToolbar({
     [
       "sofascore",
       "espn",
+      "api-football",
+      "ai-search-hf",
+      "ai-search-groq",
       "pinnacle-ws",
       "betconstruct",
       "football-data",
@@ -1422,7 +1425,7 @@ export function BetsHistoryToolbar({
                 <ChevronDown className="size-3 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[180px] p-1">
+            <DropdownMenuContent align="start" className="w-[200px] p-1">
               <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
                 Settle with
               </DropdownMenuLabel>
@@ -1431,6 +1434,22 @@ export function BetsHistoryToolbar({
                   key={opt.label}
                   onClick={() => onBulkSettle(opt.choice)}
                   disabled={settleRunning || resettleEligibleCount === 0}
+                  className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
+                  title={opt.hint}
+                >
+                  <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
+                  <span className="text-[12px] font-medium">{opt.label}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator className="my-1" />
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+                AI Search (free)
+              </DropdownMenuLabel>
+              {RERUN_OPTIONS.filter((o) => o.group === "ai-search").map((opt) => (
+                <DropdownMenuItem
+                  key={opt.label}
+                  onClick={() => onBulkSettle(opt.choice)}
+                  disabled={settleRunning}
                   className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
                   title={opt.hint}
                 >

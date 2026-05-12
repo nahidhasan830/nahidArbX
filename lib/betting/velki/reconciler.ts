@@ -192,7 +192,9 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
     // If the row already has a ticket id, verify it's still in the live feed.
     // The provider's bet history is the ultimate source of truth.
     if (row.providerTicketId) {
-      const stillInFeed = tickets.some(t => String(t.id) === row.providerTicketId);
+      const stillInFeed = tickets.some(
+        (t) => String(t.id) === row.providerTicketId,
+      );
       if (!stillInFeed) {
         const placedMs = Date.parse(row.placedAt as string);
         if (nowMs - placedMs > ORPHAN_PENDING_TTL_MS) {

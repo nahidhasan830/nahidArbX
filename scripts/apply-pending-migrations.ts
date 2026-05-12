@@ -46,6 +46,13 @@ const MIGRATIONS = [
   "0050_ml_deployment_gate.sql",
   "0051_drop_legacy_optimizer_tables.sql",
   "0052_ml_scheduler_settings.sql",
+  "0053_ml_schema_truth.sql",
+  "0054_drop_shadow_decisions.sql",
+  "0055_betting_settings_market_phases.sql",
+  "0056_match_scores_bookings.sql",
+  "0057_name_obs_outcome_check.sql",
+  "0058_purge_near_miss.sql",
+  "0059_ml_champion_columns.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -212,10 +219,10 @@ async function main() {
       expect: 1,
     },
     {
-      what: "shadow_decisions table",
+      what: "shadow_decisions table dropped (Phase 6)",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
               WHERE table_schema = 'public' AND table_name = 'shadow_decisions'`,
-      expect: 1,
+      expect: 0,
     },
     {
       what: "ml_training_examples table",
@@ -227,6 +234,76 @@ async function main() {
       what: "ml_scheduler_settings table",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
               WHERE table_schema = 'public' AND table_name = 'ml_scheduler_settings'`,
+      expect: 1,
+    },
+    // Phase 1 — Schema & Migration Truth
+    {
+      what: "ml_models.onnx_blob column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'onnx_blob'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.notified_at column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'notified_at'`,
+      expect: 1,
+    },
+    {
+      what: "ml_model_version_seq sequence",
+      sql: `SELECT count(*)::int AS n FROM pg_class
+              WHERE relname = 'ml_model_version_seq' AND relkind = 'S'`,
+      expect: 1,
+    },
+    {
+      what: "ml_training_examples bet_type unique index",
+      sql: `SELECT count(*)::int AS n FROM pg_indexes
+              WHERE tablename = 'ml_training_examples'
+                AND indexname = 'ml_training_examples_bet_type_uq'`,
+      expect: 1,
+    },
+    {
+      what: "ml_training_examples selection_type unique index",
+      sql: `SELECT count(*)::int AS n FROM pg_indexes
+              WHERE tablename = 'ml_training_examples'
+                AND indexname = 'ml_training_examples_selection_type_uq'`,
+      expect: 1,
+    },
+    {
+      what: "betting_settings.value_detection_phases column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'betting_settings'
+                AND column_name = 'value_detection_phases'`,
+      expect: 1,
+    },
+    {
+      what: "betting_settings.bet_placement_phases column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'betting_settings'
+                AND column_name = 'bet_placement_phases'`,
+      expect: 1,
+    },
+    {
+      what: "match_scores.bookings_home column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'match_scores'
+                AND column_name = 'bookings_home'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.is_champion column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'is_champion'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.champion_psr column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'champion_psr'`,
       expect: 1,
     },
   ];

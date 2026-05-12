@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Crown,
   ExternalLink,
+  Globe,
   Info,
   Gavel,
   Loader2,
@@ -97,34 +98,53 @@ const marketLabel = (row: ValueBetRow) => {
 
 /**
  * Options the user can pick when re-running a single proposal. The
- * "default" option runs the free waterfall again (bypassing cache so
- * the source can actually change); the AI tiers skip the free tiers
- * and go straight to Gemini.
+ * "default" option runs the full free waterfall again (bypassing cache
+ * so the source can actually change); the "ai-search" options force
+ * a specific LLM engine (Groq/HuggingFace) for web-grounded score lookup;
+ * the "ai" options exist as UI labels but all route through the same
+ * free waterfall (Gemini is not in the pipeline).
  */
 export type RerunChoice =
   | { kind: "default" }
-  | { kind: "ai"; model: ModelTier };
+  | { kind: "ai"; model: ModelTier }
+  | { kind: "ai-search"; engine: "groq" | "huggingface" };
 
 export const RERUN_OPTIONS: {
   choice: RerunChoice;
   label: string;
   hint: string;
-  group: "default" | "ai";
+  group: "default" | "ai" | "ai-search";
   icon: React.ComponentType<{ className?: string }>;
   accent?: string;
 }[] = [
   {
     choice: { kind: "default" },
     label: "Default pipeline",
-    hint: "Bypasses cache → ESPN → SofaScore (no AI)",
+    hint: "Full waterfall: Cache → Live → ESPN → API-Football → SofaScore → HF+Search",
     group: "default",
     icon: Workflow,
     accent: "text-emerald-400",
   },
   {
+    choice: { kind: "ai-search", engine: "huggingface" },
+    label: "HuggingFace + Search",
+    hint: "Free AI — HF Router LLM + web search grounding (primary)",
+    group: "ai-search",
+    icon: Globe,
+    accent: "text-orange-400",
+  },
+  {
+    choice: { kind: "ai-search", engine: "groq" },
+    label: "Groq + Search",
+    hint: "Free AI — Groq LLM + web search grounding (fallback)",
+    group: "ai-search",
+    icon: Globe,
+    accent: "text-cyan-400",
+  },
+  {
     choice: { kind: "ai", model: "lite" },
     label: "Lite",
-    hint: "Cheapest AI — default model",
+    hint: "Runs the free waterfall (HF+Search)",
     group: "ai",
     icon: Zap,
     accent: "text-blue-400",
@@ -132,7 +152,7 @@ export const RERUN_OPTIONS: {
   {
     choice: { kind: "ai", model: "flash" },
     label: "Flash",
-    hint: "Balanced — if Lite looks shaky",
+    hint: "Runs the free waterfall (HF+Search)",
     group: "ai",
     icon: Sparkles,
     accent: "text-violet-400",
@@ -140,7 +160,7 @@ export const RERUN_OPTIONS: {
   {
     choice: { kind: "ai", model: "pro" },
     label: "Pro",
-    hint: "Most capable — use for stuck rows",
+    hint: "Runs the free waterfall (HF+Search)",
     group: "ai",
     icon: Crown,
     accent: "text-amber-400",
@@ -158,20 +178,25 @@ const sourceLabel = (source: string | null): string => {
     "pinnacle-settled": "Pinnacle",
     betconstruct: "BetConstruct",
     espn: "ESPN",
+    "api-football": "API-Football",
     sofascore: "SofaScore",
     openligadb: "OpenLigaDB",
     "football-data": "football-data",
-    "url-context": "Gemini url_context",
-    "gemini-batch": "Gemini Batch",
+    "ai-search-hf": "HuggingFace + Search",
+    "ai-search-groq": "Groq + Search",
+    "url-context": "Legacy AI",
+    "gemini-batch": "Legacy AI",
     "legacy-ai": "Legacy AI",
     manual: "Manual",
   };
   return map[source] ?? source;
 };
 
-/** Visual pill for the tier — cheap/free sources look different from AI. */
+/** Visual pill for the tier — free structured sources vs AI-grounded vs legacy. */
 const sourceBadgeClass = (source: string | null): string => {
   if (!source) return "bg-muted/40 text-muted-foreground border-muted";
+  if (source === "ai-search-hf" || source === "ai-search-groq")
+    return "bg-cyan-600/20 text-cyan-400 border-cyan-800";
   if (
     source === "url-context" ||
     source === "gemini-batch" ||
@@ -278,8 +303,8 @@ export function AiSettleDialog({
             <DialogTitle>Settlement review</DialogTitle>
             <DialogDescription>
               {candidateRows.length} bet{candidateRows.length === 1 ? "" : "s"}{" "}
-              settled through the waterfall (cache → live feed → ESPN →
-              SofaScore → optional AI). Unresolved rows can be manually verified
+              settled through the waterfall (cache → ESPN → API-Football →
+              SofaScore → HF+Search). Unresolved rows can be manually verified
               via the Google AI Mode link beside each event.
             </DialogDescription>
           </DialogHeader>
@@ -651,7 +676,7 @@ export function RerunButton({
   onRerun: (id: string, choice: RerunChoice) => void;
 }) {
   const rerunKey = (c: RerunChoice) =>
-    c.kind === "default" ? "default" : `ai-${c.model}`;
+    c.kind === "default" ? "default" : c.kind === "ai-search" ? `search-${c.engine}` : `ai-${c.model}`;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -673,11 +698,26 @@ export function RerunButton({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[180px] p-1">
+      <DropdownMenuContent align="end" className="w-[200px] p-1">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
           Settle with
         </DropdownMenuLabel>
         {RERUN_OPTIONS.filter((o) => o.group === "default").map((opt) => (
+          <DropdownMenuItem
+            key={rerunKey(opt.choice)}
+            onSelect={() => onRerun(id, opt.choice)}
+            className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
+            title={opt.hint}
+          >
+            <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
+            <span className="text-[12px] font-medium">{opt.label}</span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator className="my-1" />
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+          AI Search (free)
+        </DropdownMenuLabel>
+        {RERUN_OPTIONS.filter((o) => o.group === "ai-search").map((opt) => (
           <DropdownMenuItem
             key={rerunKey(opt.choice)}
             onSelect={() => onRerun(id, opt.choice)}

@@ -17,7 +17,6 @@ import { getGeoLocation, parseDeviceInfo } from "@/lib/auth/geo";
 import { SetupPasswordSchema } from "@/lib/auth/schemas";
 import { initializeAuth } from "@/lib/auth/bootstrap";
 import {
-  apiSuccess,
   apiError,
   apiBadRequest,
   apiServerError,

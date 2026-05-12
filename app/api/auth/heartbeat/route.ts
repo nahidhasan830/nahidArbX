@@ -7,7 +7,7 @@
 
 import { cookies } from "next/headers";
 import { validateSession } from "@/lib/auth/session";
-import { db, users, sessions } from "@/lib/auth/db";
+import { db, users } from "@/lib/auth/db";
 import { eq } from "drizzle-orm";
 import { apiSuccess, apiError } from "@/lib/shared/api-response";
 

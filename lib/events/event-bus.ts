@@ -51,7 +51,15 @@ export interface MLTrainingUpdate {
   /** Model version being trained. */
   version: number;
   /** Current phase: started → loading → training → validating → exporting → completed | failed | rejected */
-  phase: "started" | "loading" | "training" | "validating" | "exporting" | "completed" | "failed" | "rejected";
+  phase:
+    | "started"
+    | "loading"
+    | "training"
+    | "validating"
+    | "exporting"
+    | "completed"
+    | "failed"
+    | "rejected";
   /** Human-readable message for the current phase. */
   message: string;
   /** Optional progress percentage [0–100] within the current phase. */

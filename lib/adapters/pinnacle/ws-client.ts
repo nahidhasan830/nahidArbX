@@ -5,7 +5,6 @@ import { parsePinnacleWsMessage } from "./ws-parser";
 import { setOddsBatch } from "../../atoms/store";
 import { singleton } from "@/lib/util/singleton";
 
-
 Object.assign(global, { WebSocket });
 
 interface SubscriptionContext {
@@ -30,16 +29,19 @@ export class PinnacleWsClient {
       // debug: (str) => {
       //   logger.debug("PinnacleWs", str);
       // },
-      onConnect: (frame) => {
+      onConnect: (_frame) => {
         logger.info("PinnacleWs", "Connected to STOMP server");
         this.isConnected = true;
         this.resubscribeAll();
       },
       onStompError: (frame) => {
-        logger.error("PinnacleWs", `Broker reported error: ${frame.headers["message"]}`);
+        logger.error(
+          "PinnacleWs",
+          `Broker reported error: ${frame.headers["message"]}`,
+        );
         logger.error("PinnacleWs", `Additional details: ${frame.body}`);
       },
-      onWebSocketError: (event) => {
+      onWebSocketError: (_event) => {
         logger.error("PinnacleWs", "WebSocket Error occurred");
       },
       onWebSocketClose: () => {
@@ -53,10 +55,10 @@ export class PinnacleWsClient {
     if (this.token !== token) {
       this.token = token;
       logger.info("PinnacleWs", "Token updated, reconnecting STOMP client...");
-      
+
       this.client.connectHeaders = {
         authorization: `Bearer ${this.token}`,
-        "accept-version": "1.2,1.1,1.0"
+        "accept-version": "1.2,1.1,1.0",
       };
 
       if (this.client.active) {
@@ -101,23 +103,26 @@ export class PinnacleWsClient {
     if (!this.isConnected || !this.client.active) return;
 
     const dest = `/market/decimal/${ctx.providerEventId}/A`;
-    
+
     ctx.stompSub = this.client.subscribe(dest, (message) => {
       const body = message.body;
       const entries = parsePinnacleWsMessage(
         dest,
         body,
         ctx.providerEventId,
-        ctx.normalizedEventId
+        ctx.normalizedEventId,
       );
 
       if (entries.length > 0) {
         // Feed directly into atoms store!
         setOddsBatch(entries);
-        logger.info("PinnacleWs", `Processed ${entries.length} live odds updates for ${ctx.providerEventId}`);
+        logger.info(
+          "PinnacleWs",
+          `Processed ${entries.length} live odds updates for ${ctx.providerEventId}`,
+        );
       }
     });
-    
+
     logger.info("PinnacleWs", `Subscribed to ${dest}`);
   }
 

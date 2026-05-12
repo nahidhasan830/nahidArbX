@@ -259,13 +259,18 @@ def whites_reality_check_pvalue(
 
 # ── Score Bucket Analysis (Phase 6) ────────────────────────────────────────
 #
-# Evaluate whether higher ML scores produce better ROI/CLV. A model is only
-# useful if score buckets are directionally monotonic: higher score → better
-# financial outcome.
+# Evaluate whether higher ML edge scores produce better ROI/CLV. A model is
+# only useful if score buckets are directionally monotonic: higher modeled edge
+# should produce better financial outcomes.
+#
+# Uses quantile-based (equal-count) buckets instead of fixed edges. Fixed
+# edges like [<0.4, 0.4-0.5, ...] create wildly imbalanced groups (e.g.,
+# <0.4 gets 45% of samples vs >0.8 gets 4%). A few big-odds longshot wins
+# in the giant low-score bucket inflate its ROI, breaking monotonicity even
+# when the model correctly ranks P(win). Equal-count buckets give each group
+# ~n/N_QUANTILE_BUCKETS samples, making ROI comparisons statistically fair.
 
-# Bucket edges per the plan: <0.4, 0.4-0.5, 0.5-0.6, 0.6-0.7, 0.7-0.8, >0.8
-SCORE_BUCKET_EDGES: list[float] = [0.0, 0.4, 0.5, 0.6, 0.7, 0.8, 1.01]
-SCORE_BUCKET_LABELS: list[str] = ["<0.4", "0.4-0.5", "0.5-0.6", "0.6-0.7", "0.7-0.8", ">0.8"]
+N_QUANTILE_BUCKETS = 6  # Number of equal-count score buckets
 
 
 @dataclass
@@ -291,7 +296,7 @@ class ScoreBucketReport:
     roi_monotonicity: float     # 0..1 — fraction of adjacent pairs where higher bucket has higher ROI
     clv_monotonicity: float     # 0..1 — same for CLV
     win_rate_monotonicity: float  # 0..1 — same for win rate
-    is_directionally_monotonic: bool  # True if roi_monotonicity >= 0.6
+    is_directionally_monotonic: bool  # True if profit monotonicity >= 0.6
 
 
 def score_bucket_analysis(
@@ -299,28 +304,60 @@ def score_bucket_analysis(
     labels: np.ndarray,
     pnl: np.ndarray,
     clv_pct: np.ndarray | None = None,
+    *,
+    n_buckets: int = N_QUANTILE_BUCKETS,
 ) -> ScoreBucketReport:
     """Compute per-bucket ROI, CLV, win rate and monotonicity.
+
+    Uses quantile-based (equal-count) buckets so each group has roughly
+    the same number of samples. This prevents large catch-all buckets
+    from dominating the monotonicity calculation.
 
     Args:
         scores: P(positive) predictions, shape (n,)
         labels: binary labels {0, 1}, shape (n,)
         pnl: per-sample PnL, shape (n,)
         clv_pct: per-sample CLV%, shape (n,) or None
+        n_buckets: number of equal-count quantile buckets
     """
     n = len(scores)
-    edges = SCORE_BUCKET_EDGES
-    bucket_labels = SCORE_BUCKET_LABELS
+    if n < n_buckets:
+        n_buckets = max(n, 2)
+
+    # Compute quantile edges for equal-count buckets. The scoring axis may be
+    # a calibrated probability [0, 1] or a policy edge in percentage points,
+    # so do not clamp edges to probability bounds.
+    percentiles = np.linspace(0, 100, n_buckets + 1)
+    edges = np.percentile(scores, percentiles)
+    span = float(np.nanmax(scores) - np.nanmin(scores)) if n > 0 else 0.0
+    eps = max(abs(span) * 1e-9, 1e-9)
+    # Ensure first edge is below min and last above max.
+    edges[0] = edges[0] - eps
+    edges[-1] = edges[-1] + eps
+    # Remove duplicate edges (can happen with low score variance)
+    unique_edges = list(dict.fromkeys(edges))  # preserves order, removes dups
+    if len(unique_edges) < 3:
+        # Fallback: not enough unique scores to form meaningful buckets
+        unique_edges = [0.0, 0.5, 1.01]
+    edges = unique_edges
 
     buckets: list[ScoreBucket] = []
     for i in range(len(edges) - 1):
         lo, hi = edges[i], edges[i + 1]
-        mask = (scores >= lo) & (scores < hi)
+        if i < len(edges) - 2:
+            mask = (scores >= lo) & (scores < hi)
+        else:
+            # Last bucket is inclusive on the right to catch max score
+            mask = (scores >= lo) & (scores <= hi)
         cnt = int(mask.sum())
+
+        label = f"Q{i+1} [{lo:.2f}-{hi:.2f})"
+        if i == len(edges) - 2:
+            label = f"Q{i+1} [{lo:.2f}-{hi:.2f}]"
 
         if cnt == 0:
             buckets.append(ScoreBucket(
-                label=bucket_labels[i], low=lo, high=hi,
+                label=label, low=lo, high=hi,
                 count=0, n_positive=0, n_negative=0,
                 win_rate=0.0, mean_pnl=0.0, roi_pct=0.0,
                 mean_clv_pct=float("nan"), mean_score=0.0,
@@ -341,7 +378,7 @@ def score_bucket_analysis(
                 mean_clv = float(finite_clv.mean())
 
         buckets.append(ScoreBucket(
-            label=bucket_labels[i], low=lo, high=hi,
+            label=label, low=lo, high=hi,
             count=cnt, n_positive=n_pos, n_negative=n_neg,
             win_rate=round(n_pos / cnt, 4) if cnt > 0 else 0.0,
             mean_pnl=round(float(b_pnl.mean()), 4),
@@ -357,12 +394,22 @@ def score_bucket_analysis(
     )
     wr_mono = _monotonicity([b.win_rate for b in buckets], [b.count for b in buckets])
 
+    # Profit monotonicity: average ROI and CLV when CLV is available. Win rate
+    # is still reported, but it is not a profit objective: a higher-edge bucket
+    # can legitimately contain longer odds with lower hit rate and higher ROI.
+    finite_clv_buckets = sum(1 for b in buckets if np.isfinite(b.mean_clv_pct))
+    profit_mono = (
+        (roi_mono + clv_mono) / 2.0
+        if finite_clv_buckets >= 2
+        else roi_mono
+    )
+
     return ScoreBucketReport(
         buckets=buckets,
         roi_monotonicity=round(roi_mono, 4),
         clv_monotonicity=round(clv_mono, 4),
         win_rate_monotonicity=round(wr_mono, 4),
-        is_directionally_monotonic=roi_mono >= 0.6,
+        is_directionally_monotonic=profit_mono >= 0.6,
     )
 
 

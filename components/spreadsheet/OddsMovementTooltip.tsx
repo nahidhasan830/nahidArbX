@@ -62,7 +62,6 @@ export function OddsMovementTooltipContent({
   // so a ~1s lag is acceptable.
   const [now] = useState(() => Date.now());
 
-
   if (m.totalTicks < 2 || m.sparkline.length < 2) {
     return (
       <div className="px-3 py-2 text-xs text-muted-foreground">
@@ -76,9 +75,7 @@ export function OddsMovementTooltipContent({
   const last = currentOdds ?? m.sparkline[m.sparkline.length - 1][1];
   const changePct =
     m.changePct ??
-    (first !== 0
-      ? Math.round(((last - first) / first) * 10000) / 100
-      : 0);
+    (first !== 0 ? Math.round(((last - first) / first) * 10000) / 100 : 0);
 
   const isUp = changePct > 0.01;
   const isDown = changePct < -0.01;
@@ -109,13 +106,16 @@ export function OddsMovementTooltipContent({
     <div className="flex flex-col w-[220px]">
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-        <span className="text-[11px] font-medium text-foreground">
-          {label}
-        </span>
+        <span className="text-[11px] font-medium text-foreground">{label}</span>
         <span
           className={`text-[11px] font-mono font-semibold tabular-nums ${dirColor}`}
         >
-          {dirArrow && <span className="text-[9px] mr-0.5 inline-block -translate-y-px">{dirArrow}</span>} {changePct > 0 ? "+" : ""}
+          {dirArrow && (
+            <span className="text-[9px] mr-0.5 inline-block -translate-y-px">
+              {dirArrow}
+            </span>
+          )}{" "}
+          {changePct > 0 ? "+" : ""}
           {changePct.toFixed(2)}%
         </span>
       </div>
@@ -149,18 +149,22 @@ export function OddsMovementTooltipContent({
         </div>
 
         {/* Sharp reference context line */}
-        {sharpRef && sharpRef.sparkline.length >= 2 && (() => {
-          const sFirst = sharpRef.sparkline[0][1];
-          const sLast = sharpRef.sparkline[sharpRef.sparkline.length - 1][1];
-          return (
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">{sharpRef.label} ref</span>
-              <span className="font-mono tabular-nums text-muted-foreground/80">
-                {sFirst.toFixed(2)} → {sLast.toFixed(2)}
-              </span>
-            </div>
-          );
-        })()}
+        {sharpRef &&
+          sharpRef.sparkline.length >= 2 &&
+          (() => {
+            const sFirst = sharpRef.sparkline[0][1];
+            const sLast = sharpRef.sparkline[sharpRef.sparkline.length - 1][1];
+            return (
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground">
+                  {sharpRef.label} ref
+                </span>
+                <span className="font-mono tabular-nums text-muted-foreground/80">
+                  {sFirst.toFixed(2)} → {sLast.toFixed(2)}
+                </span>
+              </div>
+            );
+          })()}
 
         {/* Ticks + freshness (live) */}
         {(m.totalTicks > 0 || ageLabel) && (
@@ -184,8 +188,8 @@ export function OddsMovementTooltipContent({
             <span>🔥</span>
             <span>
               Steam {m.steamMove.direction === "up" ? "↑" : "↓"}{" "}
-              {m.steamMove.magnitudePct.toFixed(1)}% (
-              {m.steamMove.significance})
+              {m.steamMove.magnitudePct.toFixed(1)}% ({m.steamMove.significance}
+              )
             </span>
           </div>
         )}

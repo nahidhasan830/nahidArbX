@@ -112,11 +112,6 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Sparkles,
       },
       {
-        href: "/lab/shadow-mode",
-        label: "Shadow Mode",
-        icon: LineChart,
-      },
-      {
         href: "/ai-search",
         label: "AI Search",
         icon: Search,
@@ -415,14 +410,22 @@ export function AppShell({
                 })}
               </TabsList>
             </div>
-            <div className={edgeToEdge ? "flex flex-col flex-1 min-h-0 overflow-hidden" : "p-4"}>
+            <div
+              className={
+                edgeToEdge
+                  ? "flex flex-col flex-1 min-h-0 overflow-hidden"
+                  : "p-4"
+              }
+            >
               {children}
             </div>
           </Tabs>
         ) : (
           <div
             className={
-              edgeToEdge ? "flex flex-col flex-1 min-h-0 overflow-hidden" : "p-4"
+              edgeToEdge
+                ? "flex flex-col flex-1 min-h-0 overflow-hidden"
+                : "p-4"
             }
           >
             {children}

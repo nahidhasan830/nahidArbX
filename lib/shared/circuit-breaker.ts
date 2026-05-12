@@ -47,8 +47,9 @@ export interface CircuitBreakerStats {
 const PROVIDER_TIMEOUTS: Record<string, number> = {
   pinnacle: 30_000,
   betconstruct: 15_000,
-  "ninewickets-exchange": 15_000,
-  "ninewickets-sportsbook": 15_000,
+  "ninewickets-exchange": 60_000,
+  "ninewickets-sportsbook": 60_000,
+  "velki-sportsbook": 60_000,
 };
 
 const DEFAULT_TIMEOUT = 15_000;

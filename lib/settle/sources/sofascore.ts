@@ -1,57 +1,38 @@
 /**
- * Tier 2c — SofaScore unofficial API.
+ * Tier 2c — SofaScore unofficial API (curl_cffi TLS impersonation).
  *
  * Covers essentially every global football league with both HT and FT
  * scores cleanly. Used as the last free tier before the AI kill switch
- * — ESPN + football-data run first because they're ToS-safe.
+ * — ESPN + API-Football run first because they're ToS-safe.
  *
- * Risks, accepted deliberately:
- *   - Unofficial API, subject to change without notice.
- *   - Cloudflare bot-protected. Cloud-provider IPs (Vercel, AWS) often
- *     get 403s; residential IPs and rate-limited traffic usually pass.
- *   - Gray-area ToS. Fine for one-time backlog settlement; if this
- *     becomes a hot path in production, revisit.
+ * Transport: Python curl_cffi subprocess (see ./sofascore-browser.ts).
+ * SofaScore blocks all non-browser TLS fingerprints via Cloudflare, but
+ * curl_cffi uses curl-impersonate with Chrome's BoringSSL cipher suite
+ * to produce an identical JA3 fingerprint. No browser needed.
  *
  * Strategy: one GET per kickoff-date to
- *     api.sofascore.com/api/v1/sport/football/scheduled-events/{YYYY-MM-DD}
+ *     /api/v1/sport/football/scheduled-events/{YYYY-MM-DD}
  *   (lists every finished match globally for that date — a single call
  *   covers hundreds of matches), then fuzzy-match our events against it
  *   by team names + kickoff window. No per-event lookup needed.
+ *
+ * Cost: $0 — no API key, no proxy credits, no browser, no external services.
  */
 
-import axios, { type AxiosRequestConfig } from "axios";
 import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
 import type { SettleEvent } from "../waterfall";
 import type { MatchScore } from "../types";
 import { logger } from "../../shared/logger";
 import { applyTeamAlias, learnTeamAlias } from "../aliases";
 import { singleton } from "../../util/singleton";
+import { fetchViaBrowser } from "./sofascore-browser";
 import {
-  fetchViaScrapeDoProxy,
-  isDirectOnCooldown,
-  isProxyAvailable,
-  reportDirect403,
-} from "./scrapedo-proxy";
+  verifySettlementMatch,
+  AI_MAYBE_FLOOR,
+} from "./ai-match";
 
-const BASE_URL = "https://api.sofascore.com/api/v1";
 const MATCH_SCORE_THRESHOLD = 0.65;
 const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers timezone skew + leagues where kickoff times differ between providers
-const HTTP_TIMEOUT_MS = 15_000;
-
-/**
- * Browser-ish headers defeat the laziest of Cloudflare's fingerprinters.
- * When the direct request still 403s (Cloud Run IPs hit the adaptive
- * bot-score cap after a few hundred requests), `fetchSofaUrl` transparently
- * retries via Scrape.do's free API proxy in `./scrapedo-proxy`.
- */
-const BROWSER_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-  Accept: "application/json, text/plain, */*",
-  "Accept-Language": "en-US,en;q=0.9",
-  Referer: "https://www.sofascore.com/",
-  Origin: "https://www.sofascore.com",
-};
 
 // ─── Response shapes (SofaScore ships ~60 fields per event; we need ~6) ─────
 
@@ -218,23 +199,16 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
     return cached.events;
   }
 
-  // Query both the default scheduled-events endpoint AND the `inverse`
-  // variant (which includes additional matches not in the primary list,
-  // e.g. late-added fixtures / niche competitions SofaScore sometimes
-  // hides behind the inverse flag).
-  const urls = [
-    `${BASE_URL}/sport/football/scheduled-events/${date}`,
-    `${BASE_URL}/sport/football/scheduled-events/${date}/inverse`,
-  ];
+  // Single call to the scheduled-events endpoint. The `inverse` variant was
+  // dropped because it returns ALL sports (35+ MB, 10k events) — far too large
+  // for subprocess transport. The regular endpoint already returns all football
+  // matches for the date (800+ on busy days) which covers our settlement needs.
+  const path = `/api/v1/sport/football/scheduled-events/${date}`;
   const collected: SofaEvent[] = [];
-  const seenIds = new Set<number>();
 
-  for (const url of urls) {
-    const events = await fetchSofaUrl<SofaScheduled>(url);
-    if (!events) continue;
-    for (const e of events.events ?? []) {
-      if (seenIds.has(e.id)) continue;
-      seenIds.add(e.id);
+  const data = await fetchViaBrowser<SofaScheduled>(path);
+  if (data) {
+    for (const e of data.events ?? []) {
       collected.push(e);
     }
   }
@@ -243,74 +217,13 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
   return collected;
 };
 
-/**
- * GET a SofaScore URL with Scrape.do API fallback on Cloudflare 403.
- *
- * Strategy:
- *   1. If direct isn't on a recent-403 cooldown, try direct.
- *   2. On direct 403 (or if direct is on cooldown), try via Scrape.do.
- *   3. All other errors (404, timeout, etc.) return null without burning
- *      a credit — they're not Cloudflare blocks.
- *
- * Returns `null` on non-recoverable failure; the shape of a successful
- * response depends on the caller (SofaScheduled vs SofaStatsResponse).
- */
-async function fetchSofaUrl<T>(url: string): Promise<T | null> {
-  const baseCfg: AxiosRequestConfig = {
-    headers: BROWSER_HEADERS,
-    timeout: HTTP_TIMEOUT_MS,
-  };
 
-  // 1) Direct (unless recently 403'd)
-  if (!isDirectOnCooldown()) {
-    try {
-      const { data } = await axios.get<T>(url, baseCfg);
-      return data;
-    } catch (err) {
-      const status = (err as { response?: { status?: number } }).response
-        ?.status;
-      if (status === 403) {
-        reportDirect403();
-        logger.warn(
-          "SofaScoreSource",
-          `403 direct for ${url} — falling back to Scrape.do proxy.`,
-        );
-        // fall through to proxy attempt
-      } else if (status === 404) {
-        return null;
-      } else {
-        logger.warn(
-          "SofaScoreSource",
-          `GET ${url} failed: ${(err as Error).message}`,
-        );
-        return null;
-      }
-    }
-  }
-
-  // 2) Scrape.do API fallback — single attempt
-  if (!isProxyAvailable()) {
-    logger.warn(
-      "SofaScoreSource",
-      `Scrape.do monthly limit reached — cannot retry ${url}.`,
-    );
-    return null;
-  }
-
-  const data = await fetchViaScrapeDoProxy<T>(url, HTTP_TIMEOUT_MS + 15_000);
-  if (data) {
-    logger.info(
-      "SofaScoreSource",
-      `Resolved via Scrape.do proxy for ${url}.`,
-    );
-  }
-  return data;
-}
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
 
 /**
- * Statistics payload shape — we only care about the corner-kicks row.
+ * Statistics payload shape — we care about cornerKicks, yellowCards,
+ * and redCards rows.
  */
 interface SofaStatGroup {
   statisticsItems?: {
@@ -324,30 +237,69 @@ interface SofaStatsResponse {
   statistics?: { groups?: SofaStatGroup[] }[];
 }
 
+/** Extracted match statistics from SofaScore's /event/{id}/statistics. */
+interface EventStats {
+  corners?: { home: number; away: number };
+  /**
+   * Booking points per team (Pinnacle convention):
+   * 1 pt per yellow card + 2 pts per red card.
+   */
+  bookings?: { home: number; away: number };
+}
+
 /**
- * Best-effort per-event corner fetch. SofaScore's statistics response is
- * grouped by category; we flatten to find `cornerKicks` only. Silent
- * null-return on 403/404 so corners are treated as unavailable rather
- * than blocking settlement.
+ * Best-effort per-event statistics fetch. SofaScore's statistics response
+ * is grouped by category; we flatten to find `cornerKicks`, `yellowCards`,
+ * and `redCards`. Silent null-return on 403/404 so stats are treated as
+ * unavailable rather than blocking settlement.
  */
-const fetchEventCorners = async (
+const fetchEventStats = async (
   sofaEventId: number,
-): Promise<{ home: number; away: number } | null> => {
-  const data = await fetchSofaUrl<SofaStatsResponse>(
-    `${BASE_URL}/event/${sofaEventId}/statistics`,
+): Promise<EventStats | null> => {
+  const data = await fetchViaBrowser<SofaStatsResponse>(
+    `/api/v1/event/${sofaEventId}/statistics`,
   );
   if (!data) return null;
+
+  let cornersHome: number | null = null;
+  let cornersAway: number | null = null;
+  let yellowHome: number | null = null;
+  let yellowAway: number | null = null;
+  let redHome: number | null = null;
+  let redAway: number | null = null;
+
   for (const period of data.statistics ?? []) {
     for (const g of period.groups ?? []) {
       for (const item of g.statisticsItems ?? []) {
-        if (item.key === "cornerKicks") {
-          if (item.homeValue == null || item.awayValue == null) return null;
-          return { home: item.homeValue, away: item.awayValue };
+        if (item.key === "cornerKicks" && item.homeValue != null && item.awayValue != null) {
+          cornersHome = item.homeValue;
+          cornersAway = item.awayValue;
+        }
+        if (item.key === "yellowCards" && item.homeValue != null && item.awayValue != null) {
+          yellowHome = item.homeValue;
+          yellowAway = item.awayValue;
+        }
+        if (item.key === "redCards" && item.homeValue != null && item.awayValue != null) {
+          redHome = item.homeValue;
+          redAway = item.awayValue;
         }
       }
     }
   }
-  return null;
+
+  const result: EventStats = {};
+  if (cornersHome != null && cornersAway != null) {
+    result.corners = { home: cornersHome, away: cornersAway };
+  }
+  // Booking points: 1 per yellow + 2 per red (Pinnacle convention).
+  // If we have yellows, assume 0 reds when reds aren't reported.
+  if (yellowHome != null && yellowAway != null) {
+    result.bookings = {
+      home: yellowHome + 2 * (redHome ?? 0),
+      away: yellowAway + 2 * (redAway ?? 0),
+    };
+  }
+  return Object.keys(result).length > 0 ? result : null;
 };
 
 /**
@@ -355,13 +307,13 @@ const fetchEventCorners = async (
  * fetches one scheduled-events/{date} payload per unique date, then
  * fuzzy-matches our events against the returned catalog.
  *
- * Pass `withCorners: true` to also fetch per-event corner stats. That's
- * an extra HTTP call per resolved event; only turn it on when the
- * batch actually contains a CORNERS market bet.
+ * Pass `withCorners: true` to also fetch per-event corner stats.
+ * Pass `withBookings: true` to also fetch per-event card (booking) stats.
+ * Both share a single HTTP call per resolved event via `fetchEventStats`.
  */
 export async function fetchSofaScoreScores(
   events: SettleEvent[],
-  opts: { withCorners?: boolean } = {},
+  opts: { withCorners?: boolean; withBookings?: boolean } = {},
 ): Promise<Map<string, MatchScore>> {
   const out = new Map<string, MatchScore>();
   if (events.length === 0) return out;
@@ -413,13 +365,33 @@ export async function fetchSofaScoreScores(
         ),
       );
       const combined = (homeSim + awaySim) / 2;
-      if (combined < MATCH_SCORE_THRESHOLD) continue;
+      if (combined < AI_MAYBE_FLOOR) continue; // Too different even for AI
 
       if (!best || combined > best.score)
         best = { event: theirs, score: combined };
     }
 
     if (!best) continue;
+
+    // If the best match is below the deterministic threshold, ask AI
+    if (best.score < MATCH_SCORE_THRESHOLD) {
+      const aiResult = await verifySettlementMatch({
+        ourHomeTeam: ours.homeTeam,
+        ourAwayTeam: ours.awayTeam,
+        ourCompetition: ours.competition,
+        ourStartTime: ours.startTime,
+        theirHomeTeam: best.event.homeTeam.name,
+        theirAwayTeam: best.event.awayTeam.name,
+        theirStartTime: new Date(
+          best.event.startTimestamp * 1000,
+        ).toISOString(),
+        fuzzySimilarity: best.score,
+        sourceProvider: "sofascore",
+      });
+
+      if (!aiResult?.confirmed) continue;
+      best.score = Math.max(best.score, 0.85);
+    }
 
     const status = mapStatus(best.event.status);
     if (!status) continue;
@@ -487,29 +459,39 @@ export async function fetchSofaScoreScores(
     }
   }
 
-  // Optional second pass: per-event corner fetch. Only runs when the
-  // caller explicitly opted in (via `withCorners`), since it's one
-  // extra HTTP call per resolved event.
-  if (opts.withCorners) {
+  // Optional second pass: per-event statistics fetch (corners and/or bookings).
+  // Both stats come from the same /event/{id}/statistics endpoint, so one
+  // HTTP call serves both needs — we only fire this pass when at least one
+  // stat type was requested.
+  const needsStats = opts.withCorners || opts.withBookings;
+  if (needsStats) {
     for (const [eventId, score] of out) {
       // Score currently lacks an embedded sofa id; recover it from the URL.
       const m = score.sourceUrl?.match(/\/event\/(\d+)/);
       if (!m) continue;
       const sofaId = Number.parseInt(m[1], 10);
-      const corners = await fetchEventCorners(sofaId);
+      const stats = await fetchEventStats(sofaId);
       await new Promise((r) => setTimeout(r, 350));
-      if (corners) {
-        score.cornersHome = corners.home;
-        score.cornersAway = corners.away;
-        out.set(eventId, score);
+      if (!stats) continue;
+      if (opts.withCorners && stats.corners) {
+        score.cornersHome = stats.corners.home;
+        score.cornersAway = stats.corners.away;
       }
+      if (opts.withBookings && stats.bookings) {
+        score.bookingsHome = stats.bookings.home;
+        score.bookingsAway = stats.bookings.away;
+      }
+      out.set(eventId, score);
     }
   }
 
   if (out.size > 0) {
+    const extras: string[] = [];
+    if (opts.withCorners) extras.push("corners");
+    if (opts.withBookings) extras.push("bookings");
     logger.info(
       "SofaScoreSource",
-      `Resolved ${out.size}/${events.length} events via SofaScore${opts.withCorners ? " (with corners)" : ""}`,
+      `Resolved ${out.size}/${events.length} events via SofaScore${extras.length ? ` (with ${extras.join(", ")})` : ""}`,
     );
   }
   return out;

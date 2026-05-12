@@ -17,9 +17,8 @@
  *   - Pause (in-memory)   — timer keeps firing; ticks skipped until resumed.
  *   - Stop / Start        — tears down / rebuilds the timer entirely.
  *
- * The persistent kill-switch was removed in 2026 along with all
- * automatic Gemini AI usage — settlement is now deterministic Tier 0/1/2
- * only, so there's no runaway-cost surface to switch off.
+ * Settlement is fully free — Tier 0/1/2 (structured APIs) plus Tier 2d
+ * (HF+Search for niche leagues). No paid AI is in the pipeline.
  */
 
 import { runAutoSettle, type AutoSettleResult } from "./auto-settler";
@@ -139,8 +138,18 @@ const runTick = async (options?: { manual?: boolean }): Promise<void> => {
         tier1: result.telemetry.tier1_hits,
         tier2: result.telemetry.tier2_hits,
         errors: result.errors,
+        sourceIssues: result.sourceIssues,
       },
     );
+    // Surface source-health issues as a separate visible warning in the
+    // activity stream so operators notice them at a glance.
+    if (result.sourceIssues.length > 0) {
+      appendActivity(
+        "source:degraded",
+        "warn",
+        result.sourceIssues.join(" · "),
+      );
+    }
   } catch (err) {
     const msg = (err as Error).message;
     state.lastError = msg;

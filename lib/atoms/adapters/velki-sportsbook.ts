@@ -43,13 +43,13 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
 
   async fetchAndStoreOdds(
-    providerEventId: string,
-    normalizedEventId: string,
-    homeTeam: string,
-    awayTeam: string,
+    _providerEventId: string,
+    _normalizedEventId: string,
+    _homeTeam: string,
+    _awayTeam: string,
   ): Promise<number> {
-    // LEGACY: The 15-second polling loop calls this. 
-    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not 
+    // LEGACY: The 15-second polling loop calls this.
+    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not
     // fetch odds via REST here anymore to avoid duplicate work.
     // The X-Ray diagnostics UI still uses `debugFetchRawData` below.
     return 0;
@@ -154,10 +154,7 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
         entries.push(entry);
         // Stash min/max stake limits keyed by atom — placement modal
         // reads these directly without a second round-trip.
-        if (
-          typeof market.min === "number" &&
-          typeof market.max === "number"
-        ) {
+        if (typeof market.min === "number" && typeof market.max === "number") {
           setMarketLimits(
             this.providerId,
             ctx.normalizedEventId,
@@ -176,4 +173,3 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
     return entries;
   }
 }
-

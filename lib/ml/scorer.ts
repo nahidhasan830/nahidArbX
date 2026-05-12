@@ -1,32 +1,119 @@
 /**
  * ML Scorer — ONNX Inference Singleton (Engine-Only)
  *
- * Loads a trained LightGBM model (exported as ONNX) and scores batches
- * of feature vectors in real-time. Uses the `singleton()` pattern for
- * HMR safety and lazy-loads the model on first use.
+ * Supports both champion (active) and challenger (candidate) model scoring.
+ * Calibration supports platt_logit, beta, and isotonic methods
+ * (parameters persisted by the Python training pipeline in training_report).
  *
  * ⚠ PROCESS ISOLATION: This module must NEVER be imported by Next.js
- * API routes or React Server Components — the `onnxruntime-node` native
- * binaries would crash webpack. The dual-process architecture guarantees
- * this: scoring runs in `engine.ts` only, Next.js reads scores from the
- * `bets` table or via `engineGet()` proxy.
- *
- * Model lifecycle:
- *   1. On first `ensureModel()`, try local cache → GCS download
- *   2. Every 60s, poll `ml_models WHERE status='deployed'` for version changes
- *   3. On version change, hot-reload the ONNX session
- *
- * Phase 8 scoring semantics:
- *   - No model loaded → scoreBatch returns null[] (pass-through)
- *   - Model loaded → returns P(profitable) for each feature vector
- *   The null return signals callers that ML is inactive, preventing
- *   the old bug where 1.0 scores fed into the staker's multiplier
- *   logic and changed behavior before any model existed.
+ * API routes or React Server Components.
  */
 
 import { singleton } from "@/lib/util/singleton";
 import { logger } from "@/lib/shared/logger";
-import { FEATURE_NAMES, FEATURE_COUNT, FEATURE_NAMES_HASH, FEATURE_VERSION } from "./features";
+import {
+  FEATURE_COUNT,
+  FEATURE_NAMES_HASH,
+  FEATURE_VERSION,
+} from "./features";
+
+// ============================================
+// Calibration — unified type + helpers
+// ============================================
+
+type CalibMethod = "identity" | "platt_logit" | "beta" | "isotonic";
+
+interface ScoreCalibration {
+  method: CalibMethod;
+  params: Record<string, number | number[]>;
+}
+
+function parseCalibration(report: unknown): ScoreCalibration {
+  const identity: ScoreCalibration = { method: "identity", params: {} };
+  if (!report || typeof report !== "object") return identity;
+
+  const r = report as {
+    calibration_method?: unknown;
+    calibration_params?: Record<string, unknown>;
+  };
+
+  const method = String(r.calibration_method ?? "identity") as string;
+  const params = r.calibration_params ?? {};
+
+  switch (method) {
+    case "platt_logit": {
+      const intercept = Number(params.intercept);
+      const slope = Number(params.slope);
+      if (!Number.isFinite(intercept) || !Number.isFinite(slope)) return identity;
+      return { method: "platt_logit", params: { intercept, slope } };
+    }
+    case "beta": {
+      const a = Number(params.a);
+      const b = Number(params.b);
+      const c = Number(params.c);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c))
+        return identity;
+      return { method: "beta", params: { a, b, c } };
+    }
+    case "isotonic": {
+      const x = params.x as number[] | undefined;
+      const y = params.y as number[] | undefined;
+      if (!Array.isArray(x) || !Array.isArray(y) || x.length === 0 || x.length !== y.length)
+        return identity;
+      return { method: "isotonic", params: { x, y } };
+    }
+    default:
+      return identity;
+  }
+}
+
+function applyCalibration(rawScore: number, cal: ScoreCalibration): number {
+  if (!Number.isFinite(rawScore)) return rawScore;
+
+  switch (cal.method) {
+    case "identity":
+      return rawScore;
+
+    case "platt_logit": {
+      const clipped = Math.min(1 - 1e-6, Math.max(1e-6, rawScore));
+      const logit = Math.log(clipped / (1 - clipped));
+      const z = Math.min(35, Math.max(-35,
+        (cal.params.intercept as number) + (cal.params.slope as number) * logit));
+      return 1 / (1 + Math.exp(-z));
+    }
+
+    case "beta": {
+      const a = cal.params.a as number;
+      const b = cal.params.b as number;
+      const c = cal.params.c as number;
+      const p = Math.min(1 - 1e-6, Math.max(1e-6, rawScore));
+      const z = Math.min(35, Math.max(-35,
+        a * Math.log(p) - b * Math.log(1 - p) + c));
+      return 1 / (1 + Math.exp(-z));
+    }
+
+    case "isotonic": {
+      const x = cal.params.x as number[];
+      const y = cal.params.y as number[];
+      // Linear interpolation (piecewise-linear PAV step function)
+      let idx = 0;
+      for (let i = 0; i < x.length; i++) {
+        if (rawScore <= x[i]) { idx = i; break; }
+        if (i === x.length - 1) idx = i;
+      }
+      if (idx === 0) return Math.max(0, Math.min(1, y[0]));
+      const lo = x[idx - 1];
+      const hi = x[idx];
+      const ly = y[idx - 1];
+      const hy = y[idx];
+      const t = (hi - lo) > 1e-12 ? (rawScore - lo) / (hi - lo) : 0;
+      return Math.max(0, Math.min(1, ly + (hy - ly) * Math.max(0, Math.min(1, t))));
+    }
+
+    default:
+      return rawScore;
+  }
+}
 
 // ============================================
 // State — singleton for HMR safety
@@ -37,6 +124,17 @@ interface ScorerState {
   loadAttempted: boolean;
   modelVersion: number | null;
   modelPath: string | null;
+  calibration: ScoreCalibration;
+  // ── Challenger (dual scoring) ──────────────────────────────────────
+  challengerSession: import("onnxruntime-node").InferenceSession | null;
+  challengerVersion: number | null;
+  challengerCalibration: ScoreCalibration;
+  // ── Ensemble (top-3 models, champion + 2 validated) ────────────────
+  ensembleSessions: Array<{
+    session: import("onnxruntime-node").InferenceSession;
+    version: number;
+    calibration: ScoreCalibration;
+  }>;
   watcherTimer: ReturnType<typeof setInterval> | null;
   // Inference stats for diagnostics
   totalScored: number;
@@ -44,101 +142,148 @@ interface ScorerState {
   lastInferenceMs: number;
 }
 
-const state = singleton("ml:scorer", (): ScorerState => ({
-  session: null,
-  loadAttempted: false,
-  modelVersion: null,
-  modelPath: null,
-  watcherTimer: null,
-  totalScored: 0,
-  totalInferenceMs: 0,
-  lastInferenceMs: 0,
-}));
+const state = singleton(
+  "ml:scorer",
+  (): ScorerState => ({
+    session: null,
+    loadAttempted: false,
+    modelVersion: null,
+    modelPath: null,
+    calibration: { method: "identity", params: {} },
+    challengerSession: null,
+    challengerVersion: null,
+    challengerCalibration: { method: "identity", params: {} },
+    ensembleSessions: [],
+    watcherTimer: null,
+    totalScored: 0,
+    totalInferenceMs: 0,
+    lastInferenceMs: 0,
+  }),
+);
 
-/** Local cache directory for ONNX model files. */
 const MODEL_CACHE_DIR = ".ml-models";
-
-/** How often to check for new deployed models (ms). */
 const MODEL_WATCH_INTERVAL_MS = 60_000;
 
 // ============================================
 // Model loading
 // ============================================
 
-/**
- * Resolve the path to the latest deployed ONNX model.
- *
- * Priority:
- *   1. Local cache: `.ml-models/model-v{version}.onnx`
- *   2. GCS download (when ML_MODEL_BUCKET is set)
- *   3. DB-registered artifact path
- *
- * Returns null if no model is available.
- */
-async function resolveModelPath(): Promise<{ path: string; version: number } | null> {
+interface ResolvedModel {
+  path: string;
+  version: number;
+  calibration: ScoreCalibration;
+}
+
+interface ModelRowData {
+  id: string;
+  version: number;
+  modelArtifactPath: string | null;
+  onnxBlob: Buffer | null;
+  trainingReport: unknown;
+}
+
+async function resolveModelPath(query: "champion" | "challenger"): Promise<ResolvedModel | null> {
   try {
     const { db } = await import("@/lib/db/client");
     const { mlModels } = await import("@/lib/db/schema");
-    const { eq, desc } = await import("drizzle-orm");
+    const { eq, and, desc } = await import("drizzle-orm");
     const fs = await import("fs");
     const path = await import("path");
 
-    // Find the latest deployed model
-    const [deployed] = await db
-      .select({
-        id: mlModels.id,
-        version: mlModels.version,
-        modelArtifactPath: mlModels.modelArtifactPath,
-      })
-      .from(mlModels)
-      .where(eq(mlModels.status, "deployed"))
-      .orderBy(desc(mlModels.deployedAt))
-      .limit(1);
+    let row: ModelRowData | null = null;
 
-    if (!deployed) return null;
-
-    // Check local cache first
-    const cacheDir = path.resolve(process.cwd(), MODEL_CACHE_DIR);
-    const localPath = path.join(cacheDir, `model-v${deployed.version}.onnx`);
-
-    if (fs.existsSync(localPath)) {
-      return { path: localPath, version: deployed.version };
+    if (query === "champion") {
+      const [deployed] = await db
+        .select({
+          id: mlModels.id,
+          version: mlModels.version,
+          modelArtifactPath: mlModels.modelArtifactPath,
+          onnxBlob: mlModels.onnxBlob,
+          trainingReport: mlModels.trainingReport,
+        })
+        .from(mlModels)
+        .where(
+          and(
+            eq(mlModels.status, "deployed"),
+            eq(mlModels.isChampion, true),
+          ),
+        )
+        .orderBy(desc(mlModels.deployedAt))
+        .limit(1);
+      row = (deployed as ModelRowData | undefined) ?? null;
+    } else {
+      // Challenger: latest validated model that is NOT champion and NOT deployed
+      const [candidate] = await db
+        .select({
+          id: mlModels.id,
+          version: mlModels.version,
+          modelArtifactPath: mlModels.modelArtifactPath,
+          onnxBlob: mlModels.onnxBlob,
+          trainingReport: mlModels.trainingReport,
+        })
+        .from(mlModels)
+        .where(
+          and(
+            eq(mlModels.status, "validated"),
+            eq(mlModels.isChampion, false),
+          ),
+        )
+        .orderBy(desc(mlModels.trainingCompletedAt))
+        .limit(1);
+      row = (candidate as ModelRowData | undefined) ?? null;
     }
 
-    // Try GCS download if bucket is configured
-    // NOTE: @google-cloud/storage is loaded dynamically to avoid webpack
-    // tracing in the Next.js build (scorer is engine-only, but Turbopack
-    // still traces the import graph). The require() call is invisible to
-    // the static analyzer.
+    if (!row) return null;
+    const calibration = parseCalibration(row.trainingReport);
+
+    const cacheDir = path.resolve(process.cwd(), MODEL_CACHE_DIR);
+    const localPath = path.join(cacheDir, `model-v${row.version}.onnx`);
+
+    if (fs.existsSync(localPath)) {
+      return { path: localPath, version: row.version, calibration };
+    }
+
+    if (row.onnxBlob) {
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      fs.writeFileSync(localPath, row.onnxBlob);
+      const sizeKb = Math.round(row.onnxBlob.length / 1024);
+      logger.info(
+        "MLScorer",
+        `Materialised model v${row.version} from DB blob (${sizeKb} KB) → ${localPath}`,
+      );
+      return { path: localPath, version: row.version, calibration };
+    }
+
     const bucket = process.env.ML_MODEL_BUCKET;
-    if (bucket && deployed.modelArtifactPath) {
+    if (bucket && row.modelArtifactPath) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Storage } = require("@google-cloud/storage") as { Storage: new () => { bucket(b: string): { file(f: string): { download(o: { destination: string }): Promise<void> } } } };
-        const storage = new Storage();
-        const gcsFile = storage.bucket(bucket).file(deployed.modelArtifactPath);
-
-        // Ensure cache directory exists
-        if (!fs.existsSync(cacheDir)) {
-          fs.mkdirSync(cacheDir, { recursive: true });
-        }
-
+        const { Storage } = require("@google-cloud/storage") as {
+          Storage: new () => {
+            bucket(b: string): {
+              file(f: string): {
+                download(o: { destination: string }): Promise<void>;
+              };
+            };
+          };
+        };
+        const gcsFile = new Storage().bucket(bucket).file(row.modelArtifactPath);
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
         await gcsFile.download({ destination: localPath });
-        logger.info("MLScorer", `Downloaded model v${deployed.version} from GCS → ${localPath}`);
-        return { path: localPath, version: deployed.version };
+        logger.info("MLScorer", `Downloaded model v${row.version} from GCS → ${localPath}`);
+        return { path: localPath, version: row.version, calibration };
       } catch (gcsErr) {
-        logger.warn(
-          "MLScorer",
-          `GCS download failed for v${deployed.version}: ${(gcsErr as Error).message}`,
-        );
+        logger.warn("MLScorer", `GCS download failed for v${row.version}: ${(gcsErr as Error).message}`);
       }
     }
 
-    // Fall back to the registered artifact path (might be a local path from dev)
-    if (deployed.modelArtifactPath && fs.existsSync(deployed.modelArtifactPath)) {
-      return { path: deployed.modelArtifactPath, version: deployed.version };
+    if (row.modelArtifactPath && fs.existsSync(row.modelArtifactPath)) {
+      return { path: row.modelArtifactPath, version: row.version, calibration };
     }
 
+    logger.warn("MLScorer", `Model v${row.version} has no loadable ONNX artifact`);
     return null;
   } catch (err) {
     logger.warn("MLScorer", `Model path resolution failed: ${(err as Error).message}`);
@@ -146,65 +291,50 @@ async function resolveModelPath(): Promise<{ path: string; version: number } | n
   }
 }
 
-/**
- * Load (or reload) the ONNX model into the inference session.
- * Validates the feature name contract embedded in model metadata.
- */
-async function loadModel(modelPath: string, version: number): Promise<boolean> {
+async function createSession(modelPath: string): Promise<import("onnxruntime-node").InferenceSession> {
+  const ort = await import("onnxruntime-node");
+  return ort.InferenceSession.create(modelPath, { executionProviders: ["cpu"] });
+}
+
+async function loadModel(resolved: ResolvedModel): Promise<boolean> {
   try {
-    const ort = await import("onnxruntime-node");
+    const newSession = await createSession(resolved.path);
 
-    const newSession = await ort.InferenceSession.create(modelPath, {
-      executionProviders: ["cpu"],
-    });
-
-    // Validate feature name contract — fail loud on mismatch.
-    // ONNX metadata is exposed differently across onnxruntime versions;
-    // we try the most common accessors and fall back gracefully.
-    let modelFeatureNames: string | undefined;
-    let modelFeatureVersion: string | undefined;
-    let modelFeatureNamesHash: string | undefined;
-    try {
-      // onnxruntime-node exposes metadata on the session object
-      const sessionAny = newSession as unknown as Record<string, unknown>;
-      const meta = (sessionAny.metadata ?? sessionAny._metadata) as Record<string, string> | undefined;
-      modelFeatureNames = meta?.feature_names;
-      modelFeatureVersion = meta?.feature_version;
-      modelFeatureNamesHash = meta?.feature_names_hash;
-    } catch {
-      // metadata access not supported in this version — skip validation
-    }
-    if (modelFeatureVersion && Number(modelFeatureVersion) !== FEATURE_VERSION) {
-      logger.error(
-        "MLScorer",
-        `Feature version mismatch! Model: ${modelFeatureVersion}, Code: ${FEATURE_VERSION}`,
-      );
+    // Feature contract validation
+    const sessionAny = newSession as unknown as Record<string, unknown>;
+    const meta = (sessionAny.metadata ?? sessionAny._metadata) as Record<string, string> | undefined;
+    if (meta?.feature_version && Number(meta.feature_version) !== FEATURE_VERSION) {
+      logger.error("MLScorer", `Feature version mismatch! Model: ${meta.feature_version}, Code: ${FEATURE_VERSION}`);
       return false;
     }
-    if (modelFeatureNamesHash && modelFeatureNamesHash !== FEATURE_NAMES_HASH) {
-      logger.error(
-        "MLScorer",
-        `Feature hash mismatch! Model: ${modelFeatureNamesHash}, Code: ${FEATURE_NAMES_HASH}`,
-      );
-      return false;
-    }
-    if (modelFeatureNames && modelFeatureNames !== FEATURE_NAMES.join(",")) {
-      logger.error(
-        "MLScorer",
-        `Feature name mismatch! Model: [${modelFeatureNames}], Code: [${FEATURE_NAMES.join(",")}]`,
-      );
+    if (meta?.feature_names_hash && meta.feature_names_hash !== FEATURE_NAMES_HASH) {
+      logger.error("MLScorer", `Feature hash mismatch!`);
       return false;
     }
 
-    // Swap the session atomically
     state.session = newSession;
-    state.modelVersion = version;
-    state.modelPath = modelPath;
+    state.modelVersion = resolved.version;
+    state.modelPath = resolved.path;
+    state.calibration = resolved.calibration;
 
-    logger.info("MLScorer", `Model v${version} loaded successfully (${modelPath})`);
+    logger.info("MLScorer", `Model v${resolved.version} loaded successfully`);
     return true;
   } catch (err) {
     logger.warn("MLScorer", `Model load failed: ${(err as Error).message}`);
+    return false;
+  }
+}
+
+async function loadChallengerModel(resolved: ResolvedModel): Promise<boolean> {
+  try {
+    const newSession = await createSession(resolved.path);
+    state.challengerSession = newSession;
+    state.challengerVersion = resolved.version;
+    state.challengerCalibration = resolved.calibration;
+    logger.info("MLScorer", `Challenger model v${resolved.version} loaded`);
+    return true;
+  } catch (err) {
+    logger.warn("MLScorer", `Challenger load failed: ${(err as Error).message}`);
     return false;
   }
 }
@@ -213,44 +343,93 @@ async function loadModel(modelPath: string, version: number): Promise<boolean> {
 // Public API
 // ============================================
 
-/**
- * Whether a model is currently loaded and ready for inference.
- */
 export function isModelLoaded(): boolean {
   return state.session != null;
 }
 
-/**
- * Ensure the ONNX model is loaded. Call at boot for warmup.
- * Returns true if a model is active, false if operating in pass-through mode.
- */
+export function isChallengerLoaded(): boolean {
+  return state.challengerSession != null;
+}
+
 export async function ensureModel(): Promise<boolean> {
   if (state.loadAttempted) return state.session != null;
   state.loadAttempted = true;
 
-  const resolved = await resolveModelPath();
+  const resolved = await resolveModelPath("champion");
   if (!resolved) {
-    logger.info("MLScorer", "No deployed model found — using rule-based fallback (pass-through)");
+    logger.info("MLScorer", "No champion deployed — using rule-based fallback");
     startModelWatcher();
     return false;
   }
 
-  const loaded = await loadModel(resolved.path, resolved.version);
+  const loaded = await loadModel(resolved);
+  // Load ensemble on startup
+  await refreshEnsemble();
   startModelWatcher();
   return loaded;
 }
 
 /**
- * Score a batch of feature vectors. Returns P(profitable) for each.
- *
- * When no model is loaded, returns null for all inputs to signal that
- * ML is inactive. This prevents the old bug where 1.0 pass-through
- * scores fed into the staker's multiplier logic and changed behavior
- * before any model was deployed.
+ * Score a batch of feature vectors on the champion model (averaged with
+ * ensemble if multiple validated models are available).
+ * Returns P(profitable) for each. null = no model loaded.
  */
-export async function scoreBatch(featureArrays: number[][]): Promise<(number | null)[]> {
-  if (!state.session || featureArrays.length === 0) {
-    return featureArrays.map(() => null); // no model → null (not 1.0)
+export async function scoreBatch(
+  featureArrays: number[][],
+): Promise<(number | null)[]> {
+  if (featureArrays.length === 0) return [];
+
+  // Ensemble scoring: average across champion + top-2 validated models
+  const allSessions = state.ensembleSessions;
+  if (allSessions.length > 1) {
+    const allResults = await Promise.all(
+      allSessions.map((es) =>
+        runInference(es.session, es.calibration, featureArrays),
+      ),
+    );
+    return featureArrays.map((_, i) => {
+      const scores = allResults
+        .map((r) => r[i])
+        .filter((s): s is number => s != null);
+      if (scores.length === 0) return null;
+      return scores.reduce((a, b) => a + b, 0) / scores.length;
+    });
+  }
+
+  return runInference(state.session, state.calibration, featureArrays);
+}
+
+/**
+ * Score a batch on the challenger model.
+ * Returns P(profitable) for each. null = no challenger loaded.
+ */
+export async function scoreBatchChallenger(
+  featureArrays: number[][],
+): Promise<(number | null)[]> {
+  return runInference(state.challengerSession, state.challengerCalibration, featureArrays);
+}
+
+/**
+ * Score a batch on both champion and challenger simultaneously.
+ * Returns { champion: [...], challenger: [...] } with null entries where not available.
+ */
+export async function scoreBatchDual(
+  featureArrays: number[][],
+): Promise<{ champion: (number | null)[]; challenger: (number | null)[] }> {
+  const [champion, challenger] = await Promise.all([
+    scoreBatch(featureArrays),
+    scoreBatchChallenger(featureArrays),
+  ]);
+  return { champion, challenger };
+}
+
+async function runInference(
+  session: import("onnxruntime-node").InferenceSession | null,
+  calibration: ScoreCalibration,
+  featureArrays: number[][],
+): Promise<(number | null)[]> {
+  if (!session || featureArrays.length === 0) {
+    return featureArrays.map(() => null);
   }
 
   const inferStart = Date.now();
@@ -258,7 +437,6 @@ export async function scoreBatch(featureArrays: number[][]): Promise<(number | n
   try {
     const ort = await import("onnxruntime-node");
 
-    // Flatten 2D array into Float32Array for ONNX tensor
     const flat = new Float32Array(featureArrays.length * FEATURE_COUNT);
     for (let i = 0; i < featureArrays.length; i++) {
       for (let j = 0; j < FEATURE_COUNT; j++) {
@@ -267,18 +445,15 @@ export async function scoreBatch(featureArrays: number[][]): Promise<(number | n
     }
 
     const tensor = new ort.Tensor("float32", flat, [featureArrays.length, FEATURE_COUNT]);
+    const inputName = session.inputNames[0] ?? "input";
+    const results = await session.run({ [inputName]: tensor });
 
-    // LightGBM ONNX models typically name their input "input"
-    // but the name can vary — use the first input name from the session
-    const inputName = state.session.inputNames[0] ?? "input";
-    const results = await state.session.run({ [inputName]: tensor });
+    const probOutputName =
+      session.outputNames.find(
+        (n) => n.includes("probabilities") || n.includes("output_probability"),
+      ) ?? session.outputNames[session.outputNames.length - 1];
 
-    // LightGBM ONNX outputs probabilities as [n, 2] — column 1 is P(positive)
-    const outputName = state.session.outputNames.find(
-      (n) => n.includes("probabilities") || n.includes("output_probability"),
-    ) ?? state.session.outputNames[state.session.outputNames.length - 1];
-
-    const probs = results[outputName]?.data as Float32Array | undefined;
+    const probs = results[probOutputName]?.data as Float32Array | undefined;
 
     const inferMs = Date.now() - inferStart;
     state.totalScored += featureArrays.length;
@@ -290,37 +465,39 @@ export async function scoreBatch(featureArrays: number[][]): Promise<(number | n
       return featureArrays.map(() => null);
     }
 
-    // Extract P(positive) — for [n, 2] shape, it's column 1 (index i*2+1)
-    // For [n] shape, it's the value directly
     if (probs.length === featureArrays.length * 2) {
-      // [n, 2] layout
-      return Array.from({ length: featureArrays.length }, (_, i) => probs[i * 2 + 1]);
+      return Array.from(
+        { length: featureArrays.length },
+        (_, i) => applyCalibration(probs[i * 2 + 1], calibration),
+      );
     } else if (probs.length === featureArrays.length) {
-      // [n] layout
-      return Array.from(probs);
+      return Array.from(probs, (v) => applyCalibration(v, calibration));
     } else {
-      logger.warn("MLScorer", `Unexpected output shape: ${probs.length} for ${featureArrays.length} inputs`);
+      logger.warn("MLScorer", `Unexpected output shape: ${probs.length}`);
       return featureArrays.map(() => null);
     }
   } catch (err) {
     logger.error("MLScorer", `Inference failed: ${(err as Error).message}`);
-    return featureArrays.map(() => null); // fail-open with null (callers handle)
+    return featureArrays.map(() => null);
   }
 }
 
-/**
- * Get diagnostic stats for the ML scorer (exposed via engine HTTP API).
- */
 export function getScorerStatus() {
   return {
     modelLoaded: state.session != null,
     modelVersion: state.modelVersion,
     modelPath: state.modelPath,
+    calibration: state.calibration.method,
+    challengerLoaded: state.challengerSession != null,
+    challengerVersion: state.challengerVersion,
+    challengerCalibration: state.challengerCalibration.method,
+    ensembleSize: state.ensembleSessions.length,
+    ensembleVersions: state.ensembleSessions.map((es) => es.version),
     featureCount: FEATURE_COUNT,
     totalScored: state.totalScored,
     avgInferenceMs:
       state.totalScored > 0
-        ? Math.round(state.totalInferenceMs / state.totalScored * 100) / 100
+        ? Math.round((state.totalInferenceMs / state.totalScored) * 100) / 100
         : 0,
     lastInferenceMs: state.lastInferenceMs,
   };
@@ -330,40 +507,149 @@ export function getScorerStatus() {
 // Model version watcher
 // ============================================
 
-/**
- * Start polling for model version changes. If a new deployed model is
- * found, hot-reload the ONNX session without restarting the engine.
- * Also refreshes the deployment gate permission level on each tick.
- */
+/** Max ensemble members (champion + N validated models). */
+const MAX_ENSEMBLE = 3;
+
+async function resolveEnsembleModels(): Promise<ResolvedModel[]> {
+  try {
+    const { db } = await import("@/lib/db/client");
+    const { mlModels } = await import("@/lib/db/schema");
+    const { eq, and, desc, isNotNull } = await import("drizzle-orm");
+
+    const [championRow] = await db
+      .select({
+        id: mlModels.id,
+        version: mlModels.version,
+        modelArtifactPath: mlModels.modelArtifactPath,
+        onnxBlob: mlModels.onnxBlob,
+        trainingReport: mlModels.trainingReport,
+      })
+      .from(mlModels)
+      .where(and(eq(mlModels.status, "deployed"), eq(mlModels.isChampion, true)))
+      .limit(1);
+
+    const validatedRows = await db
+      .select({
+        id: mlModels.id,
+        version: mlModels.version,
+        modelArtifactPath: mlModels.modelArtifactPath,
+        onnxBlob: mlModels.onnxBlob,
+        trainingReport: mlModels.trainingReport,
+      })
+      .from(mlModels)
+      .where(
+        and(
+          eq(mlModels.status, "validated"),
+          eq(mlModels.isChampion, false),
+          isNotNull(mlModels.onnxBlob),
+        ),
+      )
+      .orderBy(desc(mlModels.trainingCompletedAt))
+      .limit(MAX_ENSEMBLE - 1);
+
+    const candidates =
+      championRow != null
+        ? [championRow, ...validatedRows]
+        : (validatedRows as ModelRowData[]);
+
+    const results: ResolvedModel[] = [];
+    const fs = await import("fs");
+    const path = await import("path");
+    const cacheDir = path.resolve(process.cwd(), MODEL_CACHE_DIR);
+
+    for (const row of candidates.slice(0, MAX_ENSEMBLE)) {
+      const calibration = parseCalibration(row.trainingReport as Record<string, unknown>);
+      const localPath = path.join(cacheDir, `model-v${(row as Record<string, unknown>).version}.onnx`);
+
+      if (fs.existsSync(localPath)) {
+        results.push({ path: localPath, version: row.version, calibration });
+        continue;
+      }
+
+      const blob = (row as Record<string, unknown>).onnxBlob as Buffer | null;
+      if (blob) {
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(localPath, blob);
+        results.push({ path: localPath, version: row.version, calibration });
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+async function refreshEnsemble(): Promise<void> {
+  try {
+    const members = await resolveEnsembleModels();
+    const currentVersions = new Set(state.ensembleSessions.map((es) => es.version));
+    const newVersions = new Set(members.map((m) => m.version));
+
+    if (
+      currentVersions.size === newVersions.size &&
+      [...currentVersions].every((v) => newVersions.has(v))
+    ) {
+      return;
+    }
+
+    const newSessions: ScorerState["ensembleSessions"] = [];
+    for (const member of members) {
+      try {
+        const session = await createSession(member.path);
+        newSessions.push({
+          session,
+          version: member.version,
+          calibration: member.calibration,
+        });
+      } catch (err) {
+        logger.warn("MLScorer", `Ensemble member v${member.version} load failed: ${(err as Error).message}`);
+      }
+    }
+
+    state.ensembleSessions = newSessions;
+    logger.info("MLScorer", `Ensemble: ${newSessions.length} models loaded (v${newSessions.map((es) => es.version).join(", v")})`);
+  } catch (err) {
+    logger.warn("MLScorer", `Ensemble refresh failed: ${(err as Error).message}`);
+  }
+}
+
 function startModelWatcher(): void {
-  if (state.watcherTimer) return; // already watching
+  if (state.watcherTimer) return;
 
   state.watcherTimer = setInterval(async () => {
     try {
-      // Refresh deployment gate permission level alongside model check
       const { refreshPermissionLevel } = await import("./deployment-gate");
       await refreshPermissionLevel();
 
-      const resolved = await resolveModelPath();
-      if (!resolved) return;
-
-      // If version changed (or no model was loaded), reload
-      if (resolved.version !== state.modelVersion) {
-        logger.info(
-          "MLScorer",
-          `New model version detected: v${resolved.version} (current: v${state.modelVersion ?? "none"})`,
-        );
-        await loadModel(resolved.path, resolved.version);
+      // Champion reload
+      const champion = await resolveModelPath("champion");
+      if (champion && champion.version !== state.modelVersion) {
+        logger.info("MLScorer", `New champion v${champion.version} (was v${state.modelVersion})`);
+        const loaded = await loadModel(champion);
+        if (loaded) {
+          try {
+            const { triggerDetection } = await import("@/lib/background/reactive-detector");
+            triggerDetection({ forceRescore: true });
+          } catch { /* non-critical */ }
+        }
       }
+
+      // Challenger reload
+      const challenger = await resolveModelPath("challenger");
+      if (challenger && challenger.version !== state.challengerVersion) {
+        logger.info("MLScorer", `New challenger v${challenger.version} (was v${state.challengerVersion ?? "none"})`);
+        await loadChallengerModel(challenger);
+      }
+
+      // ── Ensemble reload ──────────────────────────────────────────────
+      await refreshEnsemble();
     } catch (err) {
-      logger.warn("MLScorer", `Model watcher tick failed: ${(err as Error).message}`);
+      logger.warn("MLScorer", `Watcher tick failed: ${(err as Error).message}`);
     }
   }, MODEL_WATCH_INTERVAL_MS);
 }
 
-/**
- * Stop the model version watcher (called on engine shutdown).
- */
 export function stopModelWatcher(): void {
   if (state.watcherTimer) {
     clearInterval(state.watcherTimer);

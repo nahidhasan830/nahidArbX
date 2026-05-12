@@ -9,15 +9,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { LoadingButton } from "@/components/ui/loading-button";
+
 import { Badge } from "@/components/ui/badge";
-import {
-  Copy,
-  Clock,
-  ArrowRight,
-  TrendingUp,
-  Settings2,
-} from "lucide-react";
+import { Copy, Clock, ArrowRight, TrendingUp, Settings2 } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -366,7 +360,7 @@ export function ValueBetDetailsModal({
   details,
   atomOdds,
   eventId,
-  providerEventIds,
+  providerEventIds: _providerEventIds,
   liveScore,
   placementContext,
 }: ValueBetDetailsModalProps) {

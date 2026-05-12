@@ -193,6 +193,9 @@ function SettlementChip() {
           paused: boolean;
           disabled: boolean;
           lastError: string | null;
+          lastResult?: {
+            sourceIssues?: string[];
+          } | null;
         };
       };
       if (!body.ok) throw new Error("settlement non-ok");
@@ -216,21 +219,44 @@ function SettlementChip() {
 
   const healthy = !!data?.active && !data?.disabled && !data?.lastError;
   const stopped = !!data?.disabled || !data?.active;
+  const sourceIssues = data?.lastResult?.sourceIssues ?? [];
+  const degraded = healthy && sourceIssues.length > 0;
 
-  const color = healthy
-    ? "text-emerald-400"
-    : stopped
-      ? "text-rose-400"
-      : "text-amber-400";
-  const label = healthy
-    ? "Healthy"
-    : data?.disabled
-      ? "Disabled"
-      : !data?.active
-        ? "Stopped"
-        : data?.lastError
-          ? "Error"
-          : "Unknown";
+  const color = degraded
+    ? "text-amber-400"
+    : healthy
+      ? "text-emerald-400"
+      : stopped
+        ? "text-rose-400"
+        : "text-amber-400";
+  const label = degraded
+    ? "Degraded"
+    : healthy
+      ? "Healthy"
+      : data?.disabled
+        ? "Disabled"
+        : !data?.active
+          ? "Stopped"
+          : data?.lastError
+            ? "Error"
+            : "Unknown";
+
+  const tooltipBody = degraded
+    ? (
+        <span>
+          <b>Settlement is running but data sources are degraded.</b>{" "}
+          {sourceIssues.join(" ")} Bookings and corners markets may not settle
+          until access is restored.
+        </span>
+      )
+    : (
+        <span>
+          <b>Settlement pipeline.</b> The background job that checks each match
+          result and marks your bets won / lost / void automatically. Green =
+          running; Amber = running with recent errors; Red = stopped or
+          disabled.
+        </span>
+      );
 
   return (
     <Tooltip>
@@ -242,12 +268,7 @@ function SettlementChip() {
         </span>
       </TooltipTrigger>
       <TooltipContent className="max-w-[300px]">
-        <span>
-          <b>Settlement pipeline.</b> The background job that checks each match
-          result and marks your bets won / lost / void automatically. Green =
-          running; Amber = running with recent errors; Red = stopped or
-          disabled.
-        </span>
+        {tooltipBody}
       </TooltipContent>
     </Tooltip>
   );

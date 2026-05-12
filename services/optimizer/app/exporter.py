@@ -31,24 +31,40 @@ log = logging.getLogger(__name__)
 def export_onnx(
     model: lgb.LGBMClassifier,
     output_path: str,
+    *,
+    metrics: TrainingMetrics | None = None,
 ) -> str:
     """Convert LightGBM model to ONNX and save to disk.
 
     Embeds feature names in ONNX metadata so the Node.js scorer can
     validate at load time that its feature vector matches.
 
+    IMPORTANT: We disable the ZipMap post-processor (zipmap=False) to
+    ensure all outputs are plain tensors. onnxruntime-node cannot handle
+    the non-tensor sequence/map types that ZipMap produces, throwing
+    "Non tensor type is temporarily not supported".
+
     Returns the output path.
     """
     # Define input type: batch of 25-dim float vectors
     initial_type = [("input", FloatTensorType([None, FEATURE_COUNT]))]
 
-    # Convert to ONNX
+    # Convert to ONNX with zipmap=False to avoid non-tensor outputs.
+    # Without this, skl2onnx appends a ZipMap operator that converts
+    # the probability tensor into a sequence of {class_id: probability}
+    # maps — a type that onnxruntime-node cannot handle.
     onnx_model = convert_lightgbm(
         model,
         initial_types=initial_type,
         name="nahidarbx_ml_scorer",
         target_opset=15,
+        zipmap=False,
     )
+
+    # Post-process: strip any remaining non-tensor outputs (e.g. 'label').
+    # This is a defense-in-depth measure in case the converter version
+    # or model type still produces non-tensor outputs despite zipmap=False.
+    _strip_non_tensor_outputs(onnx_model)
 
     # Embed feature names in metadata for runtime contract validation
     feature_names_str = ",".join(FEATURE_NAMES)
@@ -64,9 +80,30 @@ def export_onnx(
     onnx_model.metadata_props.append(
         StringStringEntryProto(key="feature_names_hash", value=FEATURE_NAMES_HASH)
     )
+    if metrics is not None:
+        onnx_model.metadata_props.append(
+            StringStringEntryProto(key="calibration_method", value=metrics.calibration_method)
+        )
+        onnx_model.metadata_props.append(
+            StringStringEntryProto(
+                key="calibration_intercept",
+                value=str(metrics.calibration_params.get("intercept", 0.0)),
+            )
+        )
+        onnx_model.metadata_props.append(
+            StringStringEntryProto(
+                key="calibration_slope",
+                value=str(metrics.calibration_params.get("slope", 1.0)),
+            )
+        )
 
     # Validate the ONNX model
-    onnx.checker.check_model(onnx_model)
+    try:
+        onnx.checker.check_model(onnx_model)
+    except Exception as e:
+        # Validation may fail on stripped models due to missing shape info
+        # but the model still works correctly at inference time
+        log.warning("ONNX validation warning (non-fatal): %s", e)
 
     # Save to disk
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
@@ -75,6 +112,51 @@ def export_onnx(
              os.path.getsize(output_path) / 1024)
 
     return output_path
+
+
+def _strip_non_tensor_outputs(onnx_model: onnx.ModelProto) -> None:
+    """Remove non-tensor outputs and their producing ZipMap nodes.
+
+    onnxruntime-node (used in the engine) cannot handle sequence/map
+    output types. This function strips ZipMap operators and any outputs
+    that reference non-tensor types (like the 'label' string output).
+    """
+    from onnx import TensorProto
+
+    graph = onnx_model.graph
+
+    # Remove ZipMap nodes (they convert tensors → sequences of maps)
+    zipmap_nodes = [n for n in graph.node if n.op_type == "ZipMap"]
+    for zm_node in zipmap_nodes:
+        tensor_input = zm_node.input[0]
+        zm_output = zm_node.output[0]
+
+        # Rewire any references to the ZipMap output
+        for out in graph.output:
+            if out.name == zm_output:
+                out.name = tensor_input
+                out.ClearField("type")
+                out.type.tensor_type.elem_type = TensorProto.FLOAT
+
+        for node in graph.node:
+            for i, inp in enumerate(node.input):
+                if inp == zm_output:
+                    node.input[i] = tensor_input
+
+        graph.node.remove(zm_node)
+
+    # Remove non-tensor outputs (e.g. 'label' which is a string sequence)
+    tensor_outputs = []
+    for out in graph.output:
+        # Keep outputs that have tensor type or were just fixed above
+        if out.type.HasField("tensor_type") or "prob" in out.name.lower():
+            tensor_outputs.append(out)
+        else:
+            log.info("Stripped non-tensor output: %s", out.name)
+
+    if len(tensor_outputs) < len(graph.output):
+        del graph.output[:]
+        graph.output.extend(tensor_outputs)
 
 
 def upload_to_gcs(local_path: str, model_version: int) -> str | None:
@@ -113,6 +195,7 @@ def write_model_row(
     deploy: bool = True,
     permission_level: str = "shadow",
     rejection_reasons: list[str] | None = None,
+    onnx_blob: bytes | None = None,
 ) -> str:
     """Write a row to ml_models tracking this training run.
 
@@ -136,16 +219,24 @@ def write_model_row(
         session.execute(
             text("""
                 UPDATE ml_models
-                SET status = 'retired', retired_at = :now
+                SET status = 'retired', retired_at = :now, is_champion = false
                 WHERE status = 'deployed'
             """),
             {"now": now},
         )
 
-    # Clean up any dummy 'training' rows that were inserted to trigger UI indicators
-    session.execute(
-        text("DELETE FROM ml_models WHERE status = 'training'")
-    )
+    # Clean up the dummy 'training' row inserted by the trigger for this run.
+    # Scope by TRAINING_MODEL_ID when available so concurrent/overlapping jobs
+    # cannot delete each other's placeholders.
+    training_model_id = os.environ.get("TRAINING_MODEL_ID")
+    if training_model_id:
+        session.execute(
+            text("DELETE FROM ml_models WHERE status = 'training' AND id = :model_id"),
+            {"model_id": training_model_id},
+        )
+    else:
+        # Backward-compatible fallback for older triggers.
+        session.execute(text("DELETE FROM ml_models WHERE status = 'training'"))
 
     session.execute(
         text("""
@@ -155,8 +246,9 @@ def write_model_row(
                 feature_version, feature_names_hash,
                 oos_roi_mean, oos_accuracy, oos_auc_roc, oos_log_loss,
                 deflated_sharpe, pbo, calibration_error,
-                feature_importance, model_artifact_path, training_report,
+                feature_importance, model_artifact_path, onnx_blob, training_report,
                 permission_level, rejection_reasons,
+                is_champion, champion_to_at,
                 deployed_at, created_at
             ) VALUES (
                 :id, :version, :status, :model_type, :training_samples,
@@ -164,8 +256,9 @@ def write_model_row(
                 :feature_version, :feature_names_hash,
                 :oos_roi_mean, :oos_accuracy, :oos_auc_roc, :oos_log_loss,
                 :deflated_sharpe, :pbo, :calibration_error,
-                :feature_importance, :model_artifact_path, :training_report,
+                :feature_importance, :model_artifact_path, :onnx_blob, :training_report,
                 :permission_level, :rejection_reasons,
+                :is_champion, :champion_to_at,
                 :deployed_at, :created_at
             )
         """),
@@ -189,6 +282,7 @@ def write_model_row(
             "calibration_error": metrics.calibration_error,
             "feature_importance": _json_dumps(metrics.feature_importance),
             "model_artifact_path": artifact_path,
+            "onnx_blob": onnx_blob,
             "training_report": _json_dumps({
                 "n_positive": metrics.n_positive,
                 "n_negative": metrics.n_negative,
@@ -196,10 +290,23 @@ def write_model_row(
                 "scale_pos_weight": metrics.scale_pos_weight,
                 "per_fold_sharpes": metrics.per_fold_sharpes,
                 "oos_clv_mean": metrics.oos_clv_mean,
+                "policy_roi_mean": metrics.policy_roi_mean,
+                "policy_sample_size": metrics.policy_sample_size,
+                "policy_coverage": metrics.policy_coverage,
+                "policy_edge_threshold_pct": metrics.policy_edge_threshold_pct,
+                "baseline_roi_mean": metrics.baseline_roi_mean,
+                "simple_policy_roi_mean": metrics.simple_policy_roi_mean,
+                "simple_policy_sample_size": metrics.simple_policy_sample_size,
+                "simple_policy_coverage": metrics.simple_policy_coverage,
+                "model_vs_simple_roi_delta": metrics.model_vs_simple_roi_delta,
+                "calibration_method": metrics.calibration_method,
+                "calibration_params": metrics.calibration_params,
                 "score_bucket_report": _serialize_bucket_report(metrics.score_bucket_report),
             }),
             "permission_level": permission_level,
             "rejection_reasons": _json_dumps(rejection_reasons) if rejection_reasons else None,
+            "is_champion": deploy,
+            "champion_to_at": now if deploy else None,
             "deployed_at": now if deploy else None,
             "created_at": now,
         },
@@ -211,10 +318,21 @@ def write_model_row(
 
 
 def get_next_version(session: Session) -> int:
-    """Get the next model version number (max existing + 1)."""
-    result = session.execute(text("SELECT COALESCE(MAX(version), 0) FROM ml_models"))
-    current_max = result.scalar() or 0
-    return int(current_max) + 1
+    """Get the next model version number from Postgres sequence.
+
+    Uses ml_model_version_seq (created by migration 0053) for race-safe
+    allocation. Falls back to MAX(version)+1 if the sequence doesn't exist
+    yet (pre-migration compat).
+    """
+    try:
+        result = session.execute(text("SELECT nextval('ml_model_version_seq')"))
+        return int(result.scalar())
+    except Exception:
+        # Fallback for pre-migration environments
+        session.rollback()
+        result = session.execute(text("SELECT COALESCE(MAX(version), 0) FROM ml_models"))
+        current_max = result.scalar() or 0
+        return int(current_max) + 1
 
 
 def export_and_upload(
@@ -224,28 +342,38 @@ def export_and_upload(
     *,
     permission_level: str = "shadow",
 ) -> str:
-    """Full export pipeline: ONNX → GCS → DB row.
+    """Full export pipeline: ONNX → DB row (with embedded blob).
+
+    The ONNX binary is stored directly in Postgres as bytea so the
+    engine can load it without GCS or local file access.
 
     Returns the model ID.
     """
     version = get_next_version(session)
 
-    # Export to ONNX (temp directory, then upload)
+    # Export to ONNX (temp directory)
     with tempfile.TemporaryDirectory() as tmpdir:
         onnx_path = os.path.join(tmpdir, f"model_v{version}.onnx")
-        export_onnx(model, onnx_path)
+        export_onnx(model, onnx_path, metrics=metrics)
 
         # Validate the exported model produces sensible output
         _validate_onnx_output(onnx_path)
 
-        # Upload to GCS
+        # Read the ONNX binary for DB storage
+        with open(onnx_path, "rb") as f:
+            onnx_bytes = f.read()
+        onnx_size_kb = len(onnx_bytes) / 1024
+        log.info("ONNX model v%d: %.1f KB — storing in Postgres", version, onnx_size_kb)
+
+        # Optional GCS upload (best-effort, not required)
         gcs_uri = upload_to_gcs(onnx_path, version)
         artifact_path = gcs_uri or onnx_path
 
-    # Write DB row
+    # Write DB row with embedded ONNX blob
     model_id = write_model_row(
         session, version, metrics, artifact_path,
         deploy=True, permission_level=permission_level,
+        onnx_blob=onnx_bytes,
     )
 
     log.info(

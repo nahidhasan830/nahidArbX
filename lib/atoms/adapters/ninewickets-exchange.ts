@@ -97,7 +97,6 @@ export class NineWicketsExchangeAtomsAdapter extends BaseAtomsAdapter {
 
     return entries;
   }
-
 }
 
 // ============================================
@@ -123,4 +122,3 @@ export async function fetchAndStoreNwExchangeOdds(
     awayTeam,
   );
 }
-

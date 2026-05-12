@@ -43,10 +43,19 @@ async function main() {
   // ── Import all subsystems (same as instrumentation.ts) ──────────────
   const [
     { startScheduler, stopScheduler, isSchedulerRunning },
-    { startAutoSettleScheduler, stopAutoSettleScheduler, isAutoSettleActive, getAutoSettleStatus },
+    {
+      startAutoSettleScheduler,
+      stopAutoSettleScheduler,
+      isAutoSettleActive,
+      getAutoSettleStatus,
+    },
     { notify },
     { listAutoPlaceStates },
-    { startModelRetrainingScheduler, stopModelRetrainingScheduler, isModelRetrainingSchedulerActive },
+    {
+      startModelRetrainingScheduler,
+      stopModelRetrainingScheduler,
+      isModelRetrainingSchedulerActive,
+    },
     { startTelegramBot, isTelegramBotRunning },
     { startResolverCacheListener, isResolverCacheListenerActive },
     { pinnacleSyncService },
@@ -133,25 +142,51 @@ async function main() {
 
   if (isProviderRuntimeEnabled("betconstruct")) {
     betconstructSyncService.start();
-    logger.info("Boot", "BetConstruct WebSocket subscription sync service started");
+    logger.info(
+      "Boot",
+      "BetConstruct WebSocket subscription sync service started",
+    );
   } else {
-    logger.info("Boot", "BetConstruct provider disabled — skipping WebSocket sync service");
+    logger.info(
+      "Boot",
+      "BetConstruct provider disabled — skipping WebSocket sync service",
+    );
   }
 
   // Reactive detector MUST start after real-time sync services
   startReactiveDetector();
-  logger.info("Boot", "Reactive value detector started (event-driven, 500ms debounce)");
+  logger.info(
+    "Boot",
+    "Reactive value detector started (event-driven, 500ms debounce)",
+  );
 
   // ML model warmup — front-load the ONNX session creation (50-200ms)
   // so the first detection pass doesn't eat that latency. Non-blocking:
   // if no model is deployed yet, the scorer operates in pass-through mode.
-  import("./lib/ml/scorer").then(({ ensureModel }) => ensureModel()).catch(() => {});
+  import("./lib/ml/scorer")
+    .then(({ ensureModel }) => ensureModel())
+    .then((loaded) => {
+      logger.info(
+        "Boot",
+        loaded
+          ? "ML model loaded successfully — scoring active"
+          : "No ML model deployed — operating in pass-through mode",
+      );
+    })
+    .catch((err) => {
+      logger.error(
+        "Boot",
+        `ML model warmup FAILED: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
   logger.info("Boot", "ML model warmup initiated (non-blocking)");
 
   // Warm up competition enrichment cache (non-blocking). Detection never
   // waits for AI; unknown competitions use tier 1 until the warmer catches up.
   import("./lib/ml/competition-enrichment")
-    .then(({ startCompetitionEnrichmentWarmer }) => startCompetitionEnrichmentWarmer())
+    .then(({ startCompetitionEnrichmentWarmer }) =>
+      startCompetitionEnrichmentWarmer(),
+    )
     .catch(() => {});
   logger.info("Boot", "Competition enrichment warmer started (non-blocking)");
 
@@ -190,14 +225,17 @@ async function main() {
       dataSources: [
         "Pinnacle WebSocket",
         "Genius Sports Polling (9W + Velki)",
-        ...(isProviderRuntimeEnabled("betconstruct") ? ["BetConstruct WebSocket"] : []),
+        ...(isProviderRuntimeEnabled("betconstruct")
+          ? ["BetConstruct WebSocket"]
+          : []),
       ],
       detectorDebounceMs: 500,
       mlRetrainJob: process.env.OPTIMIZER_JOB_NAME ?? null,
       mlRetrainRegion: process.env.GCP_REGION ?? null,
     };
 
-    const { isUnifiedBoot, writeBootPayload } = await import("./lib/notifier/unified-boot");
+    const { isUnifiedBoot, writeBootPayload } =
+      await import("./lib/notifier/unified-boot");
     if (isUnifiedBoot()) {
       writeBootPayload("engine", bootPayload);
       logger.info("Boot", "Wrote engine boot payload for unified notification");
@@ -213,11 +251,15 @@ async function main() {
 
   // ── Engine HTTP API ──────────────────────────────────────────────────
   // Exposes in-memory state to the Next.js web process.
-  const { startEngineHttp, stopEngineHttp, ENGINE_PORT } = await import("./lib/shared/engine-http");
+  const { startEngineHttp, stopEngineHttp, ENGINE_PORT } =
+    await import("./lib/shared/engine-http");
   await startEngineHttp();
 
   logger.info("Engine", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-  logger.info("Engine", `All subsystems started. Engine is running. HTTP API on :${ENGINE_PORT}`);
+  logger.info(
+    "Engine",
+    `All subsystems started. Engine is running. HTTP API on :${ENGINE_PORT}`,
+  );
   logger.info("Engine", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
   // ── Graceful shutdown ───────────────────────────────────────────────
@@ -238,11 +280,16 @@ async function main() {
       try {
         const { stopModelWatcher } = await import("./lib/ml/scorer");
         stopModelWatcher();
-      } catch { /* scorer may not have been loaded */ }
+      } catch {
+        /* scorer may not have been loaded */
+      }
       try {
-        const { stopCompetitionEnrichmentWarmer } = await import("./lib/ml/competition-enrichment");
+        const { stopCompetitionEnrichmentWarmer } =
+          await import("./lib/ml/competition-enrichment");
         stopCompetitionEnrichmentWarmer();
-      } catch { /* enrichment warmer may not have been loaded */ }
+      } catch {
+        /* enrichment warmer may not have been loaded */
+      }
       pinnacleSyncService.stop();
       geniusSportsSyncService.stop();
       if (isProviderRuntimeEnabled("betconstruct")) {
@@ -251,6 +298,16 @@ async function main() {
       stopScheduler();
       stopAutoSettleScheduler();
       stopModelRetrainingScheduler();
+
+      // Clean up SofaScore transport (no-op for curl_cffi, kept for API compat)
+      try {
+        const { closeSofaScoreSession } = await import(
+          "./lib/settle/sources/sofascore-browser"
+        );
+        await closeSofaScoreSession();
+      } catch {
+        /* sofascore-browser may not have been loaded */
+      }
 
       logger.info("Shutdown", "Engine stopped cleanly.");
     } catch (err) {

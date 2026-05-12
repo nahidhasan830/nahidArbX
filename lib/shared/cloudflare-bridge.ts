@@ -37,10 +37,21 @@ import {
   getSingletonBrowser,
   registerSingletonBrowser,
 } from "@/lib/shared/playwright-singleton";
+import {
+  captureStarted,
+  stepCompleted,
+  stepFailed,
+  captureSucceeded,
+  captureFailed,
+} from "@/lib/shared/session-diagnostics";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-export type CaptureStep = "cf-solve" | "login" | "game-url" | "provider-process";
+export type CaptureStep =
+  | "cf-solve"
+  | "login"
+  | "game-url"
+  | "provider-process";
 
 export class BridgeCaptureError extends Error {
   /** Which step of the pipeline failed. */
@@ -203,17 +214,18 @@ export function createCloudflareBridge(
       const page = await ctx.newPage();
 
       // ── Step 0: Solve Cloudflare ───────────────────────────────────
+      let t0 = Date.now();
       try {
         await page.goto(config.siteUrl, {
           waitUntil: "domcontentloaded",
           timeout: 15000,
         });
         await page.waitForTimeout(cfWaitMs);
+        stepCompleted(config.browserKey, "cf-solve", Date.now() - t0);
       } catch (err) {
-        throw new BridgeCaptureError(
-          "cf-solve",
-          `[${config.browserKey}] CF navigation failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        const msg = `[${config.browserKey}] CF navigation failed: ${err instanceof Error ? err.message : String(err)}`;
+        stepFailed(config.browserKey, "cf-solve", msg, Date.now() - t0);
+        throw new BridgeCaptureError("cf-solve", msg);
       }
 
       // ── Step 1: Login via in-page fetch ────────────────────────────
@@ -222,42 +234,37 @@ export function createCloudflareBridge(
         loginBody = config.buildLoginBody();
       } catch (err) {
         // Missing env vars = hard failure, no point retrying
-        throw new BridgeCaptureError(
-          "login",
-          err instanceof Error ? err.message : String(err),
-          true,
-        );
+        const msg = err instanceof Error ? err.message : String(err);
+        stepFailed(config.browserKey, "login", msg);
+        throw new BridgeCaptureError("login", msg, true);
       }
 
+      t0 = Date.now();
       const loginResult = await inPagePost(page, config.loginUrl, loginBody);
 
       if (loginResult.status !== 200 || !loginResult.json) {
-        // HTTP 403 from the API usually means CF cookies expired mid-session
-        // (transient); other errors may be transient too. Let retry handle it.
-        throw new BridgeCaptureError(
-          "login",
-          `[${config.browserKey}] login HTTP ${loginResult.status} — ${loginResult.error ?? "no JSON"}`,
-        );
+        const msg = `[${config.browserKey}] login HTTP ${loginResult.status} — ${loginResult.error ?? "no JSON"}`;
+        stepFailed(config.browserKey, "login", msg, Date.now() - t0);
+        throw new BridgeCaptureError("login", msg);
       }
 
       // Check for hard login failures (bad creds, account suspended)
       if (config.isHardLoginFailure?.(loginResult.json)) {
-        throw new BridgeCaptureError(
-          "login",
-          `[${config.browserKey}] login refused (hard failure)`,
-          true,
-        );
+        const msg = `[${config.browserKey}] login refused (hard failure)`;
+        stepFailed(config.browserKey, "login", msg, Date.now() - t0);
+        throw new BridgeCaptureError("login", msg, true);
       }
 
       const accessToken = config.extractAccessToken(loginResult.json);
       if (!accessToken) {
-        throw new BridgeCaptureError(
-          "login",
-          `[${config.browserKey}] login response did not include accessToken`,
-        );
+        const msg = `[${config.browserKey}] login response did not include accessToken`;
+        stepFailed(config.browserKey, "login", msg, Date.now() - t0);
+        throw new BridgeCaptureError("login", msg);
       }
+      stepCompleted(config.browserKey, "login", Date.now() - t0);
 
       // ── Step 2: getGameUrl via in-page fetch ───────────────────────
+      t0 = Date.now();
       const gameResult = await inPagePost(
         page,
         config.gameUrlEndpoint,
@@ -266,13 +273,14 @@ export function createCloudflareBridge(
       );
 
       if (gameResult.status !== 200 || !gameResult.json) {
-        throw new BridgeCaptureError(
-          "game-url",
-          `[${config.browserKey}] getGameUrl HTTP ${gameResult.status} — ${gameResult.error ?? "no JSON"}`,
-        );
+        const msg = `[${config.browserKey}] getGameUrl HTTP ${gameResult.status} — ${gameResult.error ?? "no JSON"}`;
+        stepFailed(config.browserKey, "game-url", msg, Date.now() - t0);
+        throw new BridgeCaptureError("game-url", msg);
       }
+      stepCompleted(config.browserKey, "game-url", Date.now() - t0);
 
       // ── Step 3: Provider-specific processing ───────────────────────
+      t0 = Date.now();
       const providerData = await config.processGameUrlResult(
         gameResult.json,
         accessToken,
@@ -280,11 +288,11 @@ export function createCloudflareBridge(
       );
 
       if (providerData === null || providerData === undefined) {
-        throw new BridgeCaptureError(
-          "provider-process",
-          `[${config.browserKey}] processGameUrlResult returned null`,
-        );
+        const msg = `[${config.browserKey}] processGameUrlResult returned null`;
+        stepFailed(config.browserKey, "provider-process", msg, Date.now() - t0);
+        throw new BridgeCaptureError("provider-process", msg);
       }
+      stepCompleted(config.browserKey, "provider-process", Date.now() - t0);
 
       return { accessToken, providerData, attempts: 0 /* set by caller */ };
     } catch (err) {
@@ -308,6 +316,8 @@ export function createCloudflareBridge(
   async function captureWithRetries(): Promise<CaptureResult> {
     let lastErr: unknown;
 
+    captureStarted(config.browserKey);
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       // Backoff before retry (first attempt is immediate)
       const delay = backoffMs[attempt] ?? backoffMs[backoffMs.length - 1] ?? 0;
@@ -318,12 +328,14 @@ export function createCloudflareBridge(
       try {
         const result = await doSingleCapture();
         result.attempts = attempt + 1;
+        captureSucceeded(config.browserKey);
         return result;
       } catch (err) {
         lastErr = err;
 
         // Hard failures (bad credentials, missing env vars) — don't retry
         if (err instanceof BridgeCaptureError && err.hard) {
+          captureFailed(config.browserKey, err.message);
           throw err;
         }
 
@@ -333,10 +345,24 @@ export function createCloudflareBridge(
         console.warn(
           `[${config.browserKey}] capture attempt ${attempt + 1}/${maxAttempts} failed${step}: ${err instanceof Error ? err.message : String(err)}`,
         );
+
+        // Re-start diagnostics for the next attempt so step list is fresh
+        if (attempt + 1 < maxAttempts) {
+          captureStarted(config.browserKey);
+        }
       }
     }
 
-    throw lastErr ?? new Error(`[${config.browserKey}] capture failed after ${maxAttempts} attempts`);
+    const finalMsg =
+      lastErr instanceof Error ? lastErr.message : String(lastErr);
+    captureFailed(config.browserKey, finalMsg);
+
+    throw (
+      lastErr ??
+      new Error(
+        `[${config.browserKey}] capture failed after ${maxAttempts} attempts`,
+      )
+    );
   }
 
   // ── Coalesce concurrent capture calls ──────────────────────────────

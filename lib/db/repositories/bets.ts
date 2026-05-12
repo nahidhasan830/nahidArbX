@@ -16,14 +16,18 @@
  */
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
-import { bets, type BetRow } from "../schema";
+import { bets, autoPlacerLog, mlTrainingExamples, type BetRow } from "../schema";
 import { getEvent } from "@/lib/store";
 import { getFamily } from "@/lib/atoms/registry";
 import { logger } from "@/lib/shared/logger";
 import { normalizeOutcome, type Outcome } from "@/lib/bets-history/types";
 import { formatAtomLabel } from "@/lib/formatting/labels";
 import { getBettingSettings } from "./betting-settings";
-import { FEATURE_COUNT, FEATURE_NAMES_HASH, FEATURE_VERSION } from "@/lib/ml/features";
+import {
+  FEATURE_COUNT,
+  FEATURE_NAMES_HASH,
+  FEATURE_VERSION,
+} from "@/lib/ml/features";
 
 // ─── Type re-exports for backwards compatibility ────────────────────────────────
 
@@ -59,7 +63,10 @@ export const persistValueBets = async (
     commissionPct: number;
     softOdds: number;
     detectedAt: Date | string | number;
-    oddsMovement?: Record<string, import("@/lib/bets-history/types").OddsMovementData>;
+    oddsMovement?: Record<
+      string,
+      import("@/lib/bets-history/types").OddsMovementData
+    >;
     mlFeatures?: number[] | null;
     mlScore?: number | null;
     mlKellyAdjusted?: number | null;
@@ -105,6 +112,16 @@ export const persistValueBets = async (
         `Non-deterministic id ${vb.id} — coercing to ${deterministicId}`,
       );
     }
+
+    const hasMlFeatures = Object.prototype.hasOwnProperty.call(
+      vb,
+      "mlFeatures",
+    );
+    const hasMlScore = Object.prototype.hasOwnProperty.call(vb, "mlScore");
+    const hasMlKellyAdjusted = Object.prototype.hasOwnProperty.call(
+      vb,
+      "mlKellyAdjusted",
+    );
 
     const payload = {
       id: deterministicId,
@@ -174,19 +191,54 @@ export const persistValueBets = async (
             oddsMovement: vb.oddsMovement
               ? vb.oddsMovement
               : sql`${bets.oddsMovement}`,
-            // ML features — always update when available, preserve existing otherwise
-            mlFeatures: vb.mlFeatures ?? sql`${bets.mlFeatures}`,
-            mlFeatureVersion: vb.mlFeatures ? FEATURE_VERSION : sql`${bets.mlFeatureVersion}`,
-            mlFeatureCount: vb.mlFeatures ? FEATURE_COUNT : sql`${bets.mlFeatureCount}`,
-            mlFeatureNamesHash: vb.mlFeatures ? FEATURE_NAMES_HASH : sql`${bets.mlFeatureNamesHash}`,
-            // ML score and adjusted Kelly — always update when available
-            mlScore: vb.mlScore ?? sql`${bets.mlScore}`,
-            mlKellyAdjusted: vb.mlKellyAdjusted ?? sql`${bets.mlKellyAdjusted}`,
+            // ML fields are explicit-state inputs: when the detector passes
+            // null, clear stale model state instead of preserving an old score
+            // from a previous warm/model-loaded pass.
+            mlFeatures: hasMlFeatures
+              ? (vb.mlFeatures ?? null)
+              : sql`${bets.mlFeatures}`,
+            mlFeatureVersion: hasMlFeatures
+              ? vb.mlFeatures
+                ? FEATURE_VERSION
+                : null
+              : sql`${bets.mlFeatureVersion}`,
+            mlFeatureCount: hasMlFeatures
+              ? vb.mlFeatures
+                ? FEATURE_COUNT
+                : null
+              : sql`${bets.mlFeatureCount}`,
+            mlFeatureNamesHash: hasMlFeatures
+              ? vb.mlFeatures
+                ? FEATURE_NAMES_HASH
+                : null
+              : sql`${bets.mlFeatureNamesHash}`,
+            mlScore: hasMlScore ? (vb.mlScore ?? null) : sql`${bets.mlScore}`,
+            mlKellyAdjusted: hasMlKellyAdjusted
+              ? (vb.mlKellyAdjusted ?? null)
+              : sql`${bets.mlKellyAdjusted}`,
           },
         })
-        .returning({ tick: bets.tickCount });
-      if (rows[0]?.tick === 1) result.inserted++;
+        .returning();
+      const row = rows[0];
+      if (row?.tickCount === 1) result.inserted++;
       else result.updated++;
+
+      if (
+        hasMlFeatures &&
+        vb.mlFeatures &&
+        row &&
+        row.outcome !== "pending" &&
+        row.outcome !== "void"
+      ) {
+        void import("@/lib/ml/training-example-writer")
+          .then(({ writeSettledExamples }) => writeSettledExamples([row]))
+          .catch((hookErr) => {
+            logger.warn(
+              "BetPersist",
+              `Failed to reconcile settled ML example for ${row.id}: ${(hookErr as Error).message}`,
+            );
+          });
+      }
     } catch (err) {
       result.errors++;
       const e = err as Error & {
@@ -672,7 +724,6 @@ export interface NewPlacedBetInput {
   currency: string;
   providerTicketId: string | null;
   mode: "auto" | "manual";
-
 }
 
 /**
@@ -703,8 +754,6 @@ export class DuplicatePlacedBetError extends Error {
 export async function insertPlacedBet(
   input: NewPlacedBetInput,
 ): Promise<BetRow> {
-  const now = new Date().toISOString();
-
   // Dedup invariant: bet id MUST be `${eventId}|${familyId}|${atomId}`.
   // Coerce even if the caller passed something else.
   const deterministicId = `${input.eventId}|${input.familyId}|${input.atomId}`;
@@ -725,7 +774,6 @@ export async function insertPlacedBet(
       currency: input.currency,
       providerTicketId: input.providerTicketId,
       mode: input.mode,
-
     })
     .where(and(eq(bets.id, input.id), sql`${bets.placedAt} IS NOT NULL`))
     .returning();
@@ -949,16 +997,25 @@ export async function attachTicketId(
  * aged out without confirmation — allows retry via dedup.
  */
 export async function deleteBet(betId: string): Promise<boolean> {
-  const deleted = await db
-    .delete(bets)
-    .where(eq(bets.id, betId))
-    .returning({ id: bets.id });
-  return deleted.length > 0;
+  const result = await db.transaction(async (tx) => {
+    await tx.delete(autoPlacerLog).where(eq(autoPlacerLog.betId, betId));
+    await tx.delete(mlTrainingExamples).where(eq(mlTrainingExamples.sourceBetId, betId));
+    const deleted = await tx
+      .delete(bets)
+      .where(eq(bets.id, betId))
+      .returning({ id: bets.id });
+    return deleted.length > 0;
+  });
+  return result;
 }
 
 /**
- * Update closing odds and compute CLV for a placed bet.
+ * Update closing odds and compute CLV for a bet.
  * Called by closing-capture.ts when the event starts.
+ *
+ * CLV is computed for ALL bets:
+ *   - Placed bets: (placedOdds / closingSharp - 1) * 100
+ *   - Non-placed: (adjSoftOdds / closingSharp - 1) * 100
  */
 export async function recordClosingOdds(args: {
   betId: string;
@@ -967,14 +1024,22 @@ export async function recordClosingOdds(args: {
   const current = await getBetById(args.betId);
   if (!current) return null;
 
-  // CLV: how much better were the placed odds vs Pinnacle's closing line?
-  // Industry standard: measure against sharp (Pinnacle) closing odds.
-  const clvPct =
-    current.odds && args.closingSharpOdds
-      ? Number(
-          ((Number(current.odds) / args.closingSharpOdds - 1) * 100).toFixed(2),
-        )
-      : null;
+  let clvPct: number | null = null;
+  if (args.closingSharpOdds > 0) {
+    if (current.placedAt && current.odds) {
+      // Placed bet: CLV against placed odds
+      clvPct = Number(
+        ((Number(current.odds) / args.closingSharpOdds - 1) * 100).toFixed(2),
+      );
+    } else if (current.softOdds) {
+      // Non-placed: CLV against commission-adjusted soft odds at detection
+      const commission = Number(current.softCommissionPct ?? 0);
+      const adjSoftOdds = Number(current.softOdds) * (1 - commission / 100);
+      clvPct = Number(
+        ((adjSoftOdds / args.closingSharpOdds - 1) * 100).toFixed(2),
+      );
+    }
+  }
 
   const [updated] = await db
     .update(bets)

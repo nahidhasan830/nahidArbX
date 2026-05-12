@@ -240,7 +240,8 @@ export function AutoPlacerLogTable({
         header: "Event",
         cell: ({ row }) => {
           const r = row.original;
-          if (!r.homeTeam) return <span className="text-muted-foreground/40">—</span>;
+          if (!r.homeTeam)
+            return <span className="text-muted-foreground/40">—</span>;
           return (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -251,9 +252,13 @@ export function AutoPlacerLogTable({
                 </div>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-sm">
-                <div className="font-medium">{r.homeTeam} vs {r.awayTeam}</div>
+                <div className="font-medium">
+                  {r.homeTeam} vs {r.awayTeam}
+                </div>
                 {r.competition && (
-                  <div className="text-muted-foreground text-[10px]">{r.competition}</div>
+                  <div className="text-muted-foreground text-[10px]">
+                    {r.competition}
+                  </div>
                 )}
               </TooltipContent>
             </Tooltip>
@@ -300,8 +305,11 @@ export function AutoPlacerLogTable({
         accessorKey: "softOdds",
         cell: ({ row }) => {
           const o = row.original.softOdds;
-          if (o == null) return <span className="text-muted-foreground/40">—</span>;
-          return <span className="tabular-nums font-medium">{o.toFixed(2)}</span>;
+          if (o == null)
+            return <span className="text-muted-foreground/40">—</span>;
+          return (
+            <span className="tabular-nums font-medium">{o.toFixed(2)}</span>
+          );
         },
         meta: {
           hint: "Soft odds at decision time.",
@@ -316,19 +324,25 @@ export function AutoPlacerLogTable({
         accessorKey: "evPct",
         cell: ({ row }) => {
           const ev = row.original.evPct;
-          if (ev == null) return <span className="text-muted-foreground/40">—</span>;
+          if (ev == null)
+            return <span className="text-muted-foreground/40">—</span>;
           const high = ev >= 5;
           const med = ev >= 2 && ev < 5;
           return (
             <span
               className={cn(
                 "inline-flex items-center justify-center rounded px-1 py-0.5 text-[10px] font-semibold tabular-nums",
-                high && "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
-                med && "bg-amber-500/15 text-amber-400 border border-amber-500/30",
-                !high && !med && "bg-muted text-muted-foreground border border-border",
+                high &&
+                  "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
+                med &&
+                  "bg-amber-500/15 text-amber-400 border border-amber-500/30",
+                !high &&
+                  !med &&
+                  "bg-muted text-muted-foreground border border-border",
               )}
             >
-              {ev >= 0 ? "+" : ""}{ev.toFixed(1)}%
+              {ev >= 0 ? "+" : ""}
+              {ev.toFixed(1)}%
             </span>
           );
         },
@@ -345,8 +359,11 @@ export function AutoPlacerLogTable({
         accessorKey: "stake",
         cell: ({ row }) => {
           const s = row.original.stake;
-          if (s == null) return <span className="text-muted-foreground/40">—</span>;
-          return <span className="tabular-nums font-medium">{fmtMoney(s)}</span>;
+          if (s == null)
+            return <span className="text-muted-foreground/40">—</span>;
+          return (
+            <span className="tabular-nums font-medium">{fmtMoney(s)}</span>
+          );
         },
         meta: {
           hint: "Stake amount attempted.",
@@ -361,8 +378,13 @@ export function AutoPlacerLogTable({
         accessorKey: "balance",
         cell: ({ row }) => {
           const b = row.original.balance;
-          if (b == null) return <span className="text-muted-foreground/40">—</span>;
-          return <span className="tabular-nums text-muted-foreground">{fmtMoney(b)}</span>;
+          if (b == null)
+            return <span className="text-muted-foreground/40">—</span>;
+          return (
+            <span className="tabular-nums text-muted-foreground">
+              {fmtMoney(b)}
+            </span>
+          );
         },
         meta: {
           hint: "Account balance at decision time.",
@@ -377,8 +399,11 @@ export function AutoPlacerLogTable({
         accessorKey: "bookedOdds",
         cell: ({ row }) => {
           const o = row.original.bookedOdds;
-          if (o == null) return <span className="text-muted-foreground/40">—</span>;
-          return <span className="tabular-nums font-medium">{o.toFixed(2)}</span>;
+          if (o == null)
+            return <span className="text-muted-foreground/40">—</span>;
+          return (
+            <span className="tabular-nums font-medium">{o.toFixed(2)}</span>
+          );
         },
         meta: {
           hint: "Odds confirmed by the book (placed/pending only).",
@@ -401,7 +426,10 @@ export function AutoPlacerLogTable({
                   {r}
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-md whitespace-pre-wrap text-xs">
+              <TooltipContent
+                side="top"
+                className="max-w-md whitespace-pre-wrap text-xs"
+              >
                 {r}
               </TooltipContent>
             </Tooltip>
@@ -458,15 +486,15 @@ export function AutoPlacerLogTable({
           return "bg-emerald-500/[0.03] hover:bg-emerald-500/[0.06]";
         if (s === "rejected" || s === "error")
           return "bg-rose-500/[0.03] hover:bg-rose-500/[0.06]";
-        if (s === "skipped")
-          return "hover:bg-muted/40";
+        if (s === "skipped") return "hover:bg-muted/40";
         return undefined;
       }}
       renderEmpty={() => (
         <div className="flex flex-col items-center gap-1.5 py-12 text-muted-foreground">
           <span className="text-sm font-medium">No log entries</span>
           <span className="text-xs opacity-70">
-            The auto-placer hasn&apos;t made any decisions yet, or adjust your filters.
+            The auto-placer hasn&apos;t made any decisions yet, or adjust your
+            filters.
           </span>
         </div>
       )}

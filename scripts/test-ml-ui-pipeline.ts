@@ -16,7 +16,10 @@
 
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 
-const baseUrl = (process.env.ML_UI_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
+const baseUrl = (process.env.ML_UI_BASE_URL ?? "http://127.0.0.1:3000").replace(
+  /\/$/,
+  "",
+);
 
 interface FetchResult {
   path: string;
@@ -39,7 +42,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function expectRecord(value: unknown, path: string): Record<string, unknown> | null {
+function expectRecord(
+  value: unknown,
+  path: string,
+): Record<string, unknown> | null {
   if (!isRecord(value)) {
     fail(`${path} must be an object`);
     return null;
@@ -62,7 +68,10 @@ function expectNumber(value: unknown, path: string): void {
 }
 
 function expectNullableNumber(value: unknown, path: string): void {
-  if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) {
+  if (
+    value !== null &&
+    (typeof value !== "number" || !Number.isFinite(value))
+  ) {
     fail(`${path} must be null or a finite number`);
   }
 }
@@ -85,7 +94,10 @@ function expectBoolean(value: unknown, path: string): void {
   }
 }
 
-async function fetchJson(path: string, okStatuses = new Set([200])): Promise<FetchResult | null> {
+async function fetchJson(
+  path: string,
+  okStatuses = new Set([200]),
+): Promise<FetchResult | null> {
   let res: Response;
   try {
     res = await fetch(`${baseUrl}${path}`, {
@@ -93,7 +105,9 @@ async function fetchJson(path: string, okStatuses = new Set([200])): Promise<Fet
       headers: { accept: "application/json" },
     });
   } catch (err) {
-    fail(`${path} could not be reached at ${baseUrl}: ${err instanceof Error ? err.message : String(err)}`);
+    fail(
+      `${path} could not be reached at ${baseUrl}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 
@@ -109,7 +123,8 @@ async function fetchJson(path: string, okStatuses = new Set([200])): Promise<Fet
   }
 
   if (!okStatuses.has(res.status)) {
-    const error = isRecord(body) && typeof body.error === "string" ? `: ${body.error}` : "";
+    const error =
+      isRecord(body) && typeof body.error === "string" ? `: ${body.error}` : "";
     fail(`${path} returned HTTP ${res.status}${error}`);
   }
 
@@ -124,7 +139,9 @@ async function fetchPage(path: string): Promise<void> {
       headers: { accept: "text/html" },
     });
   } catch (err) {
-    fail(`${path} page could not be reached at ${baseUrl}: ${err instanceof Error ? err.message : String(err)}`);
+    fail(
+      `${path} page could not be reached at ${baseUrl}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
 
@@ -134,19 +151,25 @@ async function fetchPage(path: string): Promise<void> {
     return;
   }
   if (!text.includes("/api/ml/pipeline") && !text.includes("ML Optimizer")) {
-    warn(`${path} page returned HTML, but the optimizer marker text was not found in the initial payload.`);
+    warn(
+      `${path} page returned HTML, but the optimizer marker text was not found in the initial payload.`,
+    );
   }
 }
 
 function migrationHintFor(result: FetchResult | null): void {
-  if (!result || !isRecord(result.body) || typeof result.body.error !== "string") return;
+  if (
+    !result ||
+    !isRecord(result.body) ||
+    typeof result.body.error !== "string"
+  )
+    return;
   const msg = result.body.error;
   if (
     msg.includes("does not exist") &&
     (msg.includes("ml_feature") ||
       msg.includes("ml_models") ||
       msg.includes("competition_enrichments") ||
-      msg.includes("shadow_decisions") ||
       msg.includes("ml_training_examples") ||
       msg.includes("ml_scheduler_settings"))
   ) {
@@ -160,7 +183,10 @@ function validatePipeline(body: unknown): void {
   const root = expectRecord(body, "/api/ml/pipeline");
   if (!root) return;
 
-  const dataCollection = expectRecord(root.dataCollection, "pipeline.dataCollection");
+  const dataCollection = expectRecord(
+    root.dataCollection,
+    "pipeline.dataCollection",
+  );
   if (dataCollection) {
     for (const key of [
       "totalBets",
@@ -172,7 +198,10 @@ function validatePipeline(body: unknown): void {
     ]) {
       expectNumber(dataCollection[key], `pipeline.dataCollection.${key}`);
     }
-    expectBoolean(dataCollection.featureExtractionHealthy, "pipeline.dataCollection.featureExtractionHealthy");
+    expectBoolean(
+      dataCollection.featureExtractionHealthy,
+      "pipeline.dataCollection.featureExtractionHealthy",
+    );
 
     const totalBets = dataCollection.totalBets;
     const betsWithFeatures = dataCollection.betsWithFeatures;
@@ -190,105 +219,244 @@ function validatePipeline(body: unknown): void {
       typeof settledWithFeatures === "number" &&
       settledWithFeatures > betsWithFeatures
     ) {
-      fail("pipeline.dataCollection.settledWithFeatures cannot exceed betsWithFeatures");
+      fail(
+        "pipeline.dataCollection.settledWithFeatures cannot exceed betsWithFeatures",
+      );
     }
     if (
       typeof coldStartProgress === "number" &&
       (coldStartProgress < 0 || coldStartProgress > 100)
     ) {
-      fail("pipeline.dataCollection.coldStartProgress must be between 0 and 100");
+      fail(
+        "pipeline.dataCollection.coldStartProgress must be between 0 and 100",
+      );
     }
   }
 
   const training = expectRecord(root.training, "pipeline.training");
   if (training) {
-    for (const key of ["totalModels", "modelsInTraining", "newDataSinceLastTrain", "growthPct"]) {
+    for (const key of [
+      "totalModels",
+      "modelsInTraining",
+      "newDataSinceLastTrain",
+      "growthPct",
+    ]) {
       expectNumber(training[key], `pipeline.training.${key}`);
     }
     expectBoolean(training.readyToRetrain, "pipeline.training.readyToRetrain");
-    if (training.deployedModel !== null) expectRecord(training.deployedModel, "pipeline.training.deployedModel");
-    if (training.latestModel !== null) expectRecord(training.latestModel, "pipeline.training.latestModel");
+    if (training.deployedModel !== null)
+      expectRecord(training.deployedModel, "pipeline.training.deployedModel");
+    if (training.latestModel !== null)
+      expectRecord(training.latestModel, "pipeline.training.latestModel");
   }
 
   const inference = expectRecord(root.inference, "pipeline.inference");
   if (inference) {
     expectBoolean(inference.modelLoaded, "pipeline.inference.modelLoaded");
-    expectNullableNumber(inference.modelVersion, "pipeline.inference.modelVersion");
+    expectNullableNumber(
+      inference.modelVersion,
+      "pipeline.inference.modelVersion",
+    );
     expectNumber(inference.totalScored, "pipeline.inference.totalScored");
     expectNumber(inference.avgInferenceMs, "pipeline.inference.avgInferenceMs");
-    if (inference.error !== undefined) expectString(inference.error, "pipeline.inference.error");
+    if (inference.error !== undefined)
+      expectString(inference.error, "pipeline.inference.error");
   }
 
   const scheduler = expectRecord(root.scheduler, "pipeline.scheduler");
   if (scheduler) {
     expectBoolean(scheduler.active, "pipeline.scheduler.active");
     expectNullableNumber(scheduler.lastTickAt, "pipeline.scheduler.lastTickAt");
-    expectNumber(scheduler.totalRetrainTriggers, "pipeline.scheduler.totalRetrainTriggers");
+    expectNumber(
+      scheduler.totalRetrainTriggers,
+      "pipeline.scheduler.totalRetrainTriggers",
+    );
     expectNullableString(scheduler.lastError, "pipeline.scheduler.lastError");
   }
 
-  const deploymentGate = expectRecord(root.deploymentGate, "pipeline.deploymentGate");
+  const deploymentGate = expectRecord(
+    root.deploymentGate,
+    "pipeline.deploymentGate",
+  );
   if (deploymentGate) {
-    expectString(deploymentGate.permissionLevel, "pipeline.deploymentGate.permissionLevel");
-    expectNullableNumber(deploymentGate.modelVersion, "pipeline.deploymentGate.modelVersion");
+    expectString(
+      deploymentGate.permissionLevel,
+      "pipeline.deploymentGate.permissionLevel",
+    );
+    expectNullableNumber(
+      deploymentGate.modelVersion,
+      "pipeline.deploymentGate.modelVersion",
+    );
     expectBoolean(deploymentGate.canGate, "pipeline.deploymentGate.canGate");
-    expectBoolean(deploymentGate.canReduceStake, "pipeline.deploymentGate.canReduceStake");
-    expectBoolean(deploymentGate.canIncreaseStake, "pipeline.deploymentGate.canIncreaseStake");
-    expectNullableString(deploymentGate.lastRefreshedAt, "pipeline.deploymentGate.lastRefreshedAt");
+    expectBoolean(
+      deploymentGate.canReduceStake,
+      "pipeline.deploymentGate.canReduceStake",
+    );
+    expectBoolean(
+      deploymentGate.canIncreaseStake,
+      "pipeline.deploymentGate.canIncreaseStake",
+    );
+    expectNullableString(
+      deploymentGate.lastRefreshedAt,
+      "pipeline.deploymentGate.lastRefreshedAt",
+    );
   }
 
   expectString(root.scoringMode, "pipeline.scoringMode");
 
-  const scoreDistribution = expectRecord(root.scoreDistribution, "pipeline.scoreDistribution");
+  const scoreDistribution = expectRecord(
+    root.scoreDistribution,
+    "pipeline.scoreDistribution",
+  );
   if (scoreDistribution) {
-    const buckets = expectArray(scoreDistribution.buckets, "pipeline.scoreDistribution.buckets");
+    const buckets = expectArray(
+      scoreDistribution.buckets,
+      "pipeline.scoreDistribution.buckets",
+    );
     if (buckets.length !== 10) {
       fail("pipeline.scoreDistribution.buckets must contain 10 UI buckets");
     }
     buckets.forEach((bucket, i) => {
-      const b = expectRecord(bucket, `pipeline.scoreDistribution.buckets[${i}]`);
+      const b = expectRecord(
+        bucket,
+        `pipeline.scoreDistribution.buckets[${i}]`,
+      );
       if (!b) return;
       expectString(b.range, `pipeline.scoreDistribution.buckets[${i}].range`);
       expectNumber(b.count, `pipeline.scoreDistribution.buckets[${i}].count`);
     });
-    expectNumber(scoreDistribution.avgScore, "pipeline.scoreDistribution.avgScore");
-    expectNumber(scoreDistribution.belowThreshold, "pipeline.scoreDistribution.belowThreshold");
-    expectNumber(scoreDistribution.aboveThreshold, "pipeline.scoreDistribution.aboveThreshold");
-    expectNumber(scoreDistribution.totalScored, "pipeline.scoreDistribution.totalScored");
+    expectNumber(
+      scoreDistribution.avgScore,
+      "pipeline.scoreDistribution.avgScore",
+    );
+    expectNumber(
+      scoreDistribution.belowThreshold,
+      "pipeline.scoreDistribution.belowThreshold",
+    );
+    expectNumber(
+      scoreDistribution.aboveThreshold,
+      "pipeline.scoreDistribution.aboveThreshold",
+    );
+    expectNumber(
+      scoreDistribution.totalScored,
+      "pipeline.scoreDistribution.totalScored",
+    );
   }
 
-  const featureContract = expectRecord(root.featureContract, "pipeline.featureContract");
+  const featureContract = expectRecord(
+    root.featureContract,
+    "pipeline.featureContract",
+  );
   if (featureContract) {
-    expectNumber(featureContract.currentVersion, "pipeline.featureContract.currentVersion");
-    expectNumber(featureContract.currentFeatureCount, "pipeline.featureContract.currentFeatureCount");
-    expectString(featureContract.currentNamesHash, "pipeline.featureContract.currentNamesHash");
-    expectArray(featureContract.versionDistribution, "pipeline.featureContract.versionDistribution");
-    expectArray(featureContract.lengthDistribution, "pipeline.featureContract.lengthDistribution");
-    expectBoolean(featureContract.allVersionsMatch, "pipeline.featureContract.allVersionsMatch");
-    expectBoolean(featureContract.allLengthsMatch, "pipeline.featureContract.allLengthsMatch");
+    expectNumber(
+      featureContract.currentVersion,
+      "pipeline.featureContract.currentVersion",
+    );
+    expectNumber(
+      featureContract.currentFeatureCount,
+      "pipeline.featureContract.currentFeatureCount",
+    );
+    expectString(
+      featureContract.currentNamesHash,
+      "pipeline.featureContract.currentNamesHash",
+    );
+    expectArray(
+      featureContract.versionDistribution,
+      "pipeline.featureContract.versionDistribution",
+    );
+    expectArray(
+      featureContract.lengthDistribution,
+      "pipeline.featureContract.lengthDistribution",
+    );
+    expectBoolean(
+      featureContract.allVersionsMatch,
+      "pipeline.featureContract.allVersionsMatch",
+    );
+    expectBoolean(
+      featureContract.allLengthsMatch,
+      "pipeline.featureContract.allLengthsMatch",
+    );
+    expectBoolean(
+      featureContract.allSemanticChecksPass,
+      "pipeline.featureContract.allSemanticChecksPass",
+    );
+    const semanticChecks = expectRecord(
+      featureContract.semanticChecks,
+      "pipeline.featureContract.semanticChecks",
+    );
+    if (semanticChecks) {
+      for (const key of [
+        "betsWithCurrentFeatures",
+        "badCompetitionTier",
+        "trainableSettledCurrentFeatures",
+        "badTrainableCompetitionTier",
+        "labeledExamples",
+        "badLabeledCompetitionTier",
+        "cleanLabeledExamples",
+      ]) {
+        expectNumber(
+          semanticChecks[key],
+          `pipeline.featureContract.semanticChecks.${key}`,
+        );
+      }
+      expectBoolean(
+        semanticChecks.semanticPass,
+        "pipeline.featureContract.semanticChecks.semanticPass",
+      );
+    }
     if (featureContract.currentVersion !== ML_FEATURE_VERSION) {
-      fail(`pipeline.featureContract.currentVersion must be ${ML_FEATURE_VERSION}`);
+      fail(
+        `pipeline.featureContract.currentVersion must be ${ML_FEATURE_VERSION}`,
+      );
     }
     if (featureContract.currentFeatureCount !== ML_FEATURE_COUNT) {
-      fail(`pipeline.featureContract.currentFeatureCount must be ${ML_FEATURE_COUNT}`);
+      fail(
+        `pipeline.featureContract.currentFeatureCount must be ${ML_FEATURE_COUNT}`,
+      );
     }
   }
 
-  const enrichmentCoverage = expectRecord(root.enrichmentCoverage, "pipeline.enrichmentCoverage");
+  const enrichmentCoverage = expectRecord(
+    root.enrichmentCoverage,
+    "pipeline.enrichmentCoverage",
+  );
   if (enrichmentCoverage) {
-    for (const key of ["distinctCompetitions", "enrichedCompetitions", "highConfidence", "coveragePct"]) {
-      expectNumber(enrichmentCoverage[key], `pipeline.enrichmentCoverage.${key}`);
+    for (const key of [
+      "distinctCompetitions",
+      "enrichedCompetitions",
+      "highConfidence",
+      "coveragePct",
+    ]) {
+      expectNumber(
+        enrichmentCoverage[key],
+        `pipeline.enrichmentCoverage.${key}`,
+      );
     }
   }
 
-  const trainingComposition = expectRecord(root.trainingComposition, "pipeline.trainingComposition");
+  const trainingComposition = expectRecord(
+    root.trainingComposition,
+    "pipeline.trainingComposition",
+  );
   if (trainingComposition) {
-    expectRecord(trainingComposition.byType, "pipeline.trainingComposition.byType");
-    expectRecord(trainingComposition.byLabel, "pipeline.trainingComposition.byLabel");
-    expectNumber(trainingComposition.totalExamples, "pipeline.trainingComposition.totalExamples");
+    expectRecord(
+      trainingComposition.byType,
+      "pipeline.trainingComposition.byType",
+    );
+    expectRecord(
+      trainingComposition.byLabel,
+      "pipeline.trainingComposition.byLabel",
+    );
+    expectNumber(
+      trainingComposition.totalExamples,
+      "pipeline.trainingComposition.totalExamples",
+    );
   }
 
-  const scoreBucketROI = expectArray(root.scoreBucketROI, "pipeline.scoreBucketROI");
+  const scoreBucketROI = expectArray(
+    root.scoreBucketROI,
+    "pipeline.scoreBucketROI",
+  );
   if (scoreBucketROI.length !== 6) {
     fail("pipeline.scoreBucketROI must contain 6 performance buckets");
   }
@@ -300,16 +468,90 @@ function validatePipeline(body: unknown): void {
     expectNumber(b.avgPnl, `pipeline.scoreBucketROI[${i}].avgPnl`);
     expectNumber(b.avgClv, `pipeline.scoreBucketROI[${i}].avgClv`);
     expectNumber(b.winRate, `pipeline.scoreBucketROI[${i}].winRate`);
+    if (b.avgEdge !== undefined) {
+      expectNullableNumber(b.avgEdge, `pipeline.scoreBucketROI[${i}].avgEdge`);
+    }
   });
+
+  const paperEvaluation = expectRecord(
+    root.paperEvaluation,
+    "pipeline.paperEvaluation",
+  );
+  if (paperEvaluation) {
+    expectRecord(
+      paperEvaluation.semanticHealth,
+      "pipeline.paperEvaluation.semanticHealth",
+    );
+    const simpleRule = expectRecord(
+      paperEvaluation.simpleRule,
+      "pipeline.paperEvaluation.simpleRule",
+    );
+    if (simpleRule) {
+      expectNumber(simpleRule.minEvPct, "pipeline.paperEvaluation.simpleRule.minEvPct");
+      expectArray(
+        simpleRule.marketTypes,
+        "pipeline.paperEvaluation.simpleRule.marketTypes",
+      );
+    }
+    expectNumber(paperEvaluation.mlMinScore, "pipeline.paperEvaluation.mlMinScore");
+    const metrics = expectRecord(
+      paperEvaluation.metrics,
+      "pipeline.paperEvaluation.metrics",
+    );
+    if (metrics) {
+      for (const key of [
+        "detectedBaseline",
+        "simpleEvCore",
+        "mlScored",
+        "mlGate",
+      ]) {
+        const metric = expectRecord(
+          metrics[key],
+          `pipeline.paperEvaluation.metrics.${key}`,
+        );
+        if (!metric) continue;
+        expectString(
+          metric.label,
+          `pipeline.paperEvaluation.metrics.${key}.label`,
+        );
+        expectNumber(
+          metric.sampleSize,
+          `pipeline.paperEvaluation.metrics.${key}.sampleSize`,
+        );
+      }
+    }
+    const verdict = expectRecord(
+      paperEvaluation.verdict,
+      "pipeline.paperEvaluation.verdict",
+    );
+    if (verdict) {
+      expectBoolean(
+        verdict.enoughMlGateSamples,
+        "pipeline.paperEvaluation.verdict.enoughMlGateSamples",
+      );
+      expectBoolean(
+        verdict.mlBeatsSimpleRule,
+        "pipeline.paperEvaluation.verdict.mlBeatsSimpleRule",
+      );
+    }
+    expectArray(paperEvaluation.trend, "pipeline.paperEvaluation.trend");
+  }
 
   expectArray(root.rejectedModels, "pipeline.rejectedModels");
   if (root.schedulerSettings !== null) {
-    const settings = expectRecord(root.schedulerSettings, "pipeline.schedulerSettings");
-    if (settings) validateSchedulerSettings(settings, "pipeline.schedulerSettings");
+    const settings = expectRecord(
+      root.schedulerSettings,
+      "pipeline.schedulerSettings",
+    );
+    if (settings)
+      validateSchedulerSettings(settings, "pipeline.schedulerSettings");
   }
 }
 
-function validateSchedulerSettings(settings: Record<string, unknown>, path: string): void {
+function validateSchedulerSettings(
+  settings: Record<string, unknown>,
+  path: string,
+): void {
   expectString(settings.id, `${path}.id`);
   expectBoolean(settings.enabled, `${path}.enabled`);
   expectNumber(settings.cadenceHours, `${path}.cadenceHours`);
@@ -334,11 +576,18 @@ function validateModels(body: unknown, pipelineBody: unknown): void {
     expectNumber(m.trainingSamples, `models.models[${i}].trainingSamples`);
   });
 
-  const pipeline = isRecord(pipelineBody) && isRecord(pipelineBody.training)
-    ? pipelineBody.training
-    : null;
-  if (pipeline && typeof pipeline.totalModels === "number" && pipeline.totalModels !== models.length) {
-    fail(`/api/ml/models returned ${models.length} rows but pipeline.training.totalModels is ${pipeline.totalModels}`);
+  const pipeline =
+    isRecord(pipelineBody) && isRecord(pipelineBody.training)
+      ? pipelineBody.training
+      : null;
+  if (
+    pipeline &&
+    typeof pipeline.totalModels === "number" &&
+    pipeline.totalModels !== models.length
+  ) {
+    fail(
+      `/api/ml/models returned ${models.length} rows but pipeline.training.totalModels is ${pipeline.totalModels}`,
+    );
   }
 }
 
@@ -381,7 +630,9 @@ async function main(): Promise<void> {
 
   const status = await fetchJson("/api/ml/status", new Set([200, 503]));
   if (status?.status === 503) {
-    warn("/api/ml/status reports engine unreachable; the dashboard should still render via /api/ml/pipeline fallback data.");
+    warn(
+      "/api/ml/status reports engine unreachable; the dashboard should still render via /api/ml/pipeline fallback data.",
+    );
   }
   if (status) validateStatus(status.body);
 

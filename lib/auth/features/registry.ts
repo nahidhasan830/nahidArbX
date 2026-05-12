@@ -166,8 +166,6 @@ export const FEATURE_REGISTRY = {
     implemented: false, // Coming soon
   },
 
-
-
   // ============================================
   // Admin Features
   // ============================================

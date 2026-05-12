@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { Connector, IpAddressTypes } from "@google-cloud/cloud-sql-connector";
 import { schema } from "./schema";
+import { logger } from "../shared/logger";
 
 // ── HMR-safe globals ──────────────────────────────────────────────────
 
@@ -58,6 +59,16 @@ export async function ensureDbReady(): Promise<void> {
   if (_pool) return;
   if (!_initPromise) {
     _initPromise = buildPool().then((pool) => {
+      // Absorb idle-connection errors (ETIMEDOUT, ECONNRESET, etc.) so they
+      // don't crash the process as unhandled 'error' events.  The pool
+      // automatically removes the dead client and provisions a replacement
+      // on the next checkout — no manual intervention needed.
+      pool.on("error", (err) => {
+        logger.warn(
+          "DB:Pool",
+          `Idle client error (${(err as NodeJS.ErrnoException).code ?? "unknown"}): ${err.message}`,
+        );
+      });
       _pool = pool;
       if (process.env.NODE_ENV !== "production") {
         globalThis.__pgPool = pool;

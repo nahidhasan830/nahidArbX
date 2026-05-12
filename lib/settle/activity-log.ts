@@ -25,6 +25,7 @@ export type ActivityKind =
   | "state:disable"
   | "state:enable"
   | "manual:run"
+  | "source:degraded"
   | "note";
 
 export interface ActivityEntry {

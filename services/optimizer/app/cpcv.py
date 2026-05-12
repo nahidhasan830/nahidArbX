@@ -7,13 +7,15 @@ groups. For every C(n_groups, n_test_groups) combination, marks
 n_groups=10, n_test_groups=2 — vastly more than walk-forward's 3-5.
 
 Why purge + embargo: in time-series data, a bet's outcome leaks into
-nearby rows via overlapping events. We drop train rows within `embargo_pct`
-of any test boundary to remove the leakage.
+nearby rows via overlapping events. We drop train rows that share an
+event_id with any test row, plus an additional time-based embargo
+buffer around test boundaries.
 
-For Phase 1 we implement this from scratch (no skfolio dependency on the
-splitter — only on its underlying numerics later if needed). The math is
-straightforward and being explicit means the determinism contract is
-trivially auditable.
+Phase 5 changes:
+  - Event-aware purging: remove ALL train rows whose event_id appears
+    in the test set, not just adjacent-index rows.
+  - Embargo still applies as a time-based safety margin around test
+    boundaries to catch events not captured by event_id matching.
 """
 
 from __future__ import annotations
@@ -46,6 +48,14 @@ def make_cpcv_splits(df: pl.DataFrame, cfg: CpcvConfig) -> list[CpcvSplit]:
 
     Assumes `df` is already sorted by `event_start_time` (loader.py guarantees
     this).
+
+    Phase 5: event-aware purging. For each split we:
+      1. Mark test rows by group membership.
+      2. Collect all event_ids that appear in the test set.
+      3. Remove from train any row whose event_id is in that test event set
+         (prevents leakage from overlapping events).
+      4. Additionally remove train rows within `embargo_pct` of test
+         boundaries as a time-based safety net.
     """
     n = df.height
     if n == 0:
@@ -60,6 +70,13 @@ def make_cpcv_splits(df: pl.DataFrame, cfg: CpcvConfig) -> list[CpcvSplit]:
 
     embargo = max(1, int(round(n * cfg.embargo_pct)))
 
+    # Pre-extract event_ids as a numpy array for fast set operations
+    has_event_id = "event_id" in df.columns
+    if has_event_id:
+        event_ids = df["event_id"].to_numpy()
+    else:
+        event_ids = None
+
     splits: list[CpcvSplit] = []
     for path_idx, test_groups in enumerate(
         combinations(range(cfg.n_groups), cfg.n_test_groups)
@@ -67,9 +84,20 @@ def make_cpcv_splits(df: pl.DataFrame, cfg: CpcvConfig) -> list[CpcvSplit]:
         test_mask = np.isin(group_id, list(test_groups))
         test_indices = indices[test_mask]
 
-        # Train mask = everything not in test, with embargo padding around
-        # test boundaries removed.
+        # Train mask = everything not in test
         train_mask = ~test_mask
+
+        # Phase 5: event-aware purging — remove train rows whose event_id
+        # appears in the test set. This prevents leakage from bets on the
+        # same event appearing in both train and test.
+        if event_ids is not None:
+            test_event_ids = set(event_ids[test_mask])
+            for i in indices[train_mask]:
+                if event_ids[i] in test_event_ids:
+                    train_mask[i] = False
+
+        # Time-based embargo: additionally remove train rows within
+        # embargo_pct of test boundaries as a safety net.
         for ti in test_indices:
             lo = max(0, int(ti) - embargo)
             hi = min(n, int(ti) + embargo + 1)

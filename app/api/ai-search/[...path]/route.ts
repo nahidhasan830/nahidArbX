@@ -168,7 +168,10 @@ export async function POST(
           resultCount: null,
           error: null,
           requestBody: truncateJson(body),
-          responseSummary: truncateJson({ answer: result.text, model: result.model }, 4000),
+          responseSummary: truncateJson(
+            { answer: result.text, model: result.model },
+            4000,
+          ),
         }).catch(() => {});
 
         recordAiActivity({
@@ -181,7 +184,10 @@ export async function POST(
           costUsd: null,
           summary: `HF grounded-query: ${(body.question ?? body.query ?? "(no query)").slice(0, 500)}`,
           error: null,
-          metadata: { provider: "huggingface", finishReason: result.finishReason },
+          metadata: {
+            provider: "huggingface",
+            finishReason: result.finishReason,
+          },
         }).catch(() => {});
 
         return NextResponse.json({
@@ -268,7 +274,12 @@ export async function POST(
 
         recordAiActivity({
           system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
-          trigger: body.service === "Playground" ? "playground" : body.service === "Auto Matcher" ? "batch" : "manual",
+          trigger:
+            body.service === "Playground"
+              ? "playground"
+              : body.service === "Auto Matcher"
+                ? "batch"
+                : "manual",
           status: "error",
           model: body.model ?? null,
           itemCount: 1,
@@ -307,13 +318,22 @@ export async function POST(
 
       recordAiActivity({
         system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
-        trigger: body.service === "Playground" ? "playground" : body.service === "Auto Matcher" ? "batch" : "manual",
+        trigger:
+          body.service === "Playground"
+            ? "playground"
+            : body.service === "Auto Matcher"
+              ? "batch"
+              : "manual",
         status: "success",
         model: data.model ?? body.model ?? null,
         itemCount: data.results?.length ?? 1,
         durationMs,
         costUsd: null, // local models are free
-        summary: `${subPath}: ${body.query ?? body.question ?? "(no query)"}`.slice(0, 500),
+        summary:
+          `${subPath}: ${body.query ?? body.question ?? "(no query)"}`.slice(
+            0,
+            500,
+          ),
         error: null,
         metadata: { provider: data.provider_used ?? null },
       }).catch(() => {});
@@ -375,6 +395,8 @@ function buildFallbackHealth(err: unknown) {
     },
     llm_engine: {
       active: "unknown",
+      model: "unknown",
+      healthy: false,
       providers: {},
     },
     search_providers: { total: 0, healthy: 0 },

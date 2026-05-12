@@ -17,7 +17,7 @@
  * - debugFetchRawData(): Customize raw data fetching for debug mode
  */
 
-import { setOddsBatch } from "../store";
+import { setOddsBatch, removeProviderAtomsForEvent } from "../store";
 import { formatError } from "../../shared/errors";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import type { AtomsFetchOptions } from "../../adapters/unified-registry";
@@ -106,13 +106,18 @@ export abstract class BaseAtomsAdapter {
 
   /**
    * Process and store raw odds data (used by continuous polling sync services).
-   * 
+   *
    * @param rawData - Raw data from the provider
    * @param ctx - Fetch context
    * @returns Number of odds entries extracted and stored
    */
   public processRawOdds(rawData: unknown, ctx: FetchContext): number {
     try {
+      // Suspend all existing odds for this provider+event so any markets
+      // Pinnacle/Velki/9W dropped from the feed are flagged stale. The
+      // fresh snapshot below restores odds for markets still present.
+      removeProviderAtomsForEvent(ctx.normalizedEventId, this.providerId);
+
       const entries = this.extractOdds(rawData, ctx);
       if (entries.length > 0) {
         setOddsBatch(entries);
@@ -126,5 +131,4 @@ export abstract class BaseAtomsAdapter {
       return 0;
     }
   }
-
 }

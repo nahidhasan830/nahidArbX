@@ -12,6 +12,11 @@ import {
   type BettingSettingsRow,
   type NewBettingSettingsRow,
 } from "../schema";
+import {
+  DEFAULT_BET_PLACEMENT_PHASES,
+  DEFAULT_VALUE_DETECTION_PHASES,
+  normalizeMarketPhases,
+} from "@/lib/betting/market-phase";
 
 const SINGLETON_ID = 1;
 
@@ -30,6 +35,8 @@ const DEFAULTS: BettingSettingsRow = {
   minStakeBdt: 200,
   stakeBucketBdt: 100,
   minEvPct: 2,
+  valueDetectionPhases: DEFAULT_VALUE_DETECTION_PHASES,
+  betPlacementPhases: DEFAULT_BET_PLACEMENT_PHASES,
 
   mlMinScore: 0.4,
   updatedAt: new Date().toISOString(),
@@ -52,7 +59,7 @@ function readMemo() {
 
 function writeMemo(row: BettingSettingsRow) {
   globalThis.__nahidArbX_bettingSettingsMemo__ = {
-    row,
+    row: normalizeRow(row),
     fetchedAt: Date.now(),
   };
 }
@@ -74,6 +81,20 @@ export interface BettingSettingsReadResult {
   error?: string;
 }
 
+function normalizeRow(row: BettingSettingsRow): BettingSettingsRow {
+  return {
+    ...row,
+    valueDetectionPhases: normalizeMarketPhases(
+      row.valueDetectionPhases,
+      DEFAULT_VALUE_DETECTION_PHASES,
+    ),
+    betPlacementPhases: normalizeMarketPhases(
+      row.betPlacementPhases,
+      DEFAULT_BET_PLACEMENT_PHASES,
+    ),
+  };
+}
+
 export async function getBettingSettings(): Promise<BettingSettingsReadResult> {
   const memo = readMemo();
   if (memo && Date.now() - memo.fetchedAt < MEMO_TTL_MS) {
@@ -85,7 +106,7 @@ export async function getBettingSettings(): Promise<BettingSettingsReadResult> {
       .from(bettingSettings)
       .where(eq(bettingSettings.id, SINGLETON_ID))
       .limit(1);
-    const row = rows[0] ?? DEFAULTS;
+    const row = normalizeRow(rows[0] ?? DEFAULTS);
     writeMemo(row);
     return { row, ready: true };
   } catch (err) {
@@ -93,7 +114,7 @@ export async function getBettingSettings(): Promise<BettingSettingsReadResult> {
     // DEFAULTS so the dashboard and placer still have a coherent view;
     // the `ready: false` flag lets the API surface the problem.
     const message = err instanceof Error ? err.message : String(err);
-    return { row: DEFAULTS, ready: false, error: message };
+    return { row: normalizeRow(DEFAULTS), ready: false, error: message };
   }
 }
 
@@ -121,6 +142,7 @@ export async function updateBettingSettings(
     })
     .returning();
   clearMemo();
-  writeMemo(row);
-  return row;
+  const normalized = normalizeRow(row);
+  writeMemo(normalized);
+  return normalized;
 }

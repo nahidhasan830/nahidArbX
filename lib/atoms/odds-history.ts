@@ -68,10 +68,7 @@ export type OddsMovementSnapshot = OddsMovementData;
 // Key format: `${eventId}|${familyId}|${atomId}|${provider}`
 type HistoryStore = Map<string, AtomHistory>;
 
-const store = singleton(
-  "atoms:oddsHistory",
-  (): HistoryStore => new Map(),
-);
+const store = singleton("atoms:oddsHistory", (): HistoryStore => new Map());
 
 const maxTicks = ODDS_HISTORY_MAX_TICKS;
 
@@ -191,9 +188,7 @@ export function getSparklineData(
   const ticks = getOrderedTicks(eventId, familyId, atomId, provider);
   if (ticks.length === 0) return [];
 
-  const cutoff = lastNMinutes
-    ? Date.now() - lastNMinutes * 60_000
-    : 0;
+  const cutoff = lastNMinutes ? Date.now() - lastNMinutes * 60_000 : 0;
 
   return ticks
     .filter((t) => !t.suspended && t.timestamp >= cutoff)
@@ -273,7 +268,9 @@ export function getMovementSummary(
   const latestTick = nonSuspended[nonSuspended.length - 1];
   if (hist.openingOdds != null && hist.openingOdds > 0) {
     changePct =
-      Math.round(((latestTick.odds - hist.openingOdds) / hist.openingOdds) * 10000) / 100;
+      Math.round(
+        ((latestTick.odds - hist.openingOdds) / hist.openingOdds) * 10000,
+      ) / 100;
     // Clamp to ±50% — anything beyond is a data feed glitch
     changePct = Math.max(-50, Math.min(50, changePct));
   }

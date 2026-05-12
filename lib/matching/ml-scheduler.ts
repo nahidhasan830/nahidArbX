@@ -24,10 +24,7 @@ import {
 } from "../db/repositories/match-pairs";
 import { scorePairsBatch } from "./ml-pair-scorer";
 import { harvestMatchPair } from "./entities/match-harvester";
-import {
-  normalize,
-  normalizeCompetition,
-} from "./entities/normalize";
+import { normalize, normalizeCompetition } from "./entities/normalize";
 import type { NormalizedEvent } from "../types";
 import type { PreNormalizedNames } from "./normalize";
 import { matchBatch, type AiSearchEventInfo } from "./ai-search-client";
@@ -366,9 +363,10 @@ async function processBatchWithProgress(
 
     const durationMs = Date.now() - t0;
     const elapsed = (durationMs / 1000).toFixed(1);
-    const aiMsgP = aiSearchResultP.attempted > 0
-      ? `, AI Search: ${aiSearchResultP.merged}m/${aiSearchResultP.rejected}r/${aiSearchResultP.escalated}h of ${aiSearchResultP.attempted}`
-      : "";
+    const aiMsgP =
+      aiSearchResultP.attempted > 0
+        ? `, AI Search: ${aiSearchResultP.merged}m/${aiSearchResultP.rejected}r/${aiSearchResultP.escalated}h of ${aiSearchResultP.attempted}`
+        : "";
     logger.info(
       tag,
       `Batch complete in ${elapsed}s: ${merged} merged, ${rejected} rejected, ${escalated} → human_review${aiMsgP}`,
@@ -585,9 +583,10 @@ async function processBatch(
 
     const durationMs = Date.now() - t0;
     const elapsed = (durationMs / 1000).toFixed(1);
-    const aiMsg = aiSearchResult.attempted > 0
-      ? `, AI Search: ${aiSearchResult.merged}m/${aiSearchResult.rejected}r/${aiSearchResult.escalated}h of ${aiSearchResult.attempted}`
-      : "";
+    const aiMsg =
+      aiSearchResult.attempted > 0
+        ? `, AI Search: ${aiSearchResult.merged}m/${aiSearchResult.rejected}r/${aiSearchResult.escalated}h of ${aiSearchResult.attempted}`
+        : "";
     logger.info(
       tag,
       `Batch complete in ${elapsed}s: ${merged} merged, ${rejected} rejected, ${escalated} → human_review${aiMsg}`,
@@ -714,10 +713,7 @@ async function escalateToAiSearch(
 
   if (aiPairs.length === 0) return result;
 
-  logger.info(
-    tag,
-    `Escalating ${aiPairs.length} uncertain pairs to AI Search`,
-  );
+  logger.info(tag, `Escalating ${aiPairs.length} uncertain pairs to AI Search`);
 
   // Call AI Search batch
   const batchResult = await matchBatch(
@@ -726,7 +722,10 @@ async function escalateToAiSearch(
 
   if (!batchResult) {
     // AI Search unreachable — send all to human_review
-    logger.warn(tag, "AI Search unreachable, routing uncertain pairs to human_review");
+    logger.warn(
+      tag,
+      "AI Search unreachable, routing uncertain pairs to human_review",
+    );
     for (const p of aiPairs) {
       await transitionStage(p.id, "inbox", "human_review");
       result.escalated++;

@@ -30,14 +30,14 @@ uvicorn app.main:app --host 0.0.0.0 --port 8090 --reload
 
 ## Endpoints
 
-| Path | Method | Purpose |
-|:-----|:-------|:--------|
-| `GET /healthz` | — | Ollama status + provider quotas |
-| `POST /search` | Raw search | `{ query }` → search results |
-| `POST /grounded-query` | Search + LLM | `{ question }` → grounded answer |
-| `POST /entity-match` | Event matching | `{ event_a, event_b }` → verdict |
-| `POST /verify-settlement` | Score check | `{ event, question }` → answer |
-| `GET /stats` | Metrics | Per-provider usage and health |
+| Path                      | Method         | Purpose                          |
+| :------------------------ | :------------- | :------------------------------- |
+| `GET /healthz`            | —              | Ollama status + provider quotas  |
+| `POST /search`            | Raw search     | `{ query }` → search results     |
+| `POST /grounded-query`    | Search + LLM   | `{ question }` → grounded answer |
+| `POST /entity-match`      | Event matching | `{ event_a, event_b }` → verdict |
+| `POST /verify-settlement` | Score check    | `{ event, question }` → answer   |
+| `GET /stats`              | Metrics        | Per-provider usage and health    |
 
 ## Architecture
 

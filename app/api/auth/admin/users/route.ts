@@ -10,7 +10,7 @@ import { db, users, sessions } from "@/lib/auth/db";
 import { validateSession } from "@/lib/auth/session";
 import { getUserPermissions } from "@/lib/auth/features/permissions";
 import { getUserActivitySummary } from "@/lib/auth/activity";
-import { eq, desc, and, gt, isNull } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { initializeAuth } from "@/lib/auth/bootstrap";
 import { apiError, apiServerError } from "@/lib/shared/api-response";
 import { NextResponse } from "next/server";
@@ -44,7 +44,7 @@ export async function GET() {
 
     // Get active sessions to determine online status
     const now = new Date();
-    const onlineThreshold = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
+    const _onlineThreshold = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
 
     // Build user list with additional data
     const userList = await Promise.all(

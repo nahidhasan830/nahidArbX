@@ -16,7 +16,7 @@ import logging
 import httpx
 
 from app.models import SearchResult
-from app.search.providers.base import BaseSearchProvider
+from app.search.providers.base import BaseSearchProvider, QueryValidationError
 
 log = logging.getLogger("ai-search.brave")
 
@@ -50,6 +50,11 @@ class BraveSearchProvider(BaseSearchProvider):
             resp = await client.get(
                 self._base_url, headers=headers, params=params
             )
+            if resp.status_code == 422:
+                detail = resp.text[:300] if resp.text else "Unprocessable Entity"
+                raise QueryValidationError(
+                    f"Brave rejected query (422): {detail}"
+                )
             resp.raise_for_status()
 
             # ── Live quota from response headers ─────────────────────

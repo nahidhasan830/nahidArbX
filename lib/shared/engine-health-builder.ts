@@ -1,12 +1,4 @@
-/**
- * Builds the connectionHealth object from engine-process singletons.
- *
- * Extracted so both the engine HTTP API and the legacy Next.js route
- * can call it. Only meaningful inside the engine process — returns
- * zeros/false in the web-only Next.js process.
- */
-
-import { getAllProviderStatus, getSyncStatus } from "../store";
+import { getAllProviderStatus, getCachedStats, getSyncStatus } from "../store";
 import { PROVIDER_IDS } from "../providers/registry";
 import { getConnectionHealth as getBCConnectionHealth } from "../adapters/betconstruct/client";
 import { getTokenTTL } from "../auth/token-manager";
@@ -15,6 +7,8 @@ import { isBCPollingActive, getBCPollingCount } from "../scores/bc-poller";
 import { pinnacleWsClient } from "../adapters/pinnacle/ws-client";
 import { geniusSportsSyncService } from "../services/genius-sports-sync-service";
 import { getReactiveDetectorStats } from "../background/reactive-detector";
+import { getAllCircuitBreakerStats } from "./circuit-breaker";
+import { getAllSessionDiagnostics } from "./session-diagnostics";
 
 export function buildConnectionHealth(): Record<string, unknown> {
   const ps = getAllProviderStatus();
@@ -60,6 +54,18 @@ export function buildConnectionHealth(): Record<string, unknown> {
   const loopCounts = geniusSportsSyncService.getActiveLoopCounts();
   const detectorStats = getReactiveDetectorStats();
   const currentSyncStatus = getSyncStatus();
+  const cachedStats = getCachedStats();
+
+  // Circuit breaker summary — only include providers with non-closed state
+  const cbStats = getAllCircuitBreakerStats();
+  const circuitBreakers: Record<string, { state: string; failures: number }> =
+    {};
+  for (const [id, stats] of Object.entries(cbStats)) {
+    circuitBreakers[id] = { state: stats.state, failures: stats.failures };
+  }
+
+  // Session capture diagnostics — per-provider step-level status
+  const sessionCapture = getAllSessionDiagnostics();
 
   health.engine = {
     pinnacleWs: {
@@ -78,7 +84,12 @@ export function buildConnectionHealth(): Record<string, unknown> {
     },
     firstSyncComplete: currentSyncStatus.lastSyncEnd !== null,
     isSyncing: currentSyncStatus.isSyncing,
+    matchedCount: cachedStats.matchedCount,
+    totalEvents: cachedStats.totalEvents,
+    circuitBreakers,
+    sessionCapture,
   };
 
   return health;
 }
+

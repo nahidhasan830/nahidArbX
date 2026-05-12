@@ -16,7 +16,7 @@ from datetime import datetime
 
 from app.config import Config
 from app.models import SearchResult
-from app.search.providers.base import BaseSearchProvider
+from app.search.providers.base import BaseSearchProvider, QueryValidationError
 from app.search.providers.brave import BraveSearchProvider
 from app.search.providers.duckduckgo import DuckDuckGoSearchProvider
 from app.search.providers.serper import SerperSearchProvider
@@ -109,6 +109,14 @@ class SearchRouter:
                     query[:80],
                 )
                 return results, provider.name
+            except QueryValidationError as exc:
+                # Query-level problem (e.g. 422) — don't mark provider unhealthy
+                log.warning(
+                    "Provider %s rejected query: %s — trying next",
+                    provider.name,
+                    str(exc)[:200],
+                )
+                continue
             except Exception as exc:
                 log.warning(
                     "Provider %s failed: %s — trying next",
@@ -177,6 +185,9 @@ class SearchRouter:
         try:
             results = await provider.search(query, max_results)
             return results, provider.name
+        except QueryValidationError as exc:
+            log.warning("Fan-out: %s rejected query: %s", provider.name, str(exc)[:200])
+            return [], provider.name
         except Exception as exc:
             log.warning("Fan-out: %s failed: %s", provider.name, str(exc)[:200])
             provider.mark_unhealthy(str(exc))

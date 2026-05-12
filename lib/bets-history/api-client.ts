@@ -245,22 +245,19 @@ export const bulkMarkOutcomes = async (
 export type ModelTier = "lite" | "flash" | "pro";
 
 /**
- * Trigger the settlement waterfall for a set of bet IDs. The route no
- * longer needs a model tier — the pipeline is mostly free tiers; AI is
- * gated by the kill switch and configured server-side.
+ * Trigger the settlement waterfall for a set of bet IDs. The pipeline
+ * is fully free — Tier 0 (cache) → Tier 1 (live) → Tier 2a (ESPN) →
+ * Tier 2b (API-Football) → Tier 2c (SofaScore) → Tier 2d (HF+Search).
  */
 /**
- * Trigger settlement for a set of bet IDs. Modes:
- *   - default                       → free waterfall only (cache → live → ESPN → SofaScore)
+ * Trigger settlement for a set of bet IDs.
+ *   - default                       → full free waterfall
  *   - `{ bypassCache: true }`       → re-run waterfall ignoring cached scores
- *   - `{ forceAi: true, aiModel }`  → skip free tiers, go straight to Gemini Tier 3
  */
 export const aiLabelBets = async (
   ids: string[],
   opts?: {
     bypassCache?: boolean;
-    forceAi?: boolean;
-    aiModel?: ModelTier;
   },
 ): Promise<AiLabelResponse> => {
   const res = await fetch(`/api/bets-history/ai-label`, {
@@ -270,8 +267,6 @@ export const aiLabelBets = async (
     body: JSON.stringify({
       ids,
       bypassCache: opts?.bypassCache === true,
-      forceAi: opts?.forceAi === true,
-      aiModel: opts?.aiModel,
     }),
   });
   return unwrap(res);
@@ -412,6 +407,7 @@ export type SettlementActivityKind =
   | "state:disable"
   | "state:enable"
   | "manual:run"
+  | "source:degraded"
   | "note";
 
 export type SettlementActivityEntry = {
@@ -462,6 +458,7 @@ export type SettlementStatus = {
     stillPending: number;
     applied: number;
     errors: string[];
+    sourceIssues?: string[];
   } | null;
   /**
    * Bets eligible for the next tick — mirrors the "Ready to settle" tab.

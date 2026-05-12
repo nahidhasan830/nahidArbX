@@ -319,6 +319,50 @@ export const GLOSSARY = {
       "Your Asian Handicap strategy wins 42% of bets but each winner pays around 2.35 odds — so you make money even though you lose more often than you win. A lower-odds moneyline strategy might win 65% of bets and barely break even. Win rate alone tells you almost nothing — always read it next to the average odds.",
   },
 
+  // ── ML pipeline terms ─────────────────────────────────────────────────
+  ml_score: {
+    short:
+      "The model's read on whether a new value bet resembles past winners.",
+    example:
+      "A NineWickets-Exchange 1X2 bet might score 0.78 because its EV is strong, Pinnacle is moving toward the same side, and similar historical bets closed well. Another bet at 0.24 may still pass the raw EV rule, but it looks like past losers, so the model can keep it in shadow, skip it, or reduce the stake depending on permission.",
+  },
+  training_examples: {
+    short:
+      "Settled historical bets with features and outcomes that teach the model.",
+    example:
+      "When a detected Pinnacle-vs-NineWickets value bet settles, its 25 market features and final result become a training example. A won or strong closing-line bet teaches the model what good looked like; a lost or weak-closing bet teaches it what to avoid next time.",
+  },
+  feature_schema: {
+    short:
+      "The agreed list and order of numbers that describe each bet to the model.",
+    example:
+      "If TypeScript writes 25 features but Python trains on a different order, 'soft odds age' could be read as 'provider count' and the model becomes nonsense. The schema check confirms every stored bet uses the current version, count, and feature-name hash before training or scoring.",
+  },
+  model_validation: {
+    short:
+      "The safety check that decides whether a trained model is trustworthy enough to deploy.",
+    example:
+      "A model can look profitable on the data it trained on but fail when tested on bets it has never seen. Validation checks ranking quality, smoothness of returns, calibration, and score buckets before allowing a model to affect NineWickets or Velki staking.",
+  },
+  deployment_gate: {
+    short:
+      "The safety lock that controls how much authority ML has over real bets.",
+    example:
+      "A new model may start in shadow mode, where it only logs what it would have done. After enough evidence, the gate can allow it to skip low-score bets, then reduce weak stakes, and only later increase strong stakes. The old deterministic EV rule remains the fallback when the gate is closed.",
+  },
+  shadow_mode: {
+    short:
+      "A dry run where ML records decisions but does not change real placement.",
+    example:
+      "The normal strategy might place 1,000 BDT on a NineWickets bet while shadow mode records that ML would have staked 500 BDT. After settlement, the Shadow A/B tab compares the normal result against the ML-adjusted result without risking a single extra taka.",
+  },
+  score_bucket: {
+    short:
+      "A group of bets with similar ML scores, used to check whether high scores really perform better.",
+    example:
+      "If bets scored 0.70–0.80 have better CLV and win rate than bets scored 0.30–0.40, the model is ranking risk properly. If the buckets are upside down, a 0.80 score should not be trusted for real-money staking yet.",
+  },
+
   // ── CV + bootstrap ─────────────────────────────────────────────────────
   cpcv: {
     short: "Tests each strategy on bets it has never seen, many times over.",

@@ -8,7 +8,6 @@ import { db, users, userPermissions } from "../db";
 import { eq, and } from "drizzle-orm";
 import {
   FEATURE_IDS,
-  type FeatureId,
   getFeatureDefaultEnabled,
   isAdminOnlyFeature,
 } from "./registry";

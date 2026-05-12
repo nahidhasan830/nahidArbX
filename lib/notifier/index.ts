@@ -37,6 +37,10 @@ function summarizeEvent(e: NotificationEvent): string {
 
     case "ml:run_completed":
       return `ML Matcher · ${e.processed} pairs processed`;
+    case "ml:training_started":
+      return `ML Training started · v${e.version} · ${e.trainerExpectedSamples} samples · ${e.trigger}`;
+    case "ml:training_completed":
+      return `ML Training ${e.outcome} · v${e.version} · ${e.trainingSamples} samples`;
     default:
       return (e as { type: string }).type;
   }

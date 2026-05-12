@@ -62,9 +62,13 @@ async function main() {
   console.log(`${C.bold}${C.magenta}`);
   console.log(`  ┌──────────────────────────────────────────────────┐`);
   console.log(`  │  AI Search Grounding → History Resolve Sim      │`);
-  console.log(`  │  Pick ${PICK_COUNT} human_review pairs, run AI search,     │`);
+  console.log(
+    `  │  Pick ${PICK_COUNT} human_review pairs, run AI search,     │`,
+  );
   console.log(`  │  auto-decide if confident, verify in history.   │`);
-  console.log(`  └──────────────────────────────────────────────────┘${C.reset}`);
+  console.log(
+    `  └──────────────────────────────────────────────────┘${C.reset}`,
+  );
 
   // ── Step 1: Init DB ──
   banner("Step 1 — Initialize DB connection");
@@ -191,8 +195,7 @@ async function main() {
 
     // ── Auto-decide if confident enough ──
     if (verdict.confidence >= CONFIDENCE_THRESHOLD) {
-      const decision =
-        verdict.decision === "SAME" ? "ai-merge" : "ai-reject";
+      const decision = verdict.decision === "SAME" ? "ai-merge" : "ai-reject";
       const decidedBy = "ai-search" as const;
       const reason = `ai-search: ${verdict.decision} ${verdict.confidence}% — ${verdict.reasoning.slice(0, 200)}`;
 
@@ -238,10 +241,7 @@ async function main() {
         );
         verified++;
       } else {
-        fail(
-          `${id.slice(0, 8)}… still in ${row.stage}`,
-          `expected history`,
-        );
+        fail(`${id.slice(0, 8)}… still in ${row.stage}`, `expected history`);
       }
     }
     if (verified === resolvedIds.length) {
@@ -252,12 +252,8 @@ async function main() {
   // ── Summary ──
   console.log(`\n${C.bold}━━━ Summary ━━━${C.reset}`);
   console.log(`  Pairs tested:    ${pairs.length}`);
-  console.log(
-    `  ${C.green}Resolved → history: ${resolved}${C.reset}`,
-  );
-  console.log(
-    `  ${C.yellow}Stays in review:    ${unresolved}${C.reset}`,
-  );
+  console.log(`  ${C.green}Resolved → history: ${resolved}${C.reset}`);
+  console.log(`  ${C.yellow}Stays in review:    ${unresolved}${C.reset}`);
   console.log(`  ${C.red}Errors:             ${errored}${C.reset}`);
   console.log();
 

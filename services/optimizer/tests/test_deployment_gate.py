@@ -41,6 +41,14 @@ def _make_metrics(
     calibration_error: float = 0.04,
     oos_roi_mean: float = 5.0,
     oos_clv_mean: float = 2.0,
+    policy_roi_mean: float = 4.0,
+    policy_sample_size: int = 400,
+    policy_coverage: float = 0.25,
+    baseline_roi_mean: float = 2.0,
+    simple_policy_roi_mean: float = 2.0,
+    simple_policy_sample_size: int = 250,
+    simple_policy_coverage: float = 0.2,
+    model_vs_simple_roi_delta: float | None = None,
     dsr: float = 0.85,
     pbo: float = 0.15,
     n_samples: int = 1500,
@@ -76,6 +84,19 @@ def _make_metrics(
         calibration_error=calibration_error,
         oos_roi_mean=oos_roi_mean,
         oos_clv_mean=oos_clv_mean,
+        policy_roi_mean=policy_roi_mean,
+        policy_sample_size=policy_sample_size,
+        policy_coverage=policy_coverage,
+        policy_edge_threshold_pct=0.0,
+        baseline_roi_mean=baseline_roi_mean,
+        simple_policy_roi_mean=simple_policy_roi_mean,
+        simple_policy_sample_size=simple_policy_sample_size,
+        simple_policy_coverage=simple_policy_coverage,
+        model_vs_simple_roi_delta=(
+            policy_roi_mean - simple_policy_roi_mean
+            if model_vs_simple_roi_delta is None
+            else model_vs_simple_roi_delta
+        ),
         dsr=dsr,
         pbo=pbo,
         n_samples=n_samples,
@@ -105,7 +126,7 @@ class TestDeploymentGateRejection:
     """Test that bad models get rejected with proper reasons."""
 
     def test_insufficient_samples(self):
-        metrics = _make_metrics(n_samples=500)
+        metrics = _make_metrics(n_samples=150)
         result = evaluate_deployment_gate(metrics)
         assert not result.approved
         assert any("Insufficient training data" in r for r in result.rejection_reasons)
@@ -129,10 +150,17 @@ class TestDeploymentGateRejection:
         assert any("Log loss too high" in r for r in result.rejection_reasons)
 
     def test_low_roi_monotonicity(self):
-        metrics = _make_metrics(roi_monotonicity=0.3, is_directionally_monotonic=False)
+        # Profit metric: (roi + clv) / 2 must be >= 0.6 when CLV is available.
+        # With roi=0.3 and clv=0.3, profit monotonicity = 0.3 -> rejected.
+        metrics = _make_metrics(
+            roi_monotonicity=0.3,
+            clv_monotonicity=0.3,
+            win_rate_monotonicity=0.9,
+            is_directionally_monotonic=False,
+        )
         result = evaluate_deployment_gate(metrics)
         assert not result.approved
-        assert any("ROI not directionally monotonic" in r for r in result.rejection_reasons)
+        assert any("profit monotonicity" in r for r in result.rejection_reasons)
 
     def test_low_dsr(self):
         metrics = _make_metrics(dsr=0.4)
@@ -141,10 +169,13 @@ class TestDeploymentGateRejection:
         assert any("Deflated Sharpe" in r for r in result.rejection_reasons)
 
     def test_high_pbo(self):
+        """Phase 5: PBO is now a warning, not a hard rejection gate."""
         metrics = _make_metrics(pbo=0.8)
         result = evaluate_deployment_gate(metrics)
-        assert not result.approved
-        assert any("Overfitting" in r for r in result.rejection_reasons)
+        assert result.approved, (
+            f"PBO should not cause rejection (Phase 5). Reasons: {result.rejection_reasons}"
+        )
+        assert any("Overfitting" in w or "PBO" in w for w in result.warnings)
 
     def test_feature_version_mismatch(self):
         metrics = _make_metrics()
@@ -172,6 +203,10 @@ class TestDeploymentGateRejection:
             calibration_error=metrics.calibration_error,
             oos_roi_mean=metrics.oos_roi_mean,
             oos_clv_mean=metrics.oos_clv_mean,
+            policy_roi_mean=metrics.policy_roi_mean,
+            policy_sample_size=metrics.policy_sample_size,
+            policy_coverage=metrics.policy_coverage,
+            policy_edge_threshold_pct=metrics.policy_edge_threshold_pct,
             dsr=metrics.dsr,
             pbo=metrics.pbo,
             n_samples=metrics.n_samples,
@@ -188,12 +223,12 @@ class TestDeploymentGateRejection:
         """A model failing multiple gates should list all reasons."""
         metrics = _make_metrics(
             auc_roc=0.50,
-            n_samples=500,
+            n_samples=150,
             calibration_error=0.25,
         )
         result = evaluate_deployment_gate(metrics)
         assert not result.approved
-        assert len(result.rejection_reasons) >= 3
+        assert len(result.rejection_reasons) >= 2
 
 
 class TestPermissionLevels:
@@ -224,6 +259,22 @@ class TestPermissionLevels:
         result = evaluate_deployment_gate(metrics)
         assert result.approved
         assert result.permission_level in ("gate_only", "stake_reduce")
+
+    def test_gate_only_requires_simple_rule_outperformance(self):
+        """Active permissions stay disabled when ML trails the simple EV rule."""
+        metrics = _make_metrics(
+            auc_roc=GATE_ONLY_MIN_AUC + 0.03,
+            n_samples=GATE_ONLY_MIN_EXAMPLES + 100,
+            dsr=GATE_ONLY_MIN_DSR + 0.03,
+            policy_roi_mean=1.0,
+            simple_policy_roi_mean=3.0,
+            simple_policy_sample_size=300,
+            model_vs_simple_roi_delta=-2.0,
+        )
+        result = evaluate_deployment_gate(metrics)
+        assert result.approved
+        assert result.permission_level == "shadow"
+        assert any("underperforms simple EV rule" in w for w in result.warnings)
 
     def test_stake_reduce_level(self):
         """Model with excellent metrics should get stake_reduce level."""
@@ -275,7 +326,19 @@ class TestDeploymentGateWarnings:
 
     def test_weak_clv_monotonicity_warning(self):
         """Low CLV monotonicity should produce a warning, not rejection."""
-        metrics = _make_metrics(clv_monotonicity=0.3)
+        metrics = _make_metrics(roi_monotonicity=1.0, clv_monotonicity=0.3)
         result = evaluate_deployment_gate(metrics)
         assert result.approved  # CLV monotonicity is a soft check
         assert any("CLV monotonicity" in w for w in result.warnings)
+
+    def test_weak_win_rate_monotonicity_is_warning_only(self):
+        """Profitable high-edge odds buckets may have lower raw hit rate."""
+        metrics = _make_metrics(
+            roi_monotonicity=0.8,
+            clv_monotonicity=1.0,
+            win_rate_monotonicity=0.4,
+            is_directionally_monotonic=True,
+        )
+        result = evaluate_deployment_gate(metrics)
+        assert result.approved
+        assert any("win-rate monotonicity" in w for w in result.warnings)

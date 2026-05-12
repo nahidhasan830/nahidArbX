@@ -33,7 +33,9 @@ registerCommand({
       .limit(count);
 
     if (models.length === 0) {
-      await reply("ℹ️ No ML models found. The training pipeline hasn't run yet.");
+      await reply(
+        "ℹ️ No ML models found. The training pipeline hasn't run yet.",
+      );
       return { alreadyReplied: true };
     }
 
@@ -41,18 +43,25 @@ registerCommand({
 
     for (const m of models) {
       const statusIcon =
-        m.status === "deployed" ? "🟢" :
-        m.status === "validated" ? "🔵" :
-        m.status === "training" ? "🟡" :
-        m.status === "retired" ? "⚪" : "❓";
+        m.status === "deployed"
+          ? "🟢"
+          : m.status === "validated"
+            ? "🔵"
+            : m.status === "training"
+              ? "🟡"
+              : m.status === "retired"
+                ? "⚪"
+                : "❓";
 
       lines.push("");
       lines.push(`${statusIcon} <b>v${m.version}</b> — ${m.status}`);
 
       const details: string[] = [];
       details.push(`${m.trainingSamples} samples`);
-      if (m.oosAucRoc != null) details.push(`AUC ${Number(m.oosAucRoc).toFixed(3)}`);
-      if (m.deflatedSharpe != null) details.push(`DSR ${Number(m.deflatedSharpe).toFixed(2)}`);
+      if (m.oosAucRoc != null)
+        details.push(`AUC ${Number(m.oosAucRoc).toFixed(3)}`);
+      if (m.deflatedSharpe != null)
+        details.push(`DSR ${Number(m.deflatedSharpe).toFixed(2)}`);
       if (m.pbo != null) details.push(`PBO ${Number(m.pbo).toFixed(3)}`);
 
       lines.push(`  ${details.join(" · ")}`);
@@ -110,20 +119,25 @@ registerCommand({
       ["Features", String(model.featureCount)],
     ];
 
-    if (model.oosAucRoc != null) kv.push(["AUC-ROC", Number(model.oosAucRoc).toFixed(4)]);
-    if (model.deflatedSharpe != null) kv.push(["Deflated Sharpe", Number(model.deflatedSharpe).toFixed(4)]);
+    if (model.oosAucRoc != null)
+      kv.push(["AUC-ROC", Number(model.oosAucRoc).toFixed(4)]);
+    if (model.deflatedSharpe != null)
+      kv.push(["Deflated Sharpe", Number(model.deflatedSharpe).toFixed(4)]);
     if (model.pbo != null) kv.push(["PBO", Number(model.pbo).toFixed(4)]);
-    if (model.calibrationError != null) kv.push(["Calibration Error", Number(model.calibrationError).toFixed(6)]);
-    if (model.oosLogLoss != null) kv.push(["Log Loss", Number(model.oosLogLoss).toFixed(6)]);
-    if (model.oosRoiMean != null) kv.push(["OOS ROI", `${Number(model.oosRoiMean).toFixed(4)}%`]);
+    if (model.calibrationError != null)
+      kv.push(["Calibration Error", Number(model.calibrationError).toFixed(6)]);
+    if (model.oosLogLoss != null)
+      kv.push(["Log Loss", Number(model.oosLogLoss).toFixed(6)]);
+    if (model.oosRoiMean != null)
+      kv.push(["OOS ROI", `${Number(model.oosRoiMean).toFixed(4)}%`]);
 
-    const lines = [
-      header("🤖", `ML Model v${model.version}`),
-      kvList(kv),
-    ];
+    const lines = [header("🤖", `ML Model v${model.version}`), kvList(kv)];
 
     // Feature importance top 5
-    if (model.featureImportance && typeof model.featureImportance === "object") {
+    if (
+      model.featureImportance &&
+      typeof model.featureImportance === "object"
+    ) {
       const fi = model.featureImportance as Record<string, number>;
       const sorted = Object.entries(fi)
         .sort((a, b) => b[1] - a[1])
@@ -165,7 +179,7 @@ registerCommand({
         totalScored: number;
         avgInferenceMs: number;
         lastInferenceMs: number;
-      }>(("/engine/ml/status"));
+      }>("/engine/ml/status");
 
       if (!status) {
         await reply("⚠️ Engine returned empty response for scorer status.");
@@ -174,7 +188,10 @@ registerCommand({
 
       const kv: [string, string][] = [
         ["Model Loaded", status.modelLoaded ? "🟢 yes" : "⚪ no"],
-        ["Version", status.modelVersion != null ? `v${status.modelVersion}` : "—"],
+        [
+          "Version",
+          status.modelVersion != null ? `v${status.modelVersion}` : "—",
+        ],
         ["Features", String(status.featureCount)],
         ["Total Scored", status.totalScored.toLocaleString()],
         ["Avg Inference", `${status.avgInferenceMs.toFixed(2)} ms`],

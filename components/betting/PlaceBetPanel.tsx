@@ -286,10 +286,15 @@ export function PlaceBetPanel({
       // Toast feedback — the in-panel banner covers the detail, but
       // toasts persist even if the modal is closed early.
       if (body?.status === "placed" || body?.status === "pending") {
-        const label = outcomeLabel ? `${outcomeLabel} @ ${providerShort}` : providerShort;
-        toast.success(`🎯 Bet ${body.status === "placed" ? "placed" : "pending"}`, {
-          description: `${label} · ${Number(stake).toLocaleString()} ${DISPLAY_CURRENCY} @ ${chosenOdds!.toFixed(2)}`,
-        });
+        const label = outcomeLabel
+          ? `${outcomeLabel} @ ${providerShort}`
+          : providerShort;
+        toast.success(
+          `🎯 Bet ${body.status === "placed" ? "placed" : "pending"}`,
+          {
+            description: `${label} · ${Number(stake).toLocaleString()} ${DISPLAY_CURRENCY} @ ${chosenOdds!.toFixed(2)}`,
+          },
+        );
       } else if (
         body &&
         (body.status === "skipped" ||

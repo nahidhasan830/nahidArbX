@@ -16,10 +16,11 @@
  * Gates:
  *   1. Per-provider toggle (auto-place must be ON for the soft provider)
  *   2. Provider must have a registered adapter
- *   3. ML confidence gate (Phase 8 permission-aware):
- *      - shadow mode: mlScore is undefined → gate bypassed (pre-ML behavior)
- *      - gate_only+: mlScore is provided → skip if below mlMinScore
- *      When no ML model is loaded, mlScore is always undefined.
+ *   3. ML confidence gate (fail-closed):
+ *      - shadow/no permission: skip; ML may audit but cannot place money
+ *      - no score: skip; auto-placement requires a scored bet
+ *      - gate_only+: skip if score is below mlMinScore
+ *   4. Market phase gate (pre-match / in-play) from Strategy & limits
  */
 import { isAutoPlaceEnabled } from "./auto-place-config";
 import { getBettingProvider } from "./registry";
@@ -29,6 +30,24 @@ import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { recordDecision } from "@/lib/db/repositories/auto-placer-log";
 import { logger } from "@/lib/shared/logger";
 import type { ValueBet } from "@/lib/atoms/value-detector";
+import type { MLPermissionLevel } from "@/lib/ml/deployment-gate";
+import {
+  getMarketPhase,
+  isMarketPhaseAllowed,
+  marketPhaseLabel,
+} from "@/lib/betting/market-phase";
+
+export interface MaybeAutoPlaceOptions {
+  /** Calibrated ML win probability [0, 1]; null when not scored. */
+  mlScore?: number | null;
+  /**
+   * ML multiplier for fullKelly (undefined/null = no ML gate decision;
+   * 0 = skip; 1 = pass-through; 0<x<1 = reduce; x>1 = increase).
+   */
+  mlKellyMultiplier?: number | null;
+  /** Current deployed model permission. Defaults to shadow to fail closed. */
+  permissionLevel?: MLPermissionLevel;
+}
 
 /**
  * Called by the reactive detector after persistence of changed bets.
@@ -36,15 +55,16 @@ import type { ValueBet } from "@/lib/atoms/value-detector";
  * idempotency.
  *
  * @param vb - The value bet to consider for auto-placement
- * @param mlScore - ML model confidence score [0, 1] (undefined = no model loaded)
- * @param mlKellyAdjusted - ML-adjusted Kelly fraction (undefined = use base Kelly)
+ * @param options - ML audit context plus the permission level that decides
+ * whether ML may control real auto-placement.
  */
 export async function maybeAutoPlace(
   vb: ValueBet,
-  mlScore?: number,
-  mlKellyAdjusted?: number,
+  options: MaybeAutoPlaceOptions = {},
 ): Promise<void> {
   const stableId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
+  const mlScore = options.mlScore ?? null;
+  const permissionLevel = options.permissionLevel ?? "shadow";
 
   // Minimal context for early-gate log entries (before we have the DB row).
   // ValueBet from the detector doesn't carry event display fields (homeTeam,
@@ -62,7 +82,7 @@ export async function maybeAutoPlace(
     softOdds: vb.softOdds ?? null,
     sharpOdds: vb.sharpOdds ?? null,
     evPct: vb.evPct ?? null,
-    mlScore: mlScore ?? null,
+    mlScore,
   };
 
   if (!isAutoPlaceEnabled(vb.softProvider)) {
@@ -90,25 +110,50 @@ export async function maybeAutoPlace(
   }
 
   // ── ML confidence gate ──────────────────────────────────────────────
-  // When an ML model is loaded and scoring, skip bets below the
-  // configured minimum score. When no model is loaded, mlScore is
-  // undefined and the gate is bypassed — preserving pre-ML behavior.
-  if (mlScore != null) {
-    const { row: settings } = await getBettingSettings();
-    const minScore = settings.mlMinScore ?? 0.4;
-    if (mlScore < minScore) {
-      logger.info(
-        "AutoPlacer",
-        `[${vb.softProvider}] ${stableId} → skipped: ML score ${mlScore.toFixed(2)} < ${minScore}`,
-      );
-      recordDecision({
-        ...logBase,
-        gate: "ml_score",
-        status: "skipped",
-        reason: `ML score ${mlScore.toFixed(2)} < min ${minScore}`,
-      });
-      return;
-    }
+  // Auto-placement is allowed to spend money only when the deployed
+  // model has gate_only+ permission and this specific bet has a score.
+  const { row: settings } = await getBettingSettings();
+  if (permissionLevel === "shadow") {
+    recordDecision({
+      ...logBase,
+      gate: "ml_permission",
+      status: "skipped",
+      reason:
+        "ML permission is shadow; auto-placement requires gate_only or higher",
+    });
+    return;
+  }
+  if (mlScore == null) {
+    recordDecision({
+      ...logBase,
+      gate: "ml_score",
+      status: "skipped",
+      reason: "ML score unavailable; auto-placement requires a scored bet",
+    });
+    return;
+  }
+  const mlMultiplier = options.mlKellyMultiplier;
+  if (mlMultiplier == null) {
+    recordDecision({
+      ...logBase,
+      gate: "ml_score",
+      status: "skipped",
+      reason: "ML edge unavailable; auto-placement requires a model gate decision",
+    });
+    return;
+  }
+  if (mlMultiplier <= 0) {
+    logger.info(
+      "AutoPlacer",
+      `[${vb.softProvider}] ${stableId} → skipped: ML model edge is not positive`,
+    );
+    recordDecision({
+      ...logBase,
+      gate: "ml_score",
+      status: "skipped",
+      reason: "ML model edge is not positive at offered odds",
+    });
+    return;
   }
 
   const row = await getBetById(stableId);
@@ -126,9 +171,28 @@ export async function maybeAutoPlace(
     return;
   }
 
+  if (!isMarketPhaseAllowed(row.eventStartTime, settings.betPlacementPhases)) {
+    const phase = getMarketPhase(row.eventStartTime);
+    recordDecision({
+      ...logBase,
+      homeTeam: row.homeTeam ?? null,
+      awayTeam: row.awayTeam ?? null,
+      competition: row.competition ?? null,
+      eventStartTime: row.eventStartTime ?? null,
+      marketType: row.marketType ?? null,
+      atomLabel: row.atomLabel ?? null,
+      gate: "phase",
+      status: "skipped",
+      reason: `Bet placement disabled for ${marketPhaseLabel(phase)} events`,
+    });
+    return;
+  }
+
   const outcome = await placeBetForValueBet({
     valueBet: row as unknown as ValueBetRow,
-    kellyStake: mlKellyAdjusted ?? vb.kellyStake,
+    kellyStake: vb.kellyStake,
+    mlScore,
+    mlKellyMultiplier: options.mlKellyMultiplier,
     mode: "auto",
   });
 
@@ -143,6 +207,6 @@ export async function maybeAutoPlace(
 
   // The placer records its own log entries for outcomes it produces
   // (balance, dedup, book reject, placed, etc.). We only need to record
-  // here for gates checked in this function (toggle, adapter, ml_score,
-  // row_missing). The placer handles the rest.
+  // here for gates checked in this function (toggle, adapter,
+  // ml_permission, ml_score, row_missing, phase). The placer handles the rest.
 }

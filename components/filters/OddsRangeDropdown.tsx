@@ -9,7 +9,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -63,22 +63,10 @@ export function OddsRangeDropdown({
 }: OddsRangeDropdownProps) {
   const isActive = min != null || max != null;
 
-  // Local slider state for smooth drag
-  const [local, setLocal] = useState<[number, number]>([
+  const value: [number, number] = [
     toSlider(min, ODDS_MIN),
     toSlider(max, ODDS_MAX),
-  ]);
-
-  // Sync from parent (e.g., after reset)
-  const prevMin = useRef(min);
-  const prevMax = useRef(max);
-  useEffect(() => {
-    if (prevMin.current !== min || prevMax.current !== max) {
-      prevMin.current = min;
-      prevMax.current = max;
-      setLocal([toSlider(min, ODDS_MIN), toSlider(max, ODDS_MAX)]);
-    }
-  }, [min, max]);
+  ];
 
   const handleCommit = useCallback(
     ([lo, hi]: number[]) => {
@@ -109,7 +97,6 @@ export function OddsRangeDropdown({
             <button
               type="button"
               onClick={() => {
-                setLocal([ODDS_MIN, ODDS_MAX]);
                 onChange(undefined, undefined);
               }}
               className="text-[10px] text-muted-foreground hover:text-foreground"
@@ -122,21 +109,21 @@ export function OddsRangeDropdown({
           min={ODDS_MIN}
           max={ODDS_MAX}
           step={ODDS_STEP}
-          value={local}
-          onValueChange={(v) => setLocal(v as [number, number])}
+          value={value}
+          onValueChange={handleCommit}
           onValueCommit={handleCommit}
           className="mb-2"
         />
         <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
           <span>
-            {fromSlider(local[0], ODDS_MIN) == null
+            {fromSlider(value[0], ODDS_MIN) == null
               ? "Min"
-              : local[0].toFixed(2)}
+              : value[0].toFixed(2)}
           </span>
           <span>
-            {fromSlider(local[1], ODDS_MAX) == null
+            {fromSlider(value[1], ODDS_MAX) == null
               ? "Max"
-              : local[1].toFixed(2)}
+              : value[1].toFixed(2)}
           </span>
         </div>
       </DropdownMenuContent>

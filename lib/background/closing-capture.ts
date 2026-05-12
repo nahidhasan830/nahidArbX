@@ -1,9 +1,9 @@
 /**
  * Closing-odds capture.
  *
- * For each value_bet whose kickoff is within the capture window, snapshot the
+ * For each bet whose kickoff is within the capture window, snapshot the
  * freshest Pinnacle (and soft) odds from the in-memory atoms store and
- * persist them as the "closing" reference. Runs every odds sync cycle.
+ * persist them as the "closing" reference. Runs every heartbeat cycle.
  *
  * Semantics:
  *
@@ -21,10 +21,11 @@
  *   rejected. With a 60s sync cadence this tolerates up to 4 consecutive
  *   fetch failures before skipping a capture attempt.
  *
- * Why the capture diverged from previous ±5 min / 3 min behaviour: coverage
- * was only ~34% on settled pre-match rows. Widening the window and allowing
- * overwrites drives coverage up without sacrificing signal quality (the
- * final value still converges to the latest available snapshot).
+ * - CLV computation: CLV% is computed for ALL bets, not just placed ones.
+ *   For placed bets: (placedOdds / closingSharpOdds - 1) * 100.
+ *   For non-placed bets: (softOdds * (1 - commission/100) / closingSharpOdds - 1) * 100.
+ *   This tells us whether the bet had genuine edge at detection time,
+ *   regardless of whether it was actually placed.
  */
 
 import { and, eq, gte, lte } from "drizzle-orm";
@@ -57,6 +58,10 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
       atomId: bets.atomId,
       sharpProvider: bets.sharpProvider,
       softProvider: bets.softProvider,
+      softOdds: bets.softOdds,
+      softCommissionPct: bets.softCommissionPct,
+      odds: bets.odds,         // placed odds (null if not placed)
+      placedAt: bets.placedAt, // non-null if placed
     })
     .from(bets)
     .where(
@@ -90,17 +95,32 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
       continue;
     }
 
-    const softSnap = getOdds(
-      row.eventId,
-      row.familyId,
-      row.atomId,
-      row.softProvider as Parameters<typeof getOdds>[3],
-    );
+    // Compute CLV% using the best available odds for this bet.
+    // Placed bets: use actual placed odds (current.odds).
+    // Non-placed bets: use commission-adjusted soft odds at detection.
+    const closingSharp = sharpSnap.odds;
+    let clvPct: number | null = null;
+    if (closingSharp > 0) {
+      if (row.placedAt && row.odds) {
+        // Placed bet: CLV = (placedOdds / closingSharp - 1) * 100
+        clvPct = Number(
+          ((Number(row.odds) / closingSharp - 1) * 100).toFixed(2),
+        );
+      } else if (row.softOdds) {
+        // Non-placed bet: CLV = (adjSoftOdds / closingSharp - 1) * 100
+        const commission = Number(row.softCommissionPct ?? 0);
+        const adjSoftOdds = Number(row.softOdds) * (1 - commission / 100);
+        clvPct = Number(
+          ((adjSoftOdds / closingSharp - 1) * 100).toFixed(2),
+        );
+      }
+    }
 
     await db
       .update(bets)
       .set({
-        closingSharpOdds: sharpSnap.odds,
+        closingSharpOdds: closingSharp,
+        clvPct,
       })
       .where(eq(bets.id, row.id));
 

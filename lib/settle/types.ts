@@ -7,11 +7,14 @@ export type ScoreSource =
   | "betconstruct"
   | "football-data"
   | "espn"
+  | "api-football"
   | "sofascore"
   | "openligadb"
   | "pinnacle-settled"
-  | "url-context"
-  | "gemini-batch"
+  | "ai-search-hf"
+  | "ai-search-groq"   // legacy — kept for old DB rows; new rows use ai-search-hf
+  | "url-context"     // legacy — no longer produced, but old DB rows have this
+  | "gemini-batch"    // legacy — no longer produced, but old DB rows have this
   | "legacy-ai"
   | "manual";
 
@@ -43,6 +46,13 @@ export interface MatchScore {
   /** Half-time corners, rarely available — best-effort only. */
   htCornersHome?: number | null;
   htCornersAway?: number | null;
+  /**
+   * Booking points per team (FT). Pinnacle convention:
+   * 1 pt per yellow card + 2 pts per red card.
+   * `null` when not fetched or source doesn't expose card stats.
+   */
+  bookingsHome?: number | null;
+  bookingsAway?: number | null;
   source: ScoreSource;
   confidence: number;
   sourceUrl?: string | null;

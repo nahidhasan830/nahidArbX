@@ -70,8 +70,6 @@ function formatEventTime(startTime: string): string {
   return `${dateStr} ${timeStr}`;
 }
 
-
-
 /**
  * Count how many soft providers show a positive-EV opportunity at the given
  * true probability. Used as a "N providers" hint next to the EV column.
@@ -143,15 +141,18 @@ export interface SpreadsheetRowProps {
   ) => void;
   onHide: (eventId: string, familyId: string) => void;
   /** Opens the movement detail modal for this provider's odds. */
-  onMovementClick?: (oddsRow: SpreadsheetRow["odds"], context: {
-    eventLabel: string;
-    marketLabel: string;
-    valueBetDetails?: SpreadsheetRow["valueBetDetails"];
-    startTime?: string;
-    marketType?: string;
-    line?: number;
-    providerCount?: number;
-  }) => void;
+  onMovementClick?: (
+    oddsRow: SpreadsheetRow["odds"],
+    context: {
+      eventLabel: string;
+      marketLabel: string;
+      valueBetDetails?: SpreadsheetRow["valueBetDetails"];
+      startTime?: string;
+      marketType?: string;
+      line?: number;
+      providerCount?: number;
+    },
+  ) => void;
   liveScore?: LiveScoreData;
   /** Event-level suspension (all markets blocked) */
   suspended?: boolean;
@@ -381,117 +382,129 @@ export function SpreadsheetRow({
         // Compute sharp reference sparkline once — passed to soft provider tooltips
         const sharpId = getSharpProviders()[0];
         const sharpMov = sharpId ? row.odds[sharpId]?.movement : undefined;
-        const sharpRefData = sharpId && sharpMov && sharpMov.totalTicks >= 2 && sharpMov.sparkline.length >= 2
-          ? { sparkline: sharpMov.sparkline, label: getProviderShortName(sharpId) }
-          : undefined;
+        const sharpRefData =
+          sharpId &&
+          sharpMov &&
+          sharpMov.totalTicks >= 2 &&
+          sharpMov.sparkline.length >= 2
+            ? {
+                sparkline: sharpMov.sparkline,
+                label: getProviderShortName(sharpId),
+              }
+            : undefined;
 
         return visibleProviders.map((providerId) => {
-        const od = row.odds[providerId];
-        const placeable =
-          CONFIGURED_BETTING_PROVIDER_IDS.includes(providerId as string) &&
-          !!od &&
-          !od.suspended;
-        const onClick = placeable
-          ? () => {
-              const price = od!.value;
-              const baseline = row.valueBetDetails;
-              const details: ValueBetDetails = baseline
-                ? {
-                    sharpProvider: baseline.sharpProvider,
-                    sharpOdds: baseline.sharpOdds,
-                    trueProb: baseline.trueProb,
-                    softProvider: providerId,
-                    softOdds: price,
-                    impliedProb: 1 / price,
-                    edge: baseline.trueProb - 1 / price,
-                    evPct: (price * baseline.trueProb - 1) * 100,
-                    kellyFraction: Math.max(
-                      0,
-                      ((price - 1) * baseline.trueProb -
-                        (1 - baseline.trueProb)) /
-                        (price - 1),
-                    ),
-                    kellyStake: 0,
-                    timestamp: od!.timestamp,
-                    familyOdds: baseline.familyOdds,
-                  }
-                : (() => {
-                    const sharp = getSharpProviders()[0] ?? providerId;
-                    const sharpOd = row.odds[sharp];
-                    const sOdds = sharpOd?.value ?? price;
-                    const sProb = sOdds > 1 ? 1 / sOdds : 1 / price;
-                    return {
-                      sharpProvider: sharp,
-                      sharpOdds: sOdds,
-                      trueProb: sProb,
+          const od = row.odds[providerId];
+          const placeable =
+            CONFIGURED_BETTING_PROVIDER_IDS.includes(providerId as string) &&
+            !!od &&
+            !od.suspended;
+          const onClick = placeable
+            ? () => {
+                const price = od!.value;
+                const baseline = row.valueBetDetails;
+                const details: ValueBetDetails = baseline
+                  ? {
+                      sharpProvider: baseline.sharpProvider,
+                      sharpOdds: baseline.sharpOdds,
+                      trueProb: baseline.trueProb,
                       softProvider: providerId,
                       softOdds: price,
                       impliedProb: 1 / price,
-                      edge: 0,
-                      evPct: 0,
-                      kellyFraction: 0,
+                      edge: baseline.trueProb - 1 / price,
+                      evPct: (price * baseline.trueProb - 1) * 100,
+                      kellyFraction: Math.max(
+                        0,
+                        ((price - 1) * baseline.trueProb -
+                          (1 - baseline.trueProb)) /
+                          (price - 1),
+                      ),
                       kellyStake: 0,
                       timestamp: od!.timestamp,
-                    };
-                  })();
-              onSelectValueBet({
-                eventLabel: row.eventLabel,
-                competition: row.competition,
-                startTime: row.startTime,
-                marketLabel: row.marketLabel,
-                outcomeLabel: row.outcomeLabel,
-                atomId: row.atomId,
-                familyId: row.familyId,
-                marketType: row.marketType,
-                details,
-                eventId: row.eventId,
-                providerEventIds,
-                atomOdds: row.odds,
-                liveScore,
-              });
-            }
-          : undefined;
-
-        // Only pass sharp reference to non-sharp providers
-        const isThisSharp = providerId === sharpId;
-
-        return (
-          <OddsCell
-            key={providerId}
-            odds={od}
-            onClick={onClick}
-            providerLabel={getProviderShortName(providerId)}
-            onMovementClick={!placeable && onMovementClick && od?.movement && od.movement.totalTicks >= 2
-              ? () => onMovementClick(row.odds, {
+                      familyOdds: baseline.familyOdds,
+                    }
+                  : (() => {
+                      const sharp = getSharpProviders()[0] ?? providerId;
+                      const sharpOd = row.odds[sharp];
+                      const sOdds = sharpOd?.value ?? price;
+                      const sProb = sOdds > 1 ? 1 / sOdds : 1 / price;
+                      return {
+                        sharpProvider: sharp,
+                        sharpOdds: sOdds,
+                        trueProb: sProb,
+                        softProvider: providerId,
+                        softOdds: price,
+                        impliedProb: 1 / price,
+                        edge: 0,
+                        evPct: 0,
+                        kellyFraction: 0,
+                        kellyStake: 0,
+                        timestamp: od!.timestamp,
+                      };
+                    })();
+                onSelectValueBet({
                   eventLabel: row.eventLabel,
-                  marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
-                  valueBetDetails: row.valueBetDetails,
+                  competition: row.competition,
                   startTime: row.startTime,
+                  marketLabel: row.marketLabel,
+                  outcomeLabel: row.outcomeLabel,
+                  atomId: row.atomId,
+                  familyId: row.familyId,
                   marketType: row.marketType,
-                  line: row.line,
-                  providerCount: row.providerCount,
-                })
-              : undefined
-            }
-            onOpenMovementModal={onMovementClick && od?.movement && od.movement.totalTicks >= 2
-              ? () => onMovementClick(row.odds, {
-                  eventLabel: row.eventLabel,
-                  marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
-                  valueBetDetails: row.valueBetDetails,
-                  startTime: row.startTime,
-                  marketType: row.marketType,
-                  line: row.line,
-                  providerCount: row.providerCount,
-                })
-              : undefined
-            }
-            sharpRef={!isThisSharp ? sharpRefData : undefined}
-          />
-        );
-      });
+                  details,
+                  eventId: row.eventId,
+                  providerEventIds,
+                  atomOdds: row.odds,
+                  liveScore,
+                });
+              }
+            : undefined;
+
+          // Only pass sharp reference to non-sharp providers
+          const isThisSharp = providerId === sharpId;
+
+          return (
+            <OddsCell
+              key={providerId}
+              odds={od}
+              onClick={onClick}
+              providerLabel={getProviderShortName(providerId)}
+              onMovementClick={
+                !placeable &&
+                onMovementClick &&
+                od?.movement &&
+                od.movement.totalTicks >= 2
+                  ? () =>
+                      onMovementClick(row.odds, {
+                        eventLabel: row.eventLabel,
+                        marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
+                        valueBetDetails: row.valueBetDetails,
+                        startTime: row.startTime,
+                        marketType: row.marketType,
+                        line: row.line,
+                        providerCount: row.providerCount,
+                      })
+                  : undefined
+              }
+              onOpenMovementModal={
+                onMovementClick && od?.movement && od.movement.totalTicks >= 2
+                  ? () =>
+                      onMovementClick(row.odds, {
+                        eventLabel: row.eventLabel,
+                        marketLabel: `${row.marketLabel} · ${row.outcomeLabel}`,
+                        valueBetDetails: row.valueBetDetails,
+                        startTime: row.startTime,
+                        marketType: row.marketType,
+                        line: row.line,
+                        providerCount: row.providerCount,
+                      })
+                  : undefined
+              }
+              sharpRef={!isThisSharp ? sharpRefData : undefined}
+            />
+          );
+        });
       })()}
-
-
 
       <td className="text-center px-2">
         <div className="flex items-center justify-center gap-1">

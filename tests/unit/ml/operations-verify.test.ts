@@ -36,18 +36,13 @@ function parsePythonFeatureNames(): {
     /FEATURE_NAMES:\s*list\[str\]\s*=\s*\[([\s\S]*?)\]\s*\n\nFEATURE_COUNT/,
   );
   expect(listMatch).not.toBeNull();
-  const names = Array.from(
-    listMatch![1].matchAll(/"([^"]+)"/g),
-    (m) => m[1],
-  );
+  const names = Array.from(listMatch![1].matchAll(/"([^"]+)"/g), (m) => m[1]);
 
   const countMatch = source.match(/FEATURE_COUNT\s*=\s*(\d+)/);
   const versionMatch = source.match(/FEATURE_VERSION\s*=\s*(\d+)/);
   const count = countMatch ? parseInt(countMatch[1], 10) : 0;
   const version = versionMatch ? parseInt(versionMatch[1], 10) : 0;
-  const hash = createHash("sha256")
-    .update(names.join(","))
-    .digest("hex");
+  const hash = createHash("sha256").update(names.join(",")).digest("hex");
 
   return { names, count, version, hash };
 }
@@ -119,7 +114,15 @@ describe("Phase 11: Operations verification", () => {
     });
 
     it("catalog format types are all valid", () => {
-      const validFmts = new Set(["pct", "odds", "ms", "int", "float", "binary", "dir"]);
+      const validFmts = new Set([
+        "pct",
+        "odds",
+        "ms",
+        "int",
+        "float",
+        "binary",
+        "dir",
+      ]);
       for (const entry of FEATURE_CATALOG) {
         expect(validFmts.has(entry.fmt)).toBe(true);
       }

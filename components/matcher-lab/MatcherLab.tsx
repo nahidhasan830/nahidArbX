@@ -57,11 +57,7 @@ import { format, isValid, parseISO } from "date-fns";
 
 import { AppShell } from "@/components/nav/AppShell";
 
-const VISIBLE_STAGES: MatchPairStage[] = [
-  "inbox",
-  "human_review",
-  "history",
-];
+const VISIBLE_STAGES: MatchPairStage[] = ["inbox", "human_review", "history"];
 
 const REFRESH_INTERVALS: Partial<Record<MatchPairStage, number>> = {
   inbox: 15_000,
@@ -208,7 +204,7 @@ function AiVerifyDropdown({
             inline && "text-muted-foreground hover:text-foreground",
           )}
           disabled={disabled || running}
-          title="Verify match using AI — AI Search (Groq + web) or Gemini (paid cloud)"
+          title="Verify match using AI — AI Search (HuggingFace + web) or Gemini (paid cloud)"
         >
           {running ? (
             <Loader2
@@ -229,27 +225,27 @@ function AiVerifyDropdown({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[210px] p-1">
         <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          🔍 AI Search (Groq)
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={() => onVerify("ai-search")}
-          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Groq + web search grounding — free cloud LLM with web evidence"
-        >
-          <Search className="size-3.5 text-cyan-400" />
-          <span className="text-[11px]">Search + Groq</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          🤗 HuggingFace (free)
+          🤗 HuggingFace (primary, free)
         </DropdownMenuLabel>
         <DropdownMenuItem
           onSelect={() => onVerify("huggingface")}
           className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Web search grounding + HuggingFace Router LLM (Llama 3.3 70B) — free"
+          title="Web search grounding + HuggingFace Router LLM (Llama 3.3 70B) — free, primary"
         >
           <Bot className="size-3.5 text-orange-400" />
           <span className="text-[11px]">Search + HuggingFace</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
+          🔍 Groq (fallback, free)
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          onSelect={() => onVerify("ai-search")}
+          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
+          title="Groq + web search grounding — free cloud LLM fallback"
+        >
+          <Search className="size-3.5 text-cyan-400" />
+          <span className="text-[11px]">Search + Groq</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
@@ -443,7 +439,10 @@ export function MatcherLab() {
         const pair = rows.find((r) => r.id === id);
         await decidePair(id, decision, "human");
         const eventLabel = pair
-          ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(0, 70)
+          ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(
+              0,
+              70,
+            )
           : id.slice(0, 30);
         if (decision === "human-merge") {
           toast.success(`✅ Merged`, {
@@ -498,26 +497,32 @@ export function MatcherLab() {
       let uncertain = 0;
       let errors = 0;
 
-      const engineLabel = engine === "ai-search" ? "AI Search" : engine === "huggingface" ? "HuggingFace" : "Gemini";
-      const engineEmoji = engine === "ai-search" ? "🔍" : engine === "huggingface" ? "🤗" : "✨";
+      const engineLabel =
+        engine === "ai-search"
+          ? "AI Search"
+          : engine === "huggingface"
+            ? "HuggingFace"
+            : "Gemini";
+      const engineEmoji =
+        engine === "ai-search" ? "🔍" : engine === "huggingface" ? "🤗" : "✨";
 
       for (const id of idsToRun) {
         try {
           const pair = rows.find((r) => r.id === id);
           const pairLabel = pair
-            ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(0, 65)
+            ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(
+                0,
+                65,
+              )
             : id.slice(0, 30);
           const result = await verifyAiMatch(id, { engine, model });
           if (result.decision === "UNCERTAIN") {
             uncertain++;
-            toast.warning(
-              `${engineEmoji} Uncertain — ${pairLabel}`,
-              {
-                description: result.reasoning
-                  ? `${result.reasoning.slice(0, 120)} · ${result.confidence}% confidence`
-                  : `${engineLabel} couldn't decide · ${result.confidence}% confidence`,
-              },
-            );
+            toast.warning(`${engineEmoji} Uncertain — ${pairLabel}`, {
+              description: result.reasoning
+                ? `${result.reasoning.slice(0, 120)} · ${result.confidence}% confidence`
+                : `${engineLabel} couldn't decide · ${result.confidence}% confidence`,
+            });
             continue;
           }
           const decidedBy = engine === "ai-search" ? "ai-search" : "human";
@@ -544,7 +549,10 @@ export function MatcherLab() {
           const pair = rows.find((r) => r.id === id);
           toast.error(`❌ ${engineLabel} failed`, {
             description: pair
-              ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}\n${(err as Error).message}`.slice(0, 200)
+              ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}\n${(err as Error).message}`.slice(
+                  0,
+                  200,
+                )
               : (err as Error).message,
           });
         } finally {
@@ -758,17 +766,18 @@ export function MatcherLab() {
         return {
           value: stage,
           label: meta.label,
-          badge: count > 0 ? (
-            <span
-              className={cn(
-                "ml-1 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums border",
-                meta.color,
-                meta.bgActive
-              )}
-            >
-              {count}
-            </span>
-          ) : null,
+          badge:
+            count > 0 ? (
+              <span
+                className={cn(
+                  "ml-1 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums border",
+                  meta.color,
+                  meta.bgActive,
+                )}
+              >
+                {count}
+              </span>
+            ) : null,
         };
       })}
       activeTab={activeStage}
@@ -874,91 +883,94 @@ export function MatcherLab() {
       }
     >
       <div className="h-full flex flex-col overflow-hidden bg-background">
+        {/* ML progress bar */}
+        {mlProgress && (
+          <div className="flex items-center gap-3 px-3 py-1.5 border-b border-zinc-800/30 bg-sky-950/20">
+            <Loader2 className="size-3 animate-spin text-sky-400 shrink-0" />
+            <span className="text-[11px] text-sky-300">{mlProgress.phase}</span>
+            {mlProgress.total > 0 && (
+              <>
+                <span className="text-[11px] text-sky-400 tabular-nums">
+                  {mlProgress.current}/{mlProgress.total}
+                </span>
+                <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden max-w-[200px]">
+                  <div
+                    className="h-full bg-sky-500 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${(mlProgress.current / mlProgress.total) * 100}%`,
+                    }}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
-      {/* ML progress bar */}
-      {mlProgress && (
-        <div className="flex items-center gap-3 px-3 py-1.5 border-b border-zinc-800/30 bg-sky-950/20">
-          <Loader2 className="size-3 animate-spin text-sky-400 shrink-0" />
-          <span className="text-[11px] text-sky-300">{mlProgress.phase}</span>
-          {mlProgress.total > 0 && (
-            <>
-              <span className="text-[11px] text-sky-400 tabular-nums">
-                {mlProgress.current}/{mlProgress.total}
-              </span>
-              <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden max-w-[200px]">
-                <div
-                  className="h-full bg-sky-500 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${(mlProgress.current / mlProgress.total) * 100}%`,
-                  }}
-                />
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* DataTable */}
-      <div className="flex-1 min-h-0 p-2">
-        <DataTable<MatchPairRow>
-          withCard
-          data={rows}
-          columns={columns}
-          getRowId={(row) => row.id}
-          enableSorting
-          enableVirtualization
-          enableColumnResizing
-          enableRowSelection={
-            activeStage === "inbox" || activeStage === "human_review"
-          }
-          rowSelection={
-            activeStage === "inbox" || activeStage === "human_review"
-              ? rowSelection
-              : undefined
-          }
-          onRowSelectionChange={
-            activeStage === "inbox" || activeStage === "human_review"
-              ? setRowSelection
-              : undefined
-          }
-          density="compact"
-          persistenceKey={`matcher-lab-${activeStage}`}
-          loading={loading}
-          className="h-full"
-          rowClassName={(row) => {
-            const status = pairStatuses.get(row.id);
-            if (status === "scoring")
-              return "bg-amber-900/[0.08] animate-pulse";
-            if (status === "embedding") return "bg-sky-900/[0.06]";
-            if (status === "merged") return "bg-emerald-900/[0.08]";
-            if (status === "rejected") return "bg-red-900/[0.06] opacity-80";
-            if (status === "escalated") return "bg-violet-900/[0.06]";
-            if (row.decision?.includes("merge")) return "bg-emerald-900/[0.04]";
-            if (row.decision?.includes("reject"))
-              return "bg-red-900/[0.04] opacity-80";
-            
-            // Global processing effect for inbox pairs
-            if (activeStage === "inbox" && (mlProgress != null || mlStats?.processing)) {
-              return "bg-sky-900/[0.04] animate-pulse";
+        {/* DataTable */}
+        <div className="flex-1 min-h-0 p-2">
+          <DataTable<MatchPairRow>
+            withCard
+            data={rows}
+            columns={columns}
+            getRowId={(row) => row.id}
+            enableSorting
+            enableVirtualization
+            enableColumnResizing
+            enableRowSelection={
+              activeStage === "inbox" || activeStage === "human_review"
             }
-            return undefined;
-          }}
-          renderEmpty={() => (
-            <div className="flex flex-col items-center justify-center py-12 text-zinc-500">
-              <p className="text-sm">
-                {activeStage === "inbox"
-                  ? "Inbox is empty — all pairs have been scored."
-                  : activeStage === "human_review"
+            rowSelection={
+              activeStage === "inbox" || activeStage === "human_review"
+                ? rowSelection
+                : undefined
+            }
+            onRowSelectionChange={
+              activeStage === "inbox" || activeStage === "human_review"
+                ? setRowSelection
+                : undefined
+            }
+            density="compact"
+            persistenceKey={`matcher-lab-${activeStage}`}
+            loading={loading}
+            className="h-full"
+            rowClassName={(row) => {
+              const status = pairStatuses.get(row.id);
+              if (status === "scoring")
+                return "bg-amber-900/[0.08] animate-pulse";
+              if (status === "embedding") return "bg-sky-900/[0.06]";
+              if (status === "merged") return "bg-emerald-900/[0.08]";
+              if (status === "rejected") return "bg-red-900/[0.06] opacity-80";
+              if (status === "escalated") return "bg-violet-900/[0.06]";
+              if (row.decision?.includes("merge"))
+                return "bg-emerald-900/[0.04]";
+              if (row.decision?.includes("reject"))
+                return "bg-red-900/[0.04] opacity-80";
+
+              // Global processing effect for inbox pairs
+              if (
+                activeStage === "inbox" &&
+                (mlProgress != null || mlStats?.processing)
+              ) {
+                return "bg-sky-900/[0.04] animate-pulse";
+              }
+              return undefined;
+            }}
+            renderEmpty={() => (
+              <div className="flex flex-col items-center justify-center py-12 text-zinc-500">
+                <p className="text-sm">
+                  {activeStage === "inbox"
+                    ? "Inbox is empty — all pairs have been scored."
+                    : activeStage === "human_review"
                       ? "Nothing needs a human decision right now."
                       : "No resolved pairs yet."}
-              </p>
-            </div>
-          )}
-        />
+                </p>
+              </div>
+            )}
+          />
+        </div>
       </div>
-    </div>
-  </AppShell>
-);
+    </AppShell>
+  );
 }
 
 // ─── Column builder ───────────────────────────────────────────────────

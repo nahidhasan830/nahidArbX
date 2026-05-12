@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import os
 import tempfile
+from unittest.mock import patch
 
 import numpy as np
+import polars as pl
 import pytest
 
 from app.cpcv import CpcvConfig, make_cpcv_splits
 from app.feature_names import FEATURE_COUNT, FEATURE_NAMES, FEATURE_NAMES_HASH, FEATURE_VERSION
 from app.loader import TrainingData
+from app.policy import hpo_policy_objective_stats, model_edge_pct
 from app.trainer import TrainingMetrics, TrainingResult, train
 
 
@@ -115,6 +118,80 @@ class TestTrainer:
             assert len(fi) == FEATURE_COUNT
             for name in FEATURE_NAMES:
                 assert name in fi, f"Missing feature importance for {name}"
+
+
+class TestPolicyAlignedMetrics:
+    """Training financial metrics should score the ML policy, not all detections."""
+
+    def test_model_edge_uses_adjusted_odds(self):
+        features = np.zeros((3, FEATURE_COUNT), dtype=np.float32)
+        features[:, 2] = np.array([2.0, 2.0, 3.0], dtype=np.float32)
+        features[:, 3] = np.array([1.9, 0.0, 2.8], dtype=np.float32)
+        probs = np.array([0.55, 0.55, 0.25], dtype=np.float64)
+
+        edges = model_edge_pct(probs, features)
+
+        assert edges[0] == pytest.approx(4.5)   # 0.55 * 1.9 - 1
+        assert edges[1] == pytest.approx(10.0)  # fallback to soft_odds
+        assert edges[2] == pytest.approx(-30.0)
+
+    def test_hpo_objective_scores_selected_policy_returns_only(self):
+        features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
+        features[:, 2] = 2.0
+        features[:, 3] = 2.0
+        probs = np.array([0.6, 0.4, 0.7, 0.3], dtype=np.float64)
+        unit_returns = np.array([1.0, -1.0, 3.0, -1.0], dtype=np.float64)
+
+        mean_ur, sharpe, selected_n = hpo_policy_objective_stats(
+            probs, features, unit_returns,
+        )
+
+        assert selected_n == 2
+        # Only probabilities with positive model edge are selected. The small
+        # sample receives a 2/30 credit so HPO cannot promote tiny lucky slices.
+        assert mean_ur == pytest.approx(2.0 * (2 / 30))
+        assert sharpe > 0
+
+    def test_hpo_fold_ignores_unselected_losses(self):
+        from app.hpo import _train_and_score_fold
+
+        features = np.zeros((6, FEATURE_COUNT), dtype=np.float32)
+        features[:, 2] = 2.0
+        features[:, 3] = 2.0
+        labels = np.array([1, 0, 1, 0, 1, 0], dtype=np.int32)
+        metadata = pl.DataFrame({
+            "unit_return": [1.0, -10.0, 1.0, -10.0, 1.0, -10.0],
+            "event_id": [f"e{i}" for i in range(6)],
+        })
+        data = TrainingData(
+            features=features,
+            labels=labels,
+            feature_names=list(FEATURE_NAMES),
+            metadata=metadata,
+            n_samples=6,
+        )
+
+        class DummyModel:
+            def fit(self, *args, **kwargs):
+                return self
+
+            def predict_proba(self, x):
+                # Select rows 2 and 4 only. The large unselected losses should
+                # not enter the fold metric.
+                out = np.zeros((len(x), 2), dtype=np.float64)
+                out[:, 1] = np.array([0.6, 0.4, 0.6, 0.4])
+                out[:, 0] = 1.0 - out[:, 1]
+                return out
+
+        with patch("app.hpo.lgb.LGBMClassifier", return_value=DummyModel()):
+            mean_ur, _sharpe = _train_and_score_fold(
+                data=data,
+                train_idx=np.array([0, 1], dtype=np.int64),
+                test_idx=np.array([2, 3, 4, 5], dtype=np.int64),
+                params={},
+            )
+
+        assert mean_ur == pytest.approx(1.0 * (2 / 30))
 
 
 class TestONNXExport:

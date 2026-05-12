@@ -20,7 +20,6 @@ import { eq } from "drizzle-orm";
 import { initializeAuth } from "@/lib/auth/bootstrap";
 import {
   apiError,
-  apiSuccess,
   apiBadRequest,
   apiNotFound,
   apiServerError,

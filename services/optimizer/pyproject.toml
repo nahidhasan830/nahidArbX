@@ -21,6 +21,9 @@ dependencies = [
     "scikit-learn>=1.5.0",
     "shap>=0.46.0",
 
+    # Hyperparameter optimization — Optuna multivariate TPE + Hyperband.
+    "optuna>=4.0.0",
+
     # Numerics
     "numpy>=2.1.0",
     "scipy>=1.14.0",

@@ -26,10 +26,6 @@
 import { NextResponse } from "next/server";
 import { queryPlayerInfo } from "@/lib/betting/ninewickets/client";
 import {
-  getSession,
-  invalidateSession,
-} from "@/lib/betting/ninewickets/session";
-import {
   getAutoLoginConfig,
   AutoLoginDisabledError,
 } from "@/lib/betting/ninewickets/auto-login-config";
@@ -38,7 +34,7 @@ import {
   reconcilePendingBets,
   type ReconcileReport,
 } from "@/lib/betting/ninewickets/reconciler";
-import { logger } from "@/lib/shared/logger";
+
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

@@ -28,7 +28,8 @@ export async function GET(request: Request) {
   }
 
   // Full health check — proxy from engine
-  const engineHealth = await engineGet<Record<string, unknown>>("/engine/health");
+  const engineHealth =
+    await engineGet<Record<string, unknown>>("/engine/health");
 
   if (engineHealth) {
     return NextResponse.json(

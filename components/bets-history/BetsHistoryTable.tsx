@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { ExternalLink, Loader2, Microscope, MoreVertical, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ExternalLink,
+  Loader2,
+  Microscope,
+  MoreVertical,
+  Trash2,
+} from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -41,7 +48,11 @@ import { FeatureInspectorDialog } from "./FeatureInspectorDialog";
 import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
 import { canResettle, prettySettledBy } from "@/lib/bets-history/resettle";
-import type { Outcome, ValueBetRow, OddsMovementData } from "@/lib/bets-history/types";
+import type {
+  Outcome,
+  ValueBetRow,
+  OddsMovementData,
+} from "@/lib/bets-history/types";
 import {
   getProviderShortName,
   getProviderTextInline,
@@ -58,10 +69,13 @@ function isOddsMovementData(v: unknown): v is OddsMovementData {
 }
 
 /** Extracts the sharp provider's movement from either the legacy or new JSON format. */
-function getSharpOddsMovement(v: unknown, sharpProvider: string): OddsMovementData | null {
+function getSharpOddsMovement(
+  v: unknown,
+  sharpProvider: string,
+): OddsMovementData | null {
   if (isOddsMovementData(v)) return v; // Legacy single-object format
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
-  
+
   const map = v as Record<string, unknown>;
   if (map[sharpProvider] && isOddsMovementData(map[sharpProvider])) {
     return map[sharpProvider] as OddsMovementData;
@@ -78,7 +92,8 @@ type SortKey =
   | "evPctMax"
   | "kellyFraction"
   | "tickCount"
-  | "eventStartTime";
+  | "eventStartTime"
+  | "mlScore";
 type SortDir = "asc" | "desc" | "none";
 
 const PERSISTENCE_KEY = "bets-history-table:layout:v3";
@@ -216,7 +231,25 @@ export function BetsHistoryTable({
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
   const [movementRow, setMovementRow] = useState<Decorated | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Decorated | null>(null);
-  const [featureInspectRow, setFeatureInspectRow] = useState<Decorated | null>(null);
+  const [featureInspectRow, setFeatureInspectRow] = useState<Decorated | null>(
+    null,
+  );
+
+  // Fetch current ML permission level for FeatureInspectorDialog context
+  const { data: mlGate } = useQuery<{ permissionLevel: string }>({
+    queryKey: ["ml", "permission-level"],
+    queryFn: async () => {
+      const res = await fetch("/api/ml/pipeline", { cache: "no-store" });
+      if (!res.ok) return { permissionLevel: "shadow" };
+      const data = await res.json();
+      return {
+        permissionLevel: data?.deploymentGate?.permissionLevel ?? "shadow",
+      };
+    },
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+  const permissionLevel = mlGate?.permissionLevel ?? null;
 
   const openMovement = useCallback((row: Decorated) => {
     setMovementRow(row);
@@ -258,6 +291,8 @@ export function BetsHistoryTable({
           return row._kellyFraction;
         case "tickCount":
           return row.tickCount;
+        case "mlScore":
+          return row.mlScore ?? -1;
       }
     };
     copy.sort((a, b) => {
@@ -342,20 +377,32 @@ export function BetsHistoryTable({
           const r = row.original;
           return (
             <div className="max-w-[380px] flex items-center gap-1.5 min-w-0">
-              <span className="font-medium truncate" title={r.homeTeam}>
-                {r.homeTeam}
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="font-medium truncate cursor-default">
+                    {r.homeTeam}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{r.homeTeam}</TooltipContent>
+              </Tooltip>
               <span className="text-muted-foreground shrink-0">vs</span>
-              <span className="font-medium truncate" title={r.awayTeam}>
-                {r.awayTeam}
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="font-medium truncate cursor-default">
+                    {r.awayTeam}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{r.awayTeam}</TooltipContent>
+              </Tooltip>
               {r.competition && (
-                <span
-                  className="text-muted-foreground/70 text-[10px] truncate shrink min-w-0"
-                  title={r.competition}
-                >
-                  · {r.competition}
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground/70 text-[10px] truncate shrink min-w-0 cursor-default">
+                      · {r.competition}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{r.competition}</TooltipContent>
+                </Tooltip>
               )}
             </div>
           );
@@ -522,7 +569,11 @@ export function BetsHistoryTable({
                   onClick={() => openMovement(row.original)}
                   className={`cursor-pointer font-mono text-[10px] tabular-nums hover:underline decoration-dotted underline-offset-2 ${dirColor}`}
                 >
-                  {dirArrow && <span className="text-[8px] mr-0.5 inline-block -translate-y-px">{dirArrow}</span>}
+                  {dirArrow && (
+                    <span className="text-[8px] mr-0.5 inline-block -translate-y-px">
+                      {dirArrow}
+                    </span>
+                  )}
                   {changePct > 0 ? "+" : ""}
                   {changePct.toFixed(1)}%
                 </button>
@@ -599,6 +650,43 @@ export function BetsHistoryTable({
           <span>{(row.original._kellyFraction * 100).toFixed(2)}%</span>
         ),
         meta: { align: "center", initialSize: 85 },
+      },
+      {
+        id: "mlScore",
+        header: () => (
+          <SortableHeader
+            label="ML"
+            hint={`ML confidence score (0–1). Probability the bet is profitable, predicted by the LightGBM model.\n\n≥ 0.6 = high confidence, 0.4–0.6 = neutral, < 0.4 = low. Empty when no model was loaded at detection time.`}
+            sortKey="mlScore"
+            activeKey={sortKey}
+            activeDir={sortDir}
+            onSortChange={onSortChange}
+            align="center"
+          />
+        ),
+        accessorKey: "mlScore",
+        cell: ({ row }) => {
+          const s = row.original.mlScore;
+          if (s == null)
+            return <span className="text-muted-foreground/40">—</span>;
+          const color =
+            s >= 0.6
+              ? "text-emerald-400"
+              : s >= 0.4
+                ? "text-amber-400"
+                : "text-red-400";
+          return (
+            <span
+              className={cn(
+                "font-mono text-[10px] tabular-nums font-medium",
+                color,
+              )}
+            >
+              {s.toFixed(3)}
+            </span>
+          );
+        },
+        meta: { align: "center", initialSize: 60 },
       },
       {
         id: "tickCount",
@@ -689,17 +777,21 @@ export function BetsHistoryTable({
             );
           }
           return (
-            <button
-              type="button"
-              onClick={() => setEditingOutcomeId(r.id)}
-              title="Click to edit outcome"
-              className={cn(
-                "inline-flex items-center justify-center h-6 w-[82px] rounded-md px-1.5 text-[10px] font-medium transition-colors hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/40",
-                OUTCOME_PILL[r.outcome as Outcome],
-              )}
-            >
-              {OUTCOME_LABEL[r.outcome as Outcome]}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setEditingOutcomeId(r.id)}
+                  className={cn(
+                    "inline-flex items-center justify-center h-6 w-[82px] rounded-md px-1.5 text-[10px] font-medium transition-colors hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-primary/40",
+                    OUTCOME_PILL[r.outcome as Outcome],
+                  )}
+                >
+                  {OUTCOME_LABEL[r.outcome as Outcome]}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Click to edit outcome</TooltipContent>
+            </Tooltip>
           );
         },
         meta: { align: "center", initialSize: 100 },
@@ -709,7 +801,7 @@ export function BetsHistoryTable({
         header: () => (
           <StaticHeader
             label="Settled by"
-            hint="Which source settled this bet — the deterministic tier (match_scores cache, football-data.org, live feed) or AI (url_context / Google search)."
+            hint="Which source settled this bet — cache, ESPN, API-Football, SofaScore, or HF+Search for niche leagues."
           />
         ),
         cell: ({ row }) => {
@@ -718,12 +810,14 @@ export function BetsHistoryTable({
             return <span className="text-muted-foreground/60">—</span>;
           }
           return (
-            <span
-              className="inline-flex items-center rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80"
-              title={`Source: ${r.settledBySource}`}
-            >
-              {prettySettledBy(r.settledBySource)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-foreground/80 cursor-default">
+                  {prettySettledBy(r.settledBySource)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Source: {r.settledBySource}</TooltipContent>
+            </Tooltip>
           );
         },
         meta: { align: "center", initialSize: 110 },
@@ -742,12 +836,16 @@ export function BetsHistoryTable({
             return <span className="text-muted-foreground/60">—</span>;
           }
           return (
-            <span
-              className="text-[10px] text-muted-foreground"
-              title={new Date(r.settledAt).toLocaleString()}
-            >
-              {fmtSeen(r.settledAt)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-[10px] text-muted-foreground cursor-default">
+                  {fmtSeen(r.settledAt)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {new Date(r.settledAt).toLocaleString()}
+              </TooltipContent>
+            </Tooltip>
           );
         },
         meta: { align: "center", initialSize: 70 },
@@ -766,7 +864,8 @@ export function BetsHistoryTable({
           const deleting = deletingIds?.has(r.id) ?? false;
           const gate = canResettle(r);
           const googleUrl = buildGoogleAiModeUrl(r);
-          const hasFeatures = Array.isArray(r.mlFeatures) && r.mlFeatures.length > 0;
+          const hasFeatures =
+            Array.isArray(r.mlFeatures) && r.mlFeatures.length > 0;
 
           return (
             <div className="flex items-center justify-center gap-0">
@@ -788,17 +887,21 @@ export function BetsHistoryTable({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {hasFeatures ? "Inspect ML features" : "No features extracted"}
+                  {hasFeatures
+                    ? "Inspect ML features"
+                    : "No features extracted"}
                 </TooltipContent>
               </Tooltip>
 
               {/* Spinner replaces the ⋮ when an async action is in flight */}
               {running || deleting ? (
                 <div className="inline-flex items-center justify-center size-6">
-                  <Loader2 className={cn(
-                    "size-3.5 animate-spin",
-                    deleting ? "text-destructive" : "text-muted-foreground",
-                  )} />
+                  <Loader2
+                    className={cn(
+                      "size-3.5 animate-spin",
+                      deleting ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  />
                 </div>
               ) : (
                 <DropdownMenu>
@@ -821,17 +924,25 @@ export function BetsHistoryTable({
                       Settle
                     </DropdownMenuLabel>
                     {RERUN_OPTIONS.map((opt) => {
-                      const key = opt.choice.kind === "default" ? "default" : `ai-${opt.choice.model}`;
+                      const key =
+                        opt.choice.kind === "default"
+                          ? "default"
+                          : opt.choice.kind === "ai-search"
+                            ? `search-${opt.choice.engine}`
+                            : `ai-${opt.choice.model}`;
                       return (
                         <DropdownMenuItem
                           key={key}
                           disabled={!gate.allowed}
                           onSelect={() => onRerunRow(r.id, opt.choice)}
                           className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
-                          title={!gate.allowed ? gate.message : opt.hint}
                         >
-                          <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
-                          <span className="text-[11px] font-medium">{opt.label}</span>
+                          <opt.icon
+                            className={cn("size-3.5 shrink-0", opt.accent)}
+                          />
+                          <span className="text-[11px] font-medium">
+                            {opt.label}
+                          </span>
                         </DropdownMenuItem>
                       );
                     })}
@@ -840,11 +951,15 @@ export function BetsHistoryTable({
 
                     {/* ── Verify ── */}
                     <DropdownMenuItem
-                      onSelect={() => window.open(googleUrl, "_blank", "noreferrer")}
+                      onSelect={() =>
+                        window.open(googleUrl, "_blank", "noreferrer")
+                      }
                       className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
                     >
                       <ExternalLink className="size-3.5 shrink-0 text-sky-400" />
-                      <span className="text-[11px] font-medium">Verify on Google</span>
+                      <span className="text-[11px] font-medium">
+                        Verify on Google
+                      </span>
                     </DropdownMenuItem>
 
                     <DropdownMenuSeparator className="my-1" />
@@ -855,7 +970,9 @@ export function BetsHistoryTable({
                       className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5 text-destructive focus:text-destructive"
                     >
                       <Trash2 className="size-3.5 shrink-0" />
-                      <span className="text-[11px] font-medium">Delete bet</span>
+                      <span className="text-[11px] font-medium">
+                        Delete bet
+                      </span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -878,7 +995,6 @@ export function BetsHistoryTable({
     onToggleRow,
     onToggleAllVisible,
     onMarkOutcome,
-    onDeleteBet,
     deletingIds,
     onRerunRow,
     onSortChange,
@@ -887,7 +1003,10 @@ export function BetsHistoryTable({
 
   // Derive modal labels from the selected row
   const movementData = movementRow
-    ? (movementRow.oddsMovement as Record<string, OddsMovementData> | OddsMovementData | null)
+    ? (movementRow.oddsMovement as
+        | Record<string, OddsMovementData>
+        | OddsMovementData
+        | null)
     : null;
   const movementEventLabel = movementRow
     ? `${movementRow.homeTeam} vs ${movementRow.awayTeam}`
@@ -923,14 +1042,30 @@ export function BetsHistoryTable({
       {/* Feature Inspector */}
       <FeatureInspectorDialog
         open={featureInspectRow !== null}
-        onOpenChange={(open) => { if (!open) setFeatureInspectRow(null); }}
+        onOpenChange={(open) => {
+          if (!open) setFeatureInspectRow(null);
+        }}
         features={featureInspectRow?.mlFeatures}
         mlScore={featureInspectRow?.mlScore}
         mlKellyAdjusted={featureInspectRow?.mlKellyAdjusted}
         featureVersion={featureInspectRow?.mlFeatureVersion}
         featureCount={featureInspectRow?.mlFeatureCount}
-        eventLabel={featureInspectRow ? `${featureInspectRow.homeTeam} vs ${featureInspectRow.awayTeam}` : undefined}
-        marketLabel={featureInspectRow ? `[${featureInspectRow.timeScope}] ${formatMarketType(featureInspectRow.marketType)}${featureInspectRow.familyLine != null ? ` ${featureInspectRow.familyLine}` : ""} · ${formatAtomLabel(featureInspectRow.atomLabel)}` : undefined}
+        eventLabel={
+          featureInspectRow
+            ? `${featureInspectRow.homeTeam} vs ${featureInspectRow.awayTeam}`
+            : undefined
+        }
+        marketLabel={
+          featureInspectRow
+            ? `[${featureInspectRow.timeScope}] ${formatMarketType(featureInspectRow.marketType)}${featureInspectRow.familyLine != null ? ` ${featureInspectRow.familyLine}` : ""} · ${formatAtomLabel(featureInspectRow.atomLabel)}`
+            : undefined
+        }
+        permissionLevel={permissionLevel}
+        scoreAffectedPlacement={
+          featureInspectRow?.mlKellyAdjusted != null &&
+          permissionLevel != null &&
+          permissionLevel !== "shadow"
+        }
       />
 
       <MovementDetailModal
@@ -975,7 +1110,8 @@ export function BetsHistoryTable({
                 <div>
                   [{deleteTarget.timeScope}]{" "}
                   {formatMarketType(deleteTarget.marketType)}
-                  {deleteTarget.familyLine != null && ` ${deleteTarget.familyLine}`}
+                  {deleteTarget.familyLine != null &&
+                    ` ${deleteTarget.familyLine}`}
                 </div>
 
                 <div className="text-muted-foreground">Selection</div>
@@ -1021,10 +1157,7 @@ export function BetsHistoryTable({
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteTarget(null)}
-            >
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
               Cancel
             </Button>
             <Button

@@ -17,7 +17,6 @@ import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import type { ProviderAdapter } from "../types";
 import { PROVIDER_REGISTRY, type ProviderKey } from "../providers/registry";
 
-
 // ============================================
 // Types
 // ============================================
@@ -154,4 +153,3 @@ export function getAtomsAdapter(
 ): AtomsProviderAdapter | undefined {
   return ADAPTERS[provider]?.atoms;
 }
-

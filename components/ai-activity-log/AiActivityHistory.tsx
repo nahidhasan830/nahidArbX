@@ -16,7 +16,10 @@ import {
   useQuery,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { resolvePreset, type DatePresetKey } from "@/lib/bets-history/date-presets";
+import {
+  resolvePreset,
+  type DatePresetKey,
+} from "@/lib/bets-history/date-presets";
 import { useAiActivityPrefs } from "@/lib/ai-activity-log/use-ai-activity-prefs";
 import { AiActivityToolbar, type AiActivityFilters } from "./AiActivityToolbar";
 import { AiActivityLogTable } from "./AiActivityTable";
@@ -37,8 +40,10 @@ async function fetchLog(
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.systems?.length) params.set("systems", filters.systems.join(","));
-  if (filters.statuses?.length) params.set("statuses", filters.statuses.join(","));
-  if (filters.triggers?.length) params.set("triggers", filters.triggers.join(","));
+  if (filters.statuses?.length)
+    params.set("statuses", filters.statuses.join(","));
+  if (filters.triggers?.length)
+    params.set("triggers", filters.triggers.join(","));
   if (filters.search) params.set("search", filters.search);
   params.set("limit", String(filters.limit));
   params.set("offset", String(filters.offset));
@@ -47,14 +52,18 @@ async function fetchLog(
   return res.json();
 }
 
-async function fetchLogStats(filters: AiActivityFilters): Promise<AiActivityLogStats> {
+async function fetchLogStats(
+  filters: AiActivityFilters,
+): Promise<AiActivityLogStats> {
   const params = new URLSearchParams();
   params.set("aggregate", "true");
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.systems?.length) params.set("systems", filters.systems.join(","));
-  if (filters.statuses?.length) params.set("statuses", filters.statuses.join(","));
-  if (filters.triggers?.length) params.set("triggers", filters.triggers.join(","));
+  if (filters.statuses?.length)
+    params.set("statuses", filters.statuses.join(","));
+  if (filters.triggers?.length)
+    params.set("triggers", filters.triggers.join(","));
   if (filters.search) params.set("search", filters.search);
   const res = await fetch(`/api/ai-activity-log?${params.toString()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

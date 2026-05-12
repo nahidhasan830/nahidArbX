@@ -1,6 +1,5 @@
 "use client";
 
-
 import { BetsHistorySpreadsheet } from "@/components/bets-history/BetsHistorySpreadsheet";
 import { BetsHistoryHeader } from "@/components/bets-history/BetsHistoryHeader";
 import { AppShell } from "@/components/nav/AppShell";
@@ -8,7 +7,6 @@ import { AppShell } from "@/components/nav/AppShell";
 export default function BetsPage() {
   return (
     <AppShell title="Bets" titleBadge={<BetsHistoryHeader />} edgeToEdge>
-
       <div
         className="flex flex-col overflow-hidden"
         style={{ height: "calc(100vh - 3rem)" }}

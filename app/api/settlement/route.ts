@@ -104,7 +104,10 @@ export async function POST(request: NextRequest) {
 
   try {
     // Forward all actions to engine where the scheduler lives
-    const result = await enginePost("/engine/settlement", { action, intervalMs });
+    const result = await enginePost("/engine/settlement", {
+      action,
+      intervalMs,
+    });
     if (result === null) {
       return apiServerError(
         new Error("Engine unreachable — cannot control settlement scheduler"),

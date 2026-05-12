@@ -37,5 +37,3 @@ export function getAtomsAdapter(
 export function getEnabledAtomsAdapters(): AtomsProviderAdapter[] {
   return getEnabledFromUnified();
 }
-
-

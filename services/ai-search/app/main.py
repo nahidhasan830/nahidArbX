@@ -47,7 +47,7 @@ logging.basicConfig(
 config = load_config()
 search_router = SearchRouter(config)
 
-# Build LLM engine chain: HF Router (Pro) → Groq (free)
+# Build LLM engine chain: HF Router (primary) → Groq (fallback)
 from app.llm.hf_engine import HFEngine
 from app.llm.fallback import FallbackEngine
 
@@ -65,10 +65,10 @@ if config.groq_api_key:
         api_key=config.groq_api_key,
         model=config.groq_model,
     )))
-    log.info("LLM: Groq %s (fallback)" if config.hf_api_key else "LLM: Groq %s (primary)", config.groq_model)
+    log.info("LLM: Groq %s (fallback)" if config.hf_api_key else "LLM: Groq %s (sole engine — set HF_API_KEY to use HuggingFace as primary)", config.groq_model)
 
 if not engines:
-    raise RuntimeError("At least one LLM provider required (HF_API_KEY or GROQ_API_KEY)")
+    raise RuntimeError("At least one LLM provider required (HF_API_KEY recommended as primary, GROQ_API_KEY as fallback)")
 
 llm_engine = FallbackEngine(engines) if len(engines) > 1 else engines[0][1]
 
@@ -101,12 +101,17 @@ app = FastAPI(
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
     llm_healthy = await llm_engine.is_healthy()
+    llm_stats = llm_engine.get_usage_stats() if hasattr(llm_engine, 'get_usage_stats') else {}
     stats = search_router.get_stats()
     providers_healthy = sum(1 for p in stats["providers"] if p["healthy"])
 
     return {
         "status": "ok" if llm_healthy and providers_healthy > 0 else "degraded",
-        "llm_engine": llm_engine.get_usage_stats() if hasattr(llm_engine, 'get_usage_stats') else {"model": llm_engine.model},
+        "llm_engine": {
+            **llm_stats,
+            "model": llm_engine.model,
+            "healthy": llm_healthy,
+        },
         "search_providers": {
             "total": len(stats["providers"]),
             "healthy": providers_healthy,

@@ -9,10 +9,6 @@
  *
  * Opened via a toolbar button on `/bets`. Uses SSE where possible,
  * falls back to 5s polling.
- *
- * The kill-switch + AI controls were removed in 2026 along with all
- * automatic Gemini AI usage — settlement is deterministic Tier 0/1/2
- * only, so the panic-button surface no longer makes sense.
  */
 
 import { useMemo, useState } from "react";
@@ -325,7 +321,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 </>
               )}
             </div>
-
           </div>
 
           {/* Controls */}
@@ -425,6 +420,20 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
               {status.lastError}
             </div>
           )}
+          {status?.lastResult?.sourceIssues &&
+            status.lastResult.sourceIssues.length > 0 && (
+              <div className="flex items-start gap-1.5 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded px-2.5 py-1.5">
+                <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+                <div className="space-y-0.5">
+                  <span className="font-medium">Data source degraded</span>
+                  {status.lastResult.sourceIssues.map((issue, i) => (
+                    <div key={i} className="text-amber-200/80">
+                      {issue}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
         </div>
 
         {/* Tabs */}

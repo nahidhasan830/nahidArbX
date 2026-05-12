@@ -78,7 +78,17 @@ export function useEventStream(
 
   // Ref to always use latest callbacks without re-creating EventSource
   const callbacksRef = useRef(callbacks);
-  callbacksRef.current = callbacks;
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
+
+  // Ref so the connect callback can read the latest version without
+  // closing over the state variable (which would force the React
+  // Compiler to add it as a dependency and trigger reconnections).
+  const serverVersionRef = useRef(serverVersion);
+  useEffect(() => {
+    serverVersionRef.current = serverVersion;
+  }, [serverVersion]);
 
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -107,7 +117,7 @@ export function useEventStream(
     // -- Sync events --
     es.addEventListener("sync:complete", (e) => {
       const data = JSON.parse((e as MessageEvent).data);
-      setServerVersion(data.version ?? serverVersion);
+      setServerVersion(data.version ?? serverVersionRef.current);
       callbacksRef.current.onSyncComplete?.(data);
     });
 
@@ -149,7 +159,7 @@ export function useEventStream(
     };
 
     return es;
-  }, [enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled]);
 
   useEffect(() => {
     const es = connect();

@@ -53,18 +53,26 @@ const LOW_CONFIDENCE_THRESHOLD = 55;
 const WARMER_INTERVAL_MS = 30 * 60 * 1000;
 const REQUEST_DELAY_MS = 1200;
 
-const state = singleton("ml:competition-enrichment", (): EnrichmentState => ({
-  cache: new Map(),
-  loadPromise: null,
-  warmerTimer: null,
-  warming: false,
-}));
+const state = singleton(
+  "ml:competition-enrichment",
+  (): EnrichmentState => ({
+    cache: new Map(),
+    loadPromise: null,
+    warmerTimer: null,
+    warming: false,
+  }),
+);
 
 function normalizeCompetitionName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+function clampInt(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.round(n)));
@@ -87,7 +95,9 @@ function normalizeLevel(value: unknown): CompetitionLevel {
     "women",
     "unknown",
   ];
-  return allowed.includes(v as CompetitionLevel) ? (v as CompetitionLevel) : "unknown";
+  return allowed.includes(v as CompetitionLevel)
+    ? (v as CompetitionLevel)
+    : "unknown";
 }
 
 function defaultEnrichment(name: string): CompetitionEnrichment {
@@ -171,8 +181,14 @@ function fromParsed(
     displayName: name.trim(),
     tier: clampTier(parsed.tier),
     marketEfficiencyScore: clampInt(parsed.market_efficiency_score, 0, 100, 0),
-    region: typeof parsed.region === "string" && parsed.region.trim() ? parsed.region.trim() : null,
-    country: typeof parsed.country === "string" && parsed.country.trim() ? parsed.country.trim() : null,
+    region:
+      typeof parsed.region === "string" && parsed.region.trim()
+        ? parsed.region.trim()
+        : null,
+    country:
+      typeof parsed.country === "string" && parsed.country.trim()
+        ? parsed.country.trim()
+        : null,
     competitionLevel: normalizeLevel(parsed.competition_level),
     confidence: clampInt(parsed.confidence, 0, 100, 0),
     model: meta.model,
@@ -184,22 +200,24 @@ function fromParsed(
   };
 }
 
-function rowsToCache(rows: Array<{
-  name: string;
-  displayName: string;
-  tier: number;
-  marketEfficiencyScore: number;
-  region: string | null;
-  country: string | null;
-  competitionLevel: string;
-  confidence: number;
-  model: string | null;
-  provider: string | null;
-  promptVersion: string;
-  sources: unknown;
-  rawResponse: unknown;
-  classifiedAt: string;
-}>): void {
+function rowsToCache(
+  rows: Array<{
+    name: string;
+    displayName: string;
+    tier: number;
+    marketEfficiencyScore: number;
+    region: string | null;
+    country: string | null;
+    competitionLevel: string;
+    confidence: number;
+    model: string | null;
+    provider: string | null;
+    promptVersion: string;
+    sources: unknown;
+    rawResponse: unknown;
+    classifiedAt: string;
+  }>,
+): void {
   for (const row of rows) {
     state.cache.set(row.name, {
       name: row.name,
@@ -238,8 +256,14 @@ async function loadDbModules(): Promise<{
     ? schemaModule
     : schemaModule.default;
 
-  if (!dbExports?.db || !schemaExports?.competitionEnrichments || !schemaExports?.competitionTiers) {
-    throw new Error("DB modules did not expose the expected competition enrichment exports");
+  if (
+    !dbExports?.db ||
+    !schemaExports?.competitionEnrichments ||
+    !schemaExports?.competitionTiers
+  ) {
+    throw new Error(
+      "DB modules did not expose the expected competition enrichment exports",
+    );
   }
 
   return {
@@ -251,7 +275,9 @@ async function loadDbModules(): Promise<{
 
 export function getCompetitionEnrichment(name: string): CompetitionEnrichment {
   if (!name.trim()) return defaultEnrichment("");
-  return state.cache.get(normalizeCompetitionName(name)) ?? defaultEnrichment(name);
+  return (
+    state.cache.get(normalizeCompetitionName(name)) ?? defaultEnrichment(name)
+  );
 }
 
 export function getCompetitionTier(name: string): 1 | 2 | 3 {
@@ -262,7 +288,8 @@ export async function loadCompetitionEnrichmentCache(): Promise<void> {
   if (state.loadPromise) return state.loadPromise;
 
   state.loadPromise = (async () => {
-    const { db, competitionEnrichments, competitionTiers } = await loadDbModules();
+    const { db, competitionEnrichments, competitionTiers } =
+      await loadDbModules();
 
     const rows = await db.select().from(competitionEnrichments);
     rowsToCache(rows);
@@ -300,7 +327,8 @@ export async function loadCompetitionEnrichmentCache(): Promise<void> {
 
 async function enrichWithHF(name: string): Promise<CompetitionEnrichment> {
   const result = await chatWithHF({
-    system: "You classify football competitions for betting-market efficiency. Return valid JSON only.",
+    system:
+      "You classify football competitions for betting-market efficiency. Return valid JSON only.",
     prompt: buildPrompt(name),
     jsonMode: true,
     temperature: 0,
@@ -313,7 +341,9 @@ async function enrichWithHF(name: string): Promise<CompetitionEnrichment> {
   });
 }
 
-async function enrichWithGroundedFallback(name: string): Promise<CompetitionEnrichment> {
+async function enrichWithGroundedFallback(
+  name: string,
+): Promise<CompetitionEnrichment> {
   const aiSearchUrl = process.env.AI_SEARCH_URL || "http://localhost:8090";
   const res = await fetch(`${aiSearchUrl}/grounded-query`, {
     method: "POST",
@@ -330,10 +360,12 @@ async function enrichWithGroundedFallback(name: string): Promise<CompetitionEnri
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`AI Search returned ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`);
+    throw new Error(
+      `AI Search returned ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
+    );
   }
 
-  const data = await res.json() as {
+  const data = (await res.json()) as {
     answer?: string;
     model?: string;
     sources?: CompetitionEnrichmentSource[];
@@ -341,14 +373,16 @@ async function enrichWithGroundedFallback(name: string): Promise<CompetitionEnri
   };
 
   return fromParsed(name, extractJsonObject(data.answer ?? ""), {
-    provider: data.provider_used ?? "groq",
+    provider: data.provider_used ?? "huggingface",
     model: data.model ?? null,
     sources: data.sources ?? [],
     rawResponse: data,
   });
 }
 
-export async function classifyCompetitionEnrichment(name: string): Promise<CompetitionEnrichment> {
+export async function classifyCompetitionEnrichment(
+  name: string,
+): Promise<CompetitionEnrichment> {
   const clean = name.trim();
   if (!clean) return defaultEnrichment(clean);
 
@@ -361,14 +395,20 @@ export async function classifyCompetitionEnrichment(name: string): Promise<Compe
         `HF low confidence for ${clean} (${enriched.confidence}); trying grounded fallback`,
       );
     } catch (err) {
-      logger.warn(tag, `HF enrichment failed for ${clean}: ${(err as Error).message}`);
+      logger.warn(
+        tag,
+        `HF enrichment failed for ${clean}: ${(err as Error).message}`,
+      );
     }
   }
 
   try {
     return await enrichWithGroundedFallback(clean);
   } catch (err) {
-    logger.warn(tag, `Grounded enrichment failed for ${clean}: ${(err as Error).message}`);
+    logger.warn(
+      tag,
+      `Grounded enrichment failed for ${clean}: ${(err as Error).message}`,
+    );
     return {
       ...defaultEnrichment(clean),
       rawResponse: { error: err instanceof Error ? err.message : String(err) },
@@ -377,7 +417,9 @@ export async function classifyCompetitionEnrichment(name: string): Promise<Compe
   }
 }
 
-async function saveEnrichment(enrichment: CompetitionEnrichment): Promise<void> {
+async function saveEnrichment(
+  enrichment: CompetitionEnrichment,
+): Promise<void> {
   const { db, competitionEnrichments } = await loadDbModules();
 
   await db
@@ -425,7 +467,9 @@ function shouldWarm(name: string): boolean {
   return cached == null || cached.confidence < LOW_CONFIDENCE_THRESHOLD;
 }
 
-export async function warmCompetitionEnrichmentCache(limit = 20): Promise<void> {
+export async function warmCompetitionEnrichmentCache(
+  limit = 20,
+): Promise<void> {
   if (state.warming) return;
   state.warming = true;
 

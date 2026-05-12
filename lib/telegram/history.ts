@@ -37,7 +37,10 @@ export async function recordCommandHistory(
     .catch((err) => {
       // Swallowing the error ensures bot isn't completely broken
       // if DB fails, though we log it
-      console.error("[history] Failed to write command history ERROR DETAIL:", err);
+      console.error(
+        "[history] Failed to write command history ERROR DETAIL:",
+        err,
+      );
     });
 }
 
