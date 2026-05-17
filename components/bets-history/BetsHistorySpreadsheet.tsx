@@ -447,7 +447,7 @@ export function BetsHistorySpreadsheet() {
     const ids = eligible.map((r) => r.id);
 
     // Both "default" and "ai-search" choices bypass cache to get fresh
-    // scores. The waterfall now includes Groq+Search as Tier 2d
+    // scores. The waterfall now includes DeepSeek+Search as Tier 2d
     // automatically — no need for a separate forceAi flag.
     void choice; // used for future engine selection
     runAiSettle(ids, { bypassCache: true });
@@ -487,9 +487,7 @@ export function BetsHistorySpreadsheet() {
       const pathLabel =
         choice.kind === "default"
           ? "default pipeline"
-          : choice.kind === "ai-search"
-            ? `AI Search · ${choice.engine}`
-            : `AI · ${choice.model}`;
+          : `DeepSeek · ${choice.model}`;
       if ("error" in fresh) {
         toast.error(`❌ Re-run failed: ${fresh.error}`);
       } else {

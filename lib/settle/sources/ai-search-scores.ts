@@ -1,5 +1,5 @@
 /**
- * Tier 2d — AI Search score lookup (HuggingFace + web search grounding).
+ * Tier 2d — AI Search score lookup (DeepSeek Flash + web search grounding).
  *
  * Covers the long tail of niche leagues that ESPN, API-Football, and
  * SofaScore all miss (e.g. Brazil Serie C, Paraguayan Clausura,
@@ -9,13 +9,12 @@
  *   1. For each unresolved event, ask the AI Search service:
  *      "What was the final score of {home} vs {away} on {date}?"
  *   2. The Python service searches FlashScore, Google Sports, news sites
- *      using Brave/DuckDuckGo/Google, then feeds the evidence to
- *      HuggingFace Router (llama-3.3-70b) which extracts a structured
- *      answer. Falls back to Groq if HF credits are exhausted.
+ *      using Vertex AI Search first and Brave second, then feeds the evidence
+ *      to DeepSeek Flash, which extracts a structured answer.
  *   3. We parse the answer for a score pattern (e.g. "2-1", "3-0") and
  *      build a MatchScore if confidence >= 70%.
  *
- * Cost: $0 — HuggingFace free tier + free web search providers.
+ * Cost: DeepSeek API + configured search provider quota.
  * Latency: ~3-8s per event (search + LLM round-trip).
  *
  * This tier is the final catch-all in the waterfall, sitting after
@@ -39,6 +38,8 @@ const MIN_CONFIDENCE = 70;
  * Returns null if no valid score pattern is found.
  */
 function parseScore(answer: string): { home: number; away: number } | null {
+  if (answer.trim().toUpperCase().startsWith("UNKNOWN")) return null;
+
   // Try common score formats: "2-1", "2 - 1", "2:1", "2 x 1"
   const patterns = [
     /(\d+)\s*[-–—:]\s*(\d+)/,       // "2-1", "2 : 1"
@@ -83,7 +84,7 @@ function parseHtScore(answer: string): { htHome: number; htAway: number } | null
 }
 
 /**
- * Fetch final scores for unresolved events using HuggingFace + web search.
+ * Fetch final scores for unresolved events using DeepSeek Flash + web search.
  *
  * For each event, calls /verify-settlement on the AI Search service
  * with a focused question about the final score. If the answer
@@ -161,7 +162,7 @@ export async function fetchAiSearchScores(
         htCornersAway: null,
         bookingsHome: null,
         bookingsAway: null,
-        source: "ai-search-hf",
+        source: "ai-search-deepseek",
         confidence: Math.min(verdict.confidence / 100, 0.95), // cap at 0.95
         fetchedAt: new Date().toISOString(),
       };

@@ -22,13 +22,12 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sparkles, Crown, Bot } from "lucide-react";
 import { verifyAiMatch } from "./api";
+import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
+import type { AiModelMenuEngine, AiModelMenuCallbacks } from "@/components/shared/AiModelMenuItems";
+import type { ModelTier } from "@/lib/ai/models";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -188,11 +187,16 @@ function AiVerifyDropdown({
   running: boolean;
   selectedCount?: number;
   onVerify: (
-    engine: "gemini" | "ai-search" | "huggingface",
-    model?: "lite" | "flash" | "pro",
+    engine: AiModelMenuEngine,
+    model: ModelTier,
+    providerId?: string,
   ) => void;
   inline?: boolean;
 }) {
+  const callbacks: AiModelMenuCallbacks = {
+    onSelectAi: (engine, model) => onVerify(engine, model),
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -204,7 +208,7 @@ function AiVerifyDropdown({
             inline && "text-muted-foreground hover:text-foreground",
           )}
           disabled={disabled || running}
-          title="Verify match using AI — AI Search (HuggingFace + web) or Gemini (paid cloud)"
+          title="Verify match using AI"
         >
           {running ? (
             <Loader2
@@ -224,57 +228,7 @@ function AiVerifyDropdown({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[210px] p-1">
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          🤗 HuggingFace (primary, free)
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={() => onVerify("huggingface")}
-          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Web search grounding + HuggingFace Router LLM (Llama 3.3 70B) — free, primary"
-        >
-          <Bot className="size-3.5 text-orange-400" />
-          <span className="text-[11px]">Search + HuggingFace</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          🔍 Groq (fallback, free)
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={() => onVerify("ai-search")}
-          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Groq + web search grounding — free cloud LLM fallback"
-        >
-          <Search className="size-3.5 text-cyan-400" />
-          <span className="text-[11px]">Search + Groq</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          ☁️ Gemini (paid)
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={() => onVerify("gemini", "lite")}
-          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Cheapest Gemini — default model"
-        >
-          <Zap className="size-3.5 text-blue-400" />
-          <span className="text-[11px]">Lite</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => onVerify("gemini", "flash")}
-          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Balanced Gemini"
-        >
-          <Sparkles className="size-3.5 text-violet-400" />
-          <span className="text-[11px]">Flash</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => onVerify("gemini", "pro")}
-          className="cursor-pointer gap-2 rounded-md px-2 py-1.5"
-          title="Most capable Gemini — use for stuck rows"
-        >
-          <Crown className="size-3.5 text-amber-400" />
-          <span className="text-[11px]">Pro</span>
-        </DropdownMenuItem>
+        <AiModelMenuItems callbacks={callbacks} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -474,8 +428,8 @@ export function MatcherLab() {
 
   const handleVerifyAi = useCallback(
     async (
-      engine: "gemini" | "ai-search" | "huggingface",
-      model?: "lite" | "flash" | "pro",
+      engine: AiModelMenuEngine,
+      model: ModelTier,
       singleId?: string,
     ) => {
       const idsToRun = singleId ? [singleId] : [...selectedPairIds];
@@ -497,14 +451,10 @@ export function MatcherLab() {
       let uncertain = 0;
       let errors = 0;
 
-      const engineLabel =
-        engine === "ai-search"
-          ? "AI Search"
-          : engine === "huggingface"
-            ? "HuggingFace"
-            : "Gemini";
-      const engineEmoji =
-        engine === "ai-search" ? "🔍" : engine === "huggingface" ? "🤗" : "✨";
+      void engine;
+      const engineLabel = "DeepSeek";
+      const engineEmoji = "🔍";
+      const apiEngine = "ai-search";
 
       for (const id of idsToRun) {
         try {
@@ -515,7 +465,7 @@ export function MatcherLab() {
                 65,
               )
             : id.slice(0, 30);
-          const result = await verifyAiMatch(id, { engine, model });
+          const result = await verifyAiMatch(id, { engine: apiEngine, model: "flash" as const });
           if (result.decision === "UNCERTAIN") {
             uncertain++;
             toast.warning(`${engineEmoji} Uncertain — ${pairLabel}`, {
@@ -525,7 +475,7 @@ export function MatcherLab() {
             });
             continue;
           }
-          const decidedBy = engine === "ai-search" ? "ai-search" : "human";
+          const decidedBy = "ai-search";
           const decision =
             result.decision === "SAME" ? "human-merge" : "human-reject";
           await decidePair(id, decision, decidedBy as MatchPairDecidedBy);
@@ -855,7 +805,7 @@ export function MatcherLab() {
               disabled={selectedCount === 0}
               running={isBulkVerifying}
               selectedCount={selectedCount}
-              onVerify={(engine, model) => handleVerifyAi(engine, model)}
+              onVerify={(engine, model) => handleVerifyAi(engine, "flash", undefined)}
             />
           )}
 
@@ -982,8 +932,8 @@ function buildColumns(
   onDecide: (id: string, decision: "human-merge" | "human-reject") => void,
   aiVerifyingIds: Set<string>,
   onVerifyAi: (
-    engine: "gemini" | "ai-search" | "huggingface",
-    model?: "lite" | "flash" | "pro",
+    engine: AiModelMenuEngine,
+    model: Extract<ModelTier, "flash">,
     id?: string,
   ) => void,
 ): ColumnDef<MatchPairRow, unknown>[] {
@@ -1334,7 +1284,7 @@ function buildColumns(
               inline
               disabled={busy}
               running={aiVerifyingIds.has(id)}
-              onVerify={(engine, model) => onVerifyAi(engine, model, id)}
+              onVerify={(engine, model) => onVerifyAi(engine, "flash", id)}
             />
             <a
               href={buildSearchUrl(row.original)}

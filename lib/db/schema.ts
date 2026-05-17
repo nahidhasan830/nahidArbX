@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { MarketPhase } from "@/lib/betting/market-phase";
 import {
+  bigint,
   bigserial,
   boolean,
   customType,
@@ -112,7 +113,7 @@ export const bets = pgTable(
     // ML pipeline columns
     mlFeatures: real("ml_features").array(), // 25-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
     mlScore: real(), // Calibrated P(win) from LightGBM [0,1]; staker converts to model EV at offered odds
-    mlKellyAdjusted: real(), // Dynamic Kelly multiplier from staker
+    mlStakeFraction: real("ml_stake_fraction"), // Model-adjusted stake fraction = baseline × multiplier (capped). Renamed from ml_kelly_adjusted.
     mlFeatureVersion: integer(), // Feature contract version at extraction time
     mlFeatureCount: integer(), // Feature vector length at extraction time
     mlFeatureNamesHash: text(), // SHA-256 of feature names for drift detection
@@ -242,7 +243,7 @@ export const matchScores = pgTable(
      */
     bookingsHome: integer(),
     bookingsAway: integer(),
-    source: text().notNull(), // 'pinnacle-ws' | 'betconstruct' | 'espn' | 'api-football' | 'sofascore' | 'ai-search-hf' | 'ai-search-groq' | 'manual'
+    source: text().notNull(), // 'pinnacle-ws' | 'betconstruct' | 'espn' | 'api-football' | 'sofascore' | 'ai-search-deepseek' | 'manual'
     confidence: numeric({ precision: 3, scale: 2, mode: "number" }).notNull(),
     sourceUrl: text(),
     fetchedAt: tsNow(),
@@ -437,20 +438,9 @@ export const mlModels = pgTable(
     })("onnx_blob"),
     trainingReport: jsonb(),
     /** Runtime permission level assigned by the deployment gate. */
-    permissionLevel: text().default("shadow"), // shadow|gate_only|stake_reduce|stake_increase
+    permissionLevel: text().default("observe"), // observe|gate_only|stake_reduce|stake_increase
     /** JSON array of reasons why a model was rejected by the deployment gate (null if accepted). */
     rejectionReasons: jsonb().$type<string[] | null>(),
-    // ── Champion-challenger tracking ──────────────────────────────────
-    /** Whether this model is the current champion (scoring live bets). */
-    isChampion: boolean().default(false),
-    /** When this model was promoted to champion. */
-    championToAt: ts(),
-    /** Version of the previous champion this model replaced. */
-    championReplacedVersion: integer(),
-    /** Opdyke two-sample PSR at promotion time (confidence that this model beats the previous champion). */
-    championPsr: numeric({ precision: 6, scale: 4, mode: "number" }),
-    /** ROI improvement over the previous champion (percentage points) at promotion time. */
-    championRoiVsPrev: numeric({ precision: 14, scale: 4, mode: "number" }),
     deployedAt: ts(),
     retiredAt: ts(),
     /** Telegram notification timestamp — restart-safe idempotency marker. */
@@ -969,26 +959,69 @@ export type MlTrainingExampleRow = typeof mlTrainingExamples.$inferSelect;
 export type NewMlTrainingExampleRow = typeof mlTrainingExamples.$inferInsert;
 
 /**
- * ML Scheduler Settings — singleton config for automated retraining.
+ * Unified AI Provider Config — single source of truth for all AI providers.
+ * Contains both enabling/disabled state AND usage quota tracking.
  *
- * Single-row table (id='default') read by the engine's model retraining
- * scheduler to decide when to trigger Cloud Run training jobs. Editable
- * from the ML Optimizer dashboard.
+ * Usage quota fields:
+ * - totalUsageCount: cumulative requests from system start
+ * - monthlyUsageCount: resets on 1st of each month (auto via scheduler)
+ * - monthlyLimit: allowed requests per month (null = unlimited)
+ *
+ * Providers with limits: brave=1000, tavily=1000, vertex=1000
+ * When quota exhausted and engineType='search', auto-disables provider.
  */
-export const mlSchedulerSettings = pgTable("ml_scheduler_settings", {
-  id: text().primaryKey().default("default"),
+export const aiProviderConfig = pgTable("ai_provider_config", {
+  // Identity
+  name: text().primaryKey(),
+
+  // Enabled/disabled state
   enabled: boolean().notNull().default(true),
-  cadenceHours: integer().notNull().default(24),
-  minNewSettledExamples: integer().notNull().default(50),
-  minGrowthPct: integer().notNull().default(20),
-  nextRunAt: ts(),
-  lastRunAt: ts(),
-  lastError: text(),
+  disabledReason: text("disabled_reason"),
+
+  // Model metadata
+  modelId: text("model_id"),
+  tier: text(), // "lite" | "flash" | "pro"
+  label: text(),
+  tagline: text(),
+  engineType: text("engine_type"), // "llm" | "search"
+
+  // Quota tracking
+  totalUsageCount: bigint({ mode: "number" }).notNull().default(0),
+  monthlyUsageCount: integer("monthly_usage_count").notNull().default(0),
+  monthlyLimit: integer("monthly_limit"), // null = unlimited
+  lastResetAt: ts().notNull().defaultNow(),
+
+  // Timestamps
+  createdAt: tsNow(),
   updatedAt: ts().notNull().defaultNow(),
 });
 
-export type MlSchedulerSettingsRow = typeof mlSchedulerSettings.$inferSelect;
-export type NewMlSchedulerSettingsRow = typeof mlSchedulerSettings.$inferInsert;
+export type AiProviderConfigRow = typeof aiProviderConfig.$inferSelect;
+export type NewAiProviderConfigRow = typeof aiProviderConfig.$inferInsert;
+
+export const aiLogs = pgTable("ai_logs", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  system: text().notNull(),
+  trigger: text().notNull(),
+  endpoint: text(),
+  service: text(),
+  status: text().notNull(),
+  model: text(),
+  providerUsed: text("provider_used"),
+  itemCount: integer("item_count"),
+  durationMs: integer("duration_ms"),
+  costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
+  query: text(),
+  summary: text(),
+  error: text(),
+  requestBody: jsonb("request_body"),
+  responseBody: jsonb("response_body"),
+  metadata: jsonb(),
+  createdAt: ts().notNull().defaultNow(),
+});
+
+export type AiLogRow = typeof aiLogs.$inferSelect;
+export type NewAiLogRow = typeof aiLogs.$inferInsert;
 
 export const schema = {
   bets,
@@ -1010,5 +1043,6 @@ export const schema = {
   competitionTiers,
   competitionEnrichments,
   mlTrainingExamples,
-  mlSchedulerSettings,
+  aiProviderConfig,
+  aiLogs,
 };

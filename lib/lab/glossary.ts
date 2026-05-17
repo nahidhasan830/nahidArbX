@@ -635,6 +635,98 @@ export const GLOSSARY = {
     example:
       "Strategy promoted at 5.2% ROI with believable range 3.1% to 6.5%. Three months later, 78 settled bets give 0.8% live ROI — outside the lower end of that range. The drift chip lights up: maybe the soft book has tightened its lines, or the original estimate was too optimistic. Investigate before the next weekend.",
   },
+
+  // ── Paper Trading & ML stake terminology ──────────────────────────────
+  paper_trading: {
+    short:
+      "A dry run that compares the configured baseline stake with the model-adjusted stake on the same real bets — no extra money risked.",
+    example:
+      "NineWickets-SB Asian Handicap at 1.92. Baseline stakes 1,000 BDT, model stakes 1,400 BDT (×1.40). Bet wins → Baseline PnL = +920 BDT, Model PnL = +1,288 BDT → PnL Delta = +368 BDT. Across 320 settled bets: baseline +2.1% ROI, model +3.4% ROI → Model Lift = +1.3 pts. Promote model authority only after the lift is positive over hundreds of bets.",
+  },
+  baseline_stake: {
+    short:
+      "baseline = min(fullKelly × kellyFraction, kellyCap)",
+    example:
+      "Bankroll 100,000 BDT. Bet at 2.00 odds with +3% EV → fullKelly = 0.03. With kellyFraction = 0.25 and kellyCap = 5%: baseline = min(0.03 × 0.25, 0.05) = 0.0075 → wager 750 BDT. This is exactly what auto-placement wagers when the model has no authority.",
+  },
+  model_stake_fraction: {
+    short:
+      "modelFraction = min(baseline × multiplier, 2 × baseline)",
+    example:
+      "baseline = 0.75% (750 BDT), multiplier = ×1.40 → modelFraction = min(0.75% × 1.40, 1.50%) = 1.05% → wager 1,050 BDT. The 2× cap blocks a runaway multiplier from blowing up a single position.",
+  },
+  model_stake_multiplier: {
+    short:
+      "Skip if × < 0.10 · Shrink if 0.10 ≤ × < 0.95 · Agree if 0.95 ≤ × ≤ 1.05 · Boost if × > 1.05",
+    example:
+      "NineWickets-Exchange BTTS, score = 0.78, sharp steam confirms direction, persistence = 14 ticks → × = 1.46 (Boost). 1X2 bet, score = 0.18, convergence_rate < 0 → × = 0.05 (Skip). Computed from the 25-feature vector at detection time, not from the score alone.",
+  },
+  pnl_delta: {
+    short:
+      "PnL Delta = Model PnL − Baseline PnL.  Positive ⇒ model would have done better.",
+    example:
+      "Stakes: baseline 750, model 1,050 BDT. Bet wins at 1.92 → Baseline PnL = 750 × 0.92 = +690, Model PnL = 1,050 × 0.92 = +966, Delta = +276 BDT. Same stakes on a losing bet → Delta = −1,050 − (−750) = −300 BDT. Summed across hundreds of settled bets, the running PnL Delta is the headline 'is the model worth it' number.",
+  },
+  model_lift: {
+    short:
+      "Model Lift = Model Gate ROI − Simple EV Rule ROI  (percentage points over the same period).",
+    example:
+      "Last 30 days, same bets: Simple EV Rule +2.8% ROI, Model Gate +4.1% ROI → Lift = +1.3 pts. Consistently positive over a 200+ bet sample ⇒ escalate the model's permission. Flat or negative ⇒ the model isn't earning its complexity.",
+  },
+  model_stance: {
+    short:
+      "Multiplier band: Skip · Shrink · Agree · Boost.",
+    example:
+      "Skip (× < 0.10): don't bet. Shrink (0.10–0.95): real edge, smaller than the rule thinks. Agree (0.95–1.05): nothing to add. Boost (> 1.05): bet is stronger than the rule reflects. Four bands let you scan a table and instantly see where rule and model diverge.",
+  },
+  detection_baseline: {
+    short:
+      "Every detected value bet, no filters — the 'do nothing smart' control cohort.",
+    example:
+      "Last 30 days: 1,420 detected bets, avg EV +1.4%, ROI +1.1%. The floor every smarter cohort must clear. Simple EV Rule doesn't beat it ⇒ rule is over-filtering. Model Gate doesn't beat the rule ⇒ model isn't earning its complexity.",
+  },
+  simple_ev_rule: {
+    short:
+      "Pass-through filter: EV ≥ minEvPct AND market ∈ allowedMarkets.",
+    example:
+      "Of 1,420 detected bets, 640 had EV ≥ 2% on Asian Handicap / 1X2 / O/U 2.5 / BTTS → +2.8% ROI. This is the live deterministic strategy; the model has to deliver more than this for its complexity to be worth it.",
+  },
+  model_scored: {
+    short:
+      "Bets where mlScore ≠ NULL — every detected bet whose 25 features were warm at detection time.",
+    example:
+      "1,310 of 1,420 detected bets had all 25 features warm (sharp odds, convergence, steam present) and got scored. The other 110 came in cold and were skipped. This is the population the model can claim authority over.",
+  },
+  model_gate: {
+    short:
+      "Pass-through filter: Simple EV Rule ∧ mlScore ≥ ML_MIN_SCORE.",
+    example:
+      "Of 640 Simple EV Rule bets, 480 also scored ≥ 0.50 → +4.1% ROI vs the rule's +2.8% (Lift = +1.3 pts). The 160 bets the gate rejected returned −0.8% — exactly the bets the gate is meant to remove.",
+  },
+  permission_level: {
+    short:
+      "Observe < Gate Only < Stake Reduce < Stake Increase.  Each level expands the multiplier range the staker can apply.",
+    example:
+      "Observe: × ∈ ∅ (no effect, log only). Gate Only: × ∈ {0, 1} (skip or pass-through). Stake Reduce: × ∈ [0, 1.0] (shrink, never increase). Stake Increase: × ∈ [0, 2.0] (full authority). New models start at Observe and earn each step from paper-trading evidence.",
+  },
+  auto_retrain: {
+    short:
+      "Trigger: corpusSize ≥ lastDeployedSize × (1 + growthThresholdPct/100).  No schedule, no cadence.",
+    example:
+      "Threshold = 20%, last deployed trained on 4,500 examples. Once corpus ≥ 4,500 × 1.20 = 5,400, the scheduler fires a new training run on the next tick. Manual retrain is always available — auto is the floor that prevents stale models.",
+  },
+  cold_start_threshold: {
+    short:
+      "Minimum qualified examples before any model can train.  threshold = 1,000.",
+    example:
+      "Below 1,000, the engine collects bets and extracts features but no model trains — not enough signal to separate skill from luck. Once 1,000 settled bets pass the feature contract with positive EV labels, the first model trains and enters Observe permission.",
+  },
+  feature_contract: {
+    short:
+      "Tuple (version, count, names_hash) that every stored feature vector must match.  Drift breaks scoring silently.",
+    example:
+      "Current contract: version = 2, count = 25, names_hash = a3f9…b2. A bet stored with version = 1 (count = 24) can't be scored by the v2 model — feature[12] would be 'persistence_ticks' for the writer but 'sharp_steam_60s' for the reader, score becomes nonsense. The contract check rejects mismatched bets before training or scoring.",
+  },
 } satisfies Record<string, GlossaryEntry>;
 
 export function getTerm(id: TermId): GlossaryEntry {

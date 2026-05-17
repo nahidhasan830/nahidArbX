@@ -1,9 +1,10 @@
 /**
  * ML Scorer — ONNX Inference Singleton (Engine-Only)
  *
- * Supports both champion (active) and challenger (candidate) model scoring.
- * Calibration supports platt_logit, beta, and isotonic methods
- * (parameters persisted by the Python training pipeline in training_report).
+ * Loads the currently-deployed model (status='deployed') and serves
+ * batch scoring. Calibration supports platt_logit, beta, and isotonic
+ * methods (parameters persisted by the Python training pipeline in
+ * training_report).
  *
  * ⚠ PROCESS ISOLATION: This module must NEVER be imported by Next.js
  * API routes or React Server Components.
@@ -125,11 +126,7 @@ interface ScorerState {
   modelVersion: number | null;
   modelPath: string | null;
   calibration: ScoreCalibration;
-  // ── Challenger (dual scoring) ──────────────────────────────────────
-  challengerSession: import("onnxruntime-node").InferenceSession | null;
-  challengerVersion: number | null;
-  challengerCalibration: ScoreCalibration;
-  // ── Ensemble (top-3 models, champion + 2 validated) ────────────────
+  // ── Ensemble (deployed + top-2 validated) ──────────────────────────
   ensembleSessions: Array<{
     session: import("onnxruntime-node").InferenceSession;
     version: number;
@@ -150,9 +147,6 @@ const state = singleton(
     modelVersion: null,
     modelPath: null,
     calibration: { method: "identity", params: {} },
-    challengerSession: null,
-    challengerVersion: null,
-    challengerCalibration: { method: "identity", params: {} },
     ensembleSessions: [],
     watcherTimer: null,
     totalScored: 0,
@@ -182,56 +176,28 @@ interface ModelRowData {
   trainingReport: unknown;
 }
 
-async function resolveModelPath(query: "champion" | "challenger"): Promise<ResolvedModel | null> {
+async function resolveDeployedModel(): Promise<ResolvedModel | null> {
   try {
     const { db } = await import("@/lib/db/client");
     const { mlModels } = await import("@/lib/db/schema");
-    const { eq, and, desc } = await import("drizzle-orm");
+    const { eq, desc } = await import("drizzle-orm");
     const fs = await import("fs");
     const path = await import("path");
 
-    let row: ModelRowData | null = null;
+    const [deployed] = await db
+      .select({
+        id: mlModels.id,
+        version: mlModels.version,
+        modelArtifactPath: mlModels.modelArtifactPath,
+        onnxBlob: mlModels.onnxBlob,
+        trainingReport: mlModels.trainingReport,
+      })
+      .from(mlModels)
+      .where(eq(mlModels.status, "deployed"))
+      .orderBy(desc(mlModels.deployedAt))
+      .limit(1);
 
-    if (query === "champion") {
-      const [deployed] = await db
-        .select({
-          id: mlModels.id,
-          version: mlModels.version,
-          modelArtifactPath: mlModels.modelArtifactPath,
-          onnxBlob: mlModels.onnxBlob,
-          trainingReport: mlModels.trainingReport,
-        })
-        .from(mlModels)
-        .where(
-          and(
-            eq(mlModels.status, "deployed"),
-            eq(mlModels.isChampion, true),
-          ),
-        )
-        .orderBy(desc(mlModels.deployedAt))
-        .limit(1);
-      row = (deployed as ModelRowData | undefined) ?? null;
-    } else {
-      // Challenger: latest validated model that is NOT champion and NOT deployed
-      const [candidate] = await db
-        .select({
-          id: mlModels.id,
-          version: mlModels.version,
-          modelArtifactPath: mlModels.modelArtifactPath,
-          onnxBlob: mlModels.onnxBlob,
-          trainingReport: mlModels.trainingReport,
-        })
-        .from(mlModels)
-        .where(
-          and(
-            eq(mlModels.status, "validated"),
-            eq(mlModels.isChampion, false),
-          ),
-        )
-        .orderBy(desc(mlModels.trainingCompletedAt))
-        .limit(1);
-      row = (candidate as ModelRowData | undefined) ?? null;
-    }
+    const row = (deployed as ModelRowData | undefined) ?? null;
 
     if (!row) return null;
     const calibration = parseCalibration(row.trainingReport);
@@ -325,20 +291,6 @@ async function loadModel(resolved: ResolvedModel): Promise<boolean> {
   }
 }
 
-async function loadChallengerModel(resolved: ResolvedModel): Promise<boolean> {
-  try {
-    const newSession = await createSession(resolved.path);
-    state.challengerSession = newSession;
-    state.challengerVersion = resolved.version;
-    state.challengerCalibration = resolved.calibration;
-    logger.info("MLScorer", `Challenger model v${resolved.version} loaded`);
-    return true;
-  } catch (err) {
-    logger.warn("MLScorer", `Challenger load failed: ${(err as Error).message}`);
-    return false;
-  }
-}
-
 // ============================================
 // Public API
 // ============================================
@@ -347,17 +299,13 @@ export function isModelLoaded(): boolean {
   return state.session != null;
 }
 
-export function isChallengerLoaded(): boolean {
-  return state.challengerSession != null;
-}
-
 export async function ensureModel(): Promise<boolean> {
   if (state.loadAttempted) return state.session != null;
   state.loadAttempted = true;
 
-  const resolved = await resolveModelPath("champion");
+  const resolved = await resolveDeployedModel();
   if (!resolved) {
-    logger.info("MLScorer", "No champion deployed — using rule-based fallback");
+    logger.info("MLScorer", "No deployed model — using rule-based fallback");
     startModelWatcher();
     return false;
   }
@@ -370,7 +318,7 @@ export async function ensureModel(): Promise<boolean> {
 }
 
 /**
- * Score a batch of feature vectors on the champion model (averaged with
+ * Score a batch of feature vectors on the deployed model (averaged with
  * ensemble if multiple validated models are available).
  * Returns P(profitable) for each. null = no model loaded.
  */
@@ -379,7 +327,7 @@ export async function scoreBatch(
 ): Promise<(number | null)[]> {
   if (featureArrays.length === 0) return [];
 
-  // Ensemble scoring: average across champion + top-2 validated models
+  // Ensemble scoring: average across deployed + top-2 validated models
   const allSessions = state.ensembleSessions;
   if (allSessions.length > 1) {
     const allResults = await Promise.all(
@@ -397,30 +345,6 @@ export async function scoreBatch(
   }
 
   return runInference(state.session, state.calibration, featureArrays);
-}
-
-/**
- * Score a batch on the challenger model.
- * Returns P(profitable) for each. null = no challenger loaded.
- */
-export async function scoreBatchChallenger(
-  featureArrays: number[][],
-): Promise<(number | null)[]> {
-  return runInference(state.challengerSession, state.challengerCalibration, featureArrays);
-}
-
-/**
- * Score a batch on both champion and challenger simultaneously.
- * Returns { champion: [...], challenger: [...] } with null entries where not available.
- */
-export async function scoreBatchDual(
-  featureArrays: number[][],
-): Promise<{ champion: (number | null)[]; challenger: (number | null)[] }> {
-  const [champion, challenger] = await Promise.all([
-    scoreBatch(featureArrays),
-    scoreBatchChallenger(featureArrays),
-  ]);
-  return { champion, challenger };
 }
 
 async function runInference(
@@ -488,9 +412,6 @@ export function getScorerStatus() {
     modelVersion: state.modelVersion,
     modelPath: state.modelPath,
     calibration: state.calibration.method,
-    challengerLoaded: state.challengerSession != null,
-    challengerVersion: state.challengerVersion,
-    challengerCalibration: state.challengerCalibration.method,
     ensembleSize: state.ensembleSessions.length,
     ensembleVersions: state.ensembleSessions.map((es) => es.version),
     featureCount: FEATURE_COUNT,
@@ -507,7 +428,7 @@ export function getScorerStatus() {
 // Model version watcher
 // ============================================
 
-/** Max ensemble members (champion + N validated models). */
+/** Max ensemble members (deployed + N validated models). */
 const MAX_ENSEMBLE = 3;
 
 async function resolveEnsembleModels(): Promise<ResolvedModel[]> {
@@ -516,7 +437,7 @@ async function resolveEnsembleModels(): Promise<ResolvedModel[]> {
     const { mlModels } = await import("@/lib/db/schema");
     const { eq, and, desc, isNotNull } = await import("drizzle-orm");
 
-    const [championRow] = await db
+    const [deployedRow] = await db
       .select({
         id: mlModels.id,
         version: mlModels.version,
@@ -525,7 +446,8 @@ async function resolveEnsembleModels(): Promise<ResolvedModel[]> {
         trainingReport: mlModels.trainingReport,
       })
       .from(mlModels)
-      .where(and(eq(mlModels.status, "deployed"), eq(mlModels.isChampion, true)))
+      .where(eq(mlModels.status, "deployed"))
+      .orderBy(desc(mlModels.deployedAt))
       .limit(1);
 
     const validatedRows = await db
@@ -540,7 +462,6 @@ async function resolveEnsembleModels(): Promise<ResolvedModel[]> {
       .where(
         and(
           eq(mlModels.status, "validated"),
-          eq(mlModels.isChampion, false),
           isNotNull(mlModels.onnxBlob),
         ),
       )
@@ -548,8 +469,8 @@ async function resolveEnsembleModels(): Promise<ResolvedModel[]> {
       .limit(MAX_ENSEMBLE - 1);
 
     const candidates =
-      championRow != null
-        ? [championRow, ...validatedRows]
+      deployedRow != null
+        ? [deployedRow, ...validatedRows]
         : (validatedRows as ModelRowData[]);
 
     const results: ResolvedModel[] = [];
@@ -622,24 +543,17 @@ function startModelWatcher(): void {
       const { refreshPermissionLevel } = await import("./deployment-gate");
       await refreshPermissionLevel();
 
-      // Champion reload
-      const champion = await resolveModelPath("champion");
-      if (champion && champion.version !== state.modelVersion) {
-        logger.info("MLScorer", `New champion v${champion.version} (was v${state.modelVersion})`);
-        const loaded = await loadModel(champion);
+      // Deployed-model reload
+      const deployed = await resolveDeployedModel();
+      if (deployed && deployed.version !== state.modelVersion) {
+        logger.info("MLScorer", `New deployed model v${deployed.version} (was v${state.modelVersion})`);
+        const loaded = await loadModel(deployed);
         if (loaded) {
           try {
             const { triggerDetection } = await import("@/lib/background/reactive-detector");
             triggerDetection({ forceRescore: true });
           } catch { /* non-critical */ }
         }
-      }
-
-      // Challenger reload
-      const challenger = await resolveModelPath("challenger");
-      if (challenger && challenger.version !== state.challengerVersion) {
-        logger.info("MLScorer", `New challenger v${challenger.version} (was v${state.challengerVersion ?? "none"})`);
-        await loadChallengerModel(challenger);
       }
 
       // ── Ensemble reload ──────────────────────────────────────────────

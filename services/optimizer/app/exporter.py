@@ -193,7 +193,7 @@ def write_model_row(
     artifact_path: str | None,
     *,
     deploy: bool = True,
-    permission_level: str = "shadow",
+    permission_level: str = "observe",
     rejection_reasons: list[str] | None = None,
     onnx_blob: bytes | None = None,
 ) -> str:
@@ -219,7 +219,7 @@ def write_model_row(
         session.execute(
             text("""
                 UPDATE ml_models
-                SET status = 'retired', retired_at = :now, is_champion = false
+                SET status = 'retired', retired_at = :now
                 WHERE status = 'deployed'
             """),
             {"now": now},
@@ -248,7 +248,6 @@ def write_model_row(
                 deflated_sharpe, pbo, calibration_error,
                 feature_importance, model_artifact_path, onnx_blob, training_report,
                 permission_level, rejection_reasons,
-                is_champion, champion_to_at,
                 deployed_at, created_at
             ) VALUES (
                 :id, :version, :status, :model_type, :training_samples,
@@ -258,7 +257,6 @@ def write_model_row(
                 :deflated_sharpe, :pbo, :calibration_error,
                 :feature_importance, :model_artifact_path, :onnx_blob, :training_report,
                 :permission_level, :rejection_reasons,
-                :is_champion, :champion_to_at,
                 :deployed_at, :created_at
             )
         """),
@@ -305,8 +303,6 @@ def write_model_row(
             }),
             "permission_level": permission_level,
             "rejection_reasons": _json_dumps(rejection_reasons) if rejection_reasons else None,
-            "is_champion": deploy,
-            "champion_to_at": now if deploy else None,
             "deployed_at": now if deploy else None,
             "created_at": now,
         },
@@ -340,7 +336,7 @@ def export_and_upload(
     metrics: TrainingMetrics,
     session: Session,
     *,
-    permission_level: str = "shadow",
+    permission_level: str = "observe",
 ) -> str:
     """Full export pipeline: ONNX → DB row (with embedded blob).
 

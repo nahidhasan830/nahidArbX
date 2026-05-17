@@ -128,7 +128,7 @@ export type ValueBetRow = {
   mlFeatureCount?: number | null;
   mlFeatureNamesHash?: string | null;
   mlScore?: number | null;
-  mlKellyAdjusted?: number | null;
+  mlStakeFraction?: number | null;
 };
 
 /** Parsed shape of a single provider's odds movement JSONB blob. */

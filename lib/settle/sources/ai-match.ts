@@ -2,16 +2,15 @@
  * AI-assisted team matching for the settlement waterfall.
  *
  * When pure fuzzy matching produces a borderline score (below the accept
- * threshold but above a "maybe" floor), this module calls the AI Search
- * pipeline (HuggingFace + web grounding) to verify whether the candidate is the
- * same event. On a positive verdict, the alias is persisted to the entity
+ * threshold but above a "maybe" floor), this module calls the AI grounding
+ * engine (DeepSeek + Vertex/Brave) to verify whether the candidate is
+ * the same event. On a positive verdict, the alias is persisted to the entity
  * DB via `learnTeamAlias()` so future settlement runs resolve instantly.
  *
  * This is the bridge between the Matcher Lab's AI infrastructure and the
  * settlement pipeline — same underlying service, different trigger.
  *
- * Cost: free (HuggingFace free tier / Groq fallback). The AI Search service
- * must be running at `AI_SEARCH_URL` (default localhost:8090).
+ * Cost: DeepSeek API ($0.14/1M input, $0.28/1M output).
  */
 
 import {

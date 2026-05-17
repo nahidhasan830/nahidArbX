@@ -5,7 +5,7 @@ before a model can be deployed to production scoring. Assigns a runtime
 permission level based on the model's quality metrics and the amount of
 available training data.
 
-Deployment requirements for first shadow model:
+Deployment requirements for first observe model:
   - At least MIN_VALID_EXAMPLES valid settled examples after feature normalization
   - Feature version matches runtime
   - No feature length drift
@@ -18,7 +18,7 @@ Phase 5 changes:
     meaningless — demoted to warning-only).
 
 Runtime permission levels (escalation order):
-  - shadow: score and log only — no effect on placement
+  - observe: score and log only — no effect on placement
   - gate_only: can skip low-score bets
   - stake_reduce: can reduce stake on weak bets
   - stake_increase: disabled until enough real placed-settled evidence exists
@@ -62,7 +62,7 @@ MIN_POLICY_SAMPLES = 100
 MIN_POLICY_ROI = 0.0
 
 # Active ML permissions must add value over the non-ML baseline rule, not just
-# be positive in isolation. Shadow deployment can still observe, but gate_only
+# be positive in isolation. Observe-level deployment still logs, but gate_only
 # or stake_reduce need enough baseline comparison samples and non-negative
 # incremental ROI.
 MIN_SIMPLE_COMPARISON_SAMPLES = 100
@@ -78,7 +78,7 @@ MAX_PBO = 0.6
 
 # ── Permission level escalation thresholds ─────────────────────────────────
 
-# gate_only requires stronger evidence than shadow
+# gate_only requires stronger evidence than observe
 GATE_ONLY_MIN_AUC = 0.60
 GATE_ONLY_MIN_EXAMPLES = 1500
 GATE_ONLY_MIN_DSR = 0.7
@@ -98,7 +98,7 @@ STAKE_INCREASE_MIN_PLACED_SETTLED = 500  # placed bets that settled
 
 # ── Permission levels ──────────────────────────────────────────────────────
 
-PERMISSION_LEVELS = ("shadow", "gate_only", "stake_reduce", "stake_increase")
+PERMISSION_LEVELS = ("observe", "gate_only", "stake_reduce", "stake_increase")
 
 
 @dataclass(frozen=True)
@@ -254,15 +254,15 @@ def evaluate_deployment_gate(
         )
         return DeploymentGateResult(
             approved=False,
-            permission_level="shadow",
+            permission_level="observe",
             rejection_reasons=reasons,
             warnings=warnings,
         )
 
     # ── Determine permission level (escalation order) ─────────────────
 
-    # Start at shadow (always safe)
-    level = "shadow"
+    # Start at observe (always safe)
+    level = "observe"
     beats_simple_rule = (
         metrics.simple_policy_sample_size >= MIN_SIMPLE_COMPARISON_SAMPLES
         and metrics.model_vs_simple_roi_delta >= MIN_MODEL_VS_SIMPLE_ROI_DELTA

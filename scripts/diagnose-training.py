@@ -119,7 +119,7 @@ def stage_db():
         tables_result = session.execute(text("""
             SELECT table_name FROM information_schema.tables
             WHERE table_schema = 'public'
-              AND table_name IN ('bets', 'ml_models', 'ml_training_examples', 'ml_scheduler_settings')
+              AND table_name IN ('bets', 'ml_models', 'ml_training_examples')
             ORDER BY table_name
         """))
         found_tables = [r[0] for r in tables_result]

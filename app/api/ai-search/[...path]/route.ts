@@ -1,28 +1,26 @@
 /**
- * Proxy route for the ai-search Python service.
+ * AI Search API — powered by Node.js grounding engine (DeepSeek + Vertex/Brave).
  *
- * GET  /api/ai-search/stats          -> GET  AI_SEARCH_URL/stats
- * GET  /api/ai-search/healthz        -> GET  AI_SEARCH_URL/healthz
- * GET  /api/ai-search/models         -> GET  AI_SEARCH_URL/models
+ * GET  /api/ai-search/stats          -> provider stats
+ * GET  /api/ai-search/healthz        -> engine health
+ * GET  /api/ai-search/models         -> available models
+ * GET  /api/ai-search/llm-stats      -> LLM usage stats
  * GET  /api/ai-search/logs           -> Read from DB (ai_search_logs)
- * POST /api/ai-search/search         -> POST AI_SEARCH_URL/search  (+ log)
- * POST /api/ai-search/entity-match   -> POST AI_SEARCH_URL/entity-match (+ log)
- * POST /api/ai-search/grounded-query -> POST AI_SEARCH_URL/grounded-query (+ log)
- * POST /api/ai-search/verify-settlement -> POST AI_SEARCH_URL/verify-settlement (+ log)
- * POST /api/ai-search/providers/x/toggle -> POST AI_SEARCH_URL/providers/x/toggle
- *
- * Keeps the Python service internal (no CORS, no auth bypass).
- * POST endpoints that hit an AI/search function are logged to the
- * ai_search_logs Postgres table via Drizzle.
+ * POST /api/ai-search/search         -> raw web search
+ * POST /api/ai-search/entity-match   -> single-pair entity matching
+ * POST /api/ai-search/grounded-query -> search-grounded Q&A
+ * POST /api/ai-search/verify-settlement -> match result verification
+ * POST /api/ai-search/providers/{name}/toggle -> enable/disable provider
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { insertAiSearchLog } from "@/lib/db/repositories/ai-search-logs";
 import { listAiSearchLogs } from "@/lib/db/repositories/ai-search-logs";
 import { recordAiActivity } from "@/lib/db/repositories/ai-activity-log";
-import { isHFAvailable, chatWithHF } from "@/lib/ai/hf-client";
+import { getGroundingEngine } from "@/lib/ai/grounding";
+import { getSearchRouter } from "@/lib/ai/search/router";
+import type { EventInfo } from "@/lib/ai/search/types";
 
-/** Map endpoint path to AI activity system tag. */
 const ENDPOINT_SYSTEM: Record<string, string> = {
   search: "grounding",
   "grounded-query": "grounding",
@@ -30,15 +28,14 @@ const ENDPOINT_SYSTEM: Record<string, string> = {
   "verify-settlement": "settlement",
 };
 
-const AI_SEARCH_URL = process.env.AI_SEARCH_URL || "http://localhost:8090";
-
-/** Endpoints whose calls are logged to the database. */
 const LOGGED_ENDPOINTS = new Set([
   "search",
   "entity-match",
   "grounded-query",
   "verify-settlement",
 ]);
+
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 
 export async function GET(
   req: NextRequest,
@@ -47,7 +44,6 @@ export async function GET(
   const { path } = await params;
   const subPath = path.join("/");
 
-  // ── DB-backed logs endpoint ──
   if (subPath === "logs") {
     const sp = req.nextUrl.searchParams;
     const filters = {
@@ -67,51 +63,104 @@ export async function GET(
     }
   }
 
-  // ── Proxy pass-through GETs ──
   const allowed = ["stats", "healthz", "models", "llm-stats"];
   if (!allowed.includes(subPath)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   try {
-    const resp = await fetch(`${AI_SEARCH_URL}/${subPath}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
-    });
-
-    if (!resp.ok) {
-      const detail = await readUpstreamBody(resp);
-      return NextResponse.json(
-        { error: `Upstream returned ${resp.status}`, detail },
-        { status: resp.status },
-      );
-    }
-
-    const data = await resp.json();
-
-    // Inject hf_available into stats response
-    if (subPath === "stats") {
-      (data as Record<string, unknown>).hf_available = isHFAvailable();
-    }
-
-    return NextResponse.json(data);
-  } catch (err) {
     if (subPath === "healthz") {
-      return NextResponse.json(buildFallbackHealth(err));
-    }
-    if (subPath === "stats") {
-      return NextResponse.json(buildFallbackStats(err));
-    }
-    if (subPath === "models") {
-      return NextResponse.json(buildFallbackModels(err));
+      const apiKey = process.env.DEEPSEEK_API_KEY;
+      const llmHealthy = Boolean(apiKey);
+      const stats = getSearchRouter().getStats();
+      const providersHealthy = stats.providers.filter((p) => p.healthy).length;
+
+      return NextResponse.json({
+        status: llmHealthy && providersHealthy > 0 ? "ok" : "degraded",
+        llmEngine: {
+          active: "deepseek",
+          model: DEEPSEEK_MODEL,
+          healthy: llmHealthy,
+        },
+        searchProviders: {
+          total: stats.providers.length,
+          healthy: providersHealthy,
+        },
+      });
     }
 
+    if (subPath === "stats") {
+      const stats = getSearchRouter().getStats();
+      return NextResponse.json({
+        providers: stats.providers,
+        totalSearches: stats.totalSearches,
+        llmEngine: DEEPSEEK_MODEL,
+        llmHealthy: Boolean(process.env.DEEPSEEK_API_KEY),
+        serviceOffline: false,
+      });
+    }
+
+    if (subPath === "models") {
+      return NextResponse.json({
+        engine: "deepseek",
+        model: DEEPSEEK_MODEL,
+        healthy: Boolean(process.env.DEEPSEEK_API_KEY),
+      });
+    }
+
+    if (subPath === "llm-stats") {
+      const { getProviderConfigs } = await import("@/lib/db/repositories/ai-provider-config");
+      const geminiHealthy = Boolean(process.env.GEMINI_API_KEY);
+
+      const configs = await getProviderConfigs().catch(() => {
+        return {} as Record<string, { enabled: boolean; disabledReason: string | null }>;
+      });
+
+      const deepseekCfg = configs["deepseek-lite"] ?? configs["deepseek-pro"] ?? { enabled: true, disabledReason: null };
+      const geminiCfg = configs["gemini-lite"] ?? configs["gemini-flash"] ?? configs["gemini-pro"] ?? { enabled: true, disabledReason: null };
+
+      const providers: Record<string, Record<string, unknown>> = {};
+
+      providers["deepseek"] = {
+        model: DEEPSEEK_MODEL,
+        healthy: Boolean(process.env.DEEPSEEK_API_KEY),
+        disabled: !deepseekCfg.enabled,
+        manual_disabled: !deepseekCfg.enabled,
+        disabled_reason: deepseekCfg.disabledReason ?? null,
+        is_exhausted: !Boolean(process.env.DEEPSEEK_API_KEY),
+      };
+
+      if (geminiHealthy) {
+        providers["gemini"] = {
+          model: process.env.GEMINI_FLASH_MODEL || "gemini-3-flash",
+          healthy: true,
+          disabled: !geminiCfg.enabled,
+          manual_disabled: !geminiCfg.enabled,
+          disabled_reason: geminiCfg.disabledReason ?? null,
+          is_exhausted: false,
+        };
+      }
+
+      const activeEngine = deepseekCfg.enabled && Boolean(process.env.DEEPSEEK_API_KEY)
+        ? "deepseek"
+        : geminiCfg.enabled && geminiHealthy
+          ? "gemini"
+          : "none";
+
+      return NextResponse.json({
+        model: DEEPSEEK_MODEL,
+        usage: {
+          active_engine: activeEngine,
+          providers,
+        },
+      });
+    }
+
+    return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
+  } catch (err) {
     return NextResponse.json(
-      {
-        error: "AI search service unreachable",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 503 },
+      { error: "AI engine error", detail: String(err) },
+      { status: 500 },
     );
   }
 }
@@ -123,13 +172,7 @@ export async function POST(
   const { path } = await params;
   const subPath = path.join("/");
 
-  // Whitelist: direct endpoints + providers/*/toggle
-  const directAllowed = [
-    "search",
-    "entity-match",
-    "grounded-query",
-    "verify-settlement",
-  ];
+  const directAllowed = ["search", "entity-match", "grounded-query", "verify-settlement"];
   const isProviderToggle = /^providers\/[^/]+\/toggle$/.test(subPath);
   if (!directAllowed.includes(subPath) && !isProviderToggle) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -140,211 +183,99 @@ export async function POST(
   try {
     const body = await req.json();
 
-    // ── HuggingFace direct path (Playground only) ──
-    if (
-      subPath === "grounded-query" &&
-      body.provider === "huggingface" &&
-      isHFAvailable()
-    ) {
-      try {
-        const result = await chatWithHF({
-          system:
-            "You are a helpful AI assistant. Answer the user's question clearly and concisely.",
-          prompt: body.question ?? body.query ?? "",
-          model: body.hf_model || undefined,
-          jsonMode: false,
-          temperature: body.temperature ?? 0.1,
-        });
-        const durationMs = Date.now() - startMs;
-
-        insertAiSearchLog({
-          endpoint: subPath,
-          service: body.service ?? "Playground",
-          status: "success",
-          providerUsed: "huggingface",
-          modelUsed: result.model,
-          query: body.question ?? body.query ?? null,
-          durationMs,
-          resultCount: null,
-          error: null,
-          requestBody: truncateJson(body),
-          responseSummary: truncateJson(
-            { answer: result.text, model: result.model },
-            4000,
-          ),
-        }).catch(() => {});
-
-        recordAiActivity({
-          system: "grounding",
-          trigger: "playground",
-          status: "success",
-          model: result.model,
-          itemCount: 1,
-          durationMs,
-          costUsd: null,
-          summary: `HF grounded-query: ${(body.question ?? body.query ?? "(no query)").slice(0, 500)}`,
-          error: null,
-          metadata: {
-            provider: "huggingface",
-            finishReason: result.finishReason,
-          },
-        }).catch(() => {});
-
-        return NextResponse.json({
-          answer: result.text,
-          reasoning: "",
-          sources: [],
-          model: result.model,
-          provider_used: "huggingface",
-        });
-      } catch (err) {
-        const durationMs = Date.now() - startMs;
-        const errMsg = err instanceof Error ? err.message : String(err);
-
-        insertAiSearchLog({
-          endpoint: subPath,
-          service: body.service ?? "Playground",
-          status: "error",
-          providerUsed: "huggingface",
-          modelUsed: body.hf_model ?? null,
-          query: body.question ?? body.query ?? null,
-          durationMs,
-          resultCount: null,
-          error: errMsg.slice(0, 2000),
-          requestBody: truncateJson(body),
-          responseSummary: null,
-        }).catch(() => {});
-
-        recordAiActivity({
-          system: "grounding",
-          trigger: "playground",
-          status: "error",
-          model: body.hf_model ?? null,
-          itemCount: 1,
-          durationMs,
-          costUsd: null,
-          summary: `HF grounded-query failed`,
-          error: errMsg.slice(0, 2000),
-          metadata: null,
-        }).catch(() => {});
-
-        return NextResponse.json(
-          { error: "HuggingFace request failed", detail: errMsg },
-          { status: 502 },
-        );
+    // Provider toggle
+    if (isProviderToggle) {
+      const name = subPath.split("/")[1];
+      const ok = getGroundingEngine().toggleProvider(name, body.enabled);
+      if (!ok) {
+        return NextResponse.json({ error: `Provider '${name}' not found` }, { status: 404 });
       }
+      return NextResponse.json({ name, enabled: body.enabled });
     }
 
-    const upstreamBody =
-      subPath === "grounded-query"
-        ? {
-            ...body,
-            question: body.question ?? body.query ?? "",
-            query: undefined,
-          }
-        : body;
-
-    const resp = await fetch(`${AI_SEARCH_URL}/${subPath}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(upstreamBody),
-      signal: AbortSignal.timeout(60_000), // LLM calls can be slow
-    });
-
-    if (!resp.ok) {
-      const errBody = await readUpstreamBody(resp);
-      const errText = stringifyForLog(errBody);
-      const durationMs = Date.now() - startMs;
-
-      // Log errors for tracked endpoints
-      if (LOGGED_ENDPOINTS.has(subPath)) {
-        insertAiSearchLog({
-          endpoint: subPath,
-          service: body.service ?? "Manual",
-          status: "error",
-          providerUsed: null,
-          modelUsed: body.model ?? null,
-          query: body.query ?? body.question ?? null,
-          durationMs,
-          resultCount: null,
-          error: errText.slice(0, 2000),
-          requestBody: truncateJson(body),
-          responseSummary: null,
-        }).catch(() => {}); // fire-and-forget
-
-        recordAiActivity({
-          system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
-          trigger:
-            body.service === "Playground"
-              ? "playground"
-              : body.service === "Auto Matcher"
-                ? "batch"
-                : "manual",
-          status: "error",
-          model: body.model ?? null,
-          itemCount: 1,
-          durationMs,
-          costUsd: null,
-          summary: `${subPath} failed: ${errText.slice(0, 200)}`,
-          error: errText.slice(0, 2000),
-          metadata: null,
-        }).catch(() => {});
-      }
-
-      return NextResponse.json(
-        { error: `Upstream returned ${resp.status}`, detail: errBody },
-        { status: resp.status },
+    // Raw search
+    if (subPath === "search") {
+      const { results, provider } = await getSearchRouter().search(
+        body.query || "",
+        body.max_results || 5,
+        body.providers,
       );
+      return logAndRespond(subPath, body, startMs, {
+        query: body.query,
+        results,
+        providerUsed: provider,
+      });
     }
 
-    const data = await resp.json();
-    const durationMs = Date.now() - startMs;
-
-    // Log successful calls for tracked endpoints
-    if (LOGGED_ENDPOINTS.has(subPath)) {
-      insertAiSearchLog({
-        endpoint: subPath,
-        service: body.service ?? "Manual",
-        status: "success",
-        providerUsed: data.provider_used ?? null,
-        modelUsed: data.model ?? body.model ?? null,
-        query: body.query ?? body.question ?? null,
-        durationMs,
-        resultCount: data.results?.length ?? null,
-        error: null,
-        requestBody: truncateJson(body),
-        responseSummary: truncateJson(data, 4000),
-      }).catch(() => {}); // fire-and-forget
-
-      recordAiActivity({
-        system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
-        trigger:
-          body.service === "Playground"
-            ? "playground"
-            : body.service === "Auto Matcher"
-              ? "batch"
-              : "manual",
-        status: "success",
-        model: data.model ?? body.model ?? null,
-        itemCount: data.results?.length ?? 1,
-        durationMs,
-        costUsd: null, // local models are free
-        summary:
-          `${subPath}: ${body.query ?? body.question ?? "(no query)"}`.slice(
-            0,
-            500,
-          ),
-        error: null,
-        metadata: { provider: data.provider_used ?? null },
-      }).catch(() => {});
+    // Entity match
+    if (subPath === "entity-match") {
+      const eventA: EventInfo = {
+        homeTeam: body.event_a?.home_team || "",
+        awayTeam: body.event_a?.away_team || "",
+        competition: body.event_a?.competition || "",
+        startTime: body.event_a?.start_time || "",
+        provider: body.event_a?.provider,
+      };
+      const eventB: EventInfo = {
+        homeTeam: body.event_b?.home_team || "",
+        awayTeam: body.event_b?.away_team || "",
+        competition: body.event_b?.competition || "",
+        startTime: body.event_b?.start_time || "",
+        provider: body.event_b?.provider,
+      };
+      const result = await getGroundingEngine().matchSingle(eventA, eventB);
+      return logAndRespond(subPath, body, startMs, {
+        decision: result.decision,
+        confidence: result.confidence,
+        reasoning: result.reasoning,
+        sources: result.sources,
+        searchQueriesUsed: result.searchQueriesUsed,
+        model: result.model,
+      });
     }
 
-    return NextResponse.json(data);
+    // Grounded query
+    if (subPath === "grounded-query") {
+      const question = body.question || body.query || "";
+      const llmProvider = (body.provider as "deepseek" | "gemini") || "deepseek";
+      const result = await getGroundingEngine().query(question, body.context, {
+        provider: llmProvider,
+        model: body.model,
+      });
+      return logAndRespond(subPath, body, startMs, {
+        answer: result.answer,
+        reasoning: result.reasoning,
+        sources: result.sources,
+        model: result.model,
+        providerUsed: llmProvider,
+      });
+    }
+
+    // Settlement verification
+    if (subPath === "verify-settlement") {
+      const event: EventInfo = {
+        homeTeam: body.event?.home_team || "",
+        awayTeam: body.event?.away_team || "",
+        competition: body.event?.competition || "",
+        startTime: body.event?.start_time || "",
+        provider: body.event?.provider,
+      };
+      const result = await getGroundingEngine().verifySettlement(event, body.question || "");
+      return logAndRespond(subPath, body, startMs, {
+        answer: result.answer,
+        confidence: result.confidence,
+        reasoning: result.reasoning,
+        sources: result.sources,
+        model: result.model,
+      });
+    }
+
+    return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
   } catch (err) {
     const durationMs = Date.now() - startMs;
+    const errMsg = err instanceof Error ? err.message : String(err);
 
     if (LOGGED_ENDPOINTS.has(subPath)) {
-      // Attempt to parse body for logging — may fail if body was already consumed
       insertAiSearchLog({
         endpoint: subPath,
         service: "Manual",
@@ -354,10 +285,10 @@ export async function POST(
         query: null,
         durationMs,
         resultCount: null,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMsg.slice(0, 2000),
         requestBody: null,
         responseSummary: null,
-      }).catch(() => {}); // fire-and-forget
+      }).catch(() => {});
 
       recordAiActivity({
         system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
@@ -367,81 +298,59 @@ export async function POST(
         itemCount: null,
         durationMs,
         costUsd: null,
-        summary: `${subPath} unreachable`,
-        error: err instanceof Error ? err.message : String(err),
+        summary: `${subPath} failed`,
+        error: errMsg.slice(0, 2000),
         metadata: null,
       }).catch(() => {});
     }
 
     return NextResponse.json(
-      {
-        error: "AI search service unreachable",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      { status: 503 },
+      { error: "AI engine error", detail: errMsg },
+      { status: 500 },
     );
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
+async function logAndRespond(
+  subPath: string,
+  body: Record<string, unknown>,
+  startMs: number,
+  data: Record<string, unknown>,
+) {
+  const durationMs = Date.now() - startMs;
 
-function buildFallbackHealth(err: unknown) {
-  return {
-    status: "offline",
-    service: {
-      healthy: false,
-      url: AI_SEARCH_URL,
-      error: err instanceof Error ? err.message : String(err),
-    },
-    llm_engine: {
-      active: "unknown",
-      model: "unknown",
-      healthy: false,
-      providers: {},
-    },
-    search_providers: { total: 0, healthy: 0 },
-  };
-}
+  if (LOGGED_ENDPOINTS.has(subPath)) {
+    const bodyService = (body.service as string) || "Manual";
+    const bodyQuery = ((body.query ?? body.question) as string) || null;
+    insertAiSearchLog({
+      endpoint: subPath,
+      service: bodyService,
+      status: "success",
+      providerUsed: (data.providerUsed as string) ?? null,
+      modelUsed: (data.model as string) ?? DEEPSEEK_MODEL,
+      query: bodyQuery,
+      durationMs,
+      resultCount: Array.isArray(data.results) ? data.results.length : null,
+      error: null,
+      requestBody: truncateJson(body),
+      responseSummary: truncateJson(data, 4000),
+    }).catch(() => {});
 
-function buildFallbackStats(err: unknown) {
-  return {
-    providers: [],
-    total_searches: 0,
-    llm_engine: "llama-3.3-70b-versatile",
-    llm_healthy: false,
-    service_offline: true,
-    service_error: err instanceof Error ? err.message : String(err),
-    hf_available: isHFAvailable(),
-  };
-}
-
-function buildFallbackModels(err: unknown) {
-  return {
-    engine: "unknown",
-    model: "unknown",
-    healthy: false,
-    service_offline: true,
-    service_error: err instanceof Error ? err.message : String(err),
-  };
-}
-
-async function readUpstreamBody(resp: Response): Promise<unknown> {
-  const text = await resp.text().catch(() => "");
-  if (!text) return "";
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
+    recordAiActivity({
+      system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
+      trigger: bodyService === "Playground" ? "playground" : bodyService === "Auto Matcher" ? "batch" : "manual",
+      status: "success",
+      model: (data.model as string) ?? DEEPSEEK_MODEL,
+      itemCount: Array.isArray(data.results) ? data.results.length : 1,
+      durationMs,
+      costUsd: null,
+      summary: `${subPath}: ${(bodyQuery || "(no query)").slice(0, 500)}`,
+      error: null,
+      metadata: { provider: data.providerUsed ?? null },
+    }).catch(() => {});
   }
-}
 
-function stringifyForLog(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
+  return NextResponse.json(data);
 }
 
 function truncateJson(obj: unknown, maxLen = 2000): object | null {

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "NAHIDARBX_ENGINE=1 next dev",
     "engine": "NAHIDARBX_ENGINE=1 tsx engine.ts",
-    "dev:all": "rm -rf /tmp/nahidarbx-boot && NAHIDARBX_UNIFIED_BOOT=1 npm run engine & NAHIDARBX_UNIFIED_BOOT=1 npm run ai-search & sleep 2 && NAHIDARBX_UNIFIED_BOOT=1 npm run dev",
+    "dev:all": "rm -rf /tmp/nahidarbx-boot && NAHIDARBX_UNIFIED_BOOT=1 npm run engine & sleep 2 && NAHIDARBX_UNIFIED_BOOT=1 npm run dev",
     "engine:stop": "pkill -f 'tsx engine.ts' || echo 'No engine running'",
     "build": "next build",
     "start": "next start",
@@ -31,10 +31,8 @@
     "test:ml-e2e": "tsx scripts/test-e2e-ml.ts",
     "test:settle": "node --import tsx --test lib/settle/*.test.ts",
     "test:unit": "node --import tsx --test lib/**/*.test.ts",
-    "ai-search": "tsx scripts/ai-search-supervisor.ts",
     "ml:verify": "tsx scripts/ml-verify.ts",
-    "ml:verify:contract": "tsx scripts/ml-verify.ts contract",
-    "ai-search:raw": "cd services/ai-search && source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8090 --reload"
+    "ml:verify:contract": "tsx scripts/ml-verify.ts contract"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -132,7 +132,7 @@ function StatusBadge({ covered, exampleType }: { covered: boolean; exampleType: 
         : exampleType === "settled_detected"
           ? "Detected"
           : exampleType === "shadow_scored"
-            ? "Shadow"
+            ? "Scored"
             : "Corpus";
     return (
       <Tooltip>

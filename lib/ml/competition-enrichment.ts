@@ -1,4 +1,4 @@
-import { chatWithHF, isHFAvailable } from "@/lib/ai/hf-client";
+import { getGroundingEngine } from "@/lib/ai/grounding";
 import { logger } from "@/lib/shared/logger";
 import { getEvents } from "@/lib/store";
 import { singleton } from "@/lib/util/singleton";
@@ -325,58 +325,24 @@ export async function loadCompetitionEnrichmentCache(): Promise<void> {
   return state.loadPromise;
 }
 
-async function enrichWithHF(name: string): Promise<CompetitionEnrichment> {
-  const result = await chatWithHF({
-    system:
-      "You classify football competitions for betting-market efficiency. Return valid JSON only.",
-    prompt: buildPrompt(name),
-    jsonMode: true,
-    temperature: 0,
-    maxTokens: 500,
-  });
-  return fromParsed(name, extractJsonObject(result.text), {
-    provider: "huggingface",
-    model: result.model,
-    rawResponse: result,
-  });
-}
-
 async function enrichWithGroundedFallback(
   name: string,
 ): Promise<CompetitionEnrichment> {
-  const aiSearchUrl = process.env.AI_SEARCH_URL || "http://localhost:8090";
-  const res = await fetch(`${aiSearchUrl}/grounded-query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      question: buildPrompt(name),
-      context: {
-        service: "CompetitionEnrichment",
-        prompt_version: PROMPT_VERSION,
-      },
-    }),
-    signal: AbortSignal.timeout(45_000),
+  const engine = getGroundingEngine();
+  const result = await engine.query(buildPrompt(name), {
+    service: "CompetitionEnrichment",
+    prompt_version: PROMPT_VERSION,
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(
-      `AI Search returned ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
-    );
-  }
-
-  const data = (await res.json()) as {
-    answer?: string;
-    model?: string;
-    sources?: CompetitionEnrichmentSource[];
-    provider_used?: string;
-  };
-
-  return fromParsed(name, extractJsonObject(data.answer ?? ""), {
-    provider: data.provider_used ?? "huggingface",
-    model: data.model ?? null,
-    sources: data.sources ?? [],
-    rawResponse: data,
+  return fromParsed(name, extractJsonObject(result.answer), {
+    provider: "deepseek",  // Default provider for grounding
+    model: result.model,
+    sources: result.sources.map((s) => ({
+      title: s.title,
+      url: s.url,
+      snippet: s.snippet,
+    })),
+    rawResponse: result,
   });
 }
 
@@ -386,22 +352,7 @@ export async function classifyCompetitionEnrichment(
   const clean = name.trim();
   if (!clean) return defaultEnrichment(clean);
 
-  if (isHFAvailable()) {
-    try {
-      const enriched = await enrichWithHF(clean);
-      if (enriched.confidence >= LOW_CONFIDENCE_THRESHOLD) return enriched;
-      logger.info(
-        tag,
-        `HF low confidence for ${clean} (${enriched.confidence}); trying grounded fallback`,
-      );
-    } catch (err) {
-      logger.warn(
-        tag,
-        `HF enrichment failed for ${clean}: ${(err as Error).message}`,
-      );
-    }
-  }
-
+  // Use grounded fallback (DeepSeek/Gemini via Node.js)
   try {
     return await enrichWithGroundedFallback(clean);
   } catch (err) {

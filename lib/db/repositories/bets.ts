@@ -69,7 +69,7 @@ export const persistValueBets = async (
     >;
     mlFeatures?: number[] | null;
     mlScore?: number | null;
-    mlKellyAdjusted?: number | null;
+    mlStakeFraction?: number | null;
   }>,
 ): Promise<PersistResult> => {
   const result: PersistResult = {
@@ -118,9 +118,9 @@ export const persistValueBets = async (
       "mlFeatures",
     );
     const hasMlScore = Object.prototype.hasOwnProperty.call(vb, "mlScore");
-    const hasMlKellyAdjusted = Object.prototype.hasOwnProperty.call(
+    const hasMlStakeFraction = Object.prototype.hasOwnProperty.call(
       vb,
-      "mlKellyAdjusted",
+      "mlStakeFraction",
     );
 
     const payload = {
@@ -151,7 +151,7 @@ export const persistValueBets = async (
       mlFeatureCount: vb.mlFeatures ? FEATURE_COUNT : null,
       mlFeatureNamesHash: vb.mlFeatures ? FEATURE_NAMES_HASH : null,
       mlScore: vb.mlScore ?? null,
-      mlKellyAdjusted: vb.mlKellyAdjusted ?? null,
+      mlStakeFraction: vb.mlStakeFraction ?? null,
       // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
     };
@@ -213,9 +213,9 @@ export const persistValueBets = async (
                 : null
               : sql`${bets.mlFeatureNamesHash}`,
             mlScore: hasMlScore ? (vb.mlScore ?? null) : sql`${bets.mlScore}`,
-            mlKellyAdjusted: hasMlKellyAdjusted
-              ? (vb.mlKellyAdjusted ?? null)
-              : sql`${bets.mlKellyAdjusted}`,
+            mlStakeFraction: hasMlStakeFraction
+              ? (vb.mlStakeFraction ?? null)
+              : sql`${bets.mlStakeFraction}`,
           },
         })
         .returning();

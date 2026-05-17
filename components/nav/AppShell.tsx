@@ -23,6 +23,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Brain,
+  FlaskConical,
   History,
   LayoutDashboard,
   LineChart,
@@ -112,9 +113,14 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Sparkles,
       },
       {
-        href: "/ai-search",
-        label: "AI Search",
+        href: "/ai-engine",
+        label: "AI Engine",
         icon: Search,
+      },
+      {
+        href: "/ai-playground",
+        label: "AI Playground",
+        icon: FlaskConical,
       },
     ],
   },

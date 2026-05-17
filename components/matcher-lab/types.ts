@@ -136,7 +136,7 @@ export const STAGE_META: Record<
   human_review: {
     label: "Human Review",
     tooltip:
-      "The bi-encoder scored these but wasn't confident enough to decide automatically (combined score 0.50–0.88). You decide: merge, reject, or run Gemini AI for a second opinion.",
+      "The bi-encoder scored these but wasn't confident enough to decide automatically (combined score 0.50–0.88). You decide: merge, reject, or run DeepSeek for a second opinion.",
     color: "text-violet-300",
     bgActive: "bg-violet-500/15 border-violet-500/30",
   },

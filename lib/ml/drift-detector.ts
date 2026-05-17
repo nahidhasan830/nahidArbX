@@ -385,14 +385,14 @@ export async function evaluateDriftRetrain(): Promise<boolean> {
  * Permission levels ordered by escalation (lowest → highest).
  */
 const PERMISSION_ORDER: Record<string, number> = {
-  shadow: 0,
+  observe: 0,
   gate_only: 1,
   stake_reduce: 2,
   stake_increase: 3,
 };
 
 const PERMISSION_NAMES: Record<number, string> = {
-  0: "shadow",
+  0: "observe",
   1: "gate_only",
   2: "stake_reduce",
   3: "stake_increase",

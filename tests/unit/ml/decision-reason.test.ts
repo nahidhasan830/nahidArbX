@@ -1,0 +1,229 @@
+import { describe, it, expect } from "vitest";
+import { buildDecisionReason } from "@/lib/ml/decision-reason";
+
+function makeFeatures(overrides: Record<number, number> = {}): number[] {
+  const f = new Array(25).fill(0);
+  f[2] = 2.15;
+  f[3] = 2.15;
+  f[5] = 5;
+  for (const [idx, val] of Object.entries(overrides)) {
+    f[Number(idx)] = val;
+  }
+  return f;
+}
+
+const IDX_TICK_COUNT = 5;
+const IDX_STEAM_SHARP = 9;
+const IDX_CONVERGENCE = 13;
+
+describe("buildDecisionReason", () => {
+  describe("skip case", () => {
+    it("returns skip decision with negative edge in technical", () => {
+      const result = buildDecisionReason(0.45, makeFeatures(), 0);
+      expect(result.decision).toBe("skip");
+      expect(result.multiplier).toBe(0);
+      expect(result.multiplierChain).toBe("Edge ≤ 0% → skip (0×)");
+
+      const edgeTech = result.technical.find((f) => f.label === "Model Edge");
+      expect(edgeTech).toBeDefined();
+      expect(edgeTech!.tone).toBe("negative");
+    });
+
+    it("mentions expected loss in explanation", () => {
+      const result = buildDecisionReason(0.45, makeFeatures(), 0);
+      const combined = result.explanation.join(" ");
+      expect(combined).toContain("break even");
+    });
+  });
+
+  describe("boost case with steam + persistence", () => {
+    it("includes Edge, Score, Steam, Persistence in technical with positive tones", () => {
+      const features = makeFeatures({
+        [IDX_TICK_COUNT]: 20,
+        [IDX_STEAM_SHARP]: 5,
+      });
+      const result = buildDecisionReason(0.95, features, 1.87);
+      expect(result.decision).toBe("boost");
+
+      const edgeTech = result.technical.find((f) => f.label === "Model Edge");
+      expect(edgeTech).toBeDefined();
+      expect(edgeTech!.tone).toBe("positive");
+
+      const steamTech = result.technical.find((f) => f.label === "Steam");
+      expect(steamTech).toBeDefined();
+      expect(steamTech!.tone).toBe("positive");
+      expect(steamTech!.value).toContain("Sharp");
+
+      const persistenceTech = result.technical.find((f) => f.label === "Persistence");
+      expect(persistenceTech).toBeDefined();
+      expect(persistenceTech!.tone).toBe("positive");
+      expect(persistenceTech!.value).toContain("20");
+    });
+
+    it("mentions steam and persistence in explanation", () => {
+      const features = makeFeatures({
+        [IDX_TICK_COUNT]: 20,
+        [IDX_STEAM_SHARP]: 5,
+      });
+      const result = buildDecisionReason(0.95, features, 1.87);
+      const combined = result.explanation.join(" ").toLowerCase();
+      expect(combined).toContain("pinnacle");
+      expect(combined).toContain("persist");
+    });
+  });
+
+  describe("pure-shrink case (negative convergence, no steam)", () => {
+    it("explanation mentions closing and technical shows convergence negative", () => {
+      const features = makeFeatures({ [IDX_CONVERGENCE]: -0.5 });
+      const result = buildDecisionReason(0.55, features, 0.8);
+      expect(result.decision).toBe("shrink");
+
+      const combined = result.explanation.join(" ").toLowerCase();
+      expect(combined).toContain("closing");
+
+      const convTech = result.technical.find((f) => f.label === "Convergence");
+      expect(convTech).toBeDefined();
+      expect(convTech!.tone).toBe("negative");
+      expect(convTech!.value).toContain("penalty");
+    });
+
+    it("does not include Steam in technical when inactive", () => {
+      const features = makeFeatures({ [IDX_CONVERGENCE]: -0.5 });
+      const result = buildDecisionReason(0.55, features, 0.8);
+      const steamTech = result.technical.find((f) => f.label === "Steam");
+      expect(steamTech).toBeUndefined();
+    });
+  });
+
+  describe("agree case", () => {
+    it("explanation mentions nothing unusual and Steam not in technical", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.55, features, 1.0);
+      expect(result.decision).toBe("agree");
+
+      const combined = result.explanation.join(" ").toLowerCase();
+      expect(combined).toContain("value");
+      expect(combined).toContain("nothing flagged");
+
+      const steamTech = result.technical.find((f) => f.label === "Steam");
+      expect(steamTech).toBeUndefined();
+      // Persistence shown as neutral "no bonus" when tickCount <= 10
+      const persistenceTech = result.technical.find((f) => f.label === "Persistence");
+      expect(persistenceTech).toBeDefined();
+      expect(persistenceTech!.tone).toBe("neutral");
+      expect(persistenceTech!.value).toContain("no bonus");
+    });
+  });
+
+  describe("technical tones", () => {
+    it("renders Score as negative when mlScore <= 0.4", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.35, features, 1.0);
+      const scoreTech = result.technical.find((f) => f.label === "Score");
+      expect(scoreTech).toBeDefined();
+      expect(scoreTech!.tone).toBe("negative");
+      expect(scoreTech!.value).toContain("Low");
+    });
+
+    it("renders Score as positive when mlScore >= 0.6", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.75, features, 1.0);
+      const scoreTech = result.technical.find((f) => f.label === "Score");
+      expect(scoreTech).toBeDefined();
+      expect(scoreTech!.tone).toBe("positive");
+      expect(scoreTech!.value).toContain("High");
+    });
+
+    it("omits Steam in technical when steam_move_sharp = 0", () => {
+      const features = makeFeatures({ [IDX_STEAM_SHARP]: 0 });
+      const result = buildDecisionReason(0.55, features, 0.85);
+      const steamTech = result.technical.find((f) => f.label === "Steam");
+      expect(steamTech).toBeUndefined();
+    });
+
+    it("shows Persistence as neutral when tick_count <= 10", () => {
+      const features = makeFeatures({ [IDX_TICK_COUNT]: 10 });
+      const result = buildDecisionReason(0.55, features, 1.5);
+      const persistenceTech = result.technical.find((f) => f.label === "Persistence");
+      expect(persistenceTech).toBeDefined();
+      expect(persistenceTech!.tone).toBe("neutral");
+      expect(persistenceTech!.value).toContain("no bonus");
+    });
+
+    it("renders Convergence as Stable when >= 0", () => {
+      const features = makeFeatures({ [IDX_CONVERGENCE]: 0.1 });
+      const result = buildDecisionReason(0.55, features, 1.0);
+      const convTech = result.technical.find((f) => f.label === "Convergence");
+      expect(convTech!.value).toContain("Stable");
+      expect(convTech!.tone).toBe("neutral");
+    });
+  });
+
+  describe("similar context", () => {
+    it("includes similar section when context has >= 3 resolved bets", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.55, features, 1.0, {
+        decision: "agree",
+        driver: "no_signal",
+        driverLabel: "No clear signal agrees",
+        recentWins: 4,
+        recentLosses: 1,
+        recentTotal: 5,
+        unitPnl: 2.5,
+      });
+      expect(result.similar).toBeDefined();
+      expect(result.similar!.driverLabel).toBe("No clear signal agrees");
+      expect(result.similar!.wins).toBe(4);
+      expect(result.similar!.text).toContain("4 of last 5");
+      expect(result.similar!.pnlText).toBe("P&L +2.5u");
+    });
+
+    it("omits similar section when total < 3", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.55, features, 1.0, {
+        decision: "agree",
+        driver: "no_signal",
+        driverLabel: "No clear signal agrees",
+        recentWins: 1,
+        recentLosses: 1,
+        recentTotal: 2,
+        unitPnl: 0,
+      });
+      expect(result.similar).toBeUndefined();
+    });
+
+    it("omits similar section when context is null", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.55, features, 1.0, null);
+      expect(result.similar).toBeUndefined();
+    });
+
+    it("omits similar section when context is undefined", () => {
+      const features = makeFeatures();
+      const result = buildDecisionReason(0.55, features, 1.0);
+      expect(result.similar).toBeUndefined();
+    });
+  });
+
+  describe("multiplier chain", () => {
+    it("shows full chain for boosted decisions", () => {
+      const features = makeFeatures({
+        [IDX_TICK_COUNT]: 20,
+        [IDX_STEAM_SHARP]: 5,
+      });
+      const result = buildDecisionReason(0.95, features, 1.87);
+      expect(result.multiplierChain).toContain("×");
+      expect(result.multiplierChain).toContain("2.34"); // 1.0 × 1.5 × 1.2 × 1.3 = 2.34
+    });
+
+    it("shows no adjustments when all factors are at 1.0", () => {
+      // mlScore=0.5 × odds=2.10 → edgePct=5% → edgeScaling=0.5+5/10=1.0 exactly
+      const features = makeFeatures({ [IDX_TICK_COUNT]: 5 });
+      // Override soft odds to 2.10 so edgeScaling = 1.0
+      features[2] = 2.1;
+      features[3] = 2.1;
+      const result = buildDecisionReason(0.5, features, 1.0);
+      expect(result.multiplierChain).toContain("no adjustments");
+    });
+  });
+});

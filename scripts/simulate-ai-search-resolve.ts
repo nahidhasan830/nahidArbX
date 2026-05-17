@@ -187,9 +187,9 @@ async function main() {
         console.log(`      • ${src.title}: ${src.url}`);
       }
     }
-    if (verdict.search_queries_used.length > 0) {
+    if (verdict.searchQueriesUsed.length > 0) {
       console.log(
-        `    Queries: ${verdict.search_queries_used.map((q) => `"${q}"`).join(", ")}`,
+        `    Queries: ${verdict.searchQueriesUsed.map((q) => `"${q}"`).join(", ")}`,
       );
     }
 

@@ -1,15 +1,17 @@
 /**
  * ML Model Retraining Scheduler
  *
- * Polls `ml_models` and settled bet counts to decide when a new training
- * run should be triggered. When criteria are met, runs Cloud Build to
- * rebuild the Docker image from current source, then executes the
- * Cloud Run Job (services/optimizer/). This guarantees no stale-image
- * failures — the image is always rebuilt before the job runs.
+ * Background loop that decides when a new training run should be
+ * triggered. Auto-retraining is gated on a single rule: the canonical
+ * training corpus has grown ≥`ML_RETRAIN_GROWTH_THRESHOLD` (20%) since
+ * the last deployed model. There is no cadence, no enabled toggle, no
+ * tunable threshold — manual retraining stays available via
+ * `POST /api/ml/retrain`.
  *
- * Reads configuration from `ml_scheduler_settings` (DB singleton row)
- * so the operator can adjust cadence, thresholds, and enable/disable
- * from the ML Optimizer dashboard without restarting the engine.
+ * The same loop also drives drift detection, calibration health checks,
+ * pilot/A-B test evaluation, deployed-model notifications, and the
+ * training status poller. Those subsystems are NOT scheduling — they
+ * react to live state and remain intact.
  *
  * Pattern mirrors `lib/settle/scheduler.ts`: singleton state, idempotent
  * (HMR-safe), errors logged + swallowed (don't poison the loop).
@@ -21,6 +23,7 @@ import {
   ML_COLD_START_THRESHOLD,
   ML_FEATURE_COUNT,
   ML_FEATURE_VERSION,
+  ML_RETRAIN_GROWTH_THRESHOLD,
 } from "../shared/constants";
 import { FEATURE_NAMES_HASH } from "../ml/features";
 import { processPendingModelNotifications } from "./notifier-tick";
@@ -31,7 +34,7 @@ import {
 } from "./training-poller";
 
 const tag = "ModelRetrainingScheduler";
-const POLL_INTERVAL_MS = 60_000; // 60s — retraining checks don't need to be frequent
+const POLL_INTERVAL_MS = 60_000; // 60s — auto-retrain readiness checks don't need to be frequent
 
 interface SchedulerState {
   active: boolean;
@@ -50,71 +53,20 @@ const state = singleton<SchedulerState>("ml:retrain-scheduler", () => ({
 }));
 
 /**
- * Load scheduler settings from DB. Returns defaults if row doesn't exist.
- */
-async function loadSettings() {
-  try {
-    const { db } = await import("../db/client");
-    const { mlSchedulerSettings } = await import("../db/schema");
-    const { eq } = await import("drizzle-orm");
-
-    const [row] = await db
-      .select()
-      .from(mlSchedulerSettings)
-      .where(eq(mlSchedulerSettings.id, "default"))
-      .limit(1);
-
-    return (
-      row ?? {
-        enabled: true,
-        cadenceHours: 24,
-        minNewSettledExamples: 50,
-        minGrowthPct: 20,
-        nextRunAt: null,
-        lastRunAt: null,
-      }
-    );
-  } catch {
-    // DB not ready or table doesn't exist yet — use defaults
-    return {
-      enabled: true,
-      cadenceHours: 24,
-      minNewSettledExamples: 50,
-      minGrowthPct: 20,
-      nextRunAt: null,
-      lastRunAt: null,
-    };
-  }
-}
-
-/**
  * Check if retraining should be triggered. Criteria:
- * 1. Scheduler is enabled in settings
- * 2. At least ML_COLD_START_THRESHOLD settled bets with features exist
- * 3. No model is currently in 'training' status
- * 4. Either no model exists OR settled bets since last training > minGrowthPct%
- *    of the last model's training samples
- * 5. If cadence is set, enough time has passed since last run
+ *   1. No model is currently in 'training' status.
+ *   2. At least `ML_COLD_START_THRESHOLD` qualified training samples exist.
+ *   3. Either no model has been deployed yet, OR the qualified sample
+ *      count has grown by ≥`ML_RETRAIN_GROWTH_THRESHOLD` (20%) since
+ *      the last deployed model's training set.
  */
 async function shouldRetrain(): Promise<boolean> {
   try {
-    const settings = await loadSettings();
-
-    // Check if scheduler is enabled
-    if (!settings.enabled) return false;
-
-    // Check cadence — skip if not enough time has passed
-    if (settings.lastRunAt) {
-      const lastRun = new Date(settings.lastRunAt).getTime();
-      const cadenceMs = settings.cadenceHours * 60 * 60 * 1000;
-      if (Date.now() - lastRun < cadenceMs) return false;
-    }
-
     const { db } = await import("../db/client");
-    const { mlModels, bets } = await import("../db/schema");
+    const { mlModels, bets, mlTrainingExamples } = await import("../db/schema");
     const { eq, and, isNotNull, sql, desc } = await import("drizzle-orm");
 
-    // Check if any model is currently training
+    // Block if any model is currently training
     const [training] = await db
       .select({ id: mlModels.id })
       .from(mlModels)
@@ -122,10 +74,7 @@ async function shouldRetrain(): Promise<boolean> {
       .limit(1);
     if (training) return false;
 
-    // Phase 2: Count available training samples — only labeled, current-version
-    // examples from ml_training_examples + uncovered bets. Matches Python loader.
-    const { mlTrainingExamples } = await import("../db/schema");
-
+    // Count canonical, current-version labeled training examples
     const [{ examplesCount }] = await db
       .select({ examplesCount: sql<number>`count(*)::int` })
       .from(mlTrainingExamples)
@@ -143,7 +92,7 @@ async function shouldRetrain(): Promise<boolean> {
         ),
       );
 
-    // Phase 2: Coverage check — only labeled, current-version examples
+    // Coverage check — qualified bets not yet in the canonical examples table
     const trainedBetIds = await db
       .select({ sourceBetId: mlTrainingExamples.sourceBetId })
       .from(mlTrainingExamples)
@@ -200,13 +149,13 @@ async function shouldRetrain(): Promise<boolean> {
       .orderBy(desc(mlModels.deployedAt))
       .limit(1);
 
-    // No deployed model yet — retrain
+    // No deployed model yet — train as soon as the corpus passes cold start
     if (!latest) return true;
 
-    // Retrain if settled bets grew by minGrowthPct% since last training
-    const growthThreshold = settings.minGrowthPct / 100;
+    // Retrain if the corpus has grown by ≥ML_RETRAIN_GROWTH_THRESHOLD
+    // since the last deployed model.
     const growth = totalAvailableSamples - latest.trainingSamples;
-    return growth > latest.trainingSamples * growthThreshold;
+    return growth > latest.trainingSamples * ML_RETRAIN_GROWTH_THRESHOLD;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(tag, `shouldRetrain check failed: ${msg}`);
@@ -222,17 +171,12 @@ async function shouldRetrain(): Promise<boolean> {
  * This guarantees no stale images — the image is always rebuilt.
  */
 async function triggerRetraining(): Promise<void> {
-  // ── Insert training row + stamp lastRunAt ──────────────────────────
+  // ── Insert training row ──────────────────────────────────────────
   let modelId: string;
   try {
     const { db } = await import("../db/client");
-    const { mlSchedulerSettings, mlModels } = await import("../db/schema");
-    const { eq, sql } = await import("drizzle-orm");
-
-    await db
-      .update(mlSchedulerSettings)
-      .set({ lastRunAt: sql`now()`, lastError: null })
-      .where(eq(mlSchedulerSettings.id, "default"));
+    const { mlModels } = await import("../db/schema");
+    const { sql } = await import("drizzle-orm");
 
     const [{ maxVersion }] = await db
       .select({
@@ -258,7 +202,7 @@ async function triggerRetraining(): Promise<void> {
 
     emitTrainingStarted(modelId, 0);
 
-    // Send Telegram notification for scheduler-triggered training
+    // Send Telegram notification for auto-retrain trigger
     try {
       const { desc, eq: eqOp } = await import("drizzle-orm");
       const { getTrainingSampleAccounting } = await import(
@@ -294,7 +238,7 @@ async function triggerRetraining(): Promise<void> {
         trainerExpectedSamples: accounting.trainerExpectedSamples,
         featureVersion: ML_FEATURE_VERSION,
         featureCount: ML_FEATURE_COUNT,
-        trigger: "scheduler",
+        trigger: "auto",
         previousModelVersion: prevModel?.version ?? undefined,
         previousModelSamples: prevModel?.trainingSamples ?? undefined,
       });
@@ -379,22 +323,6 @@ async function triggerRetraining(): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(tag, `Cloud training failed: ${msg}`);
     state.lastError = msg;
-    stampError(msg);
-  }
-}
-
-/** Write error to scheduler settings (non-critical). */
-async function stampError(msg: string): Promise<void> {
-  try {
-    const { db } = await import("../db/client");
-    const { mlSchedulerSettings } = await import("../db/schema");
-    const { eq } = await import("drizzle-orm");
-    await db
-      .update(mlSchedulerSettings)
-      .set({ lastError: msg })
-      .where(eq(mlSchedulerSettings.id, "default"));
-  } catch {
-    /* non-critical */
   }
 }
 
@@ -424,40 +352,30 @@ async function tick(): Promise<void> {
     driftTriggered = await evaluateDriftRetrain();
     const driftStatus = checkDrift();
 
-    // ── Clear degradation if a new champion was deployed ────────────
+    // ── Clear degradation if a new model was deployed ───────────────
     const degradation = getDriftDegradationStatus();
     if (degradation.degraded) {
       try {
         const { db } = await import("../db/client");
         const { mlModels } = await import("../db/schema");
-        const { eq, and } = await import("drizzle-orm");
+        const { eq } = await import("drizzle-orm");
 
-        const [champion] = await db
+        const [deployed] = await db
           .select({ deployedAt: mlModels.deployedAt })
           .from(mlModels)
-          .where(
-            and(
-              eq(mlModels.status, "deployed"),
-              eq(mlModels.isChampion, true),
-            ),
-          )
+          .where(eq(mlModels.status, "deployed"))
           .limit(1);
 
-        if (champion?.deployedAt) {
-          const deployedMs = new Date(champion.deployedAt).getTime();
+        if (deployed?.deployedAt) {
+          const deployedMs = new Date(deployed.deployedAt).getTime();
           if (deployedMs > degradation.degradedAt) {
-            // New champion was deployed after degradation — clear it
+            // New model was deployed after degradation — clear it
             const restored = clearDriftDegradation();
             if (restored) {
               await db
                 .update(mlModels)
                 .set({ permissionLevel: restored })
-                .where(
-                  and(
-                    eq(mlModels.status, "deployed"),
-                    eq(mlModels.isChampion, true),
-                  ),
-                );
+                .where(eq(mlModels.status, "deployed"));
               logger.info(tag, `Drift degradation cleared — permission restored to ${restored}`);
             }
           }
@@ -472,32 +390,22 @@ async function tick(): Promise<void> {
       try {
         const { db } = await import("../db/client");
         const { mlModels } = await import("../db/schema");
-        const { eq, and } = await import("drizzle-orm");
+        const { eq } = await import("drizzle-orm");
 
-        const [champion] = await db
+        const [deployed] = await db
           .select({ permissionLevel: mlModels.permissionLevel })
           .from(mlModels)
-          .where(
-            and(
-              eq(mlModels.status, "deployed"),
-              eq(mlModels.isChampion, true),
-            ),
-          )
+          .where(eq(mlModels.status, "deployed"))
           .limit(1);
 
-        const currentLevel = champion?.permissionLevel ?? "shadow";
-        if (currentLevel !== "shadow") {
+        const currentLevel = deployed?.permissionLevel ?? "observe";
+        if (currentLevel !== "observe") {
           const newLevel = computeDriftDegradation(currentLevel);
           if (newLevel) {
             await db
               .update(mlModels)
               .set({ permissionLevel: newLevel })
-              .where(
-                and(
-                  eq(mlModels.status, "deployed"),
-                  eq(mlModels.isChampion, true),
-                ),
-              );
+              .where(eq(mlModels.status, "deployed"));
             logger.warn(
               tag,
               `Permission degraded ${currentLevel} → ${newLevel} due to concept drift on: ${driftStatus.driftMetrics.join(", ")}`,
@@ -536,11 +444,11 @@ async function tick(): Promise<void> {
             // Promote to stake_increase
             const { db } = await import("../db/client");
             const { mlModels } = await import("../db/schema");
-            const { eq, and } = await import("drizzle-orm");
+            const { eq } = await import("drizzle-orm");
             await db
               .update(mlModels)
               .set({ permissionLevel: "stake_increase" })
-              .where(and(eq(mlModels.status, "deployed"), eq(mlModels.isChampion, true)));
+              .where(eq(mlModels.status, "deployed"));
             logger.info(tag, "stake_increase UNLOCKED — pilot passed");
           } else {
             logger.info(
@@ -554,56 +462,19 @@ async function tick(): Promise<void> {
     } catch {
       // Non-critical
     }
-
-    // ── A/B test evaluation (champion vs challenger on placed bets) ─
-    try {
-      const { evaluateABTest, isABTestActive, stopABTest } = await import("../ml/pilot");
-      if (isABTestActive()) {
-        const abResult = await evaluateABTest();
-        if (abResult.ready) {
-          if (abResult.promoteChallenger) {
-            logger.info(
-              tag,
-              `A/B test PASSED: challenger ROI=${(abResult.challengerMean * 100).toFixed(2)}% vs champion=${(abResult.championMean * 100).toFixed(2)}%, PSR=${abResult.psr.toFixed(4)}`,
-            );
-            const { db } = await import("../db/client");
-            const { mlModels } = await import("../db/schema");
-            const { eq, and } = await import("drizzle-orm");
-            const now = new Date().toISOString();
-            const challengerVersion = (await import("../ml/pilot")).getABTestStatus().challengerVersion ?? 0;
-            await db
-              .update(mlModels)
-              .set({ status: "retired", isChampion: false, retiredAt: now })
-              .where(and(eq(mlModels.status, "deployed"), eq(mlModels.isChampion, true)));
-            await db
-              .update(mlModels)
-              .set({
-                status: "deployed",
-                isChampion: true,
-                championToAt: now,
-                deployedAt: now,
-                permissionLevel: "shadow",
-              })
-              .where(eq(mlModels.version, challengerVersion));
-            logger.info(tag, `Challenger v${challengerVersion} promoted to champion via A/B test`);
-            logger.info(tag, "Challenger promoted to champion via A/B test");
-          } else {
-            logger.info(tag, `A/B test FAILED: PSR=${abResult.psr.toFixed(4)}`);
-          }
-          stopABTest();
-        }
-      }
-    } catch { /* non-critical */ }
   } catch (err) {
     logger.warn(tag, `Drift check failed: ${(err as Error).message}`);
   }
 
-  // 3. Check if retraining should be triggered (normal cadence OR drift)
+  // 3. Auto-retrain check — fires when corpus has grown ≥20% since last
+  //    deployed model, or when drift forces a retrain.
   try {
     if (driftTriggered || (await shouldRetrain())) {
       logger.info(
         tag,
-        `Retraining criteria met (drift=${driftTriggered}) — triggering Cloud Build + Run pipeline`,
+        `Auto-retrain criteria met (drift=${driftTriggered}, growth≥${Math.round(
+          ML_RETRAIN_GROWTH_THRESHOLD * 100,
+        )}%) — triggering Cloud Build + Run pipeline`,
       );
       await triggerRetraining();
     }
@@ -620,7 +491,12 @@ export function startModelRetrainingScheduler(): void {
   state.timer = setInterval(() => {
     void tick();
   }, POLL_INTERVAL_MS);
-  logger.info(tag, `Started (poll every ${POLL_INTERVAL_MS / 1000}s)`);
+  logger.info(
+    tag,
+    `Started — auto-retrain on ≥${Math.round(
+      ML_RETRAIN_GROWTH_THRESHOLD * 100,
+    )}% corpus growth (poll every ${POLL_INTERVAL_MS / 1000}s)`,
+  );
   // Start the training status poller for real-time SSE updates
   startTrainingPoller();
   // Fire one tick immediately on startup.
@@ -646,5 +522,6 @@ export function getModelRetrainingSchedulerStatus() {
     lastTickAt: state.lastTickAt,
     lastError: state.lastError,
     totalRetrainTriggers: state.totalRetrainTriggers,
+    growthThresholdPct: Math.round(ML_RETRAIN_GROWTH_THRESHOLD * 100),
   };
 }

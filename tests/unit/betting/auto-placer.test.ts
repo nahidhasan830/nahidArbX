@@ -220,9 +220,9 @@ describe("maybeAutoPlace — ML score gating", () => {
     vi.mocked(getBetById).mockResolvedValue(mockRow as never);
   });
 
-  it("skips placement in shadow mode even when a score exists", async () => {
+  it("skips placement in observe mode even when a score exists", async () => {
     await maybeAutoPlace(makeValueBet() as never, {
-      permissionLevel: "shadow",
+      permissionLevel: "observe",
       mlScore: 0.9,
     });
 

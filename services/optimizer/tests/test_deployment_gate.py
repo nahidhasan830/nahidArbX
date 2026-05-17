@@ -119,7 +119,7 @@ class TestDeploymentGateApproval:
     def test_approved_model_gets_permission_level(self):
         metrics = _make_metrics()
         result = evaluate_deployment_gate(metrics)
-        assert result.permission_level in ("shadow", "gate_only", "stake_reduce")
+        assert result.permission_level in ("observe", "gate_only", "stake_reduce")
 
 
 class TestDeploymentGateRejection:
@@ -234,8 +234,8 @@ class TestDeploymentGateRejection:
 class TestPermissionLevels:
     """Test permission level assignment based on metric quality."""
 
-    def test_shadow_level_for_baseline_model(self):
-        """Model that barely passes should get shadow level."""
+    def test_observe_level_for_baseline_model(self):
+        """Model that barely passes should get observe level."""
         metrics = _make_metrics(
             auc_roc=0.56,
             n_samples=1100,
@@ -245,7 +245,7 @@ class TestPermissionLevels:
         )
         result = evaluate_deployment_gate(metrics)
         assert result.approved
-        assert result.permission_level == "shadow"
+        assert result.permission_level == "observe"
 
     def test_gate_only_level(self):
         """Model with solid metrics should get gate_only level."""
@@ -273,7 +273,7 @@ class TestPermissionLevels:
         )
         result = evaluate_deployment_gate(metrics)
         assert result.approved
-        assert result.permission_level == "shadow"
+        assert result.permission_level == "observe"
         assert any("underperforms simple EV rule" in w for w in result.warnings)
 
     def test_stake_reduce_level(self):

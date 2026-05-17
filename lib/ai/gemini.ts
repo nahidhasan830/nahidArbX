@@ -11,6 +11,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { logger } from "../shared/logger";
 import { eventPromptLine } from "../formatting/event-label";
 import type { ModelTier } from "./models";
+import { logAiActivity } from "./activity-logger";
 import { recordAiActivity } from "../db/repositories/ai-activity-log";
 
 export type { ModelTier } from "./models";
@@ -34,9 +35,9 @@ export interface EventLike {
 const LITE_MODEL =
   process.env.GEMINI_LITE_MODEL ||
   process.env.GEMINI_DEFAULT_MODEL ||
-  "gemini-3.1-flash-lite-preview";
-const FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-3-flash-preview";
-const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.1-pro-preview";
+  "gemini-3.1-flash-lite";
+const FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-3-flash";
+const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.1-pro";
 
 /** Lazy singleton so import-time has no side effects and unit tests that
  * stub `process.env.GEMINI_API_KEY` before first call work as expected. */
@@ -71,18 +72,31 @@ const RESPONSE_SCHEMA = {
   required: ["decision", "confidence"],
 };
 
-const SYSTEM_INSTRUCTION = `You decide whether two sports fixtures from different betting providers refer to the SAME real-world event.
+const SYSTEM_INSTRUCTION = `You decide whether two sports fixtures from different betting providers refer to the SAME real-world football match.
 
-Rules:
-1. Tier must match on both sides — never merge senior with U21/U23/reserves/women/B teams.
-2. Team names vary: abbreviations ("Man Utd" = "Manchester United"), city drops ("Zenit" = "Zenit Saint Petersburg"), transliterations, translations. Treat as the same team unless you are confident they are different clubs.
-3. League names vary and this alone is NOT a reason to say DIFFERENT:
+CRITICAL RULES — read carefully:
+1. TIER MUST MATCH on both sides. Never merge senior with U21/U23/U20/reserves/women/B teams/youth. If one fixture has "U21", "U23", "U20", "Women", "W", "B", "Reserves", "Youth" and the other does NOT → they are DIFFERENT matches.
+2. COUNTRY must match for club teams. "Zenit" (Russia) vs "Zenit" (Serbia) are DIFFERENT clubs. Use your knowledge to verify country/league affiliations.
+3. Team names vary: abbreviations ("Man Utd" = "Manchester United"), city drops ("Zenit" = "Zenit Saint Petersburg"), transliterations (Cyrillic/Greek/Vietnamese/Arabic), translations. Treat as the same team unless you are confident they are different clubs.
+4. League names vary and this alone is NOT a reason to say DIFFERENT:
    - Renamings: "Liga de Ascenso" = "Liga de Expansión MX" (renamed 2020). "Segunda División B" = "Primera Federación" (Spain, renamed 2021).
    - Country prefix is usually optional: "Primera División" ≈ "Paraguayan Primera División".
    - Translations are the same league: "Campeonato Brasileiro" = "Brazilian Championship".
-4. Kickoff within 15 minutes is strong evidence of SAME.
-5. If teams and kickoff match but league names differ only in spelling/translation/renaming, lean SAME.
-6. If genuinely unsure, return UNCERTAIN with confidence 40-60. Do not default to DIFFERENT.`;
+5. Kickoff within 15 minutes is strong evidence of SAME. Kickoff difference >2 hours is strong evidence of DIFFERENT (unless explicitly a rescheduled match).
+6. If teams and kickoff match but league names differ only in spelling/translation/renaming, lean SAME.
+7. Cup vs League: A team can play in both a league and a cup on different dates. Same teams + different dates + different competitions → DIFFERENT matches.
+8. National teams: Country name variations ("USA" = "United States" = "USMNT") are SAME. But "USA U20" vs "USA" are DIFFERENT.
+
+COMMON TRAPS:
+- "Athletic Bilbao" vs "Athletic Club" = SAME (Basque naming variation)
+- "Inter" vs "Internazionale" = SAME (abbreviation)
+- "PSG" vs "Paris Saint-Germain" = SAME
+- "Milan" vs "AC Milan" = SAME
+- "Borussia Dortmund" vs "Borussia Mönchengladbach" = DIFFERENT (different clubs)
+- "RB Leipzig" vs "RB Salzburg" = DIFFERENT (different clubs, different countries)
+- "Ajax" (Netherlands) vs "Ajax" (South Africa) = DIFFERENT
+
+If genuinely unsure, return UNCERTAIN with confidence 40-60. Do not default to DIFFERENT.`;
 
 function resolveModel(tier: ModelTier | string | undefined): string {
   if (!tier || tier === "lite") return LITE_MODEL;
@@ -108,16 +122,31 @@ export async function analyzeMatchWithGemini(
   try {
     const prompt = `A: ${eventPromptLine(eventA)}\nB: ${eventPromptLine(eventB)}`;
 
-    const res = await getClient().models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: "application/json",
-        responseJsonSchema: RESPONSE_SCHEMA,
-        temperature: 0.1,
+    let responseText = "";
+    const res = await logAiActivity(
+      {
+        system: "llm",
+        provider: "gemini-lite",
+        endpoint: "entity-match",
+        model: modelName,
+        itemCount: 1,
+        response: { promptLength: prompt.length },
       },
-    });
+      async () => {
+        const r = await getClient().models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            responseMimeType: "application/json",
+            responseJsonSchema: RESPONSE_SCHEMA,
+            temperature: 0.1,
+          },
+        });
+        responseText = r.text || "";
+        return r;
+      },
+    );
 
     const text = res.text;
     if (!text) {

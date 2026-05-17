@@ -64,7 +64,7 @@ export async function maybeAutoPlace(
 ): Promise<void> {
   const stableId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
   const mlScore = options.mlScore ?? null;
-  const permissionLevel = options.permissionLevel ?? "shadow";
+  const permissionLevel = options.permissionLevel ?? "observe";
 
   // Minimal context for early-gate log entries (before we have the DB row).
   // ValueBet from the detector doesn't carry event display fields (homeTeam,
@@ -113,7 +113,7 @@ export async function maybeAutoPlace(
   // Auto-placement is allowed to spend money only when the deployed
   // model has gate_only+ permission and this specific bet has a score.
   const { row: settings } = await getBettingSettings();
-  if (permissionLevel === "shadow") {
+  if (permissionLevel === "observe") {
     recordDecision({
       ...logBase,
       gate: "ml_permission",

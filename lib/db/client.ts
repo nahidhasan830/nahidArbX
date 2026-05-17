@@ -58,7 +58,7 @@ let _initPromise: Promise<void> | null = null;
 export async function ensureDbReady(): Promise<void> {
   if (_pool) return;
   if (!_initPromise) {
-    _initPromise = buildPool().then((pool) => {
+    _initPromise = buildPool().then(async (pool) => {
       // Absorb idle-connection errors (ETIMEDOUT, ECONNRESET, etc.) so they
       // don't crash the process as unhandled 'error' events.  The pool
       // automatically removes the dead client and provisions a replacement
@@ -73,6 +73,33 @@ export async function ensureDbReady(): Promise<void> {
       if (process.env.NODE_ENV !== "production") {
         globalThis.__pgPool = pool;
       }
+
+      // Verify the pool can actually establish a connection.  The Pool
+      // constructor is synchronous — it doesn't connect to the database
+      // until the first query.  Without this health check, the first API
+      // route that touches the DB (e.g. GET /api/ai-providers) hits the
+      // warmup delay and may fail with "Connection terminated unexpectedly".
+      let lastErr: Error | null = null;
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        try {
+          const client = await pool.connect();
+          await client.query("SELECT 1");
+          client.release();
+          logger.info("DB:Pool", "Connection verified");
+          return;
+        } catch (err) {
+          lastErr = err instanceof Error ? err : new Error(String(err));
+          if (attempt < 5) {
+            const delay = Math.min(1000 * 2 ** attempt, 10_000);
+            logger.warn(
+              "DB:Pool",
+              `Connection attempt ${attempt}/5 failed (${lastErr.message}), retrying in ${delay}ms...`,
+            );
+            await new Promise((r) => setTimeout(r, delay));
+          }
+        }
+      }
+      throw lastErr ?? new Error("Failed to establish DB connection after 5 attempts");
     });
   }
   await _initPromise;

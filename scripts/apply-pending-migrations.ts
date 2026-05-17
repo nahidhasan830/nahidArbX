@@ -53,6 +53,8 @@ const MIGRATIONS = [
   "0057_name_obs_outcome_check.sql",
   "0058_purge_near_miss.sql",
   "0059_ml_champion_columns.sql",
+  "0060_drop_ml_scheduler_settings.sql",
+  "0064_paper_trading_rename.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -231,10 +233,10 @@ async function main() {
       expect: 1,
     },
     {
-      what: "ml_scheduler_settings table",
+      what: "ml_scheduler_settings table dropped (scheduling removed)",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
               WHERE table_schema = 'public' AND table_name = 'ml_scheduler_settings'`,
-      expect: 1,
+      expect: 0,
     },
     // Phase 1 — Schema & Migration Truth
     {
@@ -293,18 +295,32 @@ async function main() {
       expect: 1,
     },
     {
-      what: "ml_models.is_champion column",
+      what: "ml_models.is_champion column dropped (champion/challenger removed)",
       sql: `SELECT count(*)::int AS n FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'ml_models'
                 AND column_name = 'is_champion'`,
-      expect: 1,
+      expect: 0,
     },
     {
-      what: "ml_models.champion_psr column",
+      what: "ml_models.champion_psr column dropped (champion/challenger removed)",
       sql: `SELECT count(*)::int AS n FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'ml_models'
                 AND column_name = 'champion_psr'`,
+      expect: 0,
+    },
+    {
+      what: "bets.ml_stake_fraction column (renamed from ml_kelly_adjusted)",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'ml_stake_fraction'`,
       expect: 1,
+    },
+    {
+      what: "bets.ml_kelly_adjusted column dropped (renamed)",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'ml_kelly_adjusted'`,
+      expect: 0,
     },
   ];
   let failures = 0;

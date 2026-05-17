@@ -7,11 +7,10 @@
  *   Tier 2a free sports APIs: ESPN scoreboard             — free, unlimited
  *   Tier 2b free sports APIs: API-Football                — free, 100 req/day
  *   Tier 2c SofaScore (unofficial, best-effort)           — free, CF-blocked
- *   Tier 2d AI Search (HuggingFace + web search grounding)  — free
+ *   Tier 2d AI Search (DeepSeek Flash + web search grounding)
  *           The niche-league catch-all. Searches FlashScore, Google
- *           Sports, news sites via Brave/DuckDuckGo, then HuggingFace
- *           LLM extracts the score. Falls back to Groq if HF
- *           credits are exhausted. Covers Brazil Serie C, regional
+ *           Sports, news sites via Vertex/Brave, then DeepSeek Flash
+ *           extracts the score. Covers Brazil Serie C, regional
  *           cups, youth tournaments — anything on the open web.
  *
  * Tier 0 is read-only; tiers 2+ upsert their discoveries back into
@@ -360,13 +359,12 @@ export async function resolveScores(
     }
   }
 
-  // ── Tier 2d: AI Search — HuggingFace + web search grounding (free) ─────
+  // ── Tier 2d: AI Search — DeepSeek Flash + web search grounding ─────────
   //
   // The niche-league catch-all. ESPN covers ~85% of global football,
   // API-Football another ~10%, SofaScore nearly 100% — but CF-blocking
-  // often prevents access. For the remaining events, HuggingFace+Search
+  // often prevents access. For the remaining events, DeepSeek+Search
   // looks up the score on FlashScore, Google Sports, or news sites.
-  // Falls back to Groq if HF credits are exhausted.
   const t2dCandidates = stillMissingEvents();
   if (t2dCandidates.length > 0) {
     try {

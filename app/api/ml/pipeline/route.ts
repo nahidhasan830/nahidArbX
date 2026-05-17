@@ -8,39 +8,26 @@
  * The UI polls this every 15 seconds.
  */
 import { NextResponse } from "next/server";
-import { sql, and, isNotNull, desc, eq } from "drizzle-orm";
+import { sql, and, isNotNull, desc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   bets,
   mlModels,
   competitionEnrichments,
   mlTrainingExamples,
-  mlSchedulerSettings,
 } from "@/lib/db/schema";
 import {
   ML_COLD_START_THRESHOLD,
   ML_MIN_SCORE,
   ML_FEATURE_COUNT,
   ML_FEATURE_VERSION,
+  ML_RETRAIN_GROWTH_THRESHOLD,
 } from "@/lib/shared/constants";
 import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
 import { engineGet } from "@/lib/engine-proxy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-async function getSchedulerSettings() {
-  try {
-    const [row] = await db
-      .select()
-      .from(mlSchedulerSettings)
-      .where(eq(mlSchedulerSettings.id, "default"))
-      .limit(1);
-    return row ?? null;
-  } catch {
-    return null;
-  }
-}
 
 async function getCanonicalTrainingExampleRows(): Promise<
   Array<{ sourceBetId: string | null; exampleType: string }>
@@ -120,6 +107,7 @@ interface SchedulerStatus {
   lastTickAt: number | null;
   totalRetrainTriggers: number;
   lastError: string | null;
+  growthThresholdPct: number;
 }
 
 const PAPER_SIMPLE_RULE_MIN_EV_PCT = 3;
@@ -277,6 +265,7 @@ export async function GET() {
       labeledExamples,
       badLabeledCompetitionTier,
       cleanLabeledExamples: Math.max(0, labeledExamples - badLabeledCompetitionTier),
+      badLabeledNonPositiveEv: 0,
       semanticPass:
         badCompetitionTier === 0 &&
         badTrainableCompetitionTier === 0 &&
@@ -548,10 +537,10 @@ export async function GET() {
       GROUP BY cohort
     `);
     const metricLabels = {
-      detected_baseline: "Detected baseline",
-      simple_ev_core: "Simple EV core",
-      ml_scored: "All ML scored",
-      ml_gate: "ML model EV gate",
+      detected_baseline: "Detection Baseline",
+      simple_ev_core: "Simple EV Rule",
+      ml_scored: "Model Scored",
+      ml_gate: "Model Gate",
     } as const;
     const emptyMetric = (key: keyof typeof metricLabels) => ({
       label: metricLabels[key],
@@ -708,51 +697,9 @@ export async function GET() {
     const deployed = allModels.find((m) => m.status === "deployed") ?? null;
     const latest = allModels[0] ?? null;
 
-    // Champion/challenger — only if columns exist (graceful on old DB)
-    let championModel: Record<string, unknown> | null = null;
-    let challengerModel: Record<string, unknown> | null = null;
-    try {
-      const modelsWithChampion = await db
-        .select({
-          id: mlModels.id,
-          version: mlModels.version,
-          status: mlModels.status,
-          trainingSamples: mlModels.trainingSamples,
-          oosAucRoc: mlModels.oosAucRoc,
-          deflatedSharpe: mlModels.deflatedSharpe,
-          oosRoiMean: mlModels.oosRoiMean,
-          permissionLevel: mlModels.permissionLevel,
-          isChampion: mlModels.isChampion,
-          championToAt: mlModels.championToAt,
-          championReplacedVersion: mlModels.championReplacedVersion,
-          championPsr: mlModels.championPsr,
-          championRoiVsPrev: mlModels.championRoiVsPrev,
-          trainingCompletedAt: mlModels.trainingCompletedAt,
-        })
-        .from(mlModels)
-        .where(sql`${mlModels.status} IN ('deployed', 'validated')`)
-        .orderBy(desc(mlModels.createdAt))
-        .limit(10);
-
-      // Guarded champion/challenger query (columns may not exist yet)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const models = modelsWithChampion as any[];
-      championModel =
-        models.find((m) => m.isChampion === true) ??
-        models.find((m) => m.status === "deployed") ??
-        null;
-
-      const champVersion = Number(championModel?.version ?? 0);
-      challengerModel =
-        models.find(
-          (m) =>
-            m.status === "validated" &&
-            m.isChampion !== true &&
-            Number(m.version ?? 0) > champVersion,
-        ) ?? null;
-    } catch {
-      // Champion columns not yet migrated — field will be null
-    }
+    // Champion/challenger removed — the deployed model is the only "active"
+    // model. Validated models stay as candidates; if a new one is validated,
+    // the deployment gate retires the previous deployed model and deploys it.
     const trainingModels = allModels.filter((m) => m.status === "training");
     const modelsInTraining = trainingModels.length;
 
@@ -794,7 +741,8 @@ export async function GET() {
         pbo: m.pbo != null ? Number(m.pbo) : null,
       }));
 
-    // Retraining readiness (mirrors scheduler.ts shouldRetrain logic)
+    // Retraining readiness — auto-retrain triggers when corpus grows
+    // by ≥ML_RETRAIN_GROWTH_THRESHOLD since the last deployed model.
     let readyToRetrain = false;
     let newDataSinceLastTrain = 0;
     let growthPct = 0;
@@ -816,7 +764,9 @@ export async function GET() {
                 (newDataSinceLastTrain / deployed.trainingSamples) * 100,
               )
             : 100;
-        readyToRetrain = newDataSinceLastTrain > deployed.trainingSamples * 0.2;
+        readyToRetrain =
+          newDataSinceLastTrain >
+          deployed.trainingSamples * ML_RETRAIN_GROWTH_THRESHOLD;
       }
     }
 
@@ -848,12 +798,20 @@ export async function GET() {
       lastTickAt: null,
       totalRetrainTriggers: 0,
       lastError: null,
+      growthThresholdPct: Math.round(ML_RETRAIN_GROWTH_THRESHOLD * 100),
     };
     const schedulerResult = await engineGet<SchedulerStatus>(
       "/engine/ml/scheduler",
     );
     if (schedulerResult) {
-      scheduler = schedulerResult;
+      scheduler = {
+        ...schedulerResult,
+        // Engine may run an older build without growthThresholdPct — fall
+        // back to the canonical constant so the UI can still display it.
+        growthThresholdPct:
+          schedulerResult.growthThresholdPct ??
+          Math.round(ML_RETRAIN_GROWTH_THRESHOLD * 100),
+      };
     }
 
     // ── Score distribution (last 200 scored bets) ───────────────────
@@ -893,9 +851,9 @@ export async function GET() {
     }
 
     // ── Resolve scoring mode label for UI ──────────────────────────────
-    const permLevel = deploymentGate?.permissionLevel ?? "shadow";
+    const permLevel = deploymentGate?.permissionLevel ?? "observe";
     const scoringModeLabels: Record<string, string> = {
-      shadow: "Shadow (log only)",
+      observe: "Observe (log only)",
       gate_only: "Gate Only (positive model EV)",
       stake_reduce: "Stake Reduce (reduce weak bets)",
       stake_increase: "Stake Adjust (full ML sizing)",
@@ -930,38 +888,10 @@ export async function GET() {
         growthPct,
         activeTraining,
       },
-      championChallenger: {
-        champion: championModel
-          ? {
-              version: championModel.version,
-              status: championModel.status,
-              trainingSamples: championModel.trainingSamples,
-              oosAucRoc: Number(championModel.oosAucRoc ?? 0),
-              deflatedSharpe: Number(championModel.deflatedSharpe ?? 0),
-              oosRoiMean: Number(championModel.oosRoiMean ?? 0),
-              permissionLevel: championModel.permissionLevel,
-              championToAt: championModel.championToAt as string | null,
-              championPsr: Number(championModel.championPsr ?? 0),
-              championRoiVsPrev: Number(championModel.championRoiVsPrev ?? 0),
-              championReplacedVersion: championModel.championReplacedVersion as number | null,
-            }
-          : null,
-        challenger: challengerModel
-          ? {
-              version: challengerModel.version,
-              status: challengerModel.status,
-              trainingSamples: challengerModel.trainingSamples,
-              oosAucRoc: Number(challengerModel.oosAucRoc ?? 0),
-              deflatedSharpe: Number(challengerModel.deflatedSharpe ?? 0),
-              oosRoiMean: Number(challengerModel.oosRoiMean ?? 0),
-              permissionLevel: challengerModel.permissionLevel,
-            }
-          : null,
-      },
       inference,
       scheduler,
       deploymentGate: deploymentGate ?? {
-        permissionLevel: "shadow",
+        permissionLevel: "observe",
         modelVersion: null,
         canGate: false,
         canReduceStake: false,
@@ -1006,8 +936,6 @@ export async function GET() {
           deployedAt: m.deployedAt,
           createdAt: m.createdAt,
         })),
-      // Scheduler settings from DB
-      schedulerSettings: await getSchedulerSettings(),
     });
   } catch (err) {
     return NextResponse.json(

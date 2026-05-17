@@ -7,7 +7,7 @@
  */
 import { ensureDbReady, db } from "../lib/db/client";
 import { sql } from "drizzle-orm";
-import { computeRawMultiplierForShadow } from "../lib/ml/staker";
+import { computeRawStakeMultiplier } from "../lib/ml/staker";
 
 const PASS = "✅";
 const FAIL = "❌";
@@ -350,7 +350,7 @@ async function main() {
     const features = (row as any).ml_features as number[];
     if (!features || features.length !== 25) { multiplierIssues++; continue; }
 
-    const mult = computeRawMultiplierForShadow(score, features);
+    const mult = computeRawStakeMultiplier(score, features);
     if (mult === 0) skippedByModelEdge++;
     else positiveModelEdge++;
 

@@ -58,7 +58,7 @@ async function main() {
     betsWithMlScores: await count(sql`
       SELECT count(*)::int AS n
       FROM ${bets}
-      WHERE ${bets.mlScore} IS NOT NULL OR ${bets.mlKellyAdjusted} IS NOT NULL
+      WHERE ${bets.mlScore} IS NOT NULL OR ${bets.mlStakeFraction} IS NOT NULL
     `),
     unsuitableBets: await count(sql`
       SELECT count(*)::int AS n
@@ -102,9 +102,9 @@ async function main() {
     await tx.execute(sql`
       UPDATE ${bets}
       SET ml_score = NULL,
-          ml_kelly_adjusted = NULL
+          ml_stake_fraction = NULL
       WHERE ${bets.mlScore} IS NOT NULL
-         OR ${bets.mlKellyAdjusted} IS NOT NULL
+         OR ${bets.mlStakeFraction} IS NOT NULL
     `);
     await tx.execute(sql`DELETE FROM ${bets} WHERE ${unsuitableBetsWhere}`);
   });

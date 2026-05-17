@@ -42,7 +42,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/ui/data-table";
 import { OddsMovementTooltipContent } from "@/components/spreadsheet/OddsMovementTooltip";
-import { RERUN_OPTIONS, type RerunChoice } from "./AiSettleDialog";
+import { type RerunChoice } from "./AiSettleDialog";
+import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
 import { MovementDetailModal } from "./MovementDetailModal";
 import { FeatureInspectorDialog } from "./FeatureInspectorDialog";
 import { derive } from "@/lib/bets-history/derive";
@@ -240,10 +241,10 @@ export function BetsHistoryTable({
     queryKey: ["ml", "permission-level"],
     queryFn: async () => {
       const res = await fetch("/api/ml/pipeline", { cache: "no-store" });
-      if (!res.ok) return { permissionLevel: "shadow" };
+      if (!res.ok) return { permissionLevel: "observe" };
       const data = await res.json();
       return {
-        permissionLevel: data?.deploymentGate?.permissionLevel ?? "shadow",
+        permissionLevel: data?.deploymentGate?.permissionLevel ?? "observe",
       };
     },
     staleTime: 60_000,
@@ -923,29 +924,14 @@ export function BetsHistoryTable({
                     <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
                       Settle
                     </DropdownMenuLabel>
-                    {RERUN_OPTIONS.map((opt) => {
-                      const key =
-                        opt.choice.kind === "default"
-                          ? "default"
-                          : opt.choice.kind === "ai-search"
-                            ? `search-${opt.choice.engine}`
-                            : `ai-${opt.choice.model}`;
-                      return (
-                        <DropdownMenuItem
-                          key={key}
-                          disabled={!gate.allowed}
-                          onSelect={() => onRerunRow(r.id, opt.choice)}
-                          className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
-                        >
-                          <opt.icon
-                            className={cn("size-3.5 shrink-0", opt.accent)}
-                          />
-                          <span className="text-[11px] font-medium">
-                            {opt.label}
-                          </span>
-                        </DropdownMenuItem>
-                      );
-                    })}
+                    <AiModelMenuItems
+                      callbacks={{
+                        onSelectDefault: () =>
+                          onRerunRow(r.id, { kind: "default" }),
+                        onSelectAi: (engine, model) =>
+                          onRerunRow(r.id, { kind: engine, model } as RerunChoice),
+                      }}
+                    />
 
                     <DropdownMenuSeparator className="my-1" />
 
@@ -1047,7 +1033,7 @@ export function BetsHistoryTable({
         }}
         features={featureInspectRow?.mlFeatures}
         mlScore={featureInspectRow?.mlScore}
-        mlKellyAdjusted={featureInspectRow?.mlKellyAdjusted}
+        mlStakeFraction={featureInspectRow?.mlStakeFraction}
         featureVersion={featureInspectRow?.mlFeatureVersion}
         featureCount={featureInspectRow?.mlFeatureCount}
         eventLabel={
@@ -1062,9 +1048,9 @@ export function BetsHistoryTable({
         }
         permissionLevel={permissionLevel}
         scoreAffectedPlacement={
-          featureInspectRow?.mlKellyAdjusted != null &&
+          featureInspectRow?.mlStakeFraction != null &&
           permissionLevel != null &&
-          permissionLevel !== "shadow"
+          permissionLevel !== "observe"
         }
       />
 

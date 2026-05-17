@@ -6,7 +6,7 @@
  * affects bet placement behavior.
  *
  * Permission levels (escalation order):
- *   - shadow: score and log only — no effect on placement
+ *   - observe: score and log only — no effect on placement
  *   - gate_only: can skip low-score bets (below ML_MIN_SCORE)
  *   - stake_reduce: can reduce stake on weak bets (never increase)
  *   - stake_increase: can increase stake on strong bets
@@ -27,14 +27,14 @@ import { logger } from "@/lib/shared/logger";
 // ============================================
 
 export type MLPermissionLevel =
-  | "shadow"
+  | "observe"
   | "gate_only"
   | "stake_reduce"
   | "stake_increase";
 
 /** All valid permission levels in escalation order. */
 export const PERMISSION_LEVELS: readonly MLPermissionLevel[] = [
-  "shadow",
+  "observe",
   "gate_only",
   "stake_reduce",
   "stake_increase",
@@ -56,7 +56,7 @@ interface DeploymentGateState {
 const state = singleton(
   "ml:deployment-gate",
   (): DeploymentGateState => ({
-    permissionLevel: "shadow",
+    permissionLevel: "observe",
     modelVersion: null,
     lastRefreshedAt: 0,
   }),
@@ -97,8 +97,8 @@ export async function refreshPermissionLevel(): Promise<void> {
       state.permissionLevel = level;
       state.modelVersion = deployed.version;
     } else {
-      // No deployed model — default to shadow (pass-through)
-      state.permissionLevel = "shadow";
+      // No deployed model — default to observe (pass-through)
+      state.permissionLevel = "observe";
       state.modelVersion = null;
     }
     state.lastRefreshedAt = now;
@@ -112,7 +112,7 @@ export async function refreshPermissionLevel(): Promise<void> {
 
 /**
  * Get the current model's permission level.
- * Returns "shadow" if no model is deployed.
+ * Returns "observe" if no model is deployed.
  */
 export function getPermissionLevel(): MLPermissionLevel {
   return state.permissionLevel;
@@ -172,7 +172,7 @@ export function getDeploymentGateStatus() {
 
 /**
  * Parse a permission level string into a typed value.
- * Falls back to "shadow" for unknown values.
+ * Falls back to "observe" for unknown values.
  */
 function parsePermissionLevel(
   raw: string | null | undefined,
@@ -180,7 +180,7 @@ function parsePermissionLevel(
   if (raw && (PERMISSION_LEVELS as readonly string[]).includes(raw)) {
     return raw as MLPermissionLevel;
   }
-  return "shadow";
+  return "observe";
 }
 
 /**

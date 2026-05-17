@@ -170,8 +170,7 @@ function migrationHintFor(result: FetchResult | null): void {
     (msg.includes("ml_feature") ||
       msg.includes("ml_models") ||
       msg.includes("competition_enrichments") ||
-      msg.includes("ml_training_examples") ||
-      msg.includes("ml_scheduler_settings"))
+      msg.includes("ml_training_examples"))
   ) {
     warn(
       `${result.path} looks migration-related. Run: npx tsx scripts/apply-pending-migrations.ts`,
@@ -272,6 +271,10 @@ function validatePipeline(body: unknown): void {
       "pipeline.scheduler.totalRetrainTriggers",
     );
     expectNullableString(scheduler.lastError, "pipeline.scheduler.lastError");
+    expectNumber(
+      scheduler.growthThresholdPct,
+      "pipeline.scheduler.growthThresholdPct",
+    );
   }
 
   const deploymentGate = expectRecord(
@@ -538,29 +541,6 @@ function validatePipeline(body: unknown): void {
   }
 
   expectArray(root.rejectedModels, "pipeline.rejectedModels");
-  if (root.schedulerSettings !== null) {
-    const settings = expectRecord(
-      root.schedulerSettings,
-      "pipeline.schedulerSettings",
-    );
-    if (settings)
-      validateSchedulerSettings(settings, "pipeline.schedulerSettings");
-  }
-}
-
-function validateSchedulerSettings(
-  settings: Record<string, unknown>,
-  path: string,
-): void {
-  expectString(settings.id, `${path}.id`);
-  expectBoolean(settings.enabled, `${path}.enabled`);
-  expectNumber(settings.cadenceHours, `${path}.cadenceHours`);
-  expectNumber(settings.minNewSettledExamples, `${path}.minNewSettledExamples`);
-  expectNumber(settings.minGrowthPct, `${path}.minGrowthPct`);
-  expectNullableString(settings.nextRunAt, `${path}.nextRunAt`);
-  expectNullableString(settings.lastRunAt, `${path}.lastRunAt`);
-  expectNullableString(settings.lastError, `${path}.lastError`);
-  expectString(settings.updatedAt, `${path}.updatedAt`);
 }
 
 function validateModels(body: unknown, pipelineBody: unknown): void {
@@ -603,14 +583,6 @@ function validateStatus(body: unknown): void {
   if (root.error !== undefined) expectString(root.error, "status.error");
 }
 
-function validateSchedule(body: unknown): void {
-  const root = expectRecord(body, "/api/ml/schedule");
-  if (!root) return;
-  const settings = expectRecord(root.settings, "schedule.settings");
-  if (settings) validateSchedulerSettings(settings, "schedule.settings");
-  if (root.runtime !== null) expectRecord(root.runtime, "schedule.runtime");
-}
-
 async function main(): Promise<void> {
   console.log(`[ml-ui] Testing ML Optimizer UI contract at ${baseUrl}`);
 
@@ -623,10 +595,6 @@ async function main(): Promise<void> {
   const models = await fetchJson("/api/ml/models");
   migrationHintFor(models);
   if (models?.status === 200) validateModels(models.body, pipeline?.body);
-
-  const schedule = await fetchJson("/api/ml/schedule");
-  migrationHintFor(schedule);
-  if (schedule?.status === 200) validateSchedule(schedule.body);
 
   const status = await fetchJson("/api/ml/status", new Set([200, 503]));
   if (status?.status === 503) {

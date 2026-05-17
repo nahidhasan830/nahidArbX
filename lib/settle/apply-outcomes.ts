@@ -173,7 +173,7 @@ export async function applySettlementOutcomes(
           //    This tracks model performance drift and triggers retraining
           try {
             const { observeBet } = await import("../ml/drift-detector");
-            const { settlePilotBet, settleABBet } = await import("../ml/pilot");
+            const { settlePilotBet } = await import("../ml/pilot");
             for (const row of settledRows) {
               const outcome = row.outcome;
               if (!outcome || outcome === "void") continue;
@@ -187,7 +187,6 @@ export async function applySettlementOutcomes(
               // Feed pilot experiment if active
               if (unitReturn != null) {
                 try { settlePilotBet(row.id, unitReturn); } catch { /* non-critical */ }
-                try { settleABBet(row.id, unitReturn); } catch { /* non-critical */ }
               }
             }
           } catch {

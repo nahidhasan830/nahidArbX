@@ -30,16 +30,16 @@ const IDX_CONVERGENCE = 13;
 
 describe("computeKellyMultiplier", () => {
   it("returns null when mlScore is null (no model)", () => {
-    expect(computeKellyMultiplier(null, makeFeatures(), "shadow")).toBeNull();
+    expect(computeKellyMultiplier(null, makeFeatures(), "observe")).toBeNull();
     expect(
       computeKellyMultiplier(null, makeFeatures(), "stake_reduce"),
     ).toBeNull();
   });
 
-  describe("shadow permission", () => {
+  describe("observe permission", () => {
     it("always returns null regardless of score", () => {
-      expect(computeKellyMultiplier(0.9, makeFeatures(), "shadow")).toBeNull();
-      expect(computeKellyMultiplier(0.1, makeFeatures(), "shadow")).toBeNull();
+      expect(computeKellyMultiplier(0.9, makeFeatures(), "observe")).toBeNull();
+      expect(computeKellyMultiplier(0.1, makeFeatures(), "observe")).toBeNull();
     });
   });
 
@@ -126,11 +126,11 @@ describe("computeKellyMultiplier", () => {
 
 describe("computeScoredStake", () => {
   it("returns null when no model (mlScore is null)", () => {
-    expect(computeScoredStake(0.05, null, makeFeatures(), "shadow")).toBeNull();
+    expect(computeScoredStake(0.05, null, makeFeatures(), "observe")).toBeNull();
   });
 
-  it("returns null in shadow mode", () => {
-    expect(computeScoredStake(0.05, 0.8, makeFeatures(), "shadow")).toBeNull();
+  it("returns null in observe mode", () => {
+    expect(computeScoredStake(0.05, 0.8, makeFeatures(), "observe")).toBeNull();
   });
 
   it("returns 0 when gated", () => {
@@ -145,8 +145,8 @@ describe("computeScoredStake", () => {
     expect(adjusted).toBeCloseTo(baseKelly * multiplier!, 10);
   });
 
-  it("manual placement is unaffected (shadow returns null)", () => {
-    const result = computeScoredStake(0.05, 0.9, makeFeatures(), "shadow");
+  it("manual placement is unaffected (observe returns null)", () => {
+    const result = computeScoredStake(0.05, 0.9, makeFeatures(), "observe");
     expect(result).toBeNull();
   });
 });

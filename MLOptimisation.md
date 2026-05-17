@@ -324,7 +324,7 @@ You'll see the ML impact in several places:
 Each bet row will have:
 
 - **`ml_score`**: The model's P(profitable) prediction (0 to 1)
-- **`ml_kelly_adjusted`**: The dynamically adjusted Kelly fraction
+- **`ml_stake_fraction`**: The model-adjusted stake fraction = baseline × multiplier (capped at 2× baseline). Renamed from `ml_kelly_adjusted` in migration 0064.
 - **`ml_features`**: The full 21-dim feature vector (viewable in Feature Inspector)
 
 #### 2. Engine Logs

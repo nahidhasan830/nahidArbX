@@ -427,7 +427,7 @@ async function runDetectionPass(): Promise<void> {
               mlFeatures: featuresMap.get(vb.id) ?? null,
               mlScore: rawScore ?? null,
               // Only persist ML-adjusted Kelly when permission level actually modifies it
-              mlKellyAdjusted: adjustedKelly ?? null,
+              mlStakeFraction: adjustedKelly ?? null,
             };
           });
 

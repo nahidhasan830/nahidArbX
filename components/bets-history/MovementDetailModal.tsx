@@ -45,6 +45,7 @@ export interface MovementDetailModalProps {
   mlMeta?: {
     mlScore: number | null;
     kellyRaw: number | null;
+    /** Renamed from mlMultiplier — the model's stake multiplier vs baseline. */
     mlMultiplier: number | null;
     evPct: number | null;
   } | null;

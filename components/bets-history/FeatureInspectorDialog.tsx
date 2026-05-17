@@ -39,8 +39,8 @@ interface FeatureInspectorDialogProps {
   features: number[] | null | undefined;
   /** ML confidence score (0–1), if available. */
   mlScore?: number | null;
-  /** Adjusted Kelly multiplier, if available. */
-  mlKellyAdjusted?: number | null;
+  /** Adjusted stake fraction the model would have used (baseline × multiplier, capped). */
+  mlStakeFraction?: number | null;
   /** Event label for context (e.g. "Arsenal vs Chelsea"). */
   eventLabel?: string;
   /** Market label for context (e.g. "[FT] Match Result · Home"). */
@@ -60,7 +60,7 @@ export function FeatureInspectorDialog({
   onOpenChange,
   features,
   mlScore,
-  mlKellyAdjusted,
+  mlStakeFraction,
   eventLabel,
   marketLabel,
   featureVersion,
@@ -111,13 +111,13 @@ export function FeatureInspectorDialog({
                   </div>
                 </div>
               )}
-              {mlKellyAdjusted != null && (
+              {mlStakeFraction != null && (
                 <div className="text-right">
                   <div className="text-[10px] text-muted-foreground">
-                    Kelly (adj.)
+                    Model Stake
                   </div>
                   <div className="text-sm font-semibold tabular-nums text-foreground">
-                    {(mlKellyAdjusted * 100).toFixed(2)}%
+                    {(mlStakeFraction * 100).toFixed(2)}%
                   </div>
                 </div>
               )}
@@ -161,15 +161,15 @@ export function FeatureInspectorDialog({
                 "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
                 scoreAffectedPlacement
                   ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400"
-                  : permissionLevel === "shadow"
+                  : permissionLevel === "observe"
                     ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
                     : "border-border/40 bg-muted/20 text-muted-foreground",
               )}
             >
               {scoreAffectedPlacement
                 ? "Score affected placement"
-                : permissionLevel === "shadow"
-                  ? "Shadow mode (log only)"
+                : permissionLevel === "observe"
+                  ? "Observe mode (log only)"
                   : "Score did not affect placement"}
             </span>
           )}

@@ -6,7 +6,7 @@
  * but ONLY when the deployment gate grants the appropriate permission.
  *
  * Permission-level behavior:
- *   - shadow:         returns null (no Kelly adjustment — persist score only)
+ *   - observe:        returns null (no Kelly adjustment — persist score only)
  *   - gate_only:      returns 0 when model EV is <= break-even, 1 otherwise
  *                     (the auto-placer uses 1.0 as pass-through sizing)
  *   - stake_reduce:   applies full multiplier logic but caps at 1.0×
@@ -114,7 +114,7 @@ export function computeScoredStake(
   if (mlScore == null) return null;
 
   switch (permissionLevel) {
-    case "shadow":
+    case "observe":
       return null;
 
     case "gate_only":
@@ -147,22 +147,6 @@ export function computeScoredStake(
 }
 
 /**
- * Legacy API — kept for backward compatibility with shadow-mode logging.
- * Computes the raw adjusted Kelly without permission checking.
- *
- * @deprecated Use `computeScoredStake()` instead.
- */
-export function computeAdjustedKelly(
-  baseKelly: number,
-  mlScore: number,
-  features: number[],
-): number {
-  const raw = computeRawMultiplier(mlScore, features);
-  if (raw === 0) return 0;
-  return Math.min(baseKelly * raw, baseKelly * 2);
-}
-
-/**
  * Compute the permission-aware ML Kelly multiplier (not the adjusted Kelly).
  *
  * Returns the raw multiplier (1.0 = agree, <1 = shrink, >1 = boost, 0 = skip)
@@ -179,7 +163,7 @@ export function computeKellyMultiplier(
   if (mlScore == null) return null;
 
   switch (permissionLevel) {
-    case "shadow":
+    case "observe":
       return null;
 
     case "gate_only":
@@ -204,11 +188,12 @@ export function computeKellyMultiplier(
 }
 
 /**
- * Public alias of `computeRawMultiplier` for the shadow analytics API.
- * The shadow API needs to recompute the raw multiplier from stored features
- * to generate the shadow A/B comparison without permission-level gating.
+ * Public alias of `computeRawMultiplier` for the paper-trading analytics API.
+ * The paper-trading API needs to recompute the raw multiplier from stored
+ * features to generate the baseline-vs-model comparison without
+ * permission-level gating.
  */
-export function computeRawMultiplierForShadow(
+export function computeRawStakeMultiplier(
   mlScore: number,
   features: number[],
 ): number {

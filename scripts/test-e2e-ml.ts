@@ -200,7 +200,7 @@ async function reportLatestModel(): Promise<void> {
   console.log(`  AUC:       ${latest.oosAucRoc ?? "n/a"}`);
   console.log(`  DSR:       ${latest.deflatedSharpe ?? "n/a"}`);
   console.log(`  ROI:       ${latest.oosRoiMean ?? "n/a"}`);
-  console.log(`  authority: ${latest.permissionLevel ?? "shadow"}`);
+  console.log(`  authority: ${latest.permissionLevel ?? "observe"}`);
 
   if (latest.status === "failed" || latest.status === "rejected") {
     console.log(
@@ -317,10 +317,9 @@ async function validateEveryTrainingExample(): Promise<void> {
 
 async function observeFrontendContracts(): Promise<void> {
   await fetchPage("/lab/ml");
-  const [pipeline, models, schedule, trainingData] = await Promise.all([
+  const [pipeline, models, trainingData] = await Promise.all([
     fetchJson("/api/ml/pipeline"),
     fetchJson("/api/ml/models"),
-    fetchJson("/api/ml/schedule"),
     fetchJson("/api/ml/training-data"),
   ]);
 
@@ -332,7 +331,7 @@ async function observeFrontendContracts(): Promise<void> {
     `  models returned:      ${(models.models as unknown[] | undefined)?.length ?? 0}`,
   );
   console.log(
-    `  scheduler available:  ${isRecord(schedule.settings) ? "yes" : "no"}`,
+    `  auto-retrain growth:  ≥${asNumber((pipeline.scheduler as JsonRecord).growthThresholdPct)}%`,
   );
   console.log(
     `  training rows:        ${asNumber((trainingData.summary as JsonRecord).total)}`,

@@ -48,7 +48,7 @@ Edit `lib/db/schema.ts`. Add 3 columns to the `bets` table (after the `oddsMovem
 // ML pipeline columns
 mlFeatures: real("ml_features").array(),         // 23-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
 mlScore: real(),                                 // P(profitable) from LightGBM [0,1]
-mlKellyAdjusted: real(),                         // Dynamic Kelly multiplier from staker
+mlStakeFraction: real("ml_stake_fraction"),         // Model-adjusted stake fraction = baseline × multiplier (capped). Renamed from ml_kelly_adjusted.
 ```
 
 Add new `mlModels` table after the `bettingSettings` table:
@@ -521,10 +521,10 @@ In `reactive-detector.ts`, after feature extraction (added in Step 2):
 
 1. Batch-score: `const scores = await scoreBatch(featureArrays)`
 2. Compute adjusted Kelly: `computeAdjustedKelly(vb.kellyFraction, score, features)`
-3. **Persist ALL bets** with `mlScore` and `mlKellyAdjusted` alongside `mlFeatures` — do NOT filter before persistence. Low-score bets are still valuable training data for the next model iteration.
+3. **Persist ALL bets** with `mlScore` and `mlStakeFraction` alongside `mlFeatures` — do NOT filter before persistence. Low-score bets are still valuable training data for the next model iteration.
 4. Filtering happens downstream at the **auto-placer gate only** (§4E)
 
-Update `persistValueBets` input type to include `mlScore` and `mlKellyAdjusted`.
+Update `persistValueBets` input type to include `mlScore` and `mlStakeFraction`.
 
 ### 4E. Replace Auto-Placer Gate
 
@@ -547,7 +547,7 @@ if (vb.mlScore != null && vb.mlScore < (settings.mlMinScore ?? 0.4)) {
 For Kelly stake, prefer ML-adjusted when available:
 
 ```typescript
-kellyStake: vb.mlKellyAdjusted ?? vb.kellyStake,
+kellyStake: vb.mlStakeFraction ?? vb.kellyStake,
 ```
 
 Remove imports of `getActiveStrategies` and `findMatchingActiveStrategy`.

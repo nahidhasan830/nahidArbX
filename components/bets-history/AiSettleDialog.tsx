@@ -2,39 +2,22 @@
 
 import { useMemo, useState } from "react";
 import {
-  Crown,
   ExternalLink,
-  Globe,
   Info,
   Gavel,
   Loader2,
-  Sparkles,
-  Workflow,
-  Zap,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -54,6 +37,9 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { AiDialog } from "@/components/shared/AiDialog";
+import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
+import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
 import type {
   AiLabelResponse,
   AiLabelResult,
@@ -97,75 +83,14 @@ const marketLabel = (row: ValueBetRow) => {
 };
 
 /**
- * Options the user can pick when re-running a single proposal. The
- * "default" option runs the full free waterfall again (bypassing cache
- * so the source can actually change); the "ai-search" options force
- * a specific LLM engine (Groq/HuggingFace) for web-grounded score lookup;
- * the "ai" options exist as UI labels but all route through the same
- * free waterfall (Gemini is not in the pipeline).
+ * Re-run choice for a single proposal. The settlement pipeline runs
+ * the full waterfall (cache → live → APIs → AI) regardless of the
+ * specific choice; the UI lets the operator pick a preferred path for
+ * clarity and future backend differentiation.
  */
 export type RerunChoice =
   | { kind: "default" }
-  | { kind: "ai"; model: ModelTier }
-  | { kind: "ai-search"; engine: "groq" | "huggingface" };
-
-export const RERUN_OPTIONS: {
-  choice: RerunChoice;
-  label: string;
-  hint: string;
-  group: "default" | "ai" | "ai-search";
-  icon: React.ComponentType<{ className?: string }>;
-  accent?: string;
-}[] = [
-  {
-    choice: { kind: "default" },
-    label: "Default pipeline",
-    hint: "Full waterfall: Cache → Live → ESPN → API-Football → SofaScore → HF+Search",
-    group: "default",
-    icon: Workflow,
-    accent: "text-emerald-400",
-  },
-  {
-    choice: { kind: "ai-search", engine: "huggingface" },
-    label: "HuggingFace + Search",
-    hint: "Free AI — HF Router LLM + web search grounding (primary)",
-    group: "ai-search",
-    icon: Globe,
-    accent: "text-orange-400",
-  },
-  {
-    choice: { kind: "ai-search", engine: "groq" },
-    label: "Groq + Search",
-    hint: "Free AI — Groq LLM + web search grounding (fallback)",
-    group: "ai-search",
-    icon: Globe,
-    accent: "text-cyan-400",
-  },
-  {
-    choice: { kind: "ai", model: "lite" },
-    label: "Lite",
-    hint: "Runs the free waterfall (HF+Search)",
-    group: "ai",
-    icon: Zap,
-    accent: "text-blue-400",
-  },
-  {
-    choice: { kind: "ai", model: "flash" },
-    label: "Flash",
-    hint: "Runs the free waterfall (HF+Search)",
-    group: "ai",
-    icon: Sparkles,
-    accent: "text-violet-400",
-  },
-  {
-    choice: { kind: "ai", model: "pro" },
-    label: "Pro",
-    hint: "Runs the free waterfall (HF+Search)",
-    group: "ai",
-    icon: Crown,
-    accent: "text-amber-400",
-  },
-];
+  | { kind: "deepseek"; model: Extract<ModelTier, "flash"> };
 
 /**
  * Human-friendly label for a score source. "pinnacle-ws" → "Pinnacle",
@@ -182,8 +107,9 @@ const sourceLabel = (source: string | null): string => {
     sofascore: "SofaScore",
     openligadb: "OpenLigaDB",
     "football-data": "football-data",
-    "ai-search-hf": "HuggingFace + Search",
-    "ai-search-groq": "Groq + Search",
+    "ai-search-deepseek": "AI Search",
+    "ai-search-hf": "AI Search",
+    "ai-search-groq": "AI Search",
     "url-context": "Legacy AI",
     "gemini-batch": "Legacy AI",
     "legacy-ai": "Legacy AI",
@@ -192,10 +118,14 @@ const sourceLabel = (source: string | null): string => {
   return map[source] ?? source;
 };
 
-/** Visual pill for the tier — free structured sources vs AI-grounded vs legacy. */
+/** Visual pill for the tier — structured sources vs AI-grounded vs legacy. */
 const sourceBadgeClass = (source: string | null): string => {
   if (!source) return "bg-muted/40 text-muted-foreground border-muted";
-  if (source === "ai-search-hf" || source === "ai-search-groq")
+  if (
+    source === "ai-search-deepseek" ||
+    source === "ai-search-hf" ||
+    source === "ai-search-groq"
+  )
     return "bg-cyan-600/20 text-cyan-400 border-cyan-800";
   if (
     source === "url-context" ||
@@ -295,160 +225,139 @@ export function AiSettleDialog({
       ).length
     : 0;
 
+  const footer = (
+    <>
+      <Button
+        variant="outline"
+        onClick={() => onOpenChange(false)}
+        disabled={applying}
+      >
+        Cancel
+      </Button>
+      <Button
+        onClick={() => onApply(applyableUpdates)}
+        disabled={applying || loading || applyableUpdates.length === 0}
+      >
+        {applying
+          ? "Applying…"
+          : `Apply ${applyableUpdates.length} outcome${applyableUpdates.length === 1 ? "" : "s"}`}
+      </Button>
+    </>
+  );
+
+  const description = (
+    <>
+      {candidateRows.length} bet{candidateRows.length === 1 ? "" : "s"}{" "}
+      settled through the waterfall (cache → ESPN → API-Football → SofaScore →
+      AI). Unresolved rows can be manually verified via the Google AI Mode link
+      beside each event.
+    </>
+  );
+
   return (
     <TooltipProvider delayDuration={200}>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[min(1400px,96vw)] max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Settlement review</DialogTitle>
-            <DialogDescription>
-              {candidateRows.length} bet{candidateRows.length === 1 ? "" : "s"}{" "}
-              settled through the waterfall (cache → ESPN → API-Football →
-              SofaScore → HF+Search). Unresolved rows can be manually verified
-              via the Google AI Mode link beside each event.
-            </DialogDescription>
-          </DialogHeader>
+      <AiDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Settlement review"
+        description={description}
+        maxWidth="sm:max-w-[min(1400px,96vw)]"
+        maxHeight="max-h-[90vh]"
+        footer={footer}
+      >
+        {response?.telemetry && (
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground px-1">
+            <span className="uppercase tracking-wider">Waterfall:</span>
+            <Badge variant="outline" className="h-5 text-[10px]">
+              cache {response.telemetry.tier0_hits}
+            </Badge>
+            <Badge variant="outline" className="h-5 text-[10px]">
+              live {response.telemetry.tier1_hits}
+            </Badge>
+            <Badge variant="outline" className="h-5 text-[10px]">
+              APIs {response.telemetry.tier2_hits}
+            </Badge>
+            <Badge variant="outline" className="h-5 text-[10px]">
+              AI {response.telemetry.tier3_hits}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={cn(
+                "h-5 text-[10px]",
+                response.telemetry.unresolved > 0
+                  ? "border-amber-800 text-amber-400"
+                  : "",
+              )}
+            >
+              unresolved {response.telemetry.unresolved}
+            </Badge>
+            <span className="ml-auto tabular-nums">
+              {response.telemetry.durationMs}ms
+            </span>
+          </div>
+        )}
 
-          {response?.telemetry && (
-            <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground px-1">
-              <span className="uppercase tracking-wider">Waterfall:</span>
-              <Badge variant="outline" className="h-5 text-[10px]">
-                cache {response.telemetry.tier0_hits}
-              </Badge>
-              <Badge variant="outline" className="h-5 text-[10px]">
-                live {response.telemetry.tier1_hits}
-              </Badge>
-              <Badge variant="outline" className="h-5 text-[10px]">
-                free APIs {response.telemetry.tier2_hits}
-              </Badge>
-              <Badge variant="outline" className="h-5 text-[10px]">
-                AI {response.telemetry.tier3_hits}
-              </Badge>
-              <Badge
-                variant="outline"
-                className={cn(
-                  "h-5 text-[10px]",
-                  response.telemetry.unresolved > 0
-                    ? "border-amber-800 text-amber-400"
-                    : "",
-                )}
-              >
-                unresolved {response.telemetry.unresolved}
-              </Badge>
-              <span className="ml-auto tabular-nums">
-                {response.telemetry.durationMs}ms
-              </span>
+        {loading && progress && progress.total > 1 && (
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
+            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-[width]"
+                style={{
+                  width: `${Math.round((progress.done / progress.total) * 100)}%`,
+                }}
+              />
+            </div>
+            <span className="tabular-nums">
+              Batch {progress.done} / {progress.total}
+              {response &&
+                ` · ${response.proposals.length} proposal${response.proposals.length === 1 ? "" : "s"} so far`}
+            </span>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto rounded-md border">
+          {loading && (!response || response.proposals.length === 0) && (
+            <div className="p-4 space-y-2">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
             </div>
           )}
-
-          {loading && progress && progress.total > 1 && (
-            <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-1">
-              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-[width]"
-                  style={{
-                    width: `${Math.round((progress.done / progress.total) * 100)}%`,
-                  }}
-                />
-              </div>
-              <span className="tabular-nums">
-                Batch {progress.done} / {progress.total}
-                {response &&
-                  ` · ${response.proposals.length} proposal${response.proposals.length === 1 ? "" : "s"} so far`}
-              </span>
-            </div>
-          )}
-
-          <div className="flex-1 overflow-auto rounded-md border">
-            {loading && (!response || response.proposals.length === 0) && (
-              <div className="p-4 space-y-2">
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-              </div>
-            )}
-            {response && response.proposals.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="h-8 text-[10px] uppercase tracking-wider">
-                      Event
+          {response && response.proposals.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="h-8 text-[10px] uppercase tracking-wider">
+                    Event
+                  </TableHead>
+                  <TableHead className="h-8 text-[10px] uppercase tracking-wider">
+                    Market
+                  </TableHead>
+                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-52">
+                    Settled by
+                  </TableHead>
+                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-20">
+                    Conf.
+                  </TableHead>
+                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
+                    Result
+                  </TableHead>
+                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
+                    Final
+                  </TableHead>
+                  {onRerun && (
+                    <TableHead className="h-8 text-[10px] uppercase tracking-wider w-12 text-center">
+                      Re-run
                     </TableHead>
-                    <TableHead className="h-8 text-[10px] uppercase tracking-wider">
-                      Market
-                    </TableHead>
-                    <TableHead className="h-8 text-[10px] uppercase tracking-wider w-52">
-                      Settled by
-                    </TableHead>
-                    <TableHead className="h-8 text-[10px] uppercase tracking-wider w-20">
-                      Conf.
-                    </TableHead>
-                    <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
-                      Result
-                    </TableHead>
-                    <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
-                      Final
-                    </TableHead>
-                    {onRerun && (
-                      <TableHead className="h-8 text-[10px] uppercase tracking-wider w-12 text-center">
-                        Re-run
-                      </TableHead>
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {response.proposals.map((p) => {
-                    const row = rowsById.get(p.id);
-                    if (!row) return null;
-                    if (isError(p)) {
-                      return (
-                        <TableRow key={p.id}>
-                          <TableCell className="py-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-medium text-[12px]">
-                                {row.homeTeam} vs {row.awayTeam}
-                              </span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <a
-                                    href={buildGoogleAiModeUrl(row)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center justify-center size-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
-                                  >
-                                    <ExternalLink className="size-3" />
-                                  </a>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  Verify on Google AI Mode
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-[11px] py-1.5">
-                            {marketLabel(row)}
-                          </TableCell>
-                          <TableCell
-                            colSpan={4}
-                            className="text-[11px] text-rose-400 py-1.5"
-                          >
-                            Error: {p.error}
-                          </TableCell>
-                          {onRerun && (
-                            <TableCell className="py-1.5 text-center">
-                              <RerunButton
-                                id={p.id}
-                                running={rerunningIds?.has(p.id) ?? false}
-                                onRerun={onRerun}
-                              />
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      );
-                    }
-                    const final = finalOutcome(p);
-                    const changed = final !== p.proposedOutcome;
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {response.proposals.map((p) => {
+                  const row = rowsById.get(p.id);
+                  if (!row) return null;
+                  if (isError(p)) {
                     return (
                       <TableRow key={p.id}>
                         <TableCell className="py-1.5">
@@ -472,108 +381,15 @@ export function AiSettleDialog({
                               </TooltipContent>
                             </Tooltip>
                           </div>
-                          {row.competition && (
-                            <div className="text-[10px] text-muted-foreground leading-tight">
-                              {row.competition}
-                            </div>
-                          )}
                         </TableCell>
                         <TableCell className="text-[11px] py-1.5">
                           {marketLabel(row)}
                         </TableCell>
-                        <TableCell className="py-1.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] h-5 px-1.5 whitespace-nowrap"
-                            >
-                              {OUTCOME_LABEL[p.proposedOutcome]}
-                            </Badge>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "text-[10px] h-5 px-1.5 whitespace-nowrap font-normal",
-                                sourceBadgeClass(p.source),
-                              )}
-                              title={
-                                p.tier === "pure"
-                                  ? `Resolved by ${sourceLabel(p.source)} — deterministic settlement.`
-                                  : "Not resolved by any free tier — manually verify."
-                              }
-                            >
-                              {p.tier === "pure"
-                                ? sourceLabel(p.source)
-                                : "unresolved"}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[10px] h-5 px-1.5 tabular-nums",
-                              confidenceClass(p.confidence),
-                            )}
-                          >
-                            {(p.confidence * 100).toFixed(0)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[12px] font-medium tabular-nums">
-                              {p.score || "—"}
-                            </span>
-                            {p.reasoning && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="inline-flex items-center justify-center size-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
-                                    aria-label="Show reasoning"
-                                  >
-                                    <Info className="size-3" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent
-                                  side="left"
-                                  className="max-w-[320px] text-[11px] leading-snug whitespace-normal"
-                                >
-                                  {p.reasoning}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <Select
-                            value={final}
-                            onValueChange={(v) =>
-                              setOverrides({
-                                ...overrides,
-                                [p.id]: v as Outcome,
-                              })
-                            }
-                          >
-                            <SelectTrigger
-                              className={cn(
-                                "h-6 w-[100px] text-[11px] px-2",
-                                changed && "border-amber-500",
-                              )}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {OUTCOME_OPTIONS.map((o) => (
-                                <SelectItem
-                                  key={o}
-                                  value={o}
-                                  className="text-[11px]"
-                                >
-                                  {OUTCOME_LABEL[o]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                        <TableCell
+                          colSpan={4}
+                          className="text-[11px] text-rose-400 py-1.5"
+                        >
+                          Error: {p.error}
                         </TableCell>
                         {onRerun && (
                           <TableCell className="py-1.5 text-center">
@@ -586,75 +402,196 @@ export function AiSettleDialog({
                         )}
                       </TableRow>
                     );
-                  })}
-                </TableBody>
-              </Table>
+                  }
+                  const final = finalOutcome(p);
+                  const changed = final !== p.proposedOutcome;
+                  return (
+                    <TableRow key={p.id}>
+                      <TableCell className="py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium text-[12px]">
+                            {row.homeTeam} vs {row.awayTeam}
+                          </span>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <a
+                                href={buildGoogleAiModeUrl(row)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center justify-center size-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
+                              >
+                                <ExternalLink className="size-3" />
+                              </a>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Verify on Google AI Mode
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        {row.competition && (
+                          <div className="text-[10px] text-muted-foreground leading-tight">
+                            {row.competition}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-[11px] py-1.5">
+                        {marketLabel(row)}
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] h-5 px-1.5 whitespace-nowrap"
+                          >
+                            {OUTCOME_LABEL[p.proposedOutcome]}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-[10px] h-5 px-1.5 whitespace-nowrap font-normal",
+                              sourceBadgeClass(p.source),
+                            )}
+                            title={
+                              p.tier === "pure"
+                                ? `Resolved by ${sourceLabel(p.source)} — deterministic settlement.`
+                                : "Not resolved by any tier — manually verify."
+                            }
+                          >
+                            {p.tier === "pure"
+                              ? sourceLabel(p.source)
+                              : "unresolved"}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[10px] h-5 px-1.5 tabular-nums",
+                            confidenceClass(p.confidence),
+                          )}
+                        >
+                          {(p.confidence * 100).toFixed(0)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[12px] font-medium tabular-nums">
+                            {p.score || "—"}
+                          </span>
+                          {p.reasoning && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center justify-center size-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
+                                  aria-label="Show reasoning"
+                                >
+                                  <Info className="size-3" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="left"
+                                className="max-w-[320px] text-[11px] leading-snug whitespace-normal"
+                              >
+                                {p.reasoning}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <Select
+                          value={final}
+                          onValueChange={(v) =>
+                            setOverrides({
+                              ...overrides,
+                              [p.id]: v as Outcome,
+                            })
+                          }
+                        >
+                          <SelectTrigger
+                            className={cn(
+                              "h-6 w-[100px] text-[11px] px-2",
+                              changed && "border-amber-500",
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {OUTCOME_OPTIONS.map((o) => (
+                              <SelectItem
+                                key={o}
+                                value={o}
+                                className="text-[11px]"
+                              >
+                                {OUTCOME_LABEL[o]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      {onRerun && (
+                        <TableCell className="py-1.5 text-center">
+                          <RerunButton
+                            id={p.id}
+                            running={rerunningIds?.has(p.id) ?? false}
+                            onRerun={onRerun}
+                          />
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        {response && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              <span className="font-medium text-foreground">
+                {applyableUpdates.length}
+              </span>{" "}
+              ready to apply
+            </span>
+            {pendingCount > 0 && (
+              <span>
+                · <span className="font-medium">{pendingCount}</span> still
+                pending (not applied)
+              </span>
+            )}
+            {errorCount > 0 && (
+              <span>
+                ·{" "}
+                <span className="font-medium text-rose-400">
+                  {errorCount}
+                </span>{" "}
+                errored
+              </span>
+            )}
+            {response.missing.length > 0 && (
+              <span>
+                ·{" "}
+                <span className="font-medium text-rose-400">
+                  {response.missing.length}
+                </span>{" "}
+                missing ids
+              </span>
             )}
           </div>
+        )}
 
-          {response && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>
-                <span className="font-medium text-foreground">
-                  {applyableUpdates.length}
-                </span>{" "}
-                ready to apply
-              </span>
-              {pendingCount > 0 && (
-                <span>
-                  · <span className="font-medium">{pendingCount}</span> still
-                  pending (not applied)
-                </span>
-              )}
-              {errorCount > 0 && (
-                <span>
-                  ·{" "}
-                  <span className="font-medium text-rose-400">
-                    {errorCount}
-                  </span>{" "}
-                  errored
-                </span>
-              )}
-              {response.missing.length > 0 && (
-                <span>
-                  ·{" "}
-                  <span className="font-medium text-rose-400">
-                    {response.missing.length}
-                  </span>{" "}
-                  missing ids
-                </span>
-              )}
-            </div>
-          )}
-
-          {!loading && !response && (
-            <Alert>
-              <AlertTitle>Nothing to review yet</AlertTitle>
-              <AlertDescription>
-                Dialog opened before the AI call completed. Close and retry.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={applying}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => onApply(applyableUpdates)}
-              disabled={applying || loading || applyableUpdates.length === 0}
-            >
-              {applying
-                ? "Applying…"
-                : `Apply ${applyableUpdates.length} outcome${applyableUpdates.length === 1 ? "" : "s"}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {!loading && !response && (
+          <Alert>
+            <AlertTitle>Nothing to review yet</AlertTitle>
+            <AlertDescription>
+              Dialog opened before the AI call completed. Close and retry.
+            </AlertDescription>
+          </Alert>
+        )}
+      </AiDialog>
     </TooltipProvider>
   );
 }
@@ -675,8 +612,6 @@ export function RerunButton({
   disabled?: boolean;
   onRerun: (id: string, choice: RerunChoice) => void;
 }) {
-  const rerunKey = (c: RerunChoice) =>
-    c.kind === "default" ? "default" : c.kind === "ai-search" ? `search-${c.engine}` : `ai-${c.model}`;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -699,50 +634,14 @@ export function RerunButton({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[200px] p-1">
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          Settle with
-        </DropdownMenuLabel>
-        {RERUN_OPTIONS.filter((o) => o.group === "default").map((opt) => (
-          <DropdownMenuItem
-            key={rerunKey(opt.choice)}
-            onSelect={() => onRerun(id, opt.choice)}
-            className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
-            title={opt.hint}
-          >
-            <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
-            <span className="text-[12px] font-medium">{opt.label}</span>
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator className="my-1" />
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          AI Search (free)
-        </DropdownMenuLabel>
-        {RERUN_OPTIONS.filter((o) => o.group === "ai-search").map((opt) => (
-          <DropdownMenuItem
-            key={rerunKey(opt.choice)}
-            onSelect={() => onRerun(id, opt.choice)}
-            className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
-            title={opt.hint}
-          >
-            <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
-            <span className="text-[12px] font-medium">{opt.label}</span>
-          </DropdownMenuItem>
-        ))}
-        <DropdownMenuSeparator className="my-1" />
-        <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-          AI Models
-        </DropdownMenuLabel>
-        {RERUN_OPTIONS.filter((o) => o.group === "ai").map((opt) => (
-          <DropdownMenuItem
-            key={rerunKey(opt.choice)}
-            onSelect={() => onRerun(id, opt.choice)}
-            className="cursor-pointer gap-2.5 rounded-md px-2 py-2"
-            title={opt.hint}
-          >
-            <opt.icon className={cn("size-3.5 shrink-0", opt.accent)} />
-            <span className="text-[12px] font-medium">{opt.label}</span>
-          </DropdownMenuItem>
-        ))}
+        <AiModelMenuItems
+          showDefault
+          callbacks={{
+            onSelectDefault: () => onRerun(id, { kind: "default" }),
+            onSelectAi: (engine, model) =>
+              onRerun(id, { kind: engine, model } as RerunChoice),
+          }}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );

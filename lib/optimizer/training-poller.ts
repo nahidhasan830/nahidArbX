@@ -228,7 +228,7 @@ async function pollTrainingStatus(): Promise<void> {
                 : undefined,
             pbo: model.pbo != null ? Number(model.pbo) : undefined,
             trainingSamples: model.trainingSamples,
-            permissionLevel: model.permissionLevel ?? "shadow",
+            permissionLevel: model.permissionLevel ?? "observe",
             rejectionReasons:
               (model.rejectionReasons as string[] | null) ?? undefined,
           };
@@ -268,7 +268,7 @@ async function pollTrainingStatus(): Promise<void> {
                 : undefined,
             pbo: model.pbo != null ? Number(model.pbo) : undefined,
             trainingSamples: model.trainingSamples,
-            permissionLevel: model.permissionLevel ?? "shadow",
+            permissionLevel: model.permissionLevel ?? "observe",
             rejectionReasons:
               (model.rejectionReasons as string[] | null) ?? undefined,
           };

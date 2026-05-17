@@ -1,6 +1,6 @@
 /**
- * Shadow Mode is now integrated into the ML Optimizer dashboard
- * as the "Shadow A/B" tab. Redirect to /lab/ml.
+ * Legacy redirect — Shadow Mode is now the "Paper Trading" tab in the
+ * ML Optimizer dashboard.
  */
 import { redirect } from "next/navigation";
 

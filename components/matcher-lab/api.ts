@@ -130,8 +130,8 @@ export async function runMlStream(
 export async function verifyAiMatch(
   id: string,
   opts?: {
-    engine?: "gemini" | "ai-search" | "huggingface";
-    model?: "lite" | "flash" | "pro";
+    engine?: "ai-search" | "deepseek";
+    model?: "flash";
   },
 ): Promise<{
   decision: string;
@@ -167,7 +167,7 @@ export async function checkAiSearchHealth(): Promise<{
     const data = await res.json();
     return {
       ok: data.status === "ok",
-      model: data.llm_engine?.model,
+      model: data.llmEngine?.model,
     };
   } catch {
     return null;

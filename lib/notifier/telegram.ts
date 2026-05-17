@@ -87,7 +87,7 @@ function formatMlTrainingStarted(e: MlTrainingStartedEvent): FormattedMessage {
   lines.push(`🏋️ <b>ML Training Started — v${e.version}</b>`);
   lines.push(``);
   lines.push(
-    `${e.trigger === "manual" ? "✋" : "🤖"} ${e.trigger === "manual" ? "Manual" : "Scheduler"} trigger`,
+    `${e.trigger === "manual" ? "✋" : "🤖"} ${e.trigger === "manual" ? "Manual" : "Auto"} trigger`,
   );
   lines.push(
     `📊 <b>${e.trainerExpectedSamples.toLocaleString()}</b> training samples`,

@@ -68,26 +68,16 @@ Hard gates (any failure = rejection):
 - DSR ≥ 0.6
 
 Permission levels (escalation order):
-1. **shadow** — score and log, no effect on placement
+1. **observe** — score and log, no effect on placement
 2. **gate_only** — skip low-score bets (requires AUC ≥ 0.60, DSR ≥ 0.7)
 3. **stake_reduce** — reduce stakes on weak bets (requires AUC ≥ 0.65, DSR ≥ 0.8, monotonicity ≥ 0.8)
 4. **stake_increase** — increase stakes on strong bets (disabled; requires real placed-settled evidence)
 
-## Champion-challenger
+## Model deployment
 
-**File:** `lib/ml/promotion.ts`
+The deployment gate is the only quality bar — a validated model just deploys, retiring the previous deployed model. There is no champion/challenger A/B between two models; the comparison that matters lives in the **Paper Trading** tab (model-adjusted stake vs configured baseline stake on the same real bets).
 
-The deployed model (champion) is replaced only when a challenger proves statistically better:
-
-- **Opdyke two-sample PSR** tests whether the challenger's Sharpe ratio significantly exceeds the champion's on the same OOS evaluation window.
-- Accounts for skew, kurtosis, and correlation between the two models' returns.
-- Promotion threshold: PSR ≥ 0.95 (95% confidence).
-
-### Dual scoring
-
-**File:** `lib/ml/scorer.ts`
-
-The scorer can run both champion and challenger inference sessions simultaneously (`scoreBatchDual()`). Both models' scores are logged for performance comparison. The challenger does not affect live betting — it only collects evidence.
+The two-sample Sharpe / Opdyke PSR helper at `lib/ml/sharpe-ab-test.ts` is still used internally — by the **stake-increase pilot** (boost-vs-control coin-flip on bets the model wants to scale > 1.05×) when the deployed model is at `stake_reduce` and is being measured for promotion to `stake_increase`. PSR ≥ 0.95 ∧ ROI improvement ≥ 0.5 pts unlocks `stake_increase`.
 
 ## Drift detection
 
@@ -98,7 +88,7 @@ ADWIN (ADaptive WINdowing) tracks three metrics on settled bets:
 - **winRate** — 0/1 win/loss signals
 - **mlScoreBias** — difference between predicted score and actual outcome
 
-When ADWIN shrinks its window repeatedly (concept drift), the retraining scheduler is notified and may override the normal cadence to trigger an early retrain. A one-hour cooldown prevents retrain storms.
+When ADWIN shrinks its window repeatedly (concept drift), the retraining loop forces an immediate retrain regardless of the 20% growth threshold. A one-hour cooldown prevents retrain storms.
 
 ## Deflated Sharpe Ratio (DSR)
 
@@ -132,16 +122,16 @@ Equal-count quantile buckets (6 by default) test whether higher ML scores produc
 | Python | `services/optimizer/app/scoring.py` | DSR, PBO, PSR, score buckets |
 | TypeScript | `lib/ml/scorer.ts` | ONNX inference + calibration apply |
 | TypeScript | `lib/ml/staker.ts` | Permission-aware Kelly sizing |
-| TypeScript | `lib/ml/promotion.ts` | Opdyke champion-challenger promotion |
+| TypeScript | `lib/ml/sharpe-ab-test.ts` | Opdyke two-sample Sharpe test (used by stake-increase pilot) |
 | TypeScript | `lib/ml/drift-detector.ts` | ADWIN concept drift detection |
 | TypeScript | `lib/ml/deployment-gate.ts` | Runtime permission checking |
 | TypeScript | `lib/ml/features.ts` | Feature extraction (25-dim vector) |
 | TypeScript | `lib/ml/outcomes.ts` | Outcome → label derivation |
-| TypeScript | `lib/optimizer/scheduler.ts` | Retraining scheduler |
+| TypeScript | `lib/optimizer/scheduler.ts` | Auto-retrain trigger (≥20% data growth) + drift + stake-increase pilot |
 | DB | `lib/db/schema.ts` (`ml_models`) | Model lifecycle tracking |
-| DB | `lib/db/schema.ts` (`ml_scheduler_settings`) | Scheduler configuration |
-| UI | `components/lab/ml/MLPipelineDashboard.tsx` | ML Optimizer dashboard |
-| UI | `components/lab/ml/dashboard/ChampionChallengerCard.tsx` | Champion vs challenger card |
+| UI | `components/lab/ml/MLPipelineDashboard.tsx` | ML Optimizer dashboard (Overview + Paper Trading tabs) |
+| UI | `components/lab/ml/tabs/OverviewTab.tsx` | Overview tab |
+| UI | `components/lab/ml/tabs/PaperTradingTab.tsx` | Paper Trading tab |
 | UI | `components/lab/ml/MLModelStatus.tsx` | Retrain button component |
 
 ## ONNX export pipeline

@@ -8,8 +8,11 @@ This is the engine behind the ML pipeline at `/lab/ml` in the Next.js app.
 
 ## What it does
 
-1. The engine's ML retraining scheduler (`lib/optimizer/scheduler.ts`) triggers
-   this Cloud Run Job when retraining criteria are met (enough new settled data).
+1. The engine's ML retraining loop (`lib/optimizer/scheduler.ts`) triggers
+   this Cloud Run Job whenever the canonical training corpus has grown by
+   ≥`ML_RETRAIN_GROWTH_THRESHOLD` (20%) since the last deployed model. There
+   is no cadence, no enabled toggle — operators always have a manual
+   "Retrain" button on the dashboard via `/api/ml/retrain`.
 2. Sidecar loads training data from `ml_training_examples` table (canonical
    deduplicated corpus with precedence: `placed_settled` > `settled_detected` >
    `shadow_scored`), trains a LightGBM classifier using event-aware
@@ -104,7 +107,7 @@ uv run mypy app                # type-check
 
 ## Cost
 
-At moderate use (scheduled + occasional manual runs), the sidecar costs
-roughly **$5–15/month** on Cloud Run with min-instances=0.
+At moderate use (auto-retrains on ≥20% data growth + occasional manual runs),
+the sidecar costs roughly **$5–15/month** on Cloud Run with min-instances=0.
 Storage stays inside the existing Cloud SQL instance — no new persistent
 infrastructure required.

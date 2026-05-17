@@ -8,9 +8,10 @@
  *   - Heads: use the boosted Kelly (as if stake_increase were active).
  *   - Tails: use ×1.0 (current stake_reduce cap).
  *
- * After PILOT_MIN_SETTLED bets settle, run the Opdyke two-sample test between
- * the boosted and unboosted cohorts. If boosted beats unboosted with PSR ≥ 0.95,
- * unlock `stake_increase` for the deployed model.
+ * After PILOT_MIN_SETTLED bets settle, run the Opdyke two-sample Sharpe test
+ * between the boosted and unboosted cohorts. If the boosted cohort beats the
+ * unboosted cohort with PSR ≥ 0.95 and a meaningful ROI improvement, unlock
+ * `stake_increase` for the deployed model.
  *
  * This is a completely honest experiment — the coin flip guarantees no
  * selection bias. The only difference between groups is random chance.
@@ -21,6 +22,10 @@ import { logger } from "../shared/logger";
 
 const PILOT_MIN_SETTLED = 50;
 const PILOT_MIN_PER_GROUP = 15;
+/** PSR threshold to unlock stake_increase. */
+const PILOT_PSR_THRESHOLD = 0.95;
+/** Minimum boosted-vs-control ROI improvement (percentage points). */
+const PILOT_MIN_ROI_IMPROVEMENT_PCT = 0.5;
 
 interface PilotState {
   active: boolean;
@@ -32,10 +37,9 @@ interface PilotState {
   settledControlCount: number;
 }
 
-const pilot = singleton<Map<string, { boosted: boolean; settled: boolean; unitReturn: number | null }>>(
-  "ml:pilot-bets",
-  () => new Map(),
-);
+const pilot = singleton<
+  Map<string, { boosted: boolean; settled: boolean; unitReturn: number | null }>
+>("ml:pilot-bets", () => new Map());
 
 const pilotMeta = singleton<PilotState>("ml:pilot-meta", () => ({
   active: false,
@@ -59,7 +63,10 @@ export function startPilot(modelVersion: number): void {
   pilotMeta.settledBoostCount = 0;
   pilotMeta.settledControlCount = 0;
   pilot.clear();
-  logger.info("MLPilot", `Stake-increase pilot started for model v${modelVersion}. Target: ${PILOT_MIN_SETTLED} settled bets.`);
+  logger.info(
+    "MLPilot",
+    `Stake-increase pilot started for model v${modelVersion}. Target: ${PILOT_MIN_SETTLED} settled bets.`,
+  );
 }
 
 /**
@@ -130,18 +137,31 @@ export async function evaluatePilot(): Promise<{
   boostN: number;
   controlN: number;
 }> {
-  if (!pilotMeta.active) {
-    return { ready: false, shouldPromote: false, psr: 0, boostMean: 0, controlMean: 0, boostN: 0, controlN: 0 };
-  }
+  const empty = {
+    ready: false,
+    shouldPromote: false,
+    psr: 0,
+    boostMean: 0,
+    controlMean: 0,
+    boostN: 0,
+    controlN: 0,
+  };
 
-  const totalSettled = pilotMeta.settledBoostCount + pilotMeta.settledControlCount;
-  if (totalSettled < PILOT_MIN_SETTLED) {
-    return { ready: false, shouldPromote: false, psr: 0, boostMean: 0, controlMean: 0, boostN: 0, controlN: 0 };
-  }
+  if (!pilotMeta.active) return empty;
 
-  if (pilotMeta.settledBoostCount < PILOT_MIN_PER_GROUP || pilotMeta.settledControlCount < PILOT_MIN_PER_GROUP) {
-    logger.info("MLPilot", `Insufficient per-group samples: boost=${pilotMeta.settledBoostCount}, control=${pilotMeta.settledControlCount}`);
-    return { ready: false, shouldPromote: false, psr: 0, boostMean: 0, controlMean: 0, boostN: 0, controlN: 0 };
+  const totalSettled =
+    pilotMeta.settledBoostCount + pilotMeta.settledControlCount;
+  if (totalSettled < PILOT_MIN_SETTLED) return empty;
+
+  if (
+    pilotMeta.settledBoostCount < PILOT_MIN_PER_GROUP ||
+    pilotMeta.settledControlCount < PILOT_MIN_PER_GROUP
+  ) {
+    logger.info(
+      "MLPilot",
+      `Insufficient per-group samples: boost=${pilotMeta.settledBoostCount}, control=${pilotMeta.settledControlCount}`,
+    );
+    return empty;
   }
 
   const boostReturns: number[] = [];
@@ -155,23 +175,43 @@ export async function evaluatePilot(): Promise<{
     }
   }
 
-  if (boostReturns.length < PILOT_MIN_PER_GROUP || controlReturns.length < PILOT_MIN_PER_GROUP) {
-    return { ready: false, shouldPromote: false, psr: 0, boostMean: 0, controlMean: 0, boostN: 0, controlN: 0 };
+  if (
+    boostReturns.length < PILOT_MIN_PER_GROUP ||
+    controlReturns.length < PILOT_MIN_PER_GROUP
+  ) {
+    return empty;
   }
 
-  const boostMean = boostReturns.reduce((a, b) => a + b, 0) / boostReturns.length;
-  const controlMean = controlReturns.reduce((a, b) => a + b, 0) / controlReturns.length;
+  const boostMean =
+    boostReturns.reduce((a, b) => a + b, 0) / boostReturns.length;
+  const controlMean =
+    controlReturns.reduce((a, b) => a + b, 0) / controlReturns.length;
 
-  const { evaluatePromotion } = await import("./promotion");
-  const decision = evaluatePromotion(
-    { version: 0, unitReturns: controlReturns, sampleSize: controlReturns.length },
-    { version: 1, unitReturns: boostReturns, sampleSize: boostReturns.length },
+  // Two-sample Sharpe comparison (Opdyke PSR).
+  const { compareGroupSharpes } = await import("./sharpe-ab-test");
+  const result = compareGroupSharpes(
+    {
+      label: "control",
+      unitReturns: controlReturns,
+      sampleSize: controlReturns.length,
+    },
+    {
+      label: "boost",
+      unitReturns: boostReturns,
+      sampleSize: boostReturns.length,
+    },
   );
+
+  // Pilot promotion gates: boost must beat control by enough margin AND PSR.
+  const roiImprovementPct = (boostMean - controlMean) * 100;
+  const shouldPromote =
+    result.psr >= PILOT_PSR_THRESHOLD &&
+    roiImprovementPct >= PILOT_MIN_ROI_IMPROVEMENT_PCT;
 
   return {
     ready: true,
-    shouldPromote: decision.promote,
-    psr: decision.psr,
+    shouldPromote,
+    psr: result.psr,
     boostMean,
     controlMean,
     boostN: boostReturns.length,
@@ -204,164 +244,4 @@ function simpleHash(str: string): number {
     hash |= 0;
   }
   return Math.abs(hash);
-}
-
-// ── A/B test framework (champion vs challenger on placed bets) ───────
-
-const AB_MIN_SETTLED = 40;
-const AB_MIN_PER_GROUP = 10;
-
-interface ABTestState {
-  active: boolean;
-  championVersion: number | null;
-  challengerVersion: number | null;
-  startedAt: number;
-  championCount: number;
-  challengerCount: number;
-  settledChampionCount: number;
-  settledChallengerCount: number;
-}
-
-const abBets = singleton<Map<string, { useChallenger: boolean; settled: boolean; unitReturn: number | null }>>(
-  "ml:ab-bets",
-  () => new Map(),
-);
-
-const abMeta = singleton<ABTestState>("ml:ab-meta", () => ({
-  active: false,
-  championVersion: null,
-  challengerVersion: null,
-  startedAt: 0,
-  championCount: 0,
-  challengerCount: 0,
-  settledChampionCount: 0,
-  settledChallengerCount: 0,
-}));
-
-/**
- * Start an A/B test between champion and challenger.
- * Placed bets will be randomly routed to one of the two models.
- */
-export function startABTest(championVersion: number, challengerVersion: number): void {
-  abMeta.active = true;
-  abMeta.championVersion = championVersion;
-  abMeta.challengerVersion = challengerVersion;
-  abMeta.startedAt = Date.now();
-  abMeta.championCount = 0;
-  abMeta.challengerCount = 0;
-  abMeta.settledChampionCount = 0;
-  abMeta.settledChallengerCount = 0;
-  abBets.clear();
-  logger.info(
-    "MLABTest",
-    `A/B test started: champion v${championVersion} vs challenger v${challengerVersion}. Target: ${AB_MIN_SETTLED} settled bets.`,
-  );
-}
-
-export function stopABTest(): void {
-  abMeta.active = false;
-  abMeta.championVersion = null;
-  abMeta.challengerVersion = null;
-  abBets.clear();
-}
-
-export function isABTestActive(): boolean {
-  return abMeta.active;
-}
-
-/**
- * For a placed bet, decide whether to use challenger scores.
- * 50/50 random routing based on betId hash.
- *
- * @returns true if challenger should be used, false for champion.
- */
-export function abTestRoute(betId: string): boolean {
-  if (!abMeta.active) return false;
-  const useChallenger = simpleHash(betId + "ab") % 2 === 0;
-  abBets.set(betId, { useChallenger, settled: false, unitReturn: null });
-  if (useChallenger) {
-    abMeta.challengerCount++;
-  } else {
-    abMeta.championCount++;
-  }
-  return useChallenger;
-}
-
-export function settleABBet(betId: string, unitReturn: number): void {
-  const entry = abBets.get(betId);
-  if (!entry) return;
-  entry.settled = true;
-  entry.unitReturn = unitReturn;
-  if (entry.useChallenger) {
-    abMeta.settledChallengerCount++;
-  } else {
-    abMeta.settledChampionCount++;
-  }
-}
-
-export async function evaluateABTest(): Promise<{
-  ready: boolean;
-  promoteChallenger: boolean;
-  psr: number;
-  championMean: number;
-  challengerMean: number;
-  championN: number;
-  challengerN: number;
-}> {
-  if (!abMeta.active) {
-    return { ready: false, promoteChallenger: false, psr: 0, championMean: 0, challengerMean: 0, championN: 0, challengerN: 0 };
-  }
-
-  const totalSettled = abMeta.settledChampionCount + abMeta.settledChallengerCount;
-  if (totalSettled < AB_MIN_SETTLED) {
-    return { ready: false, promoteChallenger: false, psr: 0, championMean: 0, challengerMean: 0, championN: 0, challengerN: 0 };
-  }
-
-  if (abMeta.settledChampionCount < AB_MIN_PER_GROUP || abMeta.settledChallengerCount < AB_MIN_PER_GROUP) {
-    return { ready: false, promoteChallenger: false, psr: 0, championMean: 0, challengerMean: 0, championN: 0, challengerN: 0 };
-  }
-
-  const championReturns: number[] = [];
-  const challengerReturns: number[] = [];
-  for (const entry of abBets.values()) {
-    if (!entry.settled || entry.unitReturn == null) continue;
-    if (entry.useChallenger) {
-      challengerReturns.push(entry.unitReturn);
-    } else {
-      championReturns.push(entry.unitReturn);
-    }
-  }
-
-  const championMean = championReturns.reduce((a, b) => a + b, 0) / championReturns.length;
-  const challengerMean = challengerReturns.reduce((a, b) => a + b, 0) / challengerReturns.length;
-
-  const { evaluatePromotion } = await import("./promotion");
-  const decision = evaluatePromotion(
-    { version: abMeta.championVersion ?? 0, unitReturns: championReturns, sampleSize: championReturns.length },
-    { version: abMeta.challengerVersion ?? 0, unitReturns: challengerReturns, sampleSize: challengerReturns.length },
-  );
-
-  return {
-    ready: true,
-    promoteChallenger: decision.promote,
-    psr: decision.psr,
-    championMean,
-    challengerMean,
-    championN: championReturns.length,
-    challengerN: challengerReturns.length,
-  };
-}
-
-export function getABTestStatus() {
-  return {
-    active: abMeta.active,
-    championVersion: abMeta.championVersion,
-    challengerVersion: abMeta.challengerVersion,
-    startedAt: abMeta.startedAt,
-    championCount: abMeta.championCount,
-    challengerCount: abMeta.challengerCount,
-    settledChampionCount: abMeta.settledChampionCount,
-    settledChallengerCount: abMeta.settledChallengerCount,
-    targetSettled: AB_MIN_SETTLED,
-  };
 }
