@@ -397,9 +397,9 @@ export function AppShell({
             {...(activeTab != null
               ? { value: activeTab, onValueChange: onTabChange }
               : { defaultValue: tabs[0].value })}
-            className="flex flex-col flex-1 min-h-0"
+            className="flex flex-col h-full min-h-0"
           >
-            <div className="border-b border-sidebar-border px-3">
+            <div className="border-b border-sidebar-border px-3 shrink-0">
               <TabsList variant="line" className="h-9 bg-transparent p-0 gap-0">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
@@ -419,7 +419,7 @@ export function AppShell({
             <div
               className={
                 edgeToEdge
-                  ? "flex flex-col flex-1 min-h-0 overflow-hidden"
+                  ? "flex flex-col flex-1 min-h-0 overflow-y-auto"
                   : "p-4"
               }
             >

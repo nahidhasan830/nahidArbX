@@ -18,6 +18,10 @@ import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
 import { spawn, execSync } from "child_process";
 import path from "path";
+import {
+  progressMessageFromCloudTrainLog,
+  writeCloudTrainingProgress,
+} from "@/lib/optimizer/cloud-training-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +92,16 @@ export async function POST() {
       featureVersion: ML_FEATURE_VERSION,
       featureNamesHash: FEATURE_NAMES_HASH,
       trainingStartedAt: new Date().toISOString(),
+      trainingStage: "loading",
+      progressMessage: "Cloud Build queued",
+      lastHeartbeatAt: new Date().toISOString(),
+      estimatedTimeRemainingMs: 20 * 60 * 1000,
     });
+    void writeCloudTrainingProgress(
+      modelId,
+      "Cloud Build queued",
+      20 * 60 * 1000,
+    );
 
     // Emit SSE event for real-time UI updates
     try {
@@ -126,16 +139,37 @@ export async function POST() {
 
     child.stdout.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString().split("\n")) {
-        if (line.trim()) logger.info("MLCloudTrain", line.trim());
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        logger.info("MLCloudTrain", trimmed);
+        const progress = progressMessageFromCloudTrainLog(trimmed);
+        if (progress) {
+          void writeCloudTrainingProgress(modelId, progress, 20 * 60 * 1000);
+        }
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString().split("\n")) {
-        if (line.trim()) logger.warn("MLCloudTrain", line.trim());
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        logger.warn("MLCloudTrain", trimmed);
+        const progress = progressMessageFromCloudTrainLog(trimmed);
+        if (progress) {
+          void writeCloudTrainingProgress(modelId, progress, 20 * 60 * 1000);
+        }
       }
     });
 
+    const heartbeat = setInterval(() => {
+      void writeCloudTrainingProgress(
+        modelId,
+        "Cloud Build/Run pipeline still active",
+        20 * 60 * 1000,
+      );
+    }, 15_000);
+
     child.on("exit", async (code) => {
+      clearInterval(heartbeat);
       if (code !== 0 && code !== null) {
         logger.warn("MLCloudTrain", `Pipeline exited with code ${code}`);
         try {
@@ -149,6 +183,10 @@ export async function POST() {
               rejectionReasons: [
                 `Cloud Build + Run pipeline failed (exit code ${code})`,
               ],
+              trainingStage: "failed",
+              progressMessage: `Cloud Build + Run pipeline failed (exit code ${code})`,
+              lastHeartbeatAt: new Date().toISOString(),
+              estimatedTimeRemainingMs: 0,
               trainingCompletedAt: new Date().toISOString(),
             })
             .where(eq(m.id, modelId));

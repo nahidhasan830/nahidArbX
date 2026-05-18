@@ -73,11 +73,11 @@ const DEFAULT_PROVIDERS: Array<{
 }> = [
   // DeepSeek LLM providers
   {
-    name: "deepseek-lite",
+    name: "deepseek-flash",
     enabled: true,
     modelId: "deepseek-v4-flash",
-    tier: "lite",
-    label: "DeepSeek Lite",
+    tier: "flash",
+    label: "DeepSeek Flash",
     tagline: "Fast, cheap — default for most calls",
     engineType: "llm",
     monthlyLimit: null,

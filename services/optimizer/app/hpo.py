@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import lightgbm as lgb
 import numpy as np
@@ -95,6 +95,7 @@ def optimize(
     n_walk_forward_splits: int = 5,
     timeout_seconds: int | None = 600,
     seed: int = 42,
+    progress_callback: Callable[[int, int, float], None] | None = None,
 ) -> HpoResult:
     """Run Optuna HPO to pick the best LightGBM hyperparameters.
 
@@ -204,6 +205,12 @@ def optimize(
 
         per_trial_sharpes.append(mean_sharpe)
         per_trial_objectives.append(objective_value)
+        if progress_callback is not None and (
+            trial.number == 0
+            or (trial.number + 1) % 10 == 0
+            or (trial.number + 1) >= n_trials
+        ):
+            progress_callback(trial.number + 1, n_trials, objective_value)
         return objective_value
 
     study.optimize(

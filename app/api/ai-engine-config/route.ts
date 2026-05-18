@@ -17,9 +17,9 @@ import { eq } from "drizzle-orm";
 
 const SEARCH_PROVIDER_NAMES = new Set(["vertex", "brave", "tavily"]);
 
-// Map UI names to DB names: "deepseek" → "deepseek-lite", "gemini" → "gemini-lite"
+// Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
 const NAME_MAP: Record<string, string> = {
-  deepseek: "deepseek-lite",
+  deepseek: "deepseek-flash",
   gemini: "gemini-lite",
 };
 
@@ -52,11 +52,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Map UI names to DB names: "deepseek" → "deepseek-lite", "gemini" → "gemini-lite"
+    // Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
     const dbName = NAME_MAP[name] ?? name;
     const isMappedName = NAME_MAP[name] !== undefined;
 
-    // If this is a mapped name (e.g., "deepseek" instead of "deepseek-lite"),
+    // If this is a mapped name (e.g., "deepseek" instead of "deepseek-flash"),
     // delete any orphan row that might exist from previous broken toggles
     if (isMappedName) {
       try {

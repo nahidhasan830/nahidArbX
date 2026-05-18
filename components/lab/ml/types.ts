@@ -19,12 +19,21 @@ export interface PipelineData {
     latestModel: Record<string, unknown> | null;
     modelsInTraining: number;
     readyToRetrain: boolean;
+    /** New training examples accumulated since the last deployed model. Caps at retrainStep when threshold is met. */
     newDataSinceLastTrain: number;
-    growthPct: number;
+    /** How many more training examples are needed before the next auto-retrain fires. 0 ⇒ ready / queued. */
+    examplesUntilRetrain: number;
+    /** Absolute step (training examples) that triggers the next auto-retrain. */
+    retrainStep: number;
     activeTraining: {
       modelId: string;
       version: number;
       status: string;
+      trainingStage: string | null;
+      progressMessage: string | null;
+      lastHeartbeatAt: string | null;
+      estimatedRemainingMs: number | null;
+      sampleCount: number;
       startedAt: string;
       elapsedMs: number | null;
     } | null;
@@ -41,8 +50,8 @@ export interface PipelineData {
     lastTickAt: number | null;
     totalRetrainTriggers: number;
     lastError: string | null;
-    /** Auto-retrain growth threshold (e.g. 20 = "≥20% corpus growth"). */
-    growthThresholdPct: number;
+    /** Auto-retrain absolute step in new training examples (e.g. 200 ⇒ retrain fires after +200 since last deploy). */
+    retrainStep: number;
   };
   deploymentGate: {
     permissionLevel: string;
@@ -53,13 +62,6 @@ export interface PipelineData {
     lastRefreshedAt: string | null;
   };
   scoringMode: string;
-  scoreDistribution: {
-    buckets: { range: string; count: number }[];
-    avgScore: number;
-    belowThreshold: number;
-    aboveThreshold: number;
-    totalScored: number;
-  };
   featureContract: {
     currentVersion: number;
     currentFeatureCount: number;
@@ -80,17 +82,6 @@ export interface PipelineData {
       semanticPass: boolean;
     };
     allSemanticChecksPass: boolean;
-  };
-  enrichmentCoverage: {
-    distinctCompetitions: number;
-    enrichedCompetitions: number;
-    highConfidence: number;
-    coveragePct: number;
-  };
-  trainingComposition: {
-    byType: Record<string, number>;
-    byLabel: Record<string, number>;
-    totalExamples: number;
   };
   scoreBucketROI: {
     bucket: string;
@@ -143,6 +134,11 @@ export interface PipelineData {
     status: string;
     reasons: string[];
     createdAt: string | null;
+    trainingStartedAt: string | null;
+    trainingCompletedAt: string | null;
+    trainingStage: string | null;
+    progressMessage: string | null;
+    lastHeartbeatAt: string | null;
     trainingSamples: number;
     oosAucRoc: number | null;
     deflatedSharpe: number | null;
@@ -170,10 +166,3 @@ export interface PaperEvaluationMetric {
   avgEvPct: number | null;
   avgOdds: number | null;
 }
-
-export type StageStatus =
-  | "healthy"
-  | "action"
-  | "progressing"
-  | "waiting"
-  | "warning";

@@ -17,7 +17,7 @@ export async function GET() {
   const providerMap = new Map(allProviders.map(p => [p.name, p]));
 
   // Get deepseek and gemini configs
-  const deepseekLite = providerMap.get("deepseek-lite");
+  const deepseekFlash = providerMap.get("deepseek-flash");
   const deepseekPro = providerMap.get("deepseek-pro");
   const geminiLite = providerMap.get("gemini-lite");
   const geminiFlash = providerMap.get("gemini-flash");
@@ -25,17 +25,17 @@ export async function GET() {
 
   const providers: Record<string, Record<string, unknown>> = {};
 
-  // DeepSeek (use lite by default)
-  const deepseekEnabled = deepseekLite?.enabled ?? deepseekPro?.enabled ?? true;
+  // DeepSeek (use flash by default)
+  const deepseekEnabled = deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true;
   providers["deepseek"] = {
     model: deepseekModel,
     healthy: deepseekHealthy,
     disabled: !deepseekEnabled,
     manual_disabled: !deepseekEnabled,
-    disabled_reason: deepseekLite?.disabledReason ?? deepseekPro?.disabledReason ?? null,
+    disabled_reason: deepseekFlash?.disabledReason ?? deepseekPro?.disabledReason ?? null,
     is_exhausted: !deepseekHealthy,
-    monthlyUsage: deepseekLite?.monthlyUsageCount ?? 0,
-    monthlyLimit: deepseekLite?.monthlyLimit ?? null,
+    monthlyUsage: deepseekFlash?.monthlyUsageCount ?? 0,
+    monthlyLimit: deepseekFlash?.monthlyLimit ?? null,
   };
 
   // Gemini (any tier that's enabled)
@@ -54,7 +54,7 @@ export async function GET() {
     };
   }
 
-  const deepseekAllEnabled = (deepseekLite?.enabled ?? deepseekPro?.enabled ?? true) && deepseekHealthy;
+  const deepseekAllEnabled = (deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true) && deepseekHealthy;
   const geminiAnyEnabled = (geminiLite?.enabled ?? geminiFlash?.enabled ?? geminiPro?.enabled ?? false) && geminiHealthy;
 
   const activeEngine = deepseekAllEnabled

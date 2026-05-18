@@ -113,10 +113,10 @@ export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvid
   }, [fetchProviders]);
 
   const toggleProvider = useCallback(async (name: string, newEnabled: boolean) => {
-    // Map UI names to DB names: "deepseek" → "deepseek-lite", "gemini" → "gemini-lite"
+    // Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
     // Note: search providers (brave, vertex, tavily) pass through as-is
     const nameMap: Record<string, string> = {
-      deepseek: "deepseek-lite",
+      deepseek: "deepseek-flash",
       gemini: "gemini-lite",
     };
     const dbName = nameMap[name] ?? name;

@@ -22,7 +22,7 @@ import {
   ENTITY_MATCH_SYSTEM,
   ENTITY_MATCH_BATCH_SYSTEM,
   SETTLEMENT_SYSTEM,
-  GENERIC_SYSTEM,
+  buildGenericSystem,
   entityMatchPrompt,
   entityMatchBatchPrompt,
   settlementPrompt,
@@ -191,7 +191,7 @@ class GroundingEngine {
     const resp = await logAiActivity(
       {
         system: "llm",
-        provider: "deepseek-lite",
+        provider: "deepseek-flash",
         endpoint: "entity-match",
         model,
         itemCount: 1,
@@ -269,7 +269,7 @@ class GroundingEngine {
     const resp = await logAiActivity(
       {
         system: "llm",
-        provider: "deepseek-lite",
+        provider: "deepseek-flash",
         endpoint: "entity-match",
         model,
         itemCount: pairs.length,
@@ -346,7 +346,7 @@ class GroundingEngine {
     const resp = await logAiActivity(
       {
         system: "llm",
-        provider: "deepseek-lite",
+        provider: "deepseek-flash",
         endpoint: "verify-settlement",
         model,
         itemCount: 1,
@@ -377,22 +377,58 @@ class GroundingEngine {
   async query(
     question: string,
     context?: Record<string, unknown>,
-    opts?: { provider?: "deepseek" | "gemini"; model?: string },
+    opts?: {
+      provider?: "deepseek" | "gemini";
+      model?: string;
+      /**
+       * When true, skip the engine's internal web search and use only the
+       * `context.web_search_results` array (if present) as evidence.
+       * The Playground sets this so it can show the user the same sources
+       * the LLM is citing, without doubling search calls.
+       */
+      skipSearch?: boolean;
+    },
   ): Promise<GroundedAnswer> {
     const provider = opts?.provider || "deepseek";
-    const { results } = await this.search.search(question, 5);
-    const evidenceText = formatEvidence(results);
+    const skipSearch = opts?.skipSearch === true;
 
-    let prompt = genericQueryPrompt(question, context ? JSON.stringify(context) : undefined);
-    if (evidenceText) {
-      prompt += `\n\nWEB SEARCH EVIDENCE:\n${evidenceText}`;
+    // Pull caller-supplied results (from /api/ai-search/search step) first.
+    const callerResults = extractResults(context);
+
+    // Run internal search only when the caller didn't already provide
+    // evidence and didn't explicitly opt out.
+    let internalResults: SearchResult[] = [];
+    if (!skipSearch && callerResults.length === 0) {
+      const r = await this.search.search(question, 8);
+      internalResults = r.results;
     }
+
+    const evidence = callerResults.length > 0 ? callerResults : internalResults;
+    const evidenceText = formatEvidence(evidence, 10);
+    const sources = resultsToCitations(evidence);
+
+    // Strip web_search_results from the leftover context — they're already
+    // formatted as numbered evidence below. Pass the rest (if any) for
+    // additional caller-supplied hints.
+    const sideContext = stripWebResults(context);
+    const sideContextStr =
+      sideContext && Object.keys(sideContext).length > 0
+        ? JSON.stringify(sideContext)
+        : undefined;
+
+    let prompt = genericQueryPrompt(question, sideContextStr);
+    if (evidenceText) {
+      prompt += `\n\nWEB SEARCH EVIDENCE (cite as [N]):\n${evidenceText}`;
+    } else {
+      prompt += `\n\n(No web search evidence available — answer from general knowledge and clearly note the limitation.)`;
+    }
+
+    const systemPrompt = buildGenericSystem(new Date());
 
     if (provider === "gemini") {
       const client = getGeminiClient();
       const modelId = opts?.model || getGeminiModel();
 
-      let rawGemini = "";
       const resp = await logAiActivity(
         {
           system: "llm",
@@ -405,14 +441,12 @@ class GroundingEngine {
         async () => {
           const r = await client.models.generateContent({
             model: modelId,
-            contents: [{ role: "user", parts: [{ text: `${GENERIC_SYSTEM}\n\n${prompt}` }] }],
+            contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${prompt}` }] }],
           });
-          rawGemini = r.text || "";
           return r;
         },
       );
       const raw = resp.text || "";
-      const sources = resultsToCitations(results);
 
       try {
         const data = JSON.parse(raw) as { answer?: string; reasoning?: string };
@@ -425,11 +459,10 @@ class GroundingEngine {
     const llm = getDeepSeekClient();
     const model = opts?.model || getDeepSeekModel();
 
-    let rawDeepseek = "";
     const resp = await logAiActivity(
       {
         system: "llm",
-        provider: "deepseek-lite",
+        provider: "deepseek-flash",
         endpoint: "grounded-query",
         model,
         itemCount: 1,
@@ -439,24 +472,27 @@ class GroundingEngine {
         const r = await llm.chat.completions.create({
           model,
           messages: [
-            { role: "system", content: GENERIC_SYSTEM },
+            { role: "system", content: systemPrompt },
             { role: "user", content: prompt },
           ],
           temperature: 0,
-          max_tokens: 1024,
+          max_tokens: 4096,
           response_format: { type: "json_object" },
         });
-        rawDeepseek = r.choices[0]?.message?.content || "{}";
         return r;
       },
     );
 
     const raw = resp.choices[0]?.message?.content || "{}";
-    const sources = resultsToCitations(results);
 
     try {
       const data = JSON.parse(raw) as { answer?: string; reasoning?: string };
-      return { answer: data.answer || raw, reasoning: data.reasoning || "", sources, model };
+      const answer = (data.answer || "").trim();
+      // If the JSON parsed but answer is empty (e.g. truncated), surface raw.
+      if (!answer) {
+        return { answer: raw, reasoning: data.reasoning || "", sources, model };
+      }
+      return { answer, reasoning: data.reasoning || "", sources, model };
     } catch {
       return { answer: raw, reasoning: "", sources, model };
     }
@@ -732,6 +768,45 @@ function resultsToCitations(results: SearchResult[]): SourceCitation[] {
     }
   }
   return citations;
+}
+
+/**
+ * Pull a SearchResult[] out of a free-form context object. The Playground
+ * wraps results as `{ web_search_results: [...] }`; some callers pass them
+ * under `results` directly. Anything malformed falls through as [].
+ */
+function extractResults(context: unknown): SearchResult[] {
+  if (!context || typeof context !== "object") return [];
+  const obj = context as Record<string, unknown>;
+  const candidates = [obj.web_search_results, obj.results, obj.evidence];
+  for (const c of candidates) {
+    if (!Array.isArray(c)) continue;
+    const out: SearchResult[] = [];
+    for (const item of c) {
+      if (item && typeof item === "object") {
+        const it = item as Record<string, unknown>;
+        const url = typeof it.url === "string" ? it.url : "";
+        const title = typeof it.title === "string" ? it.title : "";
+        const snippet = typeof it.snippet === "string" ? it.snippet : "";
+        const source = typeof it.source === "string" ? it.source : "caller";
+        if (url) out.push({ url, title, snippet, source });
+      }
+    }
+    if (out.length > 0) return out;
+  }
+  return [];
+}
+
+/** Drop the web_search_results / results keys; keep any other side context. */
+function stripWebResults(context: unknown): Record<string, unknown> | null {
+  if (!context || typeof context !== "object") return null;
+  const obj = context as Record<string, unknown>;
+  const cleaned: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === "web_search_results" || k === "results" || k === "evidence") continue;
+    cleaned[k] = v;
+  }
+  return cleaned;
 }
 
 // ── Singleton ────────────────────────────────────────────────────────

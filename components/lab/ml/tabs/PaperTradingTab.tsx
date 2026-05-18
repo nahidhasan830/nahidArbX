@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
-import { TermTooltip } from "@/components/ui/TermTooltip";
+
 import { type ColumnDef } from "@tanstack/react-table";
 import { formatMarketType, formatAtomLabel } from "@/lib/formatting/labels";
 import { fmtSeen } from "@/lib/formatting/helpers";
@@ -678,15 +678,6 @@ function PaperTradingToolbar({
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="border-b border-border bg-muted/25 px-3 py-2">
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          <TermTooltip term="paper_trading">Paper Trading</TermTooltip> compares
-          the configured baseline stake with the model-adjusted stake on the
-          same real bets — no extra money risked. Use this tab to see whether
-          the model would have skipped, reduced, or increased stakes before
-          giving it more authority.
-        </p>
-      </div>
       {/* Row 1: date preset + inline stats + refresh */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/40">
         {/* Date preset popover — reuses the same chip-grid pattern as BetsHistoryToolbar */}
@@ -788,7 +779,7 @@ function PaperTradingToolbar({
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-1 cursor-help">
                   <Zap className="size-3 text-amber-400/70" />
                   <span className="font-medium text-foreground tabular-nums">
                     ×{parseFloat(stats.avgModelStakeMultiplier || "1").toFixed(3)}
@@ -798,9 +789,12 @@ function PaperTradingToolbar({
                   </span>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>
-                <TermTooltip term="model_stake_multiplier">Model stake multiplier</TermTooltip>{" "}
-                averaged across this period.
+              <TooltipContent className="max-w-xs">
+                <p className="text-xs leading-relaxed">
+                  <span className="font-semibold">Model stake multiplier</span>{" "}
+                  averaged across this period. Baseline × multiplier = model
+                  stake, capped at 2× baseline.
+                </p>
               </TooltipContent>
             </Tooltip>
 
@@ -811,7 +805,7 @@ function PaperTradingToolbar({
 
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 cursor-help">
                       {parseFloat(stats.pnlDeltaPct) >= 0 ? (
                         <TrendingUp className="size-3 text-emerald-400/70" />
                       ) : (
@@ -829,10 +823,6 @@ function PaperTradingToolbar({
                       >
                         {parseFloat(stats.pnlDeltaPct) > 0 ? "+" : ""}
                         {parseFloat(stats.pnlDeltaPct).toFixed(2)}%
-                      </span>
-                      <span className="text-muted-foreground/70">
-                        <TermTooltip term="pnl_delta" iconOnly />
-                        PnL Delta
                       </span>
                     </span>
                   </TooltipTrigger>

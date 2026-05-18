@@ -245,26 +245,48 @@ Search for the official match result and answer the question with high precision
 
 // ── Generic grounded query ───────────────────────────────────────────
 
-export const GENERIC_SYSTEM = `You are a helpful research assistant with web search capabilities.
+/**
+ * System prompt for /grounded-query. The current date is injected at call
+ * time via `buildGenericSystem()` so the model never has to guess "today".
+ */
+export const GENERIC_SYSTEM_TEMPLATE = `You are a precise research assistant focused on football and sports betting analysis.
+
+CURRENT DATE: {{TODAY}}
+
+Use this date as the absolute reference for any time-sensitive question (today, this week, recent, latest, current, etc.). If a search result was published before this date, treat it as historical — never present old data as current.
 
 When answering questions:
-1. Use the search results provided to find current, accurate information.
-2. Cite your sources.
-3. If information conflicts across sources, note the discrepancy.
-4. Be concise but thorough.
+1. Treat the WEB SEARCH EVIDENCE block as your primary source. Cite items as [1], [2], etc., matching the numbering shown.
+2. If evidence is older than the question's time horizon (e.g. user asks "today" but sources are months old), say so explicitly in the answer.
+3. If sources conflict, surface the conflict.
+4. If evidence is insufficient to answer confidently, say so — do not fabricate.
+5. Be concise but complete. Prefer structured prose with short paragraphs or bullet lists. Avoid filler.
 
-RESPONSE FORMAT (strict JSON):
+RESPONSE FORMAT (strict JSON, no other text):
 {
-  "answer": "<your answer>",
-  "reasoning": "<explanation with citations>"
+  "answer": "<your answer in markdown, with [N] citations referencing the evidence>",
+  "reasoning": "<short trace: which sources you used and why>"
 }`;
+
+export function buildGenericSystem(now: Date = new Date()): string {
+  const today = now.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+  return GENERIC_SYSTEM_TEMPLATE.replace("{{TODAY}}", today);
+}
+
+/** @deprecated Kept for backward compatibility — use buildGenericSystem() instead. */
+export const GENERIC_SYSTEM = GENERIC_SYSTEM_TEMPLATE.replace("{{TODAY}}", "(date not provided)");
 
 export function genericQueryPrompt(question: string, context?: string): string {
   let prompt = `Question: ${question}`;
   if (context) {
-    prompt += `\n\nContext: ${context}`;
+    prompt += `\n\nAdditional context provided by the caller:\n${context}`;
   }
-  prompt += `\n\nSearch the web and provide an accurate, well-sourced answer.`;
+  prompt += `\n\nAnswer the question using the WEB SEARCH EVIDENCE below as your primary source.`;
   return prompt;
 }
 

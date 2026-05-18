@@ -37,6 +37,10 @@ export interface MLTrainingState {
       modelId: string;
       version: number;
       status: string;
+      trainingStage: string | null;
+      progressMessage: string | null;
+      lastHeartbeatAt: string | null;
+      estimatedRemainingMs: number | null;
       startedAt: string;
       elapsedMs: number | null;
     } | null,
@@ -66,6 +70,10 @@ export function useMLTrainingStream(enabled = true): MLTrainingState {
         modelId: string;
         version: number;
         status: string;
+        trainingStage: string | null;
+        progressMessage: string | null;
+        lastHeartbeatAt: string | null;
+        estimatedRemainingMs: number | null;
         startedAt: string;
         elapsedMs: number | null;
       } | null,
@@ -83,11 +91,16 @@ export function useMLTrainingStream(enabled = true): MLTrainingState {
 
       const update: MLTrainingUpdate = {
         version: info.version,
-        phase: "training",
-        message: `LightGBM CPCV training in progress (v${info.version})`,
+        phase: phaseFromStage(info.trainingStage),
+        stage: info.trainingStage ?? undefined,
+        message:
+          info.progressMessage ??
+          `LightGBM training in progress (v${info.version})`,
         updatedAt: Date.now(),
         modelId: info.modelId,
         elapsedMs: info.elapsedMs ?? undefined,
+        lastHeartbeatAt: info.lastHeartbeatAt ?? undefined,
+        estimatedRemainingMs: info.estimatedRemainingMs ?? undefined,
       };
 
       setCurrentTraining((prev) => {
@@ -176,4 +189,23 @@ export function useMLTrainingStream(enabled = true): MLTrainingState {
     isTraining,
     hydrateFromPipeline,
   };
+}
+
+function phaseFromStage(stage: string | null): MLTrainingUpdate["phase"] {
+  switch (stage) {
+    case "loading":
+      return "loading";
+    case "gate":
+      return "validating";
+    case "export":
+      return "exporting";
+    case "complete":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "rejected":
+      return "rejected";
+    default:
+      return "training";
+  }
 }

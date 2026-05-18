@@ -7,8 +7,8 @@
  * get real-time updates.
  *
  * Poll frequency:
- *   - Normal: every 60s (same as scheduler tick)
- *   - Active training: every 5s (fast poll for responsive UI)
+ *   - Normal: every 20s
+ *   - Active training: every 10s (fast poll for responsive UI)
  *
  * This module is started by the retraining scheduler and shares its
  * singleton lifecycle.
@@ -24,17 +24,19 @@ interface PollerState {
   active: boolean;
   timer: ReturnType<typeof setInterval> | null;
   /** Model IDs we've already seen — tracks phase transitions to avoid duplicate events. */
-  knownModels: Map<string, { status: string; lastEmittedPhase: string }>;
+  knownModels: Map<
+    string,
+    { status: string; lastEmittedPhase: string; signature: string }
+  >;
   /** Current poll interval in ms. */
   pollIntervalMs: number;
 }
 
-const FAST_POLL_MS = 5_000;
-const SLOW_POLL_MS = 60_000;
+const FAST_POLL_MS = 10_000;
+const SLOW_POLL_MS = 20_000;
 /** If a model stays at 'training' longer than this, auto-fail it.
- *  Pipeline = Cloud Build (~5 min) + Cloud Run Job (~15 min) = ~20 min typical.
- *  45 min gives generous headroom for slow builds or large datasets. */
-const STUCK_TRAINING_TIMEOUT_MS = 45 * 60 * 1000; // 45 minutes
+ *  Uses Python heartbeats when available, falling back to the row start time. */
+const STUCK_TRAINING_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
 
 const state = singleton<PollerState>("ml:training-poller", () => ({
   active: false,
@@ -55,6 +57,34 @@ function mapStatusToPhase(status: string): MLTrainingUpdate["phase"] {
       return "rejected";
     case "failed":
       return "failed";
+    default:
+      return "training";
+  }
+}
+
+function mapStageToPhase(
+  stage: string | null,
+  status: string,
+): MLTrainingUpdate["phase"] {
+  if (status !== "training") return mapStatusToPhase(status);
+  switch (stage) {
+    case "loading":
+      return "loading";
+    case "hpo":
+    case "holdout":
+    case "cpcv":
+    case "final":
+      return "training";
+    case "gate":
+      return "validating";
+    case "export":
+      return "exporting";
+    case "complete":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "rejected":
+      return "rejected";
     default:
       return "training";
   }
@@ -86,6 +116,72 @@ function phaseMessage(
   }
 }
 
+function trainingSignature(model: {
+  status: string;
+  trainingStage: string | null;
+  progressMessage: string | null;
+  lastHeartbeatAt: string | null;
+  estimatedTimeRemainingMs: number | null;
+}): string {
+  return [
+    model.status,
+    model.trainingStage ?? "",
+    model.progressMessage ?? "",
+    model.lastHeartbeatAt ?? "",
+    model.estimatedTimeRemainingMs ?? "",
+  ].join("|");
+}
+
+function updateForModel(model: {
+  id: string;
+  version: number;
+  status: string;
+  trainingStage: string | null;
+  progressMessage: string | null;
+  lastHeartbeatAt: string | null;
+  estimatedTimeRemainingMs: number | null;
+  trainingStartedAt: string | null;
+  trainingSamples: number;
+  oosAucRoc: string | number | null;
+  deflatedSharpe: string | number | null;
+  pbo: string | number | null;
+  permissionLevel: string | null;
+  rejectionReasons: unknown;
+}): MLTrainingUpdate {
+  const phase = mapStageToPhase(model.trainingStage, model.status);
+  const startedAt = model.trainingStartedAt
+    ? new Date(model.trainingStartedAt).getTime()
+    : Date.now();
+  const update: MLTrainingUpdate = {
+    version: model.version,
+    phase,
+    stage: model.trainingStage ?? undefined,
+    message: model.progressMessage ?? phaseMessage(phase, model.version),
+    updatedAt: Date.now(),
+    modelId: model.id,
+    elapsedMs: Date.now() - startedAt,
+    lastHeartbeatAt: model.lastHeartbeatAt ?? undefined,
+    estimatedRemainingMs: model.estimatedTimeRemainingMs ?? undefined,
+  };
+
+  if (model.status === "deployed" || model.status === "rejected") {
+    update.metrics = {
+      aucRoc: model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
+      dsr:
+        model.deflatedSharpe != null
+          ? Number(model.deflatedSharpe)
+          : undefined,
+      pbo: model.pbo != null ? Number(model.pbo) : undefined,
+      trainingSamples: model.trainingSamples,
+      permissionLevel: model.permissionLevel ?? "observe",
+      rejectionReasons:
+        (model.rejectionReasons as string[] | null) ?? undefined,
+    };
+  }
+
+  return update;
+}
+
 async function pollTrainingStatus(): Promise<void> {
   try {
     const { db } = await import("../db/client");
@@ -97,7 +193,7 @@ async function pollTrainingStatus(): Promise<void> {
       .select()
       .from(mlModels)
       .where(
-        sql`${mlModels.status} = 'training' OR ${mlModels.createdAt} > now() - interval '5 minutes'`,
+        sql`${mlModels.status} = 'training' OR (${mlModels.status} <> 'retired' AND ${mlModels.createdAt} > now() - interval '5 minutes')`,
       )
       .orderBy(desc(mlModels.createdAt))
       .limit(10);
@@ -109,12 +205,12 @@ async function pollTrainingStatus(): Promise<void> {
     // likely exited without updating the row. Mark it as failed.
     for (const model of recentModels) {
       if (model.status !== "training") continue;
-      const startedAt = model.trainingStartedAt
-        ? new Date(model.trainingStartedAt).getTime()
-        : model.createdAt
-          ? new Date(model.createdAt).getTime()
-          : Date.now();
-      const elapsedMs = Date.now() - startedAt;
+      const heartbeatSource =
+        model.lastHeartbeatAt ?? model.trainingStartedAt ?? model.createdAt;
+      const heartbeatAt = heartbeatSource
+        ? new Date(heartbeatSource).getTime()
+        : Date.now();
+      const elapsedMs = Date.now() - heartbeatAt;
 
       if (elapsedMs > STUCK_TRAINING_TIMEOUT_MS) {
         logger.warn(
@@ -131,6 +227,11 @@ async function pollTrainingStatus(): Promise<void> {
                 "Training timed out — Cloud Run Job may have exited without updating the database.",
               ],
               trainingCompletedAt: new Date().toISOString(),
+              trainingStage: "failed",
+              progressMessage:
+                "Training timed out — Cloud Run Job may have exited without updating the database.",
+              lastHeartbeatAt: new Date().toISOString(),
+              estimatedTimeRemainingMs: 0,
             })
             .where(eq(mlModels.id, model.id));
 
@@ -139,10 +240,13 @@ async function pollTrainingStatus(): Promise<void> {
           const failedUpdate: MLTrainingUpdate = {
             version: model.version,
             phase: "failed",
-            message: `Model v${model.version} training timed out after ${Math.round(elapsedMs / 60000)} minutes`,
+            message: `Model v${model.version} heartbeat timed out after ${Math.round(elapsedMs / 60000)} minutes`,
             updatedAt: Date.now(),
             modelId: model.id,
             elapsedMs,
+            stage: "failed",
+            lastHeartbeatAt: new Date().toISOString(),
+            estimatedRemainingMs: 0,
           };
           syncBus.emitBus({
             type: "ml:training:update",
@@ -153,6 +257,7 @@ async function pollTrainingStatus(): Promise<void> {
           state.knownModels.set(model.id, {
             status: "failed",
             lastEmittedPhase: "failed",
+            signature: "failed",
           });
 
           // Notify via Telegram
@@ -194,45 +299,17 @@ async function pollTrainingStatus(): Promise<void> {
 
     for (const model of recentModels) {
       const known = state.knownModels.get(model.id);
-      const currentPhase = mapStatusToPhase(model.status);
+      const currentPhase = mapStageToPhase(model.trainingStage, model.status);
+      const signature = trainingSignature(model);
 
       if (!known) {
         // First time seeing this model — emit its current state
         state.knownModels.set(model.id, {
           status: model.status,
           lastEmittedPhase: currentPhase,
+          signature,
         });
-
-        const startedAt = model.trainingStartedAt
-          ? new Date(model.trainingStartedAt).getTime()
-          : Date.now();
-        const elapsedMs = Date.now() - startedAt;
-
-        const update: MLTrainingUpdate = {
-          version: model.version,
-          phase: currentPhase,
-          message: phaseMessage(currentPhase, model.version),
-          updatedAt: Date.now(),
-          modelId: model.id,
-          elapsedMs,
-        };
-
-        // Add metrics for completed/rejected models
-        if (model.status === "deployed" || model.status === "rejected") {
-          update.metrics = {
-            aucRoc:
-              model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
-            dsr:
-              model.deflatedSharpe != null
-                ? Number(model.deflatedSharpe)
-                : undefined,
-            pbo: model.pbo != null ? Number(model.pbo) : undefined,
-            trainingSamples: model.trainingSamples,
-            permissionLevel: model.permissionLevel ?? "observe",
-            rejectionReasons:
-              (model.rejectionReasons as string[] | null) ?? undefined,
-          };
-        }
+        const update = updateForModel(model);
 
         syncBus.emitBus({ type: "ml:training:update", training: update });
         logger.info(tag, `Emitted ${currentPhase} for model v${model.version}`);
@@ -240,39 +317,11 @@ async function pollTrainingStatus(): Promise<void> {
       }
 
       // Model already known — check for status transition
-      if (known.status !== model.status) {
+      if (known.signature !== signature) {
         known.status = model.status;
         known.lastEmittedPhase = currentPhase;
-
-        const startedAt = model.trainingStartedAt
-          ? new Date(model.trainingStartedAt).getTime()
-          : Date.now();
-        const elapsedMs = Date.now() - startedAt;
-
-        const update: MLTrainingUpdate = {
-          version: model.version,
-          phase: currentPhase,
-          message: phaseMessage(currentPhase, model.version),
-          updatedAt: Date.now(),
-          modelId: model.id,
-          elapsedMs,
-        };
-
-        if (model.status === "deployed" || model.status === "rejected") {
-          update.metrics = {
-            aucRoc:
-              model.oosAucRoc != null ? Number(model.oosAucRoc) : undefined,
-            dsr:
-              model.deflatedSharpe != null
-                ? Number(model.deflatedSharpe)
-                : undefined,
-            pbo: model.pbo != null ? Number(model.pbo) : undefined,
-            trainingSamples: model.trainingSamples,
-            permissionLevel: model.permissionLevel ?? "observe",
-            rejectionReasons:
-              (model.rejectionReasons as string[] | null) ?? undefined,
-          };
-        }
+        known.signature = signature;
+        const update = updateForModel(model);
 
         syncBus.emitBus({ type: "ml:training:update", training: update });
         logger.info(
@@ -286,7 +335,7 @@ async function pollTrainingStatus(): Promise<void> {
           model.status === "rejected" ||
           model.status === "failed"
         ) {
-          void notifyTrainingCompleted(model, elapsedMs);
+          void notifyTrainingCompleted(model, update.elapsedMs ?? 0);
         }
       }
     }
@@ -340,6 +389,7 @@ export function emitTrainingStarted(modelId: string, version: number): void {
   state.knownModels.set(modelId, {
     status: "training",
     lastEmittedPhase: "started",
+    signature: "started",
   });
 
   // Emit through the bus (async import to avoid circular deps at boot)
@@ -354,7 +404,7 @@ export function emitTrainingStarted(modelId: string, version: number): void {
     state.timer = setInterval(() => {
       void pollTrainingStatus();
     }, FAST_POLL_MS);
-    logger.info(tag, "Switched to fast polling (5s) for active training");
+    logger.info(tag, "Switched to fast polling (10s) for active training");
   }
 }
 

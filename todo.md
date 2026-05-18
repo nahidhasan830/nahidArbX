@@ -8,3 +8,4 @@
 - odds movement, kelly, ev columns confusing
 - can we predict where the next odds go for soft provider?
 - add more providers
+-ml optimizer: if it rejects first then again the bet become good. does it boost? 

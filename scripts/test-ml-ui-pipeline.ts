@@ -238,7 +238,8 @@ function validatePipeline(body: unknown): void {
       "totalModels",
       "modelsInTraining",
       "newDataSinceLastTrain",
-      "growthPct",
+      "examplesUntilRetrain",
+      "retrainStep",
     ]) {
       expectNumber(training[key], `pipeline.training.${key}`);
     }

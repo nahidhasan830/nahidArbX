@@ -46,7 +46,7 @@ export interface MlTrainingStartedEvent {
   featureVersion: number;
   /** Feature dimensions (should be 25). */
   featureCount: number;
-  /** Trigger source: "manual" (dashboard button) or "auto" (≥20% data growth or drift retrain). */
+  /** Trigger source: "manual" (dashboard button) or "auto" (+200 new training examples since last deploy or drift retrain). */
   trigger: "manual" | "auto";
   /** Git SHA of the training image (if available). */
   gitSha?: string;

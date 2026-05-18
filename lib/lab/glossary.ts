@@ -711,9 +711,9 @@ export const GLOSSARY = {
   },
   auto_retrain: {
     short:
-      "Trigger: corpusSize ≥ lastDeployedSize × (1 + growthThresholdPct/100).  No schedule, no cadence.",
+      "Trigger: corpusSize ≥ lastDeployedSize + retrainStep (default 200 examples).  No schedule, no cadence.",
     example:
-      "Threshold = 20%, last deployed trained on 4,500 examples. Once corpus ≥ 4,500 × 1.20 = 5,400, the scheduler fires a new training run on the next tick. Manual retrain is always available — auto is the floor that prevents stale models.",
+      "Step = 200, last deployed trained on 4,500 examples. Once corpus ≥ 4,700, the scheduler fires a new training run on the next tick. Manual retrain is always available — auto is the floor that prevents stale models.",
   },
   cold_start_threshold: {
     short:

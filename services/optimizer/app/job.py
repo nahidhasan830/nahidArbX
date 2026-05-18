@@ -21,6 +21,7 @@ import time
 
 from .config import get_settings
 from .db import open_session
+from .progress import write_progress
 
 
 def _count_placed_settled(session) -> int:
@@ -59,22 +60,50 @@ def _fail_pending_models(reason: str) -> None:
                 UPDATE ml_models
                 SET status = 'failed',
                     rejection_reasons = CAST(:reasons AS jsonb),
-                    training_completed_at = now()
+                    training_completed_at = now(),
+                    training_stage = 'failed',
+                    progress_message = :reason,
+                    last_heartbeat_at = now(),
+                    estimated_time_remaining_ms = 0
                 WHERE status = 'training'
                   AND id = :model_id
-            """), {"reasons": reasons_json, "model_id": training_model_id})
+            """), {
+                "reasons": reasons_json,
+                "reason": reason,
+                "model_id": training_model_id,
+            })
         else:
             # Fallback: update all training rows (backward compat)
             session.execute(sqla_text("""
                 UPDATE ml_models
                 SET status = 'failed',
                     rejection_reasons = CAST(:reasons AS jsonb),
-                    training_completed_at = now()
+                    training_completed_at = now(),
+                    training_stage = 'failed',
+                    progress_message = :reason,
+                    last_heartbeat_at = now(),
+                    estimated_time_remaining_ms = 0
                 WHERE status = 'training'
-            """), {"reasons": reasons_json})
+            """), {"reasons": reasons_json, "reason": reason})
         session.commit()
     except Exception as e:
         logging.getLogger("ml.job").warning("Failed to update ml_models: %s", e)
+        session.rollback()
+    finally:
+        session.close()
+
+
+def _set_training_stage(
+    model_id: str | None,
+    stage: str,
+    message: str,
+    estimated_ms: int = 0,
+) -> None:
+    session = open_session()
+    try:
+        write_progress(session, model_id, stage, message, estimated_ms)
+    except Exception as e:
+        logging.getLogger("ml.job").warning("Failed to write progress: %s", e)
         session.rollback()
     finally:
         session.close()
@@ -158,11 +187,26 @@ def _run_pipeline(settings, log, start_time: float) -> None:
         data.n_samples, int(data.labels.sum()), int((data.labels == 0).sum()),
         data.scale_pos_weight, "yes" if data.sample_weights is not None else "no",
     )
+    _set_training_stage(
+        os.environ.get("TRAINING_MODEL_ID"),
+        "loading",
+        f"Loading dataset: {data.n_samples} samples, {data.features.shape[1]} features",
+        5_000,
+    )
 
     # ── Train ──────────────────────────────────────────────────────────
     from .trainer import train
 
-    result = train(data)
+    training_model_id = os.environ.get("TRAINING_MODEL_ID")
+    result = train(
+        data,
+        progress_callback=lambda stage, message, eta=0: _set_training_stage(
+            training_model_id,
+            stage,
+            message,
+            eta,
+        ),
+    )
     metrics = result.metrics
 
     log.info(
@@ -189,6 +233,16 @@ def _run_pipeline(settings, log, start_time: float) -> None:
         n_placed_settled=n_placed_settled,
         feature_version_matches=data.feature_version == FEATURE_VERSION,
         feature_count_matches=len(data.feature_names) == FEATURE_COUNT,
+    )
+    _set_training_stage(
+        os.environ.get("TRAINING_MODEL_ID"),
+        "gate",
+        (
+            f"Gate approved: {gate_result.permission_level}"
+            if gate_result.approved
+            else f"Gate rejected: {gate_result.rejection_reasons[0] if gate_result.rejection_reasons else 'policy checks failed'}"
+        ),
+        0,
     )
 
     if gate_result.warnings:
@@ -232,6 +286,12 @@ def _run_pipeline(settings, log, start_time: float) -> None:
 
     session = open_session()
     try:
+        _set_training_stage(
+            os.environ.get("TRAINING_MODEL_ID"),
+            "export",
+            "Exporting candidate model",
+            0,
+        )
         model_id = export_and_upload(
             result.model, metrics, session,
             permission_level=gate_result.permission_level,

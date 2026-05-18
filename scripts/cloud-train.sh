@@ -35,10 +35,94 @@ if [[ -n "${TRAINING_MODEL_ID:-}" ]]; then
   ENV_VARS="$ENV_VARS,TRAINING_MODEL_ID=$TRAINING_MODEL_ID"
 fi
 
-gcloud run jobs execute "$JOB_NAME" \
+RESULT=$(gcloud run jobs execute "$JOB_NAME" \
   --region="$REGION" \
   --project="$PROJECT_ID" \
   --update-env-vars="$ENV_VARS" \
-  --wait
+  --async \
+  --quiet 2>&1)
+echo "$RESULT"
 
-echo "✓ Cloud training pipeline complete"
+EXECUTION_NAME=$(printf '%s\n' "$RESULT" | sed -nE 's/.*describe ([^[:space:]]+).*/\1/p' | tail -1)
+if [[ -z "$EXECUTION_NAME" ]]; then
+  EXECUTION_NAME=$(gcloud run jobs executions list \
+    --job="$JOB_NAME" \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --sort-by="~metadata.creationTimestamp" \
+    --limit=1 \
+    --format="value(metadata.name)")
+fi
+
+if [[ -z "$EXECUTION_NAME" ]]; then
+  echo "✗ Could not determine Cloud Run execution name"
+  exit 1
+fi
+
+echo "▶ Watching execution: $EXECUTION_NAME"
+POLL_INTERVAL=${TRAINING_JOB_POLL_INTERVAL:-10}
+MAX_WAIT=${TRAINING_JOB_MAX_WAIT:-1800}
+ELAPSED=0
+
+while [[ "$ELAPSED" -le "$MAX_WAIT" ]]; do
+  STATUS_JSON=$(gcloud run jobs executions describe "$EXECUTION_NAME" \
+    --region="$REGION" \
+    --project="$PROJECT_ID" \
+    --format=json 2>/dev/null || true)
+
+  COMPLETED_STATUS=$(printf '%s' "$STATUS_JSON" | python3 -c 'import json,sys
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit
+for condition in data.get("status", {}).get("conditions", []):
+    if condition.get("type") == "Completed":
+        print(condition.get("status", ""))
+        break
+')
+  STARTED_STATUS=$(printf '%s' "$STATUS_JSON" | python3 -c 'import json,sys
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit
+for condition in data.get("status", {}).get("conditions", []):
+    if condition.get("type") == "Started":
+        print(condition.get("status", ""))
+        break
+')
+  MESSAGE=$(printf '%s' "$STATUS_JSON" | python3 -c 'import json,sys
+try:
+    data=json.load(sys.stdin)
+except Exception:
+    print("")
+    raise SystemExit
+for condition in data.get("status", {}).get("conditions", []):
+    if condition.get("type") == "Completed":
+        print(condition.get("message", ""))
+        break
+')
+
+  if [[ "$COMPLETED_STATUS" == "True" ]]; then
+    echo "[$ELAPSED s] Status: Succeeded ${MESSAGE:+— $MESSAGE}"
+    echo "✓ Cloud training pipeline complete"
+    exit 0
+  fi
+  if [[ "$COMPLETED_STATUS" == "False" ]]; then
+    echo "[$ELAPSED s] Status: Failed ${MESSAGE:+— $MESSAGE}"
+    exit 1
+  fi
+
+  if [[ "$STARTED_STATUS" == "True" ]]; then
+    echo "[$ELAPSED s] Status: Running"
+  else
+    echo "[$ELAPSED s] Status: Starting"
+  fi
+
+  sleep "$POLL_INTERVAL"
+  ELAPSED=$((ELAPSED + POLL_INTERVAL))
+done
+
+echo "✗ Training timed out after ${MAX_WAIT}s"
+exit 1

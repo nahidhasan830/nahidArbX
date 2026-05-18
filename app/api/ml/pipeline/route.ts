@@ -2,26 +2,20 @@
  * GET /api/ml/pipeline — comprehensive ML Optimizer pipeline stats.
  *
  * Single endpoint that returns the full picture: data collection health,
- * training readiness, inference status, score distribution, and Phase 10
- * diagnostic data (feature contract, enrichment coverage, training
- * sample composition, rejected model reasons, score bucket ROI/CLV).
+ * training readiness, inference status, feature-contract diagnostics,
+ * rejected model reasons, score bucket ROI/CLV, and paper evaluation.
  * The UI polls this every 15 seconds.
  */
 import { NextResponse } from "next/server";
 import { sql, and, isNotNull, desc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import {
-  bets,
-  mlModels,
-  competitionEnrichments,
-  mlTrainingExamples,
-} from "@/lib/db/schema";
+import { bets, mlModels, mlTrainingExamples } from "@/lib/db/schema";
 import {
   ML_COLD_START_THRESHOLD,
   ML_MIN_SCORE,
   ML_FEATURE_COUNT,
   ML_FEATURE_VERSION,
-  ML_RETRAIN_GROWTH_THRESHOLD,
+  ML_RETRAIN_GROWTH_STEP,
 } from "@/lib/shared/constants";
 import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
 import { engineGet } from "@/lib/engine-proxy";
@@ -107,7 +101,8 @@ interface SchedulerStatus {
   lastTickAt: number | null;
   totalRetrainTriggers: number;
   lastError: string | null;
-  growthThresholdPct: number;
+  /** Absolute step (in training examples) that triggers an auto-retrain since the last deployed model. */
+  retrainStep: number;
 }
 
 const PAPER_SIMPLE_RULE_MIN_EV_PCT = 3;
@@ -294,43 +289,6 @@ export async function GET() {
       allSemanticChecksPass: semanticHealth.semanticPass,
     };
 
-    // ── Enrichment cache coverage (Phase 10) ────────────────────────
-    const distinctComps = await db
-      .select({ cnt: sql<number>`count(DISTINCT competition)::int` })
-      .from(bets)
-      .where(isNotNull(bets.competition));
-
-    const enrichedComps = await db
-      .select({ cnt: sql<number>`count(*)::int` })
-      .from(competitionEnrichments);
-
-    const highConfidenceEnrichments = await db
-      .select({ cnt: sql<number>`count(*)::int` })
-      .from(competitionEnrichments)
-      .where(sql`${competitionEnrichments.confidence} >= 70`);
-
-    const enrichmentCoverage = {
-      distinctCompetitions: distinctComps[0]?.cnt ?? 0,
-      enrichedCompetitions: enrichedComps[0]?.cnt ?? 0,
-      highConfidence: highConfidenceEnrichments[0]?.cnt ?? 0,
-      coveragePct:
-        (distinctComps[0]?.cnt ?? 0) > 0
-          ? Math.round(
-              ((enrichedComps[0]?.cnt ?? 0) / (distinctComps[0]?.cnt ?? 0)) *
-                100,
-            )
-          : 0,
-    };
-
-    // ── Training sample composition (Phase 10 + Phase 2) ─────────────
-    const exampleTypeCounts = await db
-      .select({
-        exampleType: mlTrainingExamples.exampleType,
-        cnt: sql<number>`count(*)::int`,
-      })
-      .from(mlTrainingExamples)
-      .groupBy(mlTrainingExamples.exampleType);
-
     // Phase 2: Canonical examples — this mirrors the Python loader's
     // precedence, feature-length filtering, and semantic feature guard.
     const canonicalExampleRows = await getCanonicalTrainingExampleRows();
@@ -365,25 +323,6 @@ export async function GET() {
         : qualifiedRows.filter((r) => !trainedIds.has(r.id)).length;
     const totalAvailableSamples =
       examplesCount > 0 ? examplesCount : uncoveredCount;
-
-    const labelCounts = await db
-      .select({
-        label: mlTrainingExamples.label,
-        cnt: sql<number>`count(*)::int`,
-      })
-      .from(mlTrainingExamples)
-      .where(isNotNull(mlTrainingExamples.label))
-      .groupBy(mlTrainingExamples.label);
-
-    const trainingComposition = {
-      byType: Object.fromEntries(
-        exampleTypeCounts.map((r) => [r.exampleType, r.cnt]),
-      ),
-      byLabel: Object.fromEntries(
-        labelCounts.map((r) => [r.label ?? "unlabeled", r.cnt]),
-      ),
-      totalExamples: exampleTypeCounts.reduce((s, r) => s + r.cnt, 0),
-    };
 
     // ── Score bucket ROI/CLV (Phase 10 + Phase 2) ────────────────────
     // Phase 2: Use unit returns instead of null pnl for unplaced bets.
@@ -676,6 +615,10 @@ export async function GET() {
         featureNamesHash: mlModels.featureNamesHash,
         trainingStartedAt: mlModels.trainingStartedAt,
         trainingCompletedAt: mlModels.trainingCompletedAt,
+        trainingStage: mlModels.trainingStage,
+        progressMessage: mlModels.progressMessage,
+        lastHeartbeatAt: mlModels.lastHeartbeatAt,
+        estimatedTimeRemainingMs: mlModels.estimatedTimeRemainingMs,
         oosRoiMean: mlModels.oosRoiMean,
         oosAccuracy: mlModels.oosAccuracy,
         oosAucRoc: mlModels.oosAucRoc,
@@ -710,6 +653,11 @@ export async function GET() {
           modelId: activeTrainingModel.id,
           version: activeTrainingModel.version,
           status: activeTrainingModel.status,
+          trainingStage: activeTrainingModel.trainingStage,
+          progressMessage: activeTrainingModel.progressMessage,
+          lastHeartbeatAt: activeTrainingModel.lastHeartbeatAt,
+          estimatedRemainingMs: activeTrainingModel.estimatedTimeRemainingMs,
+          sampleCount: activeTrainingModel.trainingSamples,
           startedAt: activeTrainingModel.trainingStartedAt,
           elapsedMs: activeTrainingModel.trainingStartedAt
             ? Date.now() -
@@ -734,6 +682,9 @@ export async function GET() {
         createdAt: m.createdAt,
         trainingStartedAt: m.trainingStartedAt,
         trainingCompletedAt: m.trainingCompletedAt,
+        trainingStage: m.trainingStage,
+        progressMessage: m.progressMessage,
+        lastHeartbeatAt: m.lastHeartbeatAt,
         trainingSamples: m.trainingSamples,
         oosAucRoc: m.oosAucRoc != null ? Number(m.oosAucRoc) : null,
         deflatedSharpe:
@@ -741,32 +692,34 @@ export async function GET() {
         pbo: m.pbo != null ? Number(m.pbo) : null,
       }));
 
-    // Retraining readiness — auto-retrain triggers when corpus grows
-    // by ≥ML_RETRAIN_GROWTH_THRESHOLD since the last deployed model.
+    // Retraining readiness — auto-retrain triggers after
+    // ≥ML_RETRAIN_GROWTH_STEP new training examples since the last
+    // deployed model. `examplesUntilRetrain` lets the UI render a
+    // progress bar against the absolute step.
     let readyToRetrain = false;
     let newDataSinceLastTrain = 0;
-    let growthPct = 0;
+    let examplesUntilRetrain = ML_RETRAIN_GROWTH_STEP;
 
     if (
       modelsInTraining === 0 &&
       totalAvailableSamples >= ML_COLD_START_THRESHOLD
     ) {
       if (!deployed) {
+        // No deployed model yet — first training is queued the moment
+        // cold-start passes. Treat this as "ready" with full bar.
         readyToRetrain = true;
         newDataSinceLastTrain = totalAvailableSamples;
-        growthPct = 100;
+        examplesUntilRetrain = 0;
       } else {
-        newDataSinceLastTrain =
-          totalAvailableSamples - deployed.trainingSamples;
-        growthPct =
-          deployed.trainingSamples > 0
-            ? Math.round(
-                (newDataSinceLastTrain / deployed.trainingSamples) * 100,
-              )
-            : 100;
-        readyToRetrain =
-          newDataSinceLastTrain >
-          deployed.trainingSamples * ML_RETRAIN_GROWTH_THRESHOLD;
+        newDataSinceLastTrain = Math.max(
+          0,
+          totalAvailableSamples - deployed.trainingSamples,
+        );
+        examplesUntilRetrain = Math.max(
+          0,
+          ML_RETRAIN_GROWTH_STEP - newDataSinceLastTrain,
+        );
+        readyToRetrain = newDataSinceLastTrain >= ML_RETRAIN_GROWTH_STEP;
       }
     }
 
@@ -798,7 +751,7 @@ export async function GET() {
       lastTickAt: null,
       totalRetrainTriggers: 0,
       lastError: null,
-      growthThresholdPct: Math.round(ML_RETRAIN_GROWTH_THRESHOLD * 100),
+      retrainStep: ML_RETRAIN_GROWTH_STEP,
     };
     const schedulerResult = await engineGet<SchedulerStatus>(
       "/engine/ml/scheduler",
@@ -806,48 +759,10 @@ export async function GET() {
     if (schedulerResult) {
       scheduler = {
         ...schedulerResult,
-        // Engine may run an older build without growthThresholdPct — fall
-        // back to the canonical constant so the UI can still display it.
-        growthThresholdPct:
-          schedulerResult.growthThresholdPct ??
-          Math.round(ML_RETRAIN_GROWTH_THRESHOLD * 100),
+        // Engine may run an older build without retrainStep — fall back
+        // to the canonical constant so the UI can still display it.
+        retrainStep: schedulerResult.retrainStep ?? ML_RETRAIN_GROWTH_STEP,
       };
-    }
-
-    // ── Score distribution (last 200 scored bets) ───────────────────
-    const scoredBets = await db
-      .select({ mlScore: bets.mlScore, mlFeatures: bets.mlFeatures })
-      .from(bets)
-      .where(isNotNull(bets.mlScore))
-      .orderBy(desc(bets.firstSeenAt))
-      .limit(200);
-
-    const bucketLabels = [
-      "0.0–0.1",
-      "0.1–0.2",
-      "0.2–0.3",
-      "0.3–0.4",
-      "0.4–0.5",
-      "0.5–0.6",
-      "0.6–0.7",
-      "0.7–0.8",
-      "0.8–0.9",
-      "0.9–1.0",
-    ];
-    const bucketCounts = new Array(10).fill(0) as number[];
-    let scoreSum = 0;
-    let belowThreshold = 0;
-
-    for (const row of scoredBets) {
-      const s = row.mlScore ?? 0;
-      scoreSum += s;
-      const idx = Math.min(Math.floor(s * 10), 9);
-      bucketCounts[idx]++;
-      const adjustedOdds = row.mlFeatures?.[3] ?? row.mlFeatures?.[2] ?? 0;
-      const modelEdgePct = (s * adjustedOdds - 1) * 100;
-      if (!Number.isFinite(modelEdgePct) || modelEdgePct <= 0) {
-        belowThreshold++;
-      }
     }
 
     // ── Resolve scoring mode label for UI ──────────────────────────────
@@ -885,7 +800,8 @@ export async function GET() {
         modelsInTraining,
         readyToRetrain,
         newDataSinceLastTrain,
-        growthPct,
+        examplesUntilRetrain,
+        retrainStep: ML_RETRAIN_GROWTH_STEP,
         activeTraining,
       },
       inference,
@@ -899,23 +815,7 @@ export async function GET() {
         lastRefreshedAt: null,
       },
       scoringMode,
-      scoreDistribution: {
-        buckets: bucketLabels.map((range, i) => ({
-          range,
-          count: bucketCounts[i],
-        })),
-        avgScore:
-          scoredBets.length > 0
-            ? Math.round((scoreSum / scoredBets.length) * 1000) / 1000
-            : 0,
-        belowThreshold,
-        aboveThreshold: scoredBets.length - belowThreshold,
-        totalScored: scoredBets.length,
-      },
-      // Phase 10 diagnostic data
       featureContract,
-      enrichmentCoverage,
-      trainingComposition,
       scoreBucketROI,
       paperEvaluation,
       rejectedModels,

@@ -16,22 +16,15 @@ import {
 } from "lucide-react";
 import { TabsContent } from "@/components/ui/tabs";
 import { AppShell } from "@/components/nav/AppShell";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { RetrainButton } from "./MLModelStatus";
 import { useMLTrainingStream } from "@/components/hooks/useMLTrainingStream";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { PaperTradingTab } from "./tabs/PaperTradingTab";
-import { getStageStatuses } from "./shared";
 
-// Re-export types so existing imports from this file still work
-export type { PipelineData, StageStatus } from "./types";
+// Re-export type so existing imports from this file still work
+export type { PipelineData } from "./types";
 import type { PipelineData } from "./types";
 
 // ── Query ─────────────────────────────────────────────────────────────
@@ -138,57 +131,11 @@ export function MLPipelineDashboard() {
     );
   }
 
-  const statuses = getStageStatuses(data);
-
-  const isTraining =
-    trainingStream.isTraining || data.training.modelsInTraining > 0;
-  const coldReady =
-    data.dataCollection.qualifiedForTraining >=
-    data.dataCollection.coldStartThreshold;
-  const trainingDisabledReason = !coldReady
-    ? `${Math.max(
-        0,
-        data.dataCollection.coldStartThreshold -
-          data.dataCollection.qualifiedForTraining,
-      )} more settled examples needed before training can start.`
-    : undefined;
-  const growthThresholdPct = data.scheduler.growthThresholdPct;
-
-  const headerActions = (
-    <div className="flex items-center gap-2">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="hidden sm:inline-flex items-center gap-1 rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-300 cursor-help">
-            <span className="size-1.5 rounded-full bg-cyan-400" />
-            Auto-retrain ≥{growthThresholdPct}% data growth
-          </span>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs text-sm leading-relaxed">
-          A new training run kicks off automatically as soon as the canonical
-          training corpus has grown by ≥{growthThresholdPct}% since the last
-          deployed model. There is no cadence or schedule — manual retrain is
-          always available via the button on the right.
-        </TooltipContent>
-      </Tooltip>
-      <RetrainButton
-        size="sm"
-        hasExistingModel={data.training.totalModels > 0}
-        disabledReason={trainingDisabledReason}
-        isTraining={isTraining}
-        trainingVersion={
-          trainingStream.currentTraining?.version ??
-          data.training.activeTraining?.version
-        }
-      />
-    </div>
-  );
-
   return (
     <TooltipProvider delayDuration={150}>
       <AppShell
         title="ML Optimizer"
         edgeToEdge
-        actions={headerActions}
         tabs={[
           { value: "overview", label: "Overview", icon: LayoutDashboard },
           { value: "paper-trading", label: "Paper Trading", icon: LineChart },
@@ -199,20 +146,19 @@ export function MLPipelineDashboard() {
         <div className="relative flex flex-col flex-1 min-h-0 bg-background overflow-hidden text-foreground">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden" />
 
-          <div className="relative z-10 flex flex-col flex-1 min-h-0 p-3 max-w-[1920px] mx-auto w-full">
+          <div className="relative z-10 flex flex-col flex-1 min-h-0 p-3 max-w-[1920px] mx-auto w-full overflow-y-auto">
             <TabsContent
               value="overview"
-              className="flex-1 min-h-0 mt-0 outline-none"
+              className="flex-1 min-h-0 mt-0 outline-none data-[state=inactive]:hidden"
             >
               <OverviewTab
                 data={data}
-                statuses={statuses}
                 trainingStream={trainingStream}
               />
             </TabsContent>
             <TabsContent
               value="paper-trading"
-              className="flex-1 min-h-0 mt-0 outline-none"
+              className="flex-1 min-h-0 mt-0 outline-none data-[state=inactive]:hidden"
             >
               <PaperTradingTab />
             </TabsContent>

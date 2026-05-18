@@ -116,7 +116,7 @@ export async function GET(
         return {} as Record<string, { enabled: boolean; disabledReason: string | null }>;
       });
 
-      const deepseekCfg = configs["deepseek-lite"] ?? configs["deepseek-pro"] ?? { enabled: true, disabledReason: null };
+      const deepseekCfg = configs["deepseek-flash"] ?? configs["deepseek-pro"] ?? { enabled: true, disabledReason: null };
       const geminiCfg = configs["gemini-lite"] ?? configs["gemini-flash"] ?? configs["gemini-pro"] ?? { enabled: true, disabledReason: null };
 
       const providers: Record<string, Record<string, unknown>> = {};
@@ -238,9 +238,11 @@ export async function POST(
     if (subPath === "grounded-query") {
       const question = body.question || body.query || "";
       const llmProvider = (body.provider as "deepseek" | "gemini") || "deepseek";
+      const skipSearch = body.skip_search === true || body.skipSearch === true;
       const result = await getGroundingEngine().query(question, body.context, {
         provider: llmProvider,
         model: body.model,
+        skipSearch,
       });
       return logAndRespond(subPath, body, startMs, {
         answer: result.answer,

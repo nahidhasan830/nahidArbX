@@ -52,7 +52,7 @@ export const ML_COLD_START_THRESHOLD = 200; // Aligned with Python deployment ga
 export const ML_FEATURE_COUNT = 25; // Dimensionality of feature vector
 export const ML_FEATURE_VERSION = 2; // Contract version for persisted ML feature vectors
 export const ML_WARMUP_MIN_TICKS = 3; // Min sharp-provider ticks before trusting history-dependent features
-export const ML_RETRAIN_GROWTH_THRESHOLD = 0.2; // Auto-retrain when settled training corpus grows ≥20% since the last deployed model
+export const ML_RETRAIN_GROWTH_STEP = 200; // Auto-retrain after this many new training examples since the last deployed model. Aligned with ML_COLD_START_THRESHOLD so retrain cadence matches the minimum-viable training step.
 
 // Vertex AI Search — allowed domains (Google limit: 50 domains)
 export const VERTEX_AI_ALLOWED_DOMAINS = [

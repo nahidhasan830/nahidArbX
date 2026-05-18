@@ -348,42 +348,7 @@ export function getDriftStats() {
   };
 }
 
-/**
- * Hook into the engine's retraining scheduler tick.
- *
- * Called from the scheduler's tick() function. If drift is detected and
- * cooldown has elapsed, this will trigger a retraining check immediately
- * (overriding the normal cadence).
- *
- * @returns true if drift-based retraining should be triggered.
- */
-export async function evaluateDriftRetrain(): Promise<boolean> {
-  const status = checkDrift();
-  if (!status.allowRetrain) {
-    if (status.driftDetected) {
-      logger.info(
-        "MLDrift",
-        `Drift detected on [${status.driftMetrics.join(", ")}] but still in cooldown (${Math.round(status.retrainCooldownRemainingMs / 1000)}s remaining)`,
-      );
-    }
-    return false;
-  }
-
-  logger.warn(
-    "MLDrift",
-    `Concept drift detected on metrics: [${status.driftMetrics.join(", ")}]. ` +
-      `unitReturn shrinks=${status.unitReturnShrinks}, ` +
-      `winRate shrinks=${status.winRateShrinks}, ` +
-      `mlScoreBias shrinks=${status.mlScoreBiasShrinks}. ` +
-      `Triggering retraining check.`,
-  );
-
-  return true;
-}
-
-/**
- * Permission levels ordered by escalation (lowest → highest).
- */
+// ── Calibration decay monitoring
 const PERMISSION_ORDER: Record<string, number> = {
   observe: 0,
   gate_only: 1,

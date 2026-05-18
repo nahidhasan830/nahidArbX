@@ -40,7 +40,7 @@ export default function RootLayout({
       data-scroll-behavior="smooth"
       suppressHydrationWarning
     >
-      <body className="font-sans antialiased" suppressHydrationWarning>
+      <body className="font-sans antialiased h-screen overflow-hidden" suppressHydrationWarning>
         <Providers>
           {children}
           <Toaster position="bottom-right" richColors closeButton />

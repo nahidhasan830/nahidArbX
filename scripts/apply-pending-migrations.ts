@@ -55,6 +55,8 @@ const MIGRATIONS = [
   "0059_ml_champion_columns.sql",
   "0060_drop_ml_scheduler_settings.sql",
   "0064_paper_trading_rename.sql",
+  "0065_ml_training_visibility.sql",
+  "0066_deepseek_rename_lite_to_flash.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -254,6 +256,34 @@ async function main() {
       expect: 1,
     },
     {
+      what: "ml_models.training_stage column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'training_stage'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.progress_message column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'progress_message'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.last_heartbeat_at column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'last_heartbeat_at'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.estimated_time_remaining_ms column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'estimated_time_remaining_ms'`,
+      expect: 1,
+    },
+    {
       what: "ml_model_version_seq sequence",
       sql: `SELECT count(*)::int AS n FROM pg_class
               WHERE relname = 'ml_model_version_seq' AND relkind = 'S'`,
@@ -320,6 +350,16 @@ async function main() {
       sql: `SELECT count(*)::int AS n FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'bets'
                 AND column_name = 'ml_kelly_adjusted'`,
+      expect: 0,
+    },
+    {
+      what: "ai_provider_config: deepseek-flash row exists (renamed from deepseek-lite)",
+      sql: `SELECT count(*)::int AS n FROM ai_provider_config WHERE name = 'deepseek-flash'`,
+      expect: 1,
+    },
+    {
+      what: "ai_provider_config: deepseek-lite row removed",
+      sql: `SELECT count(*)::int AS n FROM ai_provider_config WHERE name = 'deepseek-lite'`,
       expect: 0,
     },
   ];

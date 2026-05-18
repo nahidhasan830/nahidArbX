@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 import lightgbm as lgb
 import numpy as np
@@ -203,6 +204,7 @@ def train(
     hpo_trials: int = 50,
     hpo_timeout_seconds: int | None = 600,
     calibration_method: str = "auto",
+    progress_callback: Callable[[str, str, int], None] | None = None,
 ) -> TrainingResult:
     """Run the full Stage A→D pipeline.
 
@@ -224,13 +226,27 @@ def train(
     base_params = {**DEFAULT_LGBM_PARAMS}
     cfg = cpcv_config or DEFAULT_CPCV_CONFIG
 
+    def progress(stage: str, message: str, estimated_ms: int = 0) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(stage, message, estimated_ms)
+        except Exception as exc:
+            log.warning("Progress callback failed: %s", exc)
+
     # ── Stage A: HPO ──────────────────────────────────────────────────
+    progress("hpo", f"Starting HPO: {hpo_trials} trials", 300_000)
     hpo_result = _stage_a_hpo(
         data,
         base_params=base_params,
         run_hpo=run_hpo and lgbm_params is None,
         n_trials=hpo_trials,
         timeout_seconds=hpo_timeout_seconds,
+        progress_callback=lambda i, total, value: progress(
+            "hpo",
+            f"HPO trial {i}/{total} — objective {value:.6f}",
+            300_000,
+        ),
     )
 
     chosen_params: dict = (
@@ -249,20 +265,38 @@ def train(
             "min_child_samples", "reg_alpha", "reg_lambda",
         )},
     )
+    best_objective = (
+        f"{hpo_result.best_value:.6f}"
+        if not math.isnan(hpo_result.best_value)
+        else "baseline params"
+    )
+    progress("hpo", f"HPO complete — best objective {best_objective}", 20_000)
 
     # ── Stage B: outer holdout ────────────────────────────────────────
+    progress("holdout", "Running outer holdout validation", 60_000)
     outer = _stage_b_outer_holdout(data, chosen_params)
     log.info(
         "Stage B complete: holdout n=%d AUC=%.4f unit_return=%.4f policy_n=%d policy_roi=%.2f%%",
         outer["n"], outer["auc"], outer["unit_return_mean"],
         outer["policy_n"], outer["policy_roi_pct"],
     )
+    progress(
+        "holdout",
+        f"Holdout AUC: {outer['auc']:.4f} ({outer['n']} samples)",
+        60_000,
+    )
 
     # ── Stage C: CPCV risk certification ──────────────────────────────
-    cpcv_out = _stage_c_cpcv(data, chosen_params, cfg)
+    progress("cpcv", "Starting CPCV risk certification", 120_000)
+    cpcv_out = _stage_c_cpcv(data, chosen_params, cfg, progress=progress)
     log.info(
         "Stage C complete: %d folds, mean fold-Sharpe=%.4f, mean fold-ROI=%.2f%%",
         cpcv_out["n_folds"], cpcv_out["mean_sharpe"], cpcv_out["mean_roi"],
+    )
+    progress(
+        "cpcv",
+        f"CPCV complete — Sharpe {cpcv_out['mean_sharpe']:.3f}, ROI {cpcv_out['mean_roi']:.2f}%",
+        30_000,
     )
 
     # ── Calibration on CPCV OOS predictions ───────────────────────────
@@ -376,6 +410,7 @@ def train(
 
     # ── Stage D: final fit on ALL data + SHAP ─────────────────────────
     log.info("Stage D: training final model on all %d samples", data.n_samples)
+    progress("final", f"Fitting final model on {data.n_samples} samples", 10_000)
     final_model = lgb.LGBMClassifier(**chosen_params)
     final_model.fit(
         data.features, data.labels, sample_weight=data.sample_weights,
@@ -452,6 +487,7 @@ def _stage_a_hpo(
     run_hpo: bool,
     n_trials: int,
     timeout_seconds: int | None,
+    progress_callback: Callable[[int, int, float], None] | None = None,
 ) -> HpoResult:
     if not run_hpo:
         log.info("Stage A skipped (run_hpo=False or explicit lgbm_params provided)")
@@ -465,6 +501,7 @@ def _stage_a_hpo(
         base_params=base_params,
         n_trials=n_trials,
         timeout_seconds=timeout_seconds,
+        progress_callback=progress_callback,
     )
 
 
@@ -533,6 +570,7 @@ def _stage_c_cpcv(
     data: TrainingData,
     params: dict,
     cfg: CpcvConfig,
+    progress: Callable[[str, str, int], None] | None = None,
 ) -> dict:
     """CPCV risk certification with the chosen hyperparameters."""
     splitter_df = pl.DataFrame({
@@ -601,6 +639,15 @@ def _stage_c_cpcv(
             if selected_returns.size > 0
             else 0.0
         )
+        fold_number = split.path_index + 1
+        if progress is not None and (
+            fold_number == 1 or fold_number % 5 == 0 or fold_number == n_folds
+        ):
+            progress(
+                "cpcv",
+                f"CPCV fold {fold_number}/{n_folds} — Sharpe {sharpe:.3f}",
+                120_000,
+            )
 
     oos_preds = np.full(n, np.nan, dtype=np.float64)
     predicted_mask = oos_pred_count > 0

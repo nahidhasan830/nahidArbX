@@ -60,6 +60,8 @@ export interface MLTrainingUpdate {
     | "completed"
     | "failed"
     | "rejected";
+  /** Fine-grained Python training stage, when available. */
+  stage?: string;
   /** Human-readable message for the current phase. */
   message: string;
   /** Optional progress percentage [0–100] within the current phase. */
@@ -79,6 +81,10 @@ export interface MLTrainingUpdate {
   };
   /** Duration since training started (ms). */
   elapsedMs?: number;
+  /** Last heartbeat timestamp written by the Python trainer. */
+  lastHeartbeatAt?: string;
+  /** Trainer-side ETA estimate. */
+  estimatedRemainingMs?: number;
 }
 
 // ============================================

@@ -3,10 +3,10 @@
  *
  * Background loop that decides when a new training run should be
  * triggered. Auto-retraining is gated on a single rule: the canonical
- * training corpus has grown ≥`ML_RETRAIN_GROWTH_THRESHOLD` (20%) since
- * the last deployed model. There is no cadence, no enabled toggle, no
- * tunable threshold — manual retraining stays available via
- * `POST /api/ml/retrain`.
+ * training corpus has grown by ≥`ML_RETRAIN_GROWTH_STEP` (200 new
+ * examples) since the last deployed model. There is no cadence, no
+ * enabled toggle, no tunable threshold — manual retraining stays
+ * available via `POST /api/ml/retrain`.
  *
  * The same loop also drives drift detection, calibration health checks,
  * pilot/A-B test evaluation, deployed-model notifications, and the
@@ -23,7 +23,7 @@ import {
   ML_COLD_START_THRESHOLD,
   ML_FEATURE_COUNT,
   ML_FEATURE_VERSION,
-  ML_RETRAIN_GROWTH_THRESHOLD,
+  ML_RETRAIN_GROWTH_STEP,
 } from "../shared/constants";
 import { FEATURE_NAMES_HASH } from "../ml/features";
 import { processPendingModelNotifications } from "./notifier-tick";
@@ -32,6 +32,10 @@ import {
   stopTrainingPoller,
   emitTrainingStarted,
 } from "./training-poller";
+import {
+  progressMessageFromCloudTrainLog,
+  writeCloudTrainingProgress,
+} from "./cloud-training-progress";
 
 const tag = "ModelRetrainingScheduler";
 const POLL_INTERVAL_MS = 60_000; // 60s — auto-retrain readiness checks don't need to be frequent
@@ -57,8 +61,8 @@ const state = singleton<SchedulerState>("ml:retrain-scheduler", () => ({
  *   1. No model is currently in 'training' status.
  *   2. At least `ML_COLD_START_THRESHOLD` qualified training samples exist.
  *   3. Either no model has been deployed yet, OR the qualified sample
- *      count has grown by ≥`ML_RETRAIN_GROWTH_THRESHOLD` (20%) since
- *      the last deployed model's training set.
+ *      count has grown by ≥`ML_RETRAIN_GROWTH_STEP` (200 examples)
+ *      since the last deployed model's training set.
  */
 async function shouldRetrain(): Promise<boolean> {
   try {
@@ -74,9 +78,15 @@ async function shouldRetrain(): Promise<boolean> {
       .limit(1);
     if (training) return false;
 
-    // Count canonical, current-version labeled training examples
+    // Count canonical, current-version labeled training examples.
+    // Python dedupes ml_training_examples by source_bet_id, falling back to
+    // event/family/atom when no source bet exists. Match that here, otherwise
+    // shadow_scored + settled_detected duplicates make the scheduler retrain
+    // immediately after every successful deployment.
     const [{ examplesCount }] = await db
-      .select({ examplesCount: sql<number>`count(*)::int` })
+      .select({
+        examplesCount: sql<number>`count(distinct coalesce(${mlTrainingExamples.sourceBetId}, ${mlTrainingExamples.eventId} || '|' || ${mlTrainingExamples.familyId} || '|' || ${mlTrainingExamples.atomId}))::int`,
+      })
       .from(mlTrainingExamples)
       .where(
         and(
@@ -152,10 +162,10 @@ async function shouldRetrain(): Promise<boolean> {
     // No deployed model yet — train as soon as the corpus passes cold start
     if (!latest) return true;
 
-    // Retrain if the corpus has grown by ≥ML_RETRAIN_GROWTH_THRESHOLD
-    // since the last deployed model.
+    // Retrain if the corpus has grown by ≥ML_RETRAIN_GROWTH_STEP
+    // examples since the last deployed model.
     const growth = totalAvailableSamples - latest.trainingSamples;
-    return growth > latest.trainingSamples * ML_RETRAIN_GROWTH_THRESHOLD;
+    return growth >= ML_RETRAIN_GROWTH_STEP;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(tag, `shouldRetrain check failed: ${msg}`);
@@ -198,7 +208,16 @@ async function triggerRetraining(): Promise<void> {
       featureVersion: ML_FEATURE_VERSION,
       featureNamesHash: FEATURE_NAMES_HASH,
       trainingStartedAt: new Date().toISOString(),
+      trainingStage: "loading",
+      progressMessage: "Cloud Build queued",
+      lastHeartbeatAt: new Date().toISOString(),
+      estimatedTimeRemainingMs: 20 * 60 * 1000,
     });
+    void writeCloudTrainingProgress(
+      modelId,
+      "Cloud Build queued",
+      20 * 60 * 1000,
+    );
 
     emitTrainingStarted(modelId, 0);
 
@@ -282,16 +301,37 @@ async function triggerRetraining(): Promise<void> {
 
     child.stdout.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString().split("\n")) {
-        if (line.trim()) logger.info("MLCloudTrain", line.trim());
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        logger.info("MLCloudTrain", trimmed);
+        const progress = progressMessageFromCloudTrainLog(trimmed);
+        if (progress) {
+          void writeCloudTrainingProgress(modelId, progress, 20 * 60 * 1000);
+        }
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString().split("\n")) {
-        if (line.trim()) logger.warn("MLCloudTrain", line.trim());
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        logger.warn("MLCloudTrain", trimmed);
+        const progress = progressMessageFromCloudTrainLog(trimmed);
+        if (progress) {
+          void writeCloudTrainingProgress(modelId, progress, 20 * 60 * 1000);
+        }
       }
     });
 
+    const heartbeat = setInterval(() => {
+      void writeCloudTrainingProgress(
+        modelId,
+        "Cloud Build/Run pipeline still active",
+        20 * 60 * 1000,
+      );
+    }, 15_000);
+
     child.on("exit", async (code) => {
+      clearInterval(heartbeat);
       if (code !== 0 && code !== null) {
         logger.warn(tag, `Cloud training pipeline exited with code ${code}`);
         try {
@@ -305,6 +345,10 @@ async function triggerRetraining(): Promise<void> {
               rejectionReasons: [
                 `Cloud Build + Run pipeline failed (exit code ${code})`,
               ],
+              trainingStage: "failed",
+              progressMessage: `Cloud Build + Run pipeline failed (exit code ${code})`,
+              lastHeartbeatAt: new Date().toISOString(),
+              estimatedTimeRemainingMs: 0,
               trainingCompletedAt: new Date().toISOString(),
             })
             .where(eq(mlModels.id, modelId));
@@ -338,18 +382,14 @@ async function tick(): Promise<void> {
   }
 
   // 2. Drift detection + automatic permission degradation
-  let driftTriggered = false;
   try {
     const {
-      evaluateDriftRetrain,
       checkDrift,
       computeDriftDegradation,
       clearDriftDegradation,
       getDriftDegradationStatus,
-      checkCalibrationHealth,
     } = await import("../ml/drift-detector");
 
-    driftTriggered = await evaluateDriftRetrain();
     const driftStatus = checkDrift();
 
     // ── Clear degradation if a new model was deployed ───────────────
@@ -417,19 +457,6 @@ async function tick(): Promise<void> {
       }
     }
 
-    if (driftTriggered) {
-      logger.info(tag, "Drift detected — forcing retraining check");
-    }
-
-    // ── Calibration health check ───────────────────────────────────
-    const calHealth = await checkCalibrationHealth();
-    if (calHealth.eceExceeded) {
-      logger.warn(
-        tag,
-        `Calibration decay: ECE=${calHealth.ece.toFixed(4)} (threshold=${0.15}). Consider retraining.`,
-      );
-    }
-
     // ── Pilot evaluation (stake_increase promotion) ────────────────
     try {
       const { evaluatePilot, isPilotActive, stopPilot } = await import("../ml/pilot");
@@ -466,15 +493,13 @@ async function tick(): Promise<void> {
     logger.warn(tag, `Drift check failed: ${(err as Error).message}`);
   }
 
-  // 3. Auto-retrain check — fires when corpus has grown ≥20% since last
-  //    deployed model, or when drift forces a retrain.
+  // 3. Auto-retrain check — fires when corpus has grown ≥ML_RETRAIN_GROWTH_STEP
+  //    examples since last deployed model. Drift detection only degrades permission (no retrain trigger).
   try {
-    if (driftTriggered || (await shouldRetrain())) {
+    if (await shouldRetrain()) {
       logger.info(
         tag,
-        `Auto-retrain criteria met (drift=${driftTriggered}, growth≥${Math.round(
-          ML_RETRAIN_GROWTH_THRESHOLD * 100,
-        )}%) — triggering Cloud Build + Run pipeline`,
+        `Auto-retrain criteria met (growth≥${ML_RETRAIN_GROWTH_STEP} examples) — triggering Cloud Build + Run pipeline`,
       );
       await triggerRetraining();
     }
@@ -493,9 +518,7 @@ export function startModelRetrainingScheduler(): void {
   }, POLL_INTERVAL_MS);
   logger.info(
     tag,
-    `Started — auto-retrain on ≥${Math.round(
-      ML_RETRAIN_GROWTH_THRESHOLD * 100,
-    )}% corpus growth (poll every ${POLL_INTERVAL_MS / 1000}s)`,
+    `Started — auto-retrain after +${ML_RETRAIN_GROWTH_STEP} new training examples (poll every ${POLL_INTERVAL_MS / 1000}s)`,
   );
   // Start the training status poller for real-time SSE updates
   startTrainingPoller();
@@ -522,6 +545,6 @@ export function getModelRetrainingSchedulerStatus() {
     lastTickAt: state.lastTickAt,
     lastError: state.lastError,
     totalRetrainTriggers: state.totalRetrainTriggers,
-    growthThresholdPct: Math.round(ML_RETRAIN_GROWTH_THRESHOLD * 100),
+    retrainStep: ML_RETRAIN_GROWTH_STEP,
   };
 }

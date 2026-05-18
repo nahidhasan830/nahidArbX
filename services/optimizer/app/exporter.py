@@ -213,6 +213,16 @@ def write_model_row(
         status = "rejected"
     else:
         status = "validated"
+    terminal_stage = "complete" if status == "deployed" else status
+    progress_message = (
+        f"Gate rejected: {rejection_reasons[0]}"
+        if status == "rejected" and rejection_reasons
+        else (
+            f"Model v{model_version} deployed successfully"
+            if status == "deployed"
+            else f"Model v{model_version} validated"
+        )
+    )
 
     # Retire any currently deployed model
     if deploy:
@@ -243,6 +253,8 @@ def write_model_row(
             INSERT INTO ml_models (
                 id, version, status, model_type, training_samples,
                 feature_count, training_started_at, training_completed_at,
+                training_stage, progress_message, last_heartbeat_at,
+                estimated_time_remaining_ms,
                 feature_version, feature_names_hash,
                 oos_roi_mean, oos_accuracy, oos_auc_roc, oos_log_loss,
                 deflated_sharpe, pbo, calibration_error,
@@ -252,6 +264,8 @@ def write_model_row(
             ) VALUES (
                 :id, :version, :status, :model_type, :training_samples,
                 :feature_count, :training_started_at, :training_completed_at,
+                :training_stage, :progress_message, :last_heartbeat_at,
+                :estimated_time_remaining_ms,
                 :feature_version, :feature_names_hash,
                 :oos_roi_mean, :oos_accuracy, :oos_auc_roc, :oos_log_loss,
                 :deflated_sharpe, :pbo, :calibration_error,
@@ -271,6 +285,10 @@ def write_model_row(
             "feature_names_hash": FEATURE_NAMES_HASH,
             "training_started_at": now,  # Approximation — actual start tracked externally
             "training_completed_at": now,
+            "training_stage": terminal_stage,
+            "progress_message": progress_message,
+            "last_heartbeat_at": now,
+            "estimated_time_remaining_ms": 0,
             "oos_roi_mean": metrics.oos_roi_mean,
             "oos_accuracy": metrics.accuracy,
             "oos_auc_roc": metrics.auc_roc,

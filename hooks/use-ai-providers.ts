@@ -23,6 +23,34 @@ export interface AIProvider {
   engineType: EngineType;
 }
 
+// Internal shape returned by /api/ai-providers (uses `name` as identity)
+type ApiProvider = {
+  name: string;
+  enabled: boolean;
+  disabledReason: string | null;
+  modelId: string | null;
+  tier: ProviderTier | null;
+  label: string | null;
+  tagline: string | null;
+  hasWebSearch: boolean;
+  engineType: EngineType;
+};
+
+function apiToClient(p: ApiProvider): AIProvider {
+  return {
+    id: p.name,
+    name: p.name,
+    enabled: p.enabled,
+    disabledReason: p.disabledReason,
+    modelId: p.modelId,
+    tier: p.tier,
+    label: p.label ?? p.name,
+    tagline: p.tagline,
+    hasWebSearch: false,
+    engineType: p.engineType,
+  };
+}
+
 /**
  * Fetch all AI providers once and optionally poll.
  * @param pollMs - polling interval in ms. 0 = fetch once.
@@ -35,8 +63,8 @@ export function useAiProviders(pollMs = 0) {
     try {
       const res = await fetch("/api/ai-providers", { cache: "no-store" });
       if (res.ok) {
-        const data = (await res.json()) as AIProvider[];
-        setProviders(data);
+        const data = (await res.json()) as ApiProvider[];
+        setProviders(data.map(apiToClient));
       }
     } catch {
       // non-fatal

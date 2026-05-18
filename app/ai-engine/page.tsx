@@ -59,18 +59,24 @@ export default function AiSearchDashboard() {
   }, []);
 
   const load = useCallback(async () => {
-    setIsRefreshing(true);
     setError(null);
-    await Promise.all([refresh(), loadHealth()]);
-    setLastLoadedAt(new Date().toISOString());
-    setInitialLoad(false);
-    setIsRefreshing(false);
+    setIsRefreshing(true);
+    try {
+      await Promise.all([refresh(), loadHealth()]);
+    } finally {
+      setLastLoadedAt(new Date().toISOString());
+      setInitialLoad(false);
+      setIsRefreshing(false);
+    }
   }, [refresh, loadHealth]);
 
-  // Initial load
+  // Initial load — fire once after mount, then let polling via useAiProviders handle refreshes
+  const didInitRef = useRef(false);
   useEffect(() => {
-    load();
-  }, []);
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+    void load();
+  }, [load]);
 
   // Combined toggle handler - just call the hook, it handles everything including refresh
   const handleToggleProvider = useCallback(
@@ -92,7 +98,7 @@ export default function AiSearchDashboard() {
     const search = new Set<string>();
     const llm = new Set<string>();
     for (const p of providers) {
-      // toggleBusy stores UI names ("deepseek"/"gemini"), not DB names ("deepseek-lite")
+      // toggleBusy stores UI names ("deepseek"/"gemini"), not DB names ("deepseek-flash")
       const uiName = p.name.startsWith("deepseek") ? "deepseek" :
                      p.name.startsWith("gemini") ? "gemini" : p.name;
       if (isToggling(uiName)) {
