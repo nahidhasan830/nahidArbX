@@ -221,6 +221,24 @@ Never output confidence=0 unless you found absolutely nothing.
 
 Respond with ONLY a JSON object containing "answer", "confidence", and "reasoning".`;
 
+const formatTz = (d: Date, tz: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const val = (type: string) => parts.find(p => p.type === type)!.value;
+  return {
+    date: `${val("year")}-${val("month")}-${val("day")}`,
+    time: `${val("hour")}:${val("minute")}`,
+  };
+};
+
 export function settlementPrompt(
   homeTeam: string,
   awayTeam: string,
@@ -228,11 +246,37 @@ export function settlementPrompt(
   date: string,
   question: string,
 ): string {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const utcToday = now.toISOString().slice(0, 10);
+  const bstTodayParts = formatTz(now, "Asia/Dhaka");
+  const bstToday = bstTodayParts.date;
+
+  const todayClause = utcToday === bstToday
+    ? `${utcToday} (UTC/Dhaka)`
+    : `UTC: ${utcToday} / Dhaka: ${bstToday}`;
+
+  let utcMatchDate = date;
+  let bstMatchDate = date;
+  let matchTimeStr = "";
+  try {
+    const d = new Date(date);
+    if (!isNaN(d.getTime())) {
+      const utc = formatTz(d, "UTC");
+      const bst = formatTz(d, "Asia/Dhaka");
+      utcMatchDate = utc.date;
+      bstMatchDate = bst.date;
+      matchTimeStr = ` (Kickoff: ${utc.time} UTC / ${bst.time} Dhaka time)`;
+    }
+  } catch {}
+
+  const matchDateClause = utcMatchDate === bstMatchDate
+    ? utcMatchDate
+    : `UTC: ${utcMatchDate} / Dhaka: ${bstMatchDate}`;
+
   return `Match: ${homeTeam} vs ${awayTeam}
 Competition: ${competition}
-Date: ${date}
-Today: ${today}
+Date: ${matchDateClause}${matchTimeStr}
+Today: ${todayClause}
 
 Question: ${question}
 
@@ -270,6 +314,7 @@ RESPONSE FORMAT (strict JSON, no other text):
 
 export function buildGenericSystem(now: Date = new Date()): string {
   const today = now.toLocaleDateString("en-GB", {
+    timeZone: "Asia/Dhaka",
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -295,7 +340,8 @@ export function genericQueryPrompt(question: string, context?: string): string {
 function formatTime(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleString("en-GB", {
+    const utcStr = d.toLocaleString("en-GB", {
+      timeZone: "UTC",
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -303,6 +349,19 @@ function formatTime(iso: string): string {
       minute: "2-digit",
       hour12: false,
     });
+    const bstStr = d.toLocaleString("en-GB", {
+      timeZone: "Asia/Dhaka",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    if (utcStr === bstStr) {
+      return `${utcStr} UTC`;
+    }
+    return `${utcStr} UTC / ${bstStr} Dhaka`;
   } catch {
     return iso;
   }

@@ -34,15 +34,39 @@ const scopeLabel = (scope?: string): string => {
   return "full time";
 };
 
+const formatTz = (d: Date, tz: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const val = (type: string) => parts.find(p => p.type === type)!.value;
+  return {
+    date: `${val("year")}-${val("month")}-${val("day")}`,
+    time: `${val("hour")}:${val("minute")}`,
+  };
+};
+
 export function buildBetGradeUrl(bet: BetGradeDescriptor): string {
   const kickoff =
     typeof bet.eventStartTime === "string"
       ? new Date(bet.eventStartTime)
       : bet.eventStartTime;
-  const date = kickoff.toISOString().slice(0, 10);
-  const time = kickoff.toISOString().slice(11, 16);
+
+  const utc = formatTz(kickoff, "UTC");
+  const bst = formatTz(kickoff, "Asia/Dhaka");
+
+  const dateTimeClause = utc.date === bst.date && utc.time === bst.time
+    ? `${utc.date} ${utc.time} UTC`
+    : `UTC: ${utc.date} ${utc.time} / Dhaka: ${bst.date} ${bst.time}`;
+
   const query = [
-    `Grade bet for match: ${bet.homeTeam} vs ${bet.awayTeam} ${bet.competition ? `(${bet.competition})` : ""} on ${date} ${time} UTC.`,
+    `Grade bet for match: ${bet.homeTeam} vs ${bet.awayTeam} ${bet.competition ? `(${bet.competition})` : ""} on ${dateTimeClause}.`,
     `Bet: ${bet.marketType} (${scopeLabel(bet.timeScope)}), Line: ${bet.familyLine ?? "N/A"}, Pick: ${bet.atomLabel}.`,
     `Rules:`,
     `- Over/Under: Total goals > Line = OVER wins, < Line = UNDER. Exact hits (e.g. 3.0) = VOID.`,

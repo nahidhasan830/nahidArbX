@@ -68,12 +68,37 @@ const RESPONSE_SCHEMA = {
   required: ["status", "confidence"],
 };
 
+const formatTz = (d: Date, tz: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const val = (type: string) => parts.find(p => p.type === type)!.value;
+  return {
+    date: `${val("year")}-${val("month")}-${val("day")}`,
+    time: `${val("hour")}:${val("minute")}`,
+  };
+};
+
 const buildPrompt = (evt: SettleEvent): string => {
-  const dateStr = evt.startTime.slice(0, 10);
+  const kickoff = new Date(evt.startTime);
+  const utc = formatTz(kickoff, "UTC");
+  const bst = formatTz(kickoff, "Asia/Dhaka");
+
+  const dateClause = utc.date === bst.date
+    ? utc.date
+    : `${utc.date} (Dhaka local date: ${bst.date})`;
+
   return `Match: ${evt.homeTeam} vs ${evt.awayTeam}
 Competition: ${evt.competition ?? "unknown"}
-Kickoff (UTC): ${evt.startTime}
-Date: ${dateStr}
+Kickoff: ${utc.time} UTC / ${bst.time} Dhaka time
+Date: ${dateClause}
 
 Use googleSearch to find the FT (Full Time) and HT (Half Time) score for this specific fixture.
 Do not guess. Verify it's the exact match from the given date.

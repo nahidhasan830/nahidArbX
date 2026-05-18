@@ -83,6 +83,24 @@ function parseHtScore(answer: string): { htHome: number; htAway: number } | null
   return null;
 }
 
+const formatTz = (d: Date, tz: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const val = (type: string) => parts.find(p => p.type === type)!.value;
+  return {
+    date: `${val("year")}-${val("month")}-${val("day")}`,
+    time: `${val("hour")}:${val("minute")}`,
+  };
+};
+
 /**
  * Fetch final scores for unresolved events using DeepSeek Flash + web search.
  *
@@ -105,11 +123,19 @@ export async function fetchAiSearchScores(
   // overwhelm the rate limit on large batches.
   for (const event of events) {
     try {
-      const dateStr = event.startTime.slice(0, 10);
+      const kickoff = new Date(event.startTime);
+      const utc = formatTz(kickoff, "UTC");
+      const bst = formatTz(kickoff, "Asia/Dhaka");
+
+      const dateClause = utc.date === bst.date
+        ? utc.date
+        : `${utc.date} (Dhaka local date: ${bst.date})`;
+
       const question =
         `What was the final score of the football match ${event.homeTeam} vs ${event.awayTeam}` +
         (event.competition ? ` in ${event.competition}` : "") +
-        ` on ${dateStr}? Please give the exact final score (e.g. "2-1") and half-time score if available.`;
+        ` on ${dateClause} (kickoff ${utc.time} UTC / ${bst.time} Dhaka time)? ` +
+        `Please give the exact final score (e.g. "2-1") and half-time score if available.`;
 
       const verdict = await verifySettlement(
         {
