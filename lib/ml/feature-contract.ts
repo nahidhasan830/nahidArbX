@@ -10,31 +10,28 @@ import { createHash } from "node:crypto";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 
 export const FEATURE_NAMES: string[] = [
-  "ev_pct", // 0
-  "sharp_true_prob", // 1
-  "soft_odds", // 2
-  "adjusted_soft_odds", // 3
-  "implied_prob_gap", // 4
-  "tick_count", // 5
-  "time_to_kickoff_min", // 6
-  "movement_pct_sharp", // 7
-  "movement_pct_soft", // 8
-  "steam_move_sharp", // 9
-  "steam_move_soft", // 10
-  "sharp_direction", // 11
-  "soft_direction", // 12
-  "convergence_rate", // 13
-  "tick_velocity", // 14
-  "provider_count", // 15
-  "opening_sharp_odds", // 16
-  "market_type_encoded", // 17
-  "is_asian_line", // 18
-  "kelly_fraction_raw", // 19
-  "vig_pct", // 20
-  "competition_tier", // 21
-  "hours_since_line_opened", // 22
-  "sharp_soft_spread", // 23
-  "num_markets_same_event", // 24
+  "sharp_true_prob", // 0
+  "soft_odds", // 1
+  "adjusted_soft_odds", // 2
+  "tick_count", // 3
+  "time_to_kickoff_min", // 4
+  "movement_pct_sharp", // 5
+  "movement_pct_soft", // 6
+  "steam_move_sharp", // 7
+  "steam_move_soft", // 8
+  "sharp_direction", // 9
+  "soft_direction", // 10
+  "convergence_rate", // 11
+  "tick_velocity", // 12
+  "provider_count", // 13
+  "opening_sharp_odds", // 14
+  "market_type_encoded", // 15
+  "is_asian_line", // 16
+  "vig_pct", // 17
+  "competition_tier", // 18
+  "hours_since_line_opened", // 19
+  "sharp_soft_spread", // 20
+  "num_markets_same_event", // 21
 ];
 
 export const FEATURE_COUNT = ML_FEATURE_COUNT;

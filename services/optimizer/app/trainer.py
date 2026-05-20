@@ -43,7 +43,7 @@ from .policy import (
     POLICY_EDGE_THRESHOLD_PCT,
     policy_unit_returns,
     return_sharpe,
-    select_policy_threshold,
+    compute_policy_threshold_stats,
     simple_rule_unit_returns,
 )
 from .scoring import (
@@ -80,33 +80,30 @@ DEFAULT_LGBM_PARAMS: dict = {
     "random_state": 42,
     "verbose": -1,
     "force_col_wise": True,
-    # Monotone constraints — see original trainer docstring for rationale.
+    # Monotone constraints for 22 features (removed ev_pct, implied_prob_gap, kelly_fraction_raw)
     "monotone_constraints": [
-        1,   # 0:  ev_pct
-        0,   # 1:  sharp_true_prob (relaxed)
-        0,   # 2:  soft_odds
-        0,   # 3:  adjusted_soft_odds
-        0,   # 4:  implied_prob_gap (relaxed)
-        0,   # 5:  tick_count
-        0,   # 6:  time_to_kickoff_min
-        0,   # 7:  movement_pct_sharp
-        0,   # 8:  movement_pct_soft
-        0,   # 9:  steam_move_sharp
-        0,   # 10: steam_move_soft
-        0,   # 11: sharp_direction
-        0,   # 12: soft_direction
-        0,   # 13: convergence_rate
-        0,   # 14: tick_velocity
-        0,   # 15: provider_count
-        0,   # 16: opening_sharp_odds
-        0,   # 17: market_type_encoded
-        0,   # 18: is_asian_line
-        1,   # 19: kelly_fraction_raw
-        0,   # 20: vig_pct
-        0,   # 21: competition_tier
-        0,   # 22: hours_since_line_opened
-        0,   # 23: sharp_soft_spread
-        0,   # 24: num_markets_same_event
+        0,   # 0:  sharp_true_prob (relaxed — can be non-monotonic with odds)
+        0,   # 1:  soft_odds
+        0,   # 2:  adjusted_soft_odds
+        0,   # 3:  tick_count
+        0,   # 4:  time_to_kickoff_min
+        0,   # 5:  movement_pct_sharp
+        0,   # 6:  movement_pct_soft
+        0,   # 7:  steam_move_sharp
+        0,   # 8:  steam_move_soft
+        0,   # 9:  sharp_direction
+        0,   # 10: soft_direction
+        0,   # 11: convergence_rate
+        0,   # 12: tick_velocity
+        0,   # 13: provider_count
+        0,   # 14: opening_sharp_odds
+        0,   # 15: market_type_encoded
+        0,   # 16: is_asian_line
+        0,   # 17: vig_pct
+        0,   # 18: competition_tier
+        0,   # 19: hours_since_line_opened
+        0,   # 20: sharp_soft_spread
+        0,   # 21: num_markets_same_event
     ],
 }
 
@@ -352,7 +349,7 @@ def train(
         pnl_valid = np.nan_to_num(pnl_arr[valid_mask], nan=0.0)
 
     valid_features = data.features[valid_mask]
-    threshold_selection = select_policy_threshold(
+    threshold_stats = compute_policy_threshold_stats(
         calibrated_oos_valid,
         valid_features,
         pnl_valid,
@@ -361,7 +358,7 @@ def train(
         calibrated_oos_valid,
         features=valid_features,
         metadata=data.metadata.filter(valid_mask.tolist()),
-        edge_threshold_pct=threshold_selection.threshold_pct,
+        edge_threshold_pct=threshold_stats.threshold_pct,
     )
     simple_policy = _evaluate_simple_policy(
         features=data.features[valid_mask],
@@ -387,18 +384,16 @@ def train(
         fold_features=cpcv_out["fold_features"],
         fold_unit_returns=cpcv_out["fold_unit_returns"],
         calibration=calibration,
-        edge_threshold_pct=threshold_selection.threshold_pct,
+        edge_threshold_pct=threshold_stats.threshold_pct,
     )
     outer_policy_at_threshold = _evaluate_outer_holdout_policy_threshold(
         outer=outer,
         calibration=calibration,
-        edge_threshold_pct=threshold_selection.threshold_pct,
+        edge_threshold_pct=threshold_stats.threshold_pct,
     )
     mean_cpcv_sharpe = cpcv_policy_at_threshold["mean_sharpe"]
-    n_trials_for_dsr = max(hpo_result.n_trials, 1) * max(
-        threshold_selection.candidates_evaluated,
-        1,
-    )
+    # Fixed threshold (no search) — n_trials_for_dsr is just HPO trials
+    n_trials_for_dsr = max(hpo_result.n_trials, 1)
     sharpe_var_across_trials = (
         float(np.var(hpo_result.per_trial_sharpes, ddof=1))
         if len(hpo_result.per_trial_sharpes) > 1
@@ -453,17 +448,12 @@ def train(
         policy_roi_mean=round(policy.roi_pct, 4),
         policy_sample_size=policy.sample_size,
         policy_coverage=round(policy.coverage, 4),
-        policy_edge_threshold_pct=round(threshold_selection.threshold_pct, 4),
+        policy_edge_threshold_pct=round(threshold_stats.threshold_pct, 4),
         baseline_roi_mean=round(baseline_roi, 4),
         simple_policy_roi_mean=round(simple_policy.roi_pct, 4),
         simple_policy_sample_size=simple_policy.sample_size,
         simple_policy_coverage=round(simple_policy.coverage, 4),
         model_vs_simple_roi_delta=round(model_vs_simple_delta, 4),
-        policy_lower_confidence_roi_pct=round(
-            threshold_selection.lower_confidence_roi_pct,
-            4,
-        ),
-        policy_threshold_candidates=threshold_selection.candidates_evaluated,
         dsr=round(dsr, 4),
         pbo=round(pbo_val, 4),
         hpo_n_trials=hpo_result.n_trials,

@@ -23,13 +23,12 @@ from .feature_names import FEATURE_NAMES
 
 ADJUSTED_SOFT_ODDS_INDEX = FEATURE_NAMES.index("adjusted_soft_odds")
 SOFT_ODDS_INDEX = FEATURE_NAMES.index("soft_odds")
-EV_PCT_INDEX = FEATURE_NAMES.index("ev_pct")
+SHARP_TRUE_PROB_INDEX = FEATURE_NAMES.index("sharp_true_prob")
 MARKET_TYPE_INDEX = FEATURE_NAMES.index("market_type_encoded")
 
-POLICY_EDGE_THRESHOLD_PCT = 0.0
-POLICY_EDGE_THRESHOLD_CANDIDATES_PCT = (0.0, 2.0, 5.0, 8.0, 10.0, 15.0, 20.0)
+# Fixed 2% threshold matching MIN_EV_PCT from detector
+POLICY_EDGE_THRESHOLD_PCT = 2.0
 MIN_POLICY_BETS_FOR_FULL_CREDIT = 30
-MIN_POLICY_BETS_FOR_THRESHOLD = 100
 NO_SELECTION_OBJECTIVE = -1.0
 
 # Operator baseline used for incremental-profit checks. This mirrors the
@@ -41,7 +40,7 @@ SIMPLE_RULE_MARKET_TYPE_CODES = frozenset({0.0, 2.0})  # MATCH_RESULT, ASIAN_HAN
 
 @dataclass(frozen=True)
 class PolicyThresholdResult:
-    """Selected model-edge threshold for the ML overlay policy."""
+    """Fixed model-edge threshold for the ML overlay policy (no longer searched)."""
 
     threshold_pct: float
     roi_pct: float
@@ -51,8 +50,6 @@ class PolicyThresholdResult:
     simple_roi_pct: float
     simple_sample_size: int
     roi_delta_pct: float
-    lower_confidence_roi_pct: float
-    candidates_evaluated: int
 
 
 def model_edge_pct(
@@ -102,8 +99,15 @@ def policy_unit_returns(
 
 
 def simple_rule_mask(features: np.ndarray) -> np.ndarray:
-    """Rows selected by the non-ML baseline rule used for comparison."""
-    ev_pct = features[:, EV_PCT_INDEX].astype(np.float64)
+    """Rows selected by the non-ML baseline rule used for comparison.
+
+    Computes EV% from features since it's no longer in the feature vector.
+    EV% = (adjusted_soft_odds * sharp_true_prob - 1) * 100
+    """
+    sharp_prob = features[:, SHARP_TRUE_PROB_INDEX].astype(np.float64)
+    adjusted_odds = features[:, ADJUSTED_SOFT_ODDS_INDEX].astype(np.float64)
+    ev_pct = (adjusted_odds * sharp_prob - 1.0) * 100.0
+
     market_type = features[:, MARKET_TYPE_INDEX].astype(np.float64)
     market_ok = np.isin(market_type, list(SIMPLE_RULE_MARKET_TYPE_CODES))
     return (ev_pct >= SIMPLE_RULE_MIN_EV_PCT) & market_ok
@@ -119,100 +123,43 @@ def simple_rule_unit_returns(
     return clean_returns[mask], mask
 
 
-def select_policy_threshold(
+def compute_policy_threshold_stats(
     probs: np.ndarray,
     features: np.ndarray,
     unit_returns: np.ndarray,
-    *,
-    candidates: tuple[float, ...] = POLICY_EDGE_THRESHOLD_CANDIDATES_PCT,
-    min_sample_size: int = MIN_POLICY_BETS_FOR_THRESHOLD,
 ) -> PolicyThresholdResult:
-    """Select a conservative model-edge threshold on CPCV/OOS predictions.
+    """Compute stats for the fixed 2% policy threshold.
 
-    Score each threshold by a one-sided 90% lower confidence bound of
-    incremental ROI versus the simple EV baseline. This avoids picking a
-    high-ROI threshold that only won because it kept a tiny, lucky slice.
+    Replaces select_policy_threshold — no longer searches multiple candidates.
+    The model should learn to beat the baseline at a fixed threshold, not
+    find the best threshold (which overfits to the validation set).
     """
     clean_returns = np.nan_to_num(unit_returns.astype(np.float64), nan=0.0)
     simple_returns, simple_mask = simple_rule_unit_returns(features, clean_returns)
     simple_n = int(simple_mask.sum())
     simple_roi = float(simple_returns.mean() * 100.0) if simple_n > 0 else 0.0
-    if simple_n > 1:
-        simple_se_pct = float(simple_returns.std(ddof=1) / math.sqrt(simple_n) * 100.0)
-    else:
-        simple_se_pct = 0.0
 
-    best: PolicyThresholdResult | None = None
-    fallback: PolicyThresholdResult | None = None
+    selected, _edges, mask = policy_unit_returns(
+        probs,
+        features,
+        clean_returns,
+        edge_threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
+    )
+    n = int(selected.size)
+    roi = float(selected.mean() * 100.0) if n > 0 else 0.0
+    coverage = float(n / len(clean_returns)) if clean_returns.size > 0 else 0.0
+    sharpe = return_sharpe(selected)
+    delta = roi - simple_roi
 
-    for threshold in candidates:
-        selected, _edges, mask = policy_unit_returns(
-            probs,
-            features,
-            clean_returns,
-            edge_threshold_pct=threshold,
-        )
-        n = int(selected.size)
-        roi = float(selected.mean() * 100.0) if n > 0 else 0.0
-        coverage = float(n / len(clean_returns)) if clean_returns.size > 0 else 0.0
-        sharpe = return_sharpe(selected)
-        if n > 1:
-            se_pct = float(selected.std(ddof=1) / math.sqrt(n) * 100.0)
-        else:
-            se_pct = float("inf")
-        delta = roi - simple_roi
-        delta_se_pct = math.sqrt(se_pct**2 + simple_se_pct**2)
-        lower = delta - 1.2815515655446004 * delta_se_pct  # 90% one-sided normal z
-        result = PolicyThresholdResult(
-            threshold_pct=float(threshold),
-            roi_pct=roi,
-            sample_size=n,
-            coverage=coverage,
-            sharpe=sharpe,
-            simple_roi_pct=simple_roi,
-            simple_sample_size=simple_n,
-            roi_delta_pct=delta,
-            lower_confidence_roi_pct=lower,
-            candidates_evaluated=len(candidates),
-        )
-
-        if (
-            fallback is None
-            or result.sample_size > fallback.sample_size
-            or (
-                result.sample_size == fallback.sample_size
-                and result.lower_confidence_roi_pct > fallback.lower_confidence_roi_pct
-            )
-        ):
-            fallback = result
-
-        if n < min_sample_size:
-            continue
-        if (
-            best is None
-            or result.lower_confidence_roi_pct > best.lower_confidence_roi_pct
-            or (
-                result.lower_confidence_roi_pct == best.lower_confidence_roi_pct
-                and result.sample_size > best.sample_size
-            )
-        ):
-            best = result
-
-    if best is not None:
-        return best
-    if fallback is not None:
-        return fallback
     return PolicyThresholdResult(
         threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
-        roi_pct=0.0,
-        sample_size=0,
-        coverage=0.0,
-        sharpe=0.0,
+        roi_pct=roi,
+        sample_size=n,
+        coverage=coverage,
+        sharpe=sharpe,
         simple_roi_pct=simple_roi,
         simple_sample_size=simple_n,
-        roi_delta_pct=-simple_roi,
-        lower_confidence_roi_pct=float("-inf"),
-        candidates_evaluated=0,
+        roi_delta_pct=delta,
     )
 
 

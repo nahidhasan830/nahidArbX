@@ -612,42 +612,37 @@ def _has_valid_feature_semantics(features: Any) -> bool:
 # Half outcomes get reduced weight.
 HALF_OUTCOME_WEIGHT = 0.5
 
-# PnL magnitude boost: log1p(|pnl| / scale) so that high-impact bets
-# get up to ~2x weight without dominating. Capped at 2.0.
-_PNL_BOOST_SCALE = 5.0
-_PNL_BOOST_CAP = 2.0
-
-
-def _pnl_boost(pnl_abs: float) -> float:
-    """Multiplicative boost from absolute PnL — higher impact → more weight.
-
-    Returns a multiplier in [1.0, _PNL_BOOST_CAP]. Zero PnL → 1.0.
-    """
-    if pnl_abs <= 0:
-        return 1.0
-    import math
-    boost = 1.0 + math.log1p(pnl_abs / _PNL_BOOST_SCALE) * 0.3
-    return min(boost, _PNL_BOOST_CAP)
-
 
 def _derive_sample_weights(rows: list[dict[str, Any]]) -> np.ndarray:
-    """Derive per-sample weights from outcome type and PnL magnitude.
+    """Derive per-sample weights from outcome type and unit return magnitude.
 
-    Weight formula:
-      base = 0.5 for half_won/half_lost, 1.0 otherwise
-      boost = _pnl_boost(|pnl|)
-      final = base * boost
+    Weight formula (Phase 3 — fixed for EV alignment):
+      base = |unit_return| (economic impact)
+      half_outcome_adjustment = 0.5 for half_won/half_lost
+      final = base * half_outcome_adjustment, clipped to [0.1, 10.0]
+
+    Rationale: A bet that wins 5 units should have 5x the influence of a bet
+    that wins 1 unit. Previous log-scale PnL boost was too weak.
     """
     weights = np.ones(len(rows), dtype=np.float64)
+
     for i, r in enumerate(rows):
         outcome = r.get("outcome", "")
-        # Half outcomes get reduced weight
-        if outcome in ("half_won", "half_lost"):
-            weights[i] = HALF_OUTCOME_WEIGHT
+        soft_odds = float(r.get("soft_odds") or 0)
+        commission_pct = float(r.get("soft_commission_pct") or 0)
 
-        # PnL magnitude boost
-        pnl_abs = abs(float(r.get("pnl") or 0))
-        weights[i] *= _pnl_boost(pnl_abs)
+        # Compute unit return (economic impact)
+        unit_return = _compute_unit_return(outcome, soft_odds, commission_pct)
+        if unit_return is not None:
+            # Weight by absolute return magnitude
+            weights[i] = abs(unit_return)
+
+        # Half outcomes still get reduced weight
+        if outcome in ("half_won", "half_lost"):
+            weights[i] *= 0.5
+
+    # Clip extreme outliers to prevent single bets from dominating
+    weights = np.clip(weights, 0.1, 10.0)
 
     return weights
 

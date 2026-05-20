@@ -1,7 +1,7 @@
 /**
  * ML Feature Extractor
  *
- * Extracts a 25-dimensional feature vector from a ValueBet and the
+ * Extracts a 22-dimensional feature vector from a ValueBet and the
  * in-memory odds stores. Feature order is contractual — it must match
  * the Python training pipeline's `feature_names.py` exactly.
  *
@@ -74,7 +74,7 @@ function encodeDirection(dir: "up" | "down" | "stable" | undefined): number {
 // ============================================
 
 /**
- * Extract a 25-element feature vector from a ValueBet.
+ * Extract a 22-element feature vector from a ValueBet.
  *
  * All values default to 0 for null/undefined sources.
  * All values rounded to 4 decimal places.
@@ -143,16 +143,14 @@ export function extractFeatures(
   const safeMarketCount = Math.max(1, numMarketsInEvent ?? 1);
 
   const features: number[] = [
-    /* 0  ev_pct            */ vb.evPct,
-    /* 1  sharp_true_prob   */ vb.trueProb,
-    /* 2  soft_odds         */ vb.softOdds,
-    /* 3  adjusted_soft_odds */ vb.adjustedSoftOdds,
-    /* 4  implied_prob_gap  */ vb.trueProb - 1 / vb.softOdds,
-    /* 5  tick_count        */ sharpHistory?.totalTicks ?? 0,
-    /* 6  time_to_kickoff   */ timeToKickoffMin,
-    /* 7  movement_pct_sharp */ sharpMovement?.changePct ?? 0,
-    /* 8  movement_pct_soft */ softMovement?.changePct ?? 0,
-    /* 9  steam_move_sharp  */ detectSteamMove(
+    /* 0  sharp_true_prob   */ vb.trueProb,
+    /* 1  soft_odds         */ vb.softOdds,
+    /* 2  adjusted_soft_odds */ vb.adjustedSoftOdds,
+    /* 3  tick_count        */ sharpHistory?.totalTicks ?? 0,
+    /* 4  time_to_kickoff   */ timeToKickoffMin,
+    /* 5  movement_pct_sharp */ sharpMovement?.changePct ?? 0,
+    /* 6  movement_pct_soft */ softMovement?.changePct ?? 0,
+    /* 7  steam_move_sharp  */ detectSteamMove(
       eId,
       fId,
       aId,
@@ -160,34 +158,29 @@ export function extractFeatures(
     ) != null
       ? 1
       : 0,
-    /* 10 steam_move_soft   */ detectSteamMove(
-      eId,
-      fId,
-      aId,
-      vb.softProvider,
-    ) != null
+    /* 8 steam_move_soft   */ detectSteamMove(eId, fId, aId, vb.softProvider) !=
+    null
       ? 1
       : 0,
-    /* 11 sharp_direction   */ encodeDirection(sharpMovement?.direction),
-    /* 12 soft_direction    */ encodeDirection(softMovement?.direction),
-    /* 13 convergence_rate  */ computeConvergenceRate(
+    /* 9 sharp_direction   */ encodeDirection(sharpMovement?.direction),
+    /* 10 soft_direction    */ encodeDirection(softMovement?.direction),
+    /* 11 convergence_rate  */ computeConvergenceRate(
       eId,
       fId,
       aId,
       vb.sharpProvider,
       vb.softProvider,
     ),
-    /* 14 tick_velocity     */ tickVelocity,
-    /* 15 provider_count    */ getAllOddsForAtom(eId, fId, aId).size,
-    /* 16 opening_sharp_odds */ sharpHistory?.openingOdds ?? 0,
-    /* 17 market_type_encoded */ marketTypeEncoded,
-    /* 18 is_asian_line     */ isAsianLine,
-    /* 19 kelly_fraction_raw */ vb.kellyFraction,
-    /* 20 vig_pct           */ vigData?.vigPct ?? 0,
-    /* 21 competition_tier  */ getCompetitionTier(event?.competition ?? ""),
-    /* 22 hours_since_line_opened */ hoursSinceLineOpened,
-    /* 23 sharp_soft_spread */ safeSharpSoftSpread,
-    /* 24 num_markets_same_event */ safeMarketCount,
+    /* 12 tick_velocity     */ tickVelocity,
+    /* 13 provider_count    */ getAllOddsForAtom(eId, fId, aId).size,
+    /* 14 opening_sharp_odds */ sharpHistory?.openingOdds ?? 0,
+    /* 15 market_type_encoded */ marketTypeEncoded,
+    /* 16 is_asian_line     */ isAsianLine,
+    /* 17 vig_pct           */ vigData?.vigPct ?? 0,
+    /* 18 competition_tier  */ getCompetitionTier(event?.competition ?? ""),
+    /* 19 hours_since_line_opened */ hoursSinceLineOpened,
+    /* 20 sharp_soft_spread */ safeSharpSoftSpread,
+    /* 21 num_markets_same_event */ safeMarketCount,
   ];
 
   // Round all values to 4 decimal places to prevent HOT-busting float drift
@@ -217,7 +210,7 @@ export function extractFeatures(
  * opening odds have been observed.
  */
 export function isFeatureWarm(features: number[]): boolean {
-  // Feature index 5 = tick_count (sharp provider)
-  const tickCount = features[5] ?? 0;
+  // Feature index 3 = tick_count (sharp provider)
+  const tickCount = features[3] ?? 0;
   return tickCount >= ML_WARMUP_MIN_TICKS;
 }
