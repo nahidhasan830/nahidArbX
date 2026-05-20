@@ -129,6 +129,32 @@ export type ValueBetRow = {
   mlFeatureNamesHash?: string | null;
   mlScore?: number | null;
   mlStakeFraction?: number | null;
+
+  /** Cached final score from match_scores. Populated server-side by listBets
+   *  when the event has a resolved score; null while the match is still
+   *  pending or the score hasn't been fetched yet. Used by the bets-table
+   *  outcome tooltip to surface HT/FT/ET/PEN scores plus optional
+   *  corner/booking stats and source attribution. */
+  matchScore?: BetMatchScore | null;
+};
+
+/** Subset of `match_scores` exposed alongside each bet row. */
+export type BetMatchScore = {
+  status: string; // 'FT' | 'AET' | 'PEN' | 'ABD' | 'POSTPONED'
+  htHome: number | null;
+  htAway: number | null;
+  ftHome: number;
+  ftAway: number;
+  etHome: number | null;
+  etAway: number | null;
+  penHome: number | null;
+  penAway: number | null;
+  cornersHome: number | null;
+  cornersAway: number | null;
+  bookingsHome: number | null;
+  bookingsAway: number | null;
+  source: string;
+  confidence: number;
 };
 
 /** Parsed shape of a single provider's odds movement JSONB blob. */

@@ -10,7 +10,7 @@ This is the engine behind the ML pipeline at `/lab/ml` in the Next.js app.
 
 1. The engine's ML retraining loop (`lib/optimizer/scheduler.ts`) triggers
    this Cloud Run Job whenever the canonical training corpus has grown by
-   ≥`ML_RETRAIN_GROWTH_THRESHOLD` (20%) since the last deployed model. There
+   ≥`ML_RETRAIN_GROWTH_STEP` (200 examples) since the last deployed model. There
    is no cadence, no enabled toggle — operators always have a manual
    "Retrain" button on the dashboard via `/api/ml/retrain`.
 2. Sidecar loads training data from `ml_training_examples` table (canonical
@@ -70,13 +70,14 @@ bash services/optimizer/redeploy.sh
 
 | Parameter            | Value | Where                                        |
 | -------------------- | ----- | -------------------------------------------- |
-| Feature count        | 25    | `app/feature_names.py`, `lib/ml/features.ts` |
+| Feature count        | 25    | `app/feature_names.py`, `lib/ml/feature-contract.ts` |
 | Feature version      | 2     | Same files                                   |
 | Cold start threshold | 200   | `app/config.py`, `lib/shared/constants.ts`   |
+| Retrain growth step  | 200   | `lib/shared/constants.ts`                    |
 | CPCV groups          | 10    | `app/cpcv.py`                                |
 | CPCV test size       | 2     | `app/cpcv.py`                                |
-| AUC-ROC gate         | 0.52  | `app/deployment_gate.py`                     |
-| DSR gate             | 0.80  | `app/deployment_gate.py`                     |
+| AUC-ROC gate         | 0.55  | `app/deployment_gate.py`                     |
+| DSR gate             | 0.60  | `app/deployment_gate.py`                     |
 
 ## Module map
 
@@ -99,7 +100,7 @@ app/
 ## Testing
 
 ```bash
-uv run pytest                  # all tests
+uv run python -m pytest        # all tests
 uv run ruff check app          # lint
 uv run ruff format app         # format
 uv run mypy app                # type-check
@@ -107,7 +108,7 @@ uv run mypy app                # type-check
 
 ## Cost
 
-At moderate use (auto-retrains on ≥20% data growth + occasional manual runs),
+At moderate use (auto-retrains on each 200-example corpus growth step + occasional manual runs),
 the sidecar costs roughly **$5–15/month** on Cloud Run with min-instances=0.
 Storage stays inside the existing Cloud SQL instance — no new persistent
 infrastructure required.

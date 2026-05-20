@@ -23,7 +23,8 @@
  *
  * - CLV computation: CLV% is computed for ALL bets, not just placed ones.
  *   For placed bets: (placedOdds / closingSharpOdds - 1) * 100.
- *   For non-placed bets: (softOdds * (1 - commission/100) / closingSharpOdds - 1) * 100.
+ *   For non-placed bets: (adjustedSoftOdds / closingSharpOdds - 1) * 100,
+ *   where adjustedSoftOdds applies commission to winnings only.
  *   This tells us whether the bet had genuine edge at detection time,
  *   regardless of whether it was actually placed.
  */
@@ -33,6 +34,7 @@ import { db } from "@/lib/db/client";
 import { bets } from "@/lib/db/schema";
 import { getOdds } from "@/lib/atoms/store";
 import { logger } from "@/lib/shared/logger";
+import { adjustOddsForCommission } from "@/lib/shared/commission";
 
 const WINDOW_BEFORE_KICKOFF_MS = 30 * 60 * 1000;
 const WINDOW_AFTER_KICKOFF_MS = 5 * 60 * 1000;
@@ -109,7 +111,10 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
       } else if (row.softOdds) {
         // Non-placed bet: CLV = (adjSoftOdds / closingSharp - 1) * 100
         const commission = Number(row.softCommissionPct ?? 0);
-        const adjSoftOdds = Number(row.softOdds) * (1 - commission / 100);
+        const adjSoftOdds = adjustOddsForCommission(
+          Number(row.softOdds),
+          commission,
+        );
         clvPct = Number(
           ((adjSoftOdds / closingSharp - 1) * 100).toFixed(2),
         );

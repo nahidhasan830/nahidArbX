@@ -269,7 +269,7 @@ def _apply_beta(probs: np.ndarray, params: dict) -> np.ndarray:
 
 def _fit_isotonic(probs: np.ndarray, labels: np.ndarray) -> CalibrationResult:
     try:
-        ir = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        ir = IsotonicRegression(out_of_bounds="clip", y_min=0.05, y_max=0.95)
         ir.fit(probs.astype(np.float64), labels.astype(np.float64))
         # Persist the step function as parallel arrays so the Node scorer
         # can do constant-time interpolation without a sklearn dep.
@@ -295,4 +295,4 @@ def _apply_isotonic(probs: np.ndarray, params: dict) -> np.ndarray:
     # np.interp does linear interpolation; isotonic is piecewise-linear in
     # sklearn's representation so this is the correct inverse.
     out = np.interp(p, xs, ys, left=ys[0], right=ys[-1])
-    return np.clip(out, 0.0, 1.0)
+    return np.clip(out, 0.05, 0.95)

@@ -403,9 +403,9 @@ export type NewBettingSettingsRow = typeof bettingSettings.$inferInsert;
  *
  * Each row represents a trained model version. The training pipeline
  * (Python sidecar on Cloud Run Job) writes rows here after CPCV
- * evaluation. Only models passing quality gates (DSR > 0.8, PBO < 0.5)
- * get status='deployed'. The Node.js ONNX scorer watches for the latest
- * deployed model and hot-reloads it.
+ * evaluation. Only models passing quality gates (DSR >= 0.6, active
+ * permissions stricter) get status='deployed'. The Node.js ONNX scorer
+ * watches for the latest deployed model and hot-reloads it.
  */
 export const mlModels = pgTable(
   "ml_models",

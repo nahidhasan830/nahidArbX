@@ -1,4 +1,4 @@
-import { FEATURE_NAMES } from "./features";
+import { FEATURE_NAMES } from "./feature-contract";
 import type {
   AnalysisBucket,
   AnalysisResponse,

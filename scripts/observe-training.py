@@ -273,7 +273,7 @@ def main() -> None:
             log.info("  → Small buckets create noise that breaks monotonicity.")
             log.info("  → Consider: merging small buckets, or using monotonic constraints in LightGBM.")
 
-        # Check if the issue is the low-score bucket having high ROI
+        # Check if the issue is the lowest-score bucket having high ROI
         if len(report.buckets) >= 2:
             first_nonempty = next((b for b in report.buckets if b.count > 0), None)
             last_nonempty = next((b for b in reversed(report.buckets) if b.count > 0), None)

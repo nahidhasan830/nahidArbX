@@ -1,5 +1,11 @@
 # ML Optimizer Pipeline — 5-Step Implementation Plan
 
+> [!WARNING]
+> Historical implementation plan, not the current runtime specification.
+> Current production gating uses positive model EV at the offered odds, not
+> `mlScore >= ML_MIN_SCORE`; the current feature contract has 25 features;
+> auto-retrain runs after each 200-example corpus growth step.
+
 > Each step is self-contained. An agent can execute any step given only this document + the codebase.
 
 ## System Context (Read First)
@@ -88,7 +94,9 @@ export const mlModels = pgTable(
 );
 ```
 
-Add `mlMinScore` to `bettingSettings` table (after `activeStrategyIds`):
+Historical note: the first plan added `mlMinScore` to `bettingSettings`. The
+field remains for legacy UI compatibility only; auto-placement must not use it
+as the live gate.
 
 ```typescript
 mlMinScore: numeric({ precision: 4, scale: 2, mode: "number" }).notNull().default(0.4),
@@ -185,9 +193,9 @@ Add to `lib/shared/constants.ts`:
 
 ```typescript
 // ML pipeline
-export const ML_MIN_SCORE = 0.4; // Below this, don't auto-place
-export const ML_COLD_START_THRESHOLD = 500; // Need this many settled bets for ML
-export const ML_FEATURE_COUNT = 23; // Dimensionality of feature vector
+export const ML_MIN_SCORE = 0.4; // Legacy UI score band only
+export const ML_COLD_START_THRESHOLD = 200; // Need this many settled examples for ML
+export const ML_FEATURE_COUNT = 25; // Dimensionality of feature vector
 ```
 
 ### 1E. Verify
@@ -474,11 +482,10 @@ Do **NOT** touch `instrumentation.ts` — it is UI-only (DB pool + Telegram boot
 
 ### 4C. Create `lib/ml/staker.ts`
 
-Dynamic Kelly sizing based on ML score and features:
+Dynamic Kelly sizing is based on model EV at the offered odds and features:
 
 ```typescript
 import { FEATURE_NAMES } from "./features";
-import { ML_MIN_SCORE } from "@/lib/shared/constants";
 
 // Compile-time index map — O(1) lookup, fails loud on typo (undefined access)
 const F = Object.fromEntries(FEATURE_NAMES.map((n, i) => [n, i])) as Record<
@@ -491,12 +498,14 @@ export function computeAdjustedKelly(
   mlScore: number,
   features: number[],
 ): number {
-  if (mlScore < ML_MIN_SCORE) return 0; // Skip
+  const adjustedOdds = features[F.adjusted_soft_odds];
+  if (adjustedOdds * mlScore <= 1) return 0; // Skip non-positive model EV
 
   let multiplier = 1.0;
 
-  // Score-based scaling (linear interpolation 0.4→1.0 maps to 0.5→1.5)
-  multiplier *= 0.5 + (mlScore - 0.4) * (1.0 / 0.6);
+  // Model-edge-based scaling
+  const modelEdgePct = (adjustedOdds * mlScore - 1) * 100;
+  multiplier *= Math.min(1.5, Math.max(0.5, 0.5 + modelEdgePct / 10));
 
   // Convergence penalty (smooth continuous function instead of erratic hard cutoff)
   const convergence = features[F.convergence_rate];
@@ -530,15 +539,14 @@ Update `persistValueBets` input type to include `mlScore` and `mlStakeFraction`.
 
 In `lib/betting/auto-placer.ts`:
 
-Replace the active-strategy gate (lines 52–70) with ML score gate:
+Replace the active-strategy gate (lines 52–70) with the model-EV gate:
 
 ```typescript
-// ML confidence gate (replaces legacy strategy gate)
-const { row: settings } = await getBettingSettings();
-if (vb.mlScore != null && vb.mlScore < (settings.mlMinScore ?? 0.4)) {
+// ML model-edge gate (replaces legacy strategy gate)
+if (vb.mlScore != null && vb.adjustedSoftOdds * vb.mlScore <= 1) {
   logger.info(
     "AutoPlacer",
-    `[${vb.softProvider}] ${stableId} → skipped: ML score ${vb.mlScore.toFixed(2)}`,
+    `[${vb.softProvider}] ${stableId} → skipped: ML model edge is not positive`,
   );
   return;
 }
@@ -631,11 +639,11 @@ Replace the old optimisation lab tab with a **guided, beginner-friendly** ML mod
 **Key UI elements:**
 
 1. **Model Health Card** — top-level status badge (training/deployed/no model)
-   - Show `mlMinScore` slider with tooltip: "Bets scoring below this threshold won't be auto-placed. Higher = more selective, fewer bets. Lower = more bets, but riskier."
+   - Show model-edge gate status with tooltip: "Gate Only can skip bets only when the model's EV at the offered odds is not positive. Observe mode logs without changing placement."
 
 2. **Performance Metrics Table** — for the deployed model, show:
    - AUC-ROC with `<TooltipContent>`: "Area Under ROC Curve. Measures how well the model separates winning bets from losing ones. 0.5 = coin flip, 1.0 = perfect prediction. Above 0.6 is useful for betting."
-   - Deflated Sharpe with `<TooltipContent>`: "Risk-adjusted return after accounting for the fact that we tried many models. A DSR above 0.8 means the model's edge is likely real, not luck from over-testing."
+   - Deflated Sharpe with `<TooltipContent>`: "Risk-adjusted return after accounting for the fact that we tried many models. A DSR above 0.6 is required to deploy; active stake permissions require more evidence."
    - PBO with `<TooltipContent>`: "Probability of Backtest Overfitting. Chance that the best model in training would actually be the WORST in live betting. Below 0.5 means we're probably not overfit."
    - Calibration Error with `<TooltipContent>`: "How closely the model's predicted probabilities match reality. E.g., when the model says '70% chance of winning', do those bets actually win ~70% of the time? Lower = better calibrated."
    - Log Loss with `<TooltipContent>`: "Measures prediction confidence accuracy. Heavily penalises confident wrong predictions. Lower is better."

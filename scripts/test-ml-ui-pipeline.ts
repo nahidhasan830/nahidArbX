@@ -272,10 +272,7 @@ function validatePipeline(body: unknown): void {
       "pipeline.scheduler.totalRetrainTriggers",
     );
     expectNullableString(scheduler.lastError, "pipeline.scheduler.lastError");
-    expectNumber(
-      scheduler.growthThresholdPct,
-      "pipeline.scheduler.growthThresholdPct",
-    );
+    expectNumber(scheduler.retrainStep, "pipeline.scheduler.retrainStep");
   }
 
   const deploymentGate = expectRecord(
@@ -307,45 +304,6 @@ function validatePipeline(body: unknown): void {
   }
 
   expectString(root.scoringMode, "pipeline.scoringMode");
-
-  const scoreDistribution = expectRecord(
-    root.scoreDistribution,
-    "pipeline.scoreDistribution",
-  );
-  if (scoreDistribution) {
-    const buckets = expectArray(
-      scoreDistribution.buckets,
-      "pipeline.scoreDistribution.buckets",
-    );
-    if (buckets.length !== 10) {
-      fail("pipeline.scoreDistribution.buckets must contain 10 UI buckets");
-    }
-    buckets.forEach((bucket, i) => {
-      const b = expectRecord(
-        bucket,
-        `pipeline.scoreDistribution.buckets[${i}]`,
-      );
-      if (!b) return;
-      expectString(b.range, `pipeline.scoreDistribution.buckets[${i}].range`);
-      expectNumber(b.count, `pipeline.scoreDistribution.buckets[${i}].count`);
-    });
-    expectNumber(
-      scoreDistribution.avgScore,
-      "pipeline.scoreDistribution.avgScore",
-    );
-    expectNumber(
-      scoreDistribution.belowThreshold,
-      "pipeline.scoreDistribution.belowThreshold",
-    );
-    expectNumber(
-      scoreDistribution.aboveThreshold,
-      "pipeline.scoreDistribution.aboveThreshold",
-    );
-    expectNumber(
-      scoreDistribution.totalScored,
-      "pipeline.scoreDistribution.totalScored",
-    );
-  }
 
   const featureContract = expectRecord(
     root.featureContract,
@@ -397,6 +355,7 @@ function validatePipeline(body: unknown): void {
         "labeledExamples",
         "badLabeledCompetitionTier",
         "cleanLabeledExamples",
+        "badLabeledNonPositiveEv",
       ]) {
         expectNumber(
           semanticChecks[key],
@@ -418,43 +377,6 @@ function validatePipeline(body: unknown): void {
         `pipeline.featureContract.currentFeatureCount must be ${ML_FEATURE_COUNT}`,
       );
     }
-  }
-
-  const enrichmentCoverage = expectRecord(
-    root.enrichmentCoverage,
-    "pipeline.enrichmentCoverage",
-  );
-  if (enrichmentCoverage) {
-    for (const key of [
-      "distinctCompetitions",
-      "enrichedCompetitions",
-      "highConfidence",
-      "coveragePct",
-    ]) {
-      expectNumber(
-        enrichmentCoverage[key],
-        `pipeline.enrichmentCoverage.${key}`,
-      );
-    }
-  }
-
-  const trainingComposition = expectRecord(
-    root.trainingComposition,
-    "pipeline.trainingComposition",
-  );
-  if (trainingComposition) {
-    expectRecord(
-      trainingComposition.byType,
-      "pipeline.trainingComposition.byType",
-    );
-    expectRecord(
-      trainingComposition.byLabel,
-      "pipeline.trainingComposition.byLabel",
-    );
-    expectNumber(
-      trainingComposition.totalExamples,
-      "pipeline.trainingComposition.totalExamples",
-    );
   }
 
   const scoreBucketROI = expectArray(
@@ -497,7 +419,14 @@ function validatePipeline(body: unknown): void {
         "pipeline.paperEvaluation.simpleRule.marketTypes",
       );
     }
-    expectNumber(paperEvaluation.mlMinScore, "pipeline.paperEvaluation.mlMinScore");
+    expectNumber(
+      paperEvaluation.mlMinScore,
+      "pipeline.paperEvaluation.mlMinScore",
+    );
+    expectNumber(
+      paperEvaluation.mlModelEdgeThresholdPct,
+      "pipeline.paperEvaluation.mlModelEdgeThresholdPct",
+    );
     const metrics = expectRecord(
       paperEvaluation.metrics,
       "pipeline.paperEvaluation.metrics",

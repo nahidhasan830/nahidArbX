@@ -7,7 +7,7 @@
  * The UI polls this every 15 seconds.
  */
 import { NextResponse } from "next/server";
-import { sql, and, isNotNull, desc } from "drizzle-orm";
+import { sql, and, eq, isNotNull, desc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { bets, mlModels, mlTrainingExamples } from "@/lib/db/schema";
 import {
@@ -17,7 +17,11 @@ import {
   ML_FEATURE_VERSION,
   ML_RETRAIN_GROWTH_STEP,
 } from "@/lib/shared/constants";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
+import {
+  POLICY_EDGE_THRESHOLD_DENY_ALL_PCT,
+  resolvePolicyEdgeThreshold,
+} from "@/lib/ml/deployment-gate";
 import { engineGet } from "@/lib/engine-proxy";
 
 export const dynamic = "force-dynamic";
@@ -78,6 +82,8 @@ async function getCanonicalTrainingExampleRows(): Promise<
 
 interface DeploymentGateStatus {
   permissionLevel: string;
+  policyEdgeThresholdPct: number;
+  policyEdgeThresholdSource?: string;
   modelVersion: number | null;
   canGate: boolean;
   canReduceStake: boolean;
@@ -350,6 +356,19 @@ export async function GET() {
         - 1
       ) * 100
     `;
+    const [deployedPolicyRow] = await db
+      .select({ trainingReport: mlModels.trainingReport })
+      .from(mlModels)
+      .where(eq(mlModels.status, "deployed"))
+      .orderBy(desc(mlModels.deployedAt))
+      .limit(1);
+    const deployedPolicyThreshold = deployedPolicyRow
+      ? resolvePolicyEdgeThreshold(deployedPolicyRow.trainingReport)
+      : {
+          thresholdPct: POLICY_EDGE_THRESHOLD_DENY_ALL_PCT,
+          source: "no_model" as const,
+        };
+    const mlPolicyThresholdPct = deployedPolicyThreshold.thresholdPct;
 
     const bucketPerformance = await db.execute(sql`
       WITH scored AS (
@@ -463,7 +482,13 @@ export async function GET() {
         WHERE ml_score IS NOT NULL
         UNION ALL
         SELECT 'ml_gate' AS cohort, * FROM base
-        WHERE ml_model_edge_pct > 0
+        WHERE ml_score IS NOT NULL
+          AND ev_pct >= ${PAPER_SIMPLE_RULE_MIN_EV_PCT}
+          AND market_type IN (${sql.join(
+            PAPER_SIMPLE_RULE_MARKETS.map((m) => sql`${m}`),
+            sql`, `,
+          )})
+          AND ml_model_edge_pct > ${mlPolicyThresholdPct}
       )
       SELECT
         cohort,
@@ -551,8 +576,26 @@ export async function GET() {
               )})
           ) * 100
         )::float AS simple_roi_pct,
-        count(*) FILTER (WHERE ml_model_edge_pct > 0)::int AS ml_gate_n,
-        (avg(unit_return) FILTER (WHERE ml_model_edge_pct > 0) * 100)::float AS ml_gate_roi_pct
+        count(*) FILTER (
+          WHERE ml_score IS NOT NULL
+            AND ev_pct >= ${PAPER_SIMPLE_RULE_MIN_EV_PCT}
+            AND market_type IN (${sql.join(
+              PAPER_SIMPLE_RULE_MARKETS.map((m) => sql`${m}`),
+              sql`, `,
+            )})
+            AND ml_model_edge_pct > ${mlPolicyThresholdPct}
+        )::int AS ml_gate_n,
+        (
+          avg(unit_return) FILTER (
+            WHERE ml_score IS NOT NULL
+              AND ev_pct >= ${PAPER_SIMPLE_RULE_MIN_EV_PCT}
+              AND market_type IN (${sql.join(
+                PAPER_SIMPLE_RULE_MARKETS.map((m) => sql`${m}`),
+                sql`, `,
+              )})
+              AND ml_model_edge_pct > ${mlPolicyThresholdPct}
+          ) * 100
+        )::float AS ml_gate_roi_pct
       FROM base
       WHERE day >= current_date - interval '14 days'
       GROUP BY day
@@ -576,7 +619,8 @@ export async function GET() {
         marketTypes: [...PAPER_SIMPLE_RULE_MARKETS],
       },
       mlMinScore: ML_MIN_SCORE,
-      mlModelEdgeThresholdPct: 0,
+      mlModelEdgeThresholdPct: mlPolicyThresholdPct,
+      mlModelEdgeThresholdSource: deployedPolicyThreshold.source,
       metrics: {
         detectedBaseline,
         simpleEvCore,
@@ -634,6 +678,9 @@ export async function GET() {
         createdAt: mlModels.createdAt,
       })
       .from(mlModels)
+      .where(
+        sql`NOT (${mlModels.version} = 0 AND ${mlModels.status} = 'failed')`,
+      )
       .orderBy(desc(mlModels.createdAt))
       .limit(50);
 
@@ -792,9 +839,7 @@ export async function GET() {
         recentFeatureRate,
       },
       training: {
-        totalModels: allModels.filter(
-          (m) => !(m.version === 0 && m.status === "failed"),
-        ).length,
+        totalModels: allModels.length,
         deployedModel: deployed,
         latestModel: latest,
         modelsInTraining,
@@ -808,6 +853,8 @@ export async function GET() {
       scheduler,
       deploymentGate: deploymentGate ?? {
         permissionLevel: "observe",
+        policyEdgeThresholdPct: 0,
+        policyEdgeThresholdSource: "no_model",
         modelVersion: null,
         canGate: false,
         canReduceStake: false,

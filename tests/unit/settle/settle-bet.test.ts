@@ -233,6 +233,174 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 1 }));
     expect(result.outcome).toBe("void");
   });
+
+  // ── Away-side AH ──────────────────────────────────────────────────────────
+  //
+  // family_line is stored in the HOME perspective (matches family.line in
+  // lib/atoms/atoms.json). For away atoms, settleHandicap flips the sign
+  // so the same logic produces the correct backed-side result.
+
+  // Family ft_ah_p1_25 (line = +1.25): atoms [Home +1.25, Away -1.25].
+  // The original Bogota vs Real Cartagena case that surfaced this bug.
+  it("away -1.25 on 1-2 (away wins by 1) is half_lost", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m1_25",
+      familyLine: 1.25, // home perspective
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 2 }));
+    expect(result.outcome).toBe("half_lost");
+  });
+
+  // Family ft_ah_p1 (line = +1): atoms [Home +1, Away -1].
+  it("away -1 on 1-2 (away wins by exactly 1) is void", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m1",
+      familyLine: 1.0,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 2 }));
+    expect(result.outcome).toBe("void");
+  });
+
+  it("away -1 on 0-2 (away wins by 2) wins", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m1",
+      familyLine: 1.0,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 0, ftAway: 2 }));
+    expect(result.outcome).toBe("won");
+  });
+
+  // Family ft_ah_p0_5 (line = +0.5): atoms [Home +0.5, Away -0.5].
+  it("away -0.5 on 0-1 wins (away wins by 1, more than 0.5 line)", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m0_5",
+      familyLine: 0.5,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 0, ftAway: 1 }));
+    expect(result.outcome).toBe("won");
+  });
+
+  it("away -0.5 on 1-1 (draw) loses", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m0_5",
+      familyLine: 0.5,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 1 }));
+    expect(result.outcome).toBe("lost");
+  });
+
+  it("away -0.5 on 0-0 loses", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m0_5",
+      familyLine: 0.5,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 0, ftAway: 0 }));
+    expect(result.outcome).toBe("lost");
+  });
+
+  // Family ft_ah_m0_5 (line = -0.5): atoms [Home -0.5, Away +0.5].
+  it("away +0.5 on 2-2 (draw) wins", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p0_5",
+      familyLine: -0.5,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 2, ftAway: 2 }));
+    expect(result.outcome).toBe("won");
+  });
+
+  it("away +0.5 on 1-0 (away loses by 1) loses", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p0_5",
+      familyLine: -0.5,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 0 }));
+    expect(result.outcome).toBe("lost");
+  });
+
+  // Family ft_ah_m1 (line = -1): atoms [Home -1, Away +1].
+  it("away +1 on 1-0 (away loses by exactly 1) is void", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p1",
+      familyLine: -1.0,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 0 }));
+    expect(result.outcome).toBe("void");
+  });
+
+  it("away +1 on 1-1 (draw) wins", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p1",
+      familyLine: -1.0,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 1 }));
+    expect(result.outcome).toBe("won");
+  });
+
+  // Family ft_ah_m1_25 (line = -1.25): atoms [Home -1.25, Away +1.25].
+  it("away +1.25 on 1-0 (away loses by 1) is half_won", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p1_25",
+      familyLine: -1.25,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 0 }));
+    expect(result.outcome).toBe("half_won");
+  });
+
+  it("away +1.25 on 2-0 (away loses by 2) loses", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p1_25",
+      familyLine: -1.25,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 2, ftAway: 0 }));
+    expect(result.outcome).toBe("lost");
+  });
+
+  // Family ft_ah_p0_25 (line = +0.25): atoms [Home +0.25, Away -0.25].
+  it("away -0.25 on 0-0 (draw) is half_lost", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m0_25",
+      familyLine: 0.25,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 0, ftAway: 0 }));
+    expect(result.outcome).toBe("half_lost");
+  });
+
+  it("away -0.25 on 1-2 (away wins by 1) wins on both quarter legs", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_m0_25",
+      familyLine: 0.25,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 2 }));
+    expect(result.outcome).toBe("won");
+  });
+
+  // Family ft_ah_m0_25 (line = -0.25): atoms [Home -0.25, Away +0.25].
+  // Quarter splits to [0, +0.5]. On a draw the 0 leg pushes and the +0.5
+  // leg wins → half_won (this is the half_won path that's reachable on
+  // an away-side quarter line; the +X variants like +0.25 / +0.75).
+  it("away +0.25 on 1-1 (draw) is half_won", () => {
+    const row = makeRow({
+      marketType: "ASIAN_HANDICAP",
+      atomId: "ft_away_ah_p0_25",
+      familyLine: -0.25,
+    });
+    const result = settleBet(row, makeScore({ ftHome: 1, ftAway: 1 }));
+    expect(result.outcome).toBe("half_won");
+  });
 });
 
 // ── BTTS ──────────────────────────────────────────────────────────────────────

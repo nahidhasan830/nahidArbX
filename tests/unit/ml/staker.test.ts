@@ -13,10 +13,13 @@ import {
 function makeFeatures(overrides: Record<number, number> = {}): number[] {
   const f = new Array(25).fill(0);
   // Set reasonable defaults for features used by the multiplier:
-  // Index 2 = soft_odds, 3 = adjusted_soft_odds, 5 = tick_count.
+  // 0 = ev_pct, 2 = soft_odds, 3 = adjusted_soft_odds, 5 = tick_count,
+  // 17 = market_type_encoded.
+  f[0] = 4;
   f[2] = 2.15;
   f[3] = 2.15;
   f[5] = 5; // tick_count (below persistence bonus threshold)
+  f[17] = 0; // MATCH_RESULT, part of the simple EV baseline cohort.
   for (const [idx, val] of Object.entries(overrides)) {
     f[Number(idx)] = val;
   }
@@ -52,6 +55,23 @@ describe("computeKellyMultiplier", () => {
     it("returns 1.0 when model edge is positive", () => {
       expect(computeKellyMultiplier(0.47, makeFeatures(), "gate_only")).toBe(1);
       expect(computeKellyMultiplier(0.9, makeFeatures(), "gate_only")).toBe(1);
+    });
+
+    it("requires the simple EV baseline cohort before the model overlay", () => {
+      expect(
+        computeKellyMultiplier(
+          0.9,
+          makeFeatures({ 0: 1.5 }),
+          "gate_only",
+        ),
+      ).toBe(0);
+      expect(
+        computeKellyMultiplier(
+          0.9,
+          makeFeatures({ 17: 7 }),
+          "gate_only",
+        ),
+      ).toBe(0);
     });
   });
 

@@ -7,6 +7,8 @@ import { desc, and, isNotNull, sql } from "drizzle-orm";
 import { computeRawStakeMultiplier } from "@/lib/ml/staker";
 import { deriveEdge } from "@/lib/betting/sizing";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
+import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 
 /**
  * Paper Trading API — compares the configured baseline stake (no model
@@ -147,12 +149,27 @@ export async function GET(req: NextRequest) {
   const q = parsed.data;
   const { row: settings } = await getBettingSettings();
 
-  // Base conditions: only bets with ML scores
-  const baseConditions = [isNotNull(bets.mlScore)];
+  // Base conditions: only bets that match the optimizer's feature contract and
+  // semantic eligibility. This keeps paper analytics aligned with the training
+  // universe instead of every historical row that happens to have ml_score.
+  const baseConditions = [
+    isNotNull(bets.mlScore),
+    isNotNull(bets.mlFeatures),
+    sql`${bets.mlFeatureVersion} = ${ML_FEATURE_VERSION}`,
+    sql`${bets.mlFeatureCount} = ${ML_FEATURE_COUNT}`,
+    sql`${bets.mlFeatureNamesHash} = ${FEATURE_NAMES_HASH}`,
+    sql`array_length(${bets.mlFeatures}, 1) = ${ML_FEATURE_COUNT}`,
+    sql`${bets.sharpTrueProb} > 0`,
+    sql`${bets.sharpTrueProb} < 1`,
+    sql`${bets.softOdds} > 1.01`,
+    sql`(${bets.mlFeatures})[22] IN (1.0, 2.0, 3.0)`,
+  ];
   if (q.from) baseConditions.push(sql`${bets.firstSeenAt} >= ${q.from}`);
   if (q.to) baseConditions.push(sql`${bets.firstSeenAt} <= ${q.to}`);
   if (q.resolved === "true") {
-    baseConditions.push(sql`${bets.outcome} <> 'pending'`);
+    baseConditions.push(
+      sql`${bets.outcome} IN ('won','lost','half_won','half_lost','void')`,
+    );
   } else if (q.resolved === "false") {
     baseConditions.push(sql`${bets.outcome} = 'pending'`);
   }
@@ -161,6 +178,7 @@ export async function GET(req: NextRequest) {
   if (q.aggregate === "true") {
     const rows = await db
       .select({
+        eventId: bets.eventId,
         outcome: bets.outcome,
         mlScore: bets.mlScore,
         mlFeatures: bets.mlFeatures,
@@ -171,7 +189,12 @@ export async function GET(req: NextRequest) {
       .from(bets)
       .where(where);
 
-    const totalResolved = rows.filter((r) => r.outcome !== "pending").length;
+    const totalEvaluated = rows.filter((r) =>
+      ["won", "half_won", "lost", "half_lost"].includes(r.outcome),
+    ).length;
+    const totalResolved = rows.filter((r) =>
+      ["won", "half_won", "lost", "half_lost", "void"].includes(r.outcome),
+    ).length;
     const totalWins = rows.filter(
       (r) => r.outcome === "won" || r.outcome === "half_won",
     ).length;
@@ -192,6 +215,8 @@ export async function GET(req: NextRequest) {
     // ── PnL comparison & outcome-conditional stake multiplier ──────────
     let baselinePnl = 0;
     let modelPnl = 0;
+    let evaluated = 0;
+    const eventDeltas = new Map<string, number>();
     const winsMultipliers: number[] = [];
     const lossesMultipliers: number[] = [];
 
@@ -207,9 +232,16 @@ export async function GET(req: NextRequest) {
       const adjOdds = computeAdjustedOdds(r);
       const uRet = unitReturn(r.outcome, adjOdds);
 
-      if (uRet != null) {
+      if (uRet != null && r.outcome !== "void") {
+        evaluated++;
         baselinePnl += baselineFraction * uRet;
         modelPnl += modelFraction * uRet;
+        const eventKey = r.eventId ?? "__missing_event__";
+        eventDeltas.set(
+          eventKey,
+          (eventDeltas.get(eventKey) ?? 0) +
+            (modelFraction - baselineFraction) * uRet,
+        );
       }
 
       if (r.outcome === "won" || r.outcome === "half_won") {
@@ -228,25 +260,47 @@ export async function GET(req: NextRequest) {
         ? lossesMultipliers.reduce((a, b) => a + b, 0) /
           lossesMultipliers.length
         : null;
+    const cumulativeBaselinePnlPct = baselinePnl * 100;
+    const cumulativeModelPnlPct = modelPnl * 100;
+    const cumulativePnlDeltaPct = (modelPnl - baselinePnl) * 100;
+    const avgBaselinePnlPct =
+      evaluated > 0 ? cumulativeBaselinePnlPct / evaluated : 0;
+    const avgModelPnlPct =
+      evaluated > 0 ? cumulativeModelPnlPct / evaluated : 0;
+    const avgPnlDeltaPct =
+      evaluated > 0 ? cumulativePnlDeltaPct / evaluated : 0;
+    const avgEventPnlDeltaPct =
+      eventDeltas.size > 0
+        ? (Array.from(eventDeltas.values()).reduce((a, b) => a + b, 0) /
+            eventDeltas.size) *
+          100
+        : 0;
 
     return NextResponse.json({
       total: rows.length,
       resolved: totalResolved,
       unresolved: rows.length - totalResolved,
+      evaluated,
+      eventCount: eventDeltas.size,
       avgRawKellyFraction: avgRawKellyFraction.toFixed(4),
       avgModelStakeMultiplier: avgModelStakeMultiplier.toFixed(4),
       wins: totalWins,
       losses: totalLosses,
       voids: totalVoids,
       winRate:
-        totalResolved > 0
-          ? ((totalWins / totalResolved) * 100).toFixed(1) + "%"
+        totalEvaluated > 0
+          ? ((totalWins / totalEvaluated) * 100).toFixed(1) + "%"
           : "—",
-      // Cumulative PnL comparison in bankroll-percentage points, using the
-      // same Kelly fraction and cap as auto-placement.
-      baselinePnlPct: (baselinePnl * 100).toFixed(3),
-      modelPnlPct: (modelPnl * 100).toFixed(3),
-      pnlDeltaPct: ((modelPnl - baselinePnl) * 100).toFixed(3),
+      // Practical headline: average per evaluated bet. The raw cumulative
+      // total is retained below for audit because it can look huge over a
+      // historical in-sample backfill.
+      baselinePnlPct: avgBaselinePnlPct.toFixed(4),
+      modelPnlPct: avgModelPnlPct.toFixed(4),
+      pnlDeltaPct: avgPnlDeltaPct.toFixed(4),
+      avgEventPnlDeltaPct: avgEventPnlDeltaPct.toFixed(4),
+      cumulativeBaselinePnlPct: cumulativeBaselinePnlPct.toFixed(3),
+      cumulativeModelPnlPct: cumulativeModelPnlPct.toFixed(3),
+      cumulativePnlDeltaPct: cumulativePnlDeltaPct.toFixed(3),
       // Outcome-conditional stake-multiplier averages
       avgWinStakeMultiplier: avgWinStakeMultiplier?.toFixed(4) ?? null,
       avgLossStakeMultiplier: avgLossStakeMultiplier?.toFixed(4) ?? null,

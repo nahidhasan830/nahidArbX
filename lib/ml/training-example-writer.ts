@@ -26,7 +26,7 @@ import { bets, mlTrainingExamples, type BetRow } from "@/lib/db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { logger } from "@/lib/shared/logger";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 import {
   deriveLabel,
   deriveSampleWeight,

@@ -41,9 +41,9 @@ from .hpo import HpoResult, optimize
 from .loader import TrainingData
 from .policy import (
     POLICY_EDGE_THRESHOLD_PCT,
-    model_edge_pct,
     policy_unit_returns,
     return_sharpe,
+    select_policy_threshold,
     simple_rule_unit_returns,
 )
 from .scoring import (
@@ -142,6 +142,8 @@ class TrainingMetrics:
     simple_policy_sample_size: int = 0
     simple_policy_coverage: float = 0.0
     model_vs_simple_roi_delta: float = 0.0
+    policy_lower_confidence_roi_pct: float = 0.0
+    policy_threshold_candidates: int = 0
 
     # Overfitting diagnostics — meaningful now that HPO is multi-trial.
     dsr: float = 0.0    # Deflated Sharpe Ratio (n_trials = HPO trials).
@@ -349,10 +351,17 @@ def train(
         pnl_arr = data.metadata["pnl"].to_numpy().astype(np.float64)
         pnl_valid = np.nan_to_num(pnl_arr[valid_mask], nan=0.0)
 
+    valid_features = data.features[valid_mask]
+    threshold_selection = select_policy_threshold(
+        calibrated_oos_valid,
+        valid_features,
+        pnl_valid,
+    )
     policy = _evaluate_policy(
         calibrated_oos_valid,
-        features=data.features[valid_mask],
+        features=valid_features,
         metadata=data.metadata.filter(valid_mask.tolist()),
+        edge_threshold_pct=threshold_selection.threshold_pct,
     )
     simple_policy = _evaluate_simple_policy(
         features=data.features[valid_mask],
@@ -373,14 +382,29 @@ def train(
 
     # DSR — now meaningful: n_trials = number of HPO configs evaluated, and
     # n = number of policy bets rather than every baseline detection.
-    mean_cpcv_sharpe = cpcv_out["mean_sharpe"]
-    n_trials_for_dsr = max(hpo_result.n_trials, 1)
+    cpcv_policy_at_threshold = _evaluate_cpcv_policy_threshold(
+        raw_preds=cpcv_out["raw_fold_preds"],
+        fold_features=cpcv_out["fold_features"],
+        fold_unit_returns=cpcv_out["fold_unit_returns"],
+        calibration=calibration,
+        edge_threshold_pct=threshold_selection.threshold_pct,
+    )
+    outer_policy_at_threshold = _evaluate_outer_holdout_policy_threshold(
+        outer=outer,
+        calibration=calibration,
+        edge_threshold_pct=threshold_selection.threshold_pct,
+    )
+    mean_cpcv_sharpe = cpcv_policy_at_threshold["mean_sharpe"]
+    n_trials_for_dsr = max(hpo_result.n_trials, 1) * max(
+        threshold_selection.candidates_evaluated,
+        1,
+    )
     sharpe_var_across_trials = (
         float(np.var(hpo_result.per_trial_sharpes, ddof=1))
         if len(hpo_result.per_trial_sharpes) > 1
         else 0.0
     )
-    skew_val, kurt_val = _safe_skew_kurt(np.asarray(cpcv_out["per_fold_sharpes"]))
+    skew_val, kurt_val = _safe_skew_kurt(np.asarray(cpcv_policy_at_threshold["per_fold_sharpes"]))
     dsr_n = max(policy.sample_size, 2)
 
     if n_trials_for_dsr >= 2 and sharpe_var_across_trials > 0:
@@ -403,7 +427,7 @@ def train(
 
     # PBO — CPCV-paths based, single-config.
     pbo_val = pbo_score(
-        [cpcv_out["per_fold_rois"]],
+        [cpcv_policy_at_threshold["per_fold_rois"]],
         n_subsamples=200,
         seed=42,
     )
@@ -424,17 +448,22 @@ def train(
         accuracy=round(acc, 4),
         log_loss_val=round(ll, 6),
         calibration_error=round(ece, 6),
-        oos_roi_mean=round(cpcv_out["mean_roi"], 4),
+        oos_roi_mean=round(cpcv_policy_at_threshold["mean_roi"], 4),
         oos_clv_mean=round(oos_clv, 4),
         policy_roi_mean=round(policy.roi_pct, 4),
         policy_sample_size=policy.sample_size,
         policy_coverage=round(policy.coverage, 4),
-        policy_edge_threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
+        policy_edge_threshold_pct=round(threshold_selection.threshold_pct, 4),
         baseline_roi_mean=round(baseline_roi, 4),
         simple_policy_roi_mean=round(simple_policy.roi_pct, 4),
         simple_policy_sample_size=simple_policy.sample_size,
         simple_policy_coverage=round(simple_policy.coverage, 4),
         model_vs_simple_roi_delta=round(model_vs_simple_delta, 4),
+        policy_lower_confidence_roi_pct=round(
+            threshold_selection.lower_confidence_roi_pct,
+            4,
+        ),
+        policy_threshold_candidates=threshold_selection.candidates_evaluated,
         dsr=round(dsr, 4),
         pbo=round(pbo_val, 4),
         hpo_n_trials=hpo_result.n_trials,
@@ -444,14 +473,14 @@ def train(
         outer_holdout_n=outer["n"],
         outer_holdout_auc=round(outer["auc"], 4),
         outer_holdout_unit_return_mean=round(outer["unit_return_mean"], 6),
-        outer_holdout_policy_roi_pct=round(outer["policy_roi_pct"], 4),
-        outer_holdout_policy_n=outer["policy_n"],
+        outer_holdout_policy_roi_pct=round(outer_policy_at_threshold["policy_roi_pct"], 4),
+        outer_holdout_policy_n=outer_policy_at_threshold["policy_n"],
         n_samples=data.n_samples,
         n_positive=int(data.labels.sum()),
         n_negative=int((data.labels == 0).sum()),
         n_folds=cpcv_out["n_folds"],
         scale_pos_weight=data.scale_pos_weight,
-        per_fold_sharpes=[round(s, 4) for s in cpcv_out["per_fold_sharpes"]],
+        per_fold_sharpes=[round(s, 4) for s in cpcv_policy_at_threshold["per_fold_sharpes"]],
         feature_importance=feature_importance,
         score_bucket_report=bucket_report,
         calibration_method=calibration.method,
@@ -517,6 +546,9 @@ def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
         return {
             "n": 0, "auc": float("nan"), "unit_return_mean": float("nan"),
             "policy_roi_pct": float("nan"), "policy_n": 0,
+            "raw_preds": np.empty(0, dtype=np.float64),
+            "features": np.empty((0, data.features.shape[1]), dtype=np.float32),
+            "unit_returns": np.empty(0, dtype=np.float64),
         }
 
     train_idx = np.arange(n - holdout_size, dtype=np.int64)
@@ -547,11 +579,15 @@ def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
 
     # Policy eval on the holdout: what fraction would be auto-placed?
     test_features = X_test
-    edge_pct = model_edge_pct(raw_preds, test_features)
-    policy_mask = edge_pct > POLICY_EDGE_THRESHOLD_PCT
+    selected_returns, _edge_scores, policy_mask = policy_unit_returns(
+        raw_preds,
+        test_features,
+        unit_returns,
+        edge_threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
+    )
     policy_n = int(policy_mask.sum())
     policy_roi_pct = (
-        float(unit_returns[policy_mask].mean() * 100.0) if policy_n > 0 else float("nan")
+        float(selected_returns.mean() * 100.0) if policy_n > 0 else float("nan")
     )
 
     return {
@@ -560,6 +596,9 @@ def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
         "unit_return_mean": unit_return_mean,
         "policy_roi_pct": policy_roi_pct,
         "policy_n": policy_n,
+        "raw_preds": raw_preds,
+        "features": test_features,
+        "unit_returns": unit_returns,
     }
 
 
@@ -584,6 +623,9 @@ def _stage_c_cpcv(
     oos_pred_count = np.zeros(n, dtype=np.int32)
     per_fold_sharpes: list[float] = []
     per_fold_rois: list[float] = []
+    raw_fold_preds: list[np.ndarray] = []
+    fold_features: list[np.ndarray] = []
+    fold_unit_returns: list[np.ndarray] = []
 
     X = data.features
     y = data.labels
@@ -628,6 +670,9 @@ def _stage_c_cpcv(
         else:
             unit_returns = fold_meta["pnl"].to_numpy().astype(np.float64)
         unit_returns = np.nan_to_num(unit_returns, nan=0.0)
+        raw_fold_preds.append(preds)
+        fold_features.append(X_test)
+        fold_unit_returns.append(unit_returns)
 
         selected_returns, _edges, _policy_mask = policy_unit_returns(
             preds, X_test, unit_returns,
@@ -665,6 +710,9 @@ def _stage_c_cpcv(
         "mean_sharpe": mean_sharpe,
         "mean_roi": mean_roi,
         "n_folds": n_folds,
+        "raw_fold_preds": raw_fold_preds,
+        "fold_features": fold_features,
+        "fold_unit_returns": fold_unit_returns,
     }
 
 
@@ -762,6 +810,7 @@ def _evaluate_policy(
     *,
     features: np.ndarray,
     metadata,
+    edge_threshold_pct: float = POLICY_EDGE_THRESHOLD_PCT,
 ) -> PolicyEvaluation:
     if len(calibrated_probs) == 0:
         return PolicyEvaluation(
@@ -771,17 +820,20 @@ def _evaluate_policy(
             coverage=0.0,
         )
 
-    edge_scores_pct = model_edge_pct(calibrated_probs, features)
-    policy_mask = edge_scores_pct > POLICY_EDGE_THRESHOLD_PCT
-
     if "unit_return" in metadata.columns:
         unit_returns = metadata["unit_return"].to_numpy().astype(np.float64)
     else:
         unit_returns = metadata["pnl"].to_numpy().astype(np.float64)
     unit_returns = np.nan_to_num(unit_returns, nan=0.0)
 
+    selected_returns, edge_scores_pct, policy_mask = policy_unit_returns(
+        calibrated_probs,
+        features,
+        unit_returns,
+        edge_threshold_pct=edge_threshold_pct,
+    )
     sample_size = int(policy_mask.sum())
-    roi_pct = float(unit_returns[policy_mask].mean() * 100.0) if sample_size > 0 else 0.0
+    roi_pct = float(selected_returns.mean() * 100.0) if sample_size > 0 else 0.0
     coverage = float(sample_size / len(calibrated_probs)) if len(calibrated_probs) > 0 else 0.0
 
     return PolicyEvaluation(
@@ -807,6 +859,81 @@ def _evaluate_simple_policy(
         sample_size=sample_size,
         coverage=coverage,
     )
+
+
+def _evaluate_cpcv_policy_threshold(
+    *,
+    raw_preds: list[np.ndarray],
+    fold_features: list[np.ndarray],
+    fold_unit_returns: list[np.ndarray],
+    calibration: CalibrationResult,
+    edge_threshold_pct: float,
+) -> dict:
+    """Re-score CPCV fold returns with the selected runtime policy threshold."""
+    per_fold_sharpes: list[float] = []
+    per_fold_rois: list[float] = []
+
+    for preds, features, unit_returns in zip(
+        raw_preds,
+        fold_features,
+        fold_unit_returns,
+    ):
+        calibrated = apply_calibration(preds, calibration)
+        selected_returns, _edges, _policy_mask = policy_unit_returns(
+            calibrated,
+            features,
+            unit_returns,
+            edge_threshold_pct=edge_threshold_pct,
+        )
+        per_fold_sharpes.append(return_sharpe(selected_returns))
+        per_fold_rois.append(
+            float(selected_returns.mean() * 100.0)
+            if selected_returns.size > 0
+            else 0.0
+        )
+
+    return {
+        "per_fold_sharpes": per_fold_sharpes,
+        "per_fold_rois": per_fold_rois,
+        "mean_sharpe": float(np.mean(per_fold_sharpes)) if per_fold_sharpes else 0.0,
+        "mean_roi": float(np.mean(per_fold_rois)) if per_fold_rois else 0.0,
+    }
+
+
+def _evaluate_outer_holdout_policy_threshold(
+    *,
+    outer: dict,
+    calibration: CalibrationResult,
+    edge_threshold_pct: float,
+) -> dict:
+    """Re-score the outer holdout with the deployable calibrated policy."""
+    raw_preds = outer.get("raw_preds")
+    features = outer.get("features")
+    unit_returns = outer.get("unit_returns")
+    if (
+        not isinstance(raw_preds, np.ndarray)
+        or not isinstance(features, np.ndarray)
+        or not isinstance(unit_returns, np.ndarray)
+        or raw_preds.size == 0
+    ):
+        return {"policy_roi_pct": float("nan"), "policy_n": 0}
+
+    calibrated = apply_calibration(raw_preds, calibration)
+    selected_returns, _edges, policy_mask = policy_unit_returns(
+        calibrated,
+        features,
+        unit_returns,
+        edge_threshold_pct=edge_threshold_pct,
+    )
+    policy_n = int(policy_mask.sum())
+    return {
+        "policy_roi_pct": (
+            float(selected_returns.mean() * 100.0)
+            if selected_returns.size > 0
+            else float("nan")
+        ),
+        "policy_n": policy_n,
+    }
 
 
 def _expected_calibration_error(

@@ -46,6 +46,7 @@ import { type RerunChoice } from "./AiSettleDialog";
 import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
 import { MovementDetailModal } from "./MovementDetailModal";
 import { FeatureInspectorDialog } from "./FeatureInspectorDialog";
+import { OutcomeStatusTooltipContent } from "./OutcomeStatusTooltip";
 import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
 import { canResettle, prettySettledBy } from "@/lib/bets-history/resettle";
@@ -791,7 +792,12 @@ export function BetsHistoryTable({
                   {OUTCOME_LABEL[r.outcome as Outcome]}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Click to edit outcome</TooltipContent>
+              <TooltipContent className="p-2.5">
+                <OutcomeStatusTooltipContent
+                  row={r}
+                  outcomeLabel={OUTCOME_LABEL[r.outcome as Outcome]}
+                />
+              </TooltipContent>
             </Tooltip>
           );
         },

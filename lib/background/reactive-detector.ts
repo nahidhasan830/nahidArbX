@@ -79,7 +79,10 @@ import { buildMovementSnapshot } from "@/lib/atoms/odds-history";
 import { extractFeatures, isFeatureWarm } from "@/lib/ml/features";
 import { scoreBatch, isModelLoaded } from "@/lib/ml/scorer";
 import { computeScoredStake, computeKellyMultiplier } from "@/lib/ml/staker";
-import { getPermissionLevel } from "@/lib/ml/deployment-gate";
+import {
+  getPermissionLevel,
+  getPolicyEdgeThresholdPct,
+} from "@/lib/ml/deployment-gate";
 import { isMarketPhaseAllowed } from "@/lib/betting/market-phase";
 import { writeDetectionSnapshot } from "@/lib/ml/training-example-writer";
 
@@ -298,9 +301,9 @@ async function runDetectionPass(): Promise<void> {
         // ── ML scoring ────────────────────────────────────────────
         // Batch-score all bets with warm features through the ONNX
         // model. Without a model, scoreBatch returns null for all
-        // (pass-through). Score ALL warm bets — low-score bets are
-        // still valuable training data. Filtering happens at the
-        // auto-placer gate only.
+        // (pass-through). Score ALL warm bets — non-positive model-edge
+        // bets are still valuable training data. Filtering happens at
+        // the auto-placer gate only.
         //
         // Phase 4 warmup gate: bets with cold features (insufficient
         // odds history) get null ML score. The rule-based value bet
@@ -365,9 +368,10 @@ async function runDetectionPass(): Promise<void> {
 
         // Log scoring mode on first pass with a model
         if (modelActive && state.totalPasses === 0) {
+          const edgeThresholdPct = getPolicyEdgeThresholdPct();
           logger.info(
             "ReactiveDetector",
-            `ML scoring active — permission=${permissionLevel}, model loaded`,
+            `ML scoring active — permission=${permissionLevel}, policyEdgeThreshold=${edgeThresholdPct.toFixed(2)}%, model loaded`,
           );
         }
 

@@ -17,7 +17,12 @@ import pytest
 from app.cpcv import CpcvConfig, make_cpcv_splits
 from app.feature_names import FEATURE_COUNT, FEATURE_NAMES, FEATURE_NAMES_HASH, FEATURE_VERSION
 from app.loader import TrainingData
-from app.policy import hpo_policy_objective_stats, model_edge_pct
+from app.policy import (
+    hpo_policy_objective_stats,
+    model_edge_pct,
+    policy_unit_returns,
+    select_policy_threshold,
+)
 from app.trainer import TrainingMetrics, TrainingResult, train
 
 
@@ -137,8 +142,10 @@ class TestPolicyAlignedMetrics:
 
     def test_hpo_objective_scores_selected_policy_returns_only(self):
         features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
+        features[:, 0] = 4.0
         features[:, 2] = 2.0
         features[:, 3] = 2.0
+        features[:, 17] = 0.0
         probs = np.array([0.6, 0.4, 0.7, 0.3], dtype=np.float64)
         unit_returns = np.array([1.0, -1.0, 3.0, -1.0], dtype=np.float64)
 
@@ -156,8 +163,10 @@ class TestPolicyAlignedMetrics:
         from app.hpo import _train_and_score_fold
 
         features = np.zeros((6, FEATURE_COUNT), dtype=np.float32)
+        features[:, 0] = 4.0
         features[:, 2] = 2.0
         features[:, 3] = 2.0
+        features[:, 17] = 0.0
         labels = np.array([1, 0, 1, 0, 1, 0], dtype=np.int32)
         metadata = pl.DataFrame({
             "unit_return": [1.0, -10.0, 1.0, -10.0, 1.0, -10.0],
@@ -192,6 +201,81 @@ class TestPolicyAlignedMetrics:
             )
 
         assert mean_ur == pytest.approx(1.0 * (2 / 30))
+
+    def test_policy_requires_simple_ev_baseline_then_model_edge(self):
+        features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
+        features[:, 2] = 2.0
+        features[:, 3] = 2.0
+        features[:, 17] = 0.0
+        features[0, 0] = 4.0
+        features[1, 0] = 1.0
+        features[2, 0] = 4.0
+        features[2, 17] = 7.0
+        features[3, 0] = 4.0
+        probs = np.array([0.6, 0.8, 0.8, 0.4], dtype=np.float64)
+        unit_returns = np.array([1.0, 5.0, 5.0, -1.0], dtype=np.float64)
+
+        selected, _edges, mask = policy_unit_returns(
+            probs,
+            features,
+            unit_returns,
+            edge_threshold_pct=0.0,
+        )
+
+        assert mask.tolist() == [True, False, False, False]
+        assert selected.tolist() == [1.0]
+
+    def test_threshold_selection_prefers_conservative_oos_improvement(self):
+        n_good = 120
+        n_bad = 100
+        features = np.zeros((n_good + n_bad, FEATURE_COUNT), dtype=np.float32)
+        features[:, 0] = 4.0
+        features[:, 2] = 2.0
+        features[:, 3] = 2.0
+        features[:, 17] = 0.0
+        probs = np.concatenate([
+            np.full(n_good, 0.56),
+            np.full(n_bad, 0.51),
+        ])
+        unit_returns = np.concatenate([
+            np.full(n_good, 0.10),
+            np.full(n_bad, -0.20),
+        ])
+
+        result = select_policy_threshold(
+            probs,
+            features,
+            unit_returns,
+            candidates=(0.0, 10.0),
+            min_sample_size=100,
+        )
+
+        assert result.threshold_pct == 10.0
+        assert result.sample_size == n_good
+        assert result.roi_delta_pct > 0
+
+    def test_threshold_selection_falls_back_to_coverage_when_underpowered(self):
+        n = 50
+        features = np.zeros((n, FEATURE_COUNT), dtype=np.float32)
+        features[:, 0] = 4.0
+        features[:, 2] = 2.0
+        features[:, 3] = 2.0
+        features[:, 17] = 0.0
+        probs = np.full(n, 0.51)
+        probs[:5] = 0.60
+        unit_returns = np.full(n, -0.05)
+        unit_returns[:5] = 1.0
+
+        result = select_policy_threshold(
+            probs,
+            features,
+            unit_returns,
+            candidates=(0.0, 10.0),
+            min_sample_size=100,
+        )
+
+        assert result.threshold_pct == 0.0
+        assert result.sample_size == n
 
 
 class TestONNXExport:

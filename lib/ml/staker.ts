@@ -7,15 +7,16 @@
  *
  * Permission-level behavior:
  *   - observe:        returns null (no Kelly adjustment — persist score only)
- *   - gate_only:      returns 0 when model EV is <= break-even, 1 otherwise
+ *   - gate_only:      returns 0 unless simple EV passes and model EV clears
+ *                     the learned policy threshold, 1 otherwise
  *                     (the auto-placer uses 1.0 as pass-through sizing)
  *   - stake_reduce:   applies full multiplier logic but caps at 1.0×
  *                     (can reduce Kelly, never increase)
  *   - stake_increase: applies full multiplier logic (future only)
  *
  * Key design decisions:
- *   - Model EV <= 0 at offered odds → return 0 (skip bet entirely)
- *   - Positive model EV scales smoothly from 0.5× toward 1.5×
+ *   - Model EV below the learned policy threshold → return 0 (skip bet)
+ *   - Model EV above the learned threshold scales smoothly from 0.5× to 1.5×
  *   - Convergence penalty: negative convergence_rate (soft moving toward
  *     sharp) reduces sizing since the value window is closing
  *   - Persistence bonus: bets that persist for 10+ ticks are more real
@@ -24,8 +25,11 @@
  *   - Capped at 1× base Kelly for stake_reduce (never increase)
  */
 
-import { FEATURE_NAMES } from "./features";
-import type { MLPermissionLevel } from "./deployment-gate";
+import { FEATURE_NAMES } from "./feature-contract";
+import {
+  getPolicyEdgeThresholdPct,
+  type MLPermissionLevel,
+} from "./deployment-gate";
 import { isPilotActive, pilotCoinFlip } from "./pilot";
 
 // ============================================
@@ -43,6 +47,8 @@ const F = Object.fromEntries(
 ) as Record<string, number>;
 
 const MODEL_EDGE_FULL_SCALE_PCT = 10;
+const SIMPLE_RULE_MIN_EV_PCT = 3;
+const SIMPLE_RULE_MARKET_TYPE_CODES = new Set([0, 2]);
 
 // ============================================
 // Public API
@@ -54,16 +60,22 @@ const MODEL_EDGE_FULL_SCALE_PCT = 10;
  * `computeScoredStake()` which wraps this.
  */
 function computeRawMultiplier(mlScore: number, features: number[]): number {
+  if (!passesSimpleEvOverlay(features)) return 0;
+
   const modelEdgePct = computeModelEdgePct(mlScore, features);
-  if (modelEdgePct <= 0) return 0; // Model says offered odds are not +EV
+  const edgeThresholdPct = getPolicyEdgeThresholdPct();
+  if (modelEdgePct <= edgeThresholdPct) return 0;
 
   let multiplier = 1.0;
 
   // ── Score-based scaling ──────────────────────────────────────────────
-  // Linear interpolation: 0% model edge → 0.5×, 10%+ model edge → 1.5×.
+  // Linear interpolation: threshold edge → 0.5×, threshold+10% → 1.5×.
   // This optimizes expected return at the offered odds, not raw win probability.
+  const excessEdgePct = modelEdgePct - edgeThresholdPct;
   multiplier *=
-    0.5 + Math.min(modelEdgePct, MODEL_EDGE_FULL_SCALE_PCT) / MODEL_EDGE_FULL_SCALE_PCT;
+    0.5 +
+    Math.min(excessEdgePct, MODEL_EDGE_FULL_SCALE_PCT) /
+      MODEL_EDGE_FULL_SCALE_PCT;
 
   // ── Convergence penalty ──────────────────────────────────────────────
   // Negative convergence_rate = soft odds moving toward sharp (value window
@@ -213,4 +225,13 @@ export function computeModelEdgePct(mlScore: number, features: number[]): number
     return -100;
   }
   return (mlScore * odds - 1) * 100;
+}
+
+function passesSimpleEvOverlay(features: number[]): boolean {
+  const evPct = features[F.ev_pct] ?? 0;
+  const marketType = features[F.market_type_encoded] ?? Number.NaN;
+  return (
+    evPct >= SIMPLE_RULE_MIN_EV_PCT &&
+    SIMPLE_RULE_MARKET_TYPE_CODES.has(marketType)
+  );
 }

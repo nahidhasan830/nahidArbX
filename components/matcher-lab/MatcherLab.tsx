@@ -53,6 +53,7 @@ import {
 } from "./types";
 import { SchedulerPopover } from "./SchedulerPopover";
 import { format, isValid, parseISO } from "date-fns";
+import { DhakaTimezone } from "@/lib/formatting/datetime";
 
 import { AppShell } from "@/components/nav/AppShell";
 
@@ -63,18 +64,27 @@ const REFRESH_INTERVALS: Partial<Record<MatchPairStage, number>> = {
   human_review: 30_000,
 };
 
-function formatTime(iso: string | null): string {
+function fmtDhkMmmHm(iso: string | null): string {
   if (!iso) return "—";
   const d = parseISO(iso);
   if (!isValid(d)) return "—";
-  return format(d, "MMM d, HH:mm");
+  // Build parts ourselves to inject Asia/Dhaka instead of relying on local TZ.
+  const f = new Intl.DateTimeFormat("en-GB", {
+    timeZone: DhakaTimezone,
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = f.formatToParts(d);
+  const v = (t: string) => parts.find(p => p.type === t)!.value;
+  return `${v("day")} ${v("month")} ${v("hour")}:${v("minute")}`;
 }
 
 function formatKickoff(iso: string | null): string {
-  if (!iso) return "—";
-  const d = parseISO(iso);
-  if (!isValid(d)) return "—";
-  return format(d, "MMM d, HH:mm");
+  return fmtDhkMmmHm(iso);
 }
 
 function scoreColor(score: number | null): string {
@@ -739,7 +749,7 @@ export function MatcherLab() {
               <span>
                 Last ML run:{" "}
                 <span className="text-zinc-400">
-                  {formatTime(mlStats.lastRunAt)}
+                  {fmtDhkMmmHm(mlStats.lastRunAt)}
                 </span>
               </span>
               <span>
@@ -979,7 +989,7 @@ function buildColumns(
     cell: ({ row }) => (
       <span
         className="tabular-nums text-zinc-400 text-[11px]"
-        title={formatTime(row.original.eventAStartTime)}
+        title={fmtDhkMmmHm(row.original.eventAStartTime)}
       >
         {formatKickoff(row.original.eventAStartTime)}
       </span>
@@ -1220,7 +1230,7 @@ function buildColumns(
         accessorFn: (row) => row.decidedAt,
         cell: ({ row }) => (
           <span className="text-zinc-500 tabular-nums">
-            {formatTime(row.original.decidedAt)}
+            {fmtDhkMmmHm(row.original.decidedAt)}
           </span>
         ),
       },
@@ -1238,7 +1248,7 @@ function buildColumns(
     accessorFn: (row) => row.detectedAt,
     cell: ({ row }) => (
       <span className="text-zinc-500 tabular-nums">
-        {formatTime(row.original.detectedAt)}
+        {fmtDhkMmmHm(row.original.detectedAt)}
       </span>
     ),
   });
@@ -1347,13 +1357,41 @@ function EventCell({
   );
 }
 
+const formatTz = (d: Date, tz: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const val = (type: string) => parts.find(p => p.type === type)!.value;
+  return {
+    date: `${val("year")}-${val("month")}-${val("day")}`,
+    time: `${val("hour")}:${val("minute")}`,
+  };
+};
+
 function buildSearchUrl(pair: MatchPairRow): string {
-  const d = pair.eventAStartTime
-    ? new Date(pair.eventAStartTime).toISOString().slice(0, 10)
-    : "";
-  const t = pair.eventAStartTime
-    ? new Date(pair.eventAStartTime).toISOString().slice(11, 16)
-    : "";
+  let scheduledStr = "";
+  if (pair.eventAStartTime) {
+    try {
+      const kickoff = new Date(pair.eventAStartTime);
+      if (!isNaN(kickoff.getTime())) {
+        const utc = formatTz(kickoff, "UTC");
+        const bst = formatTz(kickoff, "Asia/Dhaka");
+        scheduledStr = utc.date === bst.date && utc.time === bst.time
+          ? `${utc.date} ${utc.time} UTC`
+          : `UTC: ${utc.date} ${utc.time} / Dhaka: ${bst.date} ${bst.time}`;
+      }
+    } catch {}
+  }
+  if (!scheduledStr && pair.eventAStartTime) {
+    scheduledStr = pair.eventAStartTime;
+  }
 
   const query = [
     `Are these two fixtures the exact same match?`,
@@ -1361,7 +1399,7 @@ function buildSearchUrl(pair: MatchPairRow): string {
     `Fixture A: ${pair.eventAHomeTeam} vs ${pair.eventAAwayTeam} (${pair.eventACompetition})`,
     `Fixture B: ${pair.eventBHomeTeam} vs ${pair.eventBAwayTeam} (${pair.eventBCompetition})`,
     ``,
-    `Scheduled for: ${d} ${t} UTC.`,
+    `Scheduled for: ${scheduledStr}.`,
     ``,
     `Task:`,
     `1. Verify if both team names refer to the same entities (accounting for youth/reserve teams, naming differences, or transliterations).`,

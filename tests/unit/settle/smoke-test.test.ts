@@ -83,7 +83,8 @@ describe("smoke: OVER_UNDER edge cases", () => {
 
 describe("smoke: ASIAN_HANDICAP edge cases", () => {
   it("away +0.5 wins on draw", () => {
-    const r = row({ marketType: "ASIAN_HANDICAP", atomId: "ft_away_ah_p0_5", familyLine: 0.5 });
+    // family ft_ah_m0_5 has line=-0.5 (home perspective); atoms [Home -0.5, Away +0.5]
+    const r = row({ marketType: "ASIAN_HANDICAP", atomId: "ft_away_ah_p0_5", familyLine: -0.5 });
     expect(settleBet(r, score({ ftHome: 1, ftAway: 1 })).outcome).toBe("won");
   });
   it("home -1.5 loses on 1-goal margin", () => {
@@ -216,8 +217,9 @@ describe("smoke: CORNERS_HANDICAP", () => {
     expect(settleBet(r, cs(7, 4)).outcome).toBe("won");
   });
   it("away +1.5 corners wins when gap is ≤1", () => {
-    // home=5, away=4, line=1.5 → diff=(4-5)+(1.5)=0.5>0 → won
-    const r = row({ marketType: "CORNERS_HANDICAP", atomId: "ft_away_ah_p1_5", familyLine: 1.5 });
+    // home=5, away=4. family ft_ah_m1_5 has line=-1.5 (home perspective).
+    // Away +1.5 → backedLine=+1.5 → diff=(4-5)+1.5=0.5>0 → won
+    const r = row({ marketType: "CORNERS_HANDICAP", atomId: "ft_away_ah_p1_5", familyLine: -1.5 });
     expect(settleBet(r, cs(5, 4)).outcome).toBe("won");
   });
   it("pending when corners not fetched", () => {
@@ -281,8 +283,9 @@ describe("smoke: BOOKINGS_HANDICAP", () => {
     expect(settleBet(r, bs(4, 2)).outcome).toBe("won");
   });
   it("away bookings AH +0.5 wins on equal bookings", () => {
-    // home=3, away=3, line=0.5 → diff=(3-3)+(0.5)=0.5>0 → won
-    const r = row({ marketType: "BOOKINGS_HANDICAP", atomId: "ft_away_ah_p0_5", familyLine: 0.5 });
+    // home=3, away=3. family ft_ah_m0_5 has line=-0.5 (home perspective).
+    // Away +0.5 → backedLine=+0.5 → diff=(3-3)+0.5=0.5>0 → won
+    const r = row({ marketType: "BOOKINGS_HANDICAP", atomId: "ft_away_ah_p0_5", familyLine: -0.5 });
     expect(settleBet(r, bs(3, 3)).outcome).toBe("won");
   });
 });

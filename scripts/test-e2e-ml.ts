@@ -28,7 +28,7 @@ if (!process.env.ENABLE_E2E_CLOUD_RUN) {
 
 import { db, ensureDbReady } from "@/lib/db/client";
 import { mlModels } from "@/lib/db/schema";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import { desc, sql } from "drizzle-orm";
 
@@ -331,7 +331,7 @@ async function observeFrontendContracts(): Promise<void> {
     `  models returned:      ${(models.models as unknown[] | undefined)?.length ?? 0}`,
   );
   console.log(
-    `  auto-retrain growth:  ≥${asNumber((pipeline.scheduler as JsonRecord).growthThresholdPct)}%`,
+    `  auto-retrain step:    ${asNumber((pipeline.scheduler as JsonRecord).retrainStep)} examples`,
   );
   console.log(
     `  training rows:        ${asNumber((trainingData.summary as JsonRecord).total)}`,

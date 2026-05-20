@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Db } from "@/lib/db/client";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 
 export interface TrainingSampleAccounting {
   qualifiedBets: number;

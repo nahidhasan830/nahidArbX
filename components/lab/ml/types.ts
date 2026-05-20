@@ -55,6 +55,8 @@ export interface PipelineData {
   };
   deploymentGate: {
     permissionLevel: string;
+    policyEdgeThresholdPct: number;
+    policyEdgeThresholdSource?: string;
     modelVersion: number | null;
     canGate: boolean;
     canReduceStake: boolean;
@@ -108,6 +110,8 @@ export interface PipelineData {
       marketTypes: string[];
     };
     mlMinScore: number;
+    mlModelEdgeThresholdPct: number;
+    mlModelEdgeThresholdSource?: string;
     metrics: {
       detectedBaseline: PaperEvaluationMetric;
       simpleEvCore: PaperEvaluationMetric;

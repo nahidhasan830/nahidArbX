@@ -59,10 +59,16 @@ const settleOuLeg = (
 // ─── Asian Handicap ──────────────────────────────────────────────────────────
 
 /**
- * Settle a single AH leg at an integer or half line for `backed` team with
- * handicap `line` (negative favors opponent).
- *  handicappedDiff = (backed - opponent) + line
- *   > 0 win,  = 0 push (integer lines only), < 0 loss.
+ * Settle a single AH leg at an integer or half line for `backed` team.
+ *
+ * `line` is in the BACKED side's perspective (positive = backed side gets
+ * goals added, negative = backed side gives goals up). Callers must
+ * normalize the family line (which is stored in home-perspective by the
+ * `family.line` convention in `lib/atoms/atoms.json`) before invoking this
+ * helper — see `settleHandicap` below.
+ *
+ *   handicappedDiff = (backed - opponent) + line
+ *     > 0 win,  = 0 push (integer lines only), < 0 loss.
  */
 const settleAhLeg = (
   score: ScopeScore,
@@ -272,17 +278,25 @@ const settleOverUnder = (
 /**
  * Settle any Asian handicap market (goals, bookings, corners) in one call.
  * Handles standard, half, and quarter lines with push/void correctly.
+ *
+ * `line` is the family line in HOME perspective (matches the
+ * `family.line` convention in `lib/atoms/atoms.json`: e.g. family
+ * `ft_ah_p1_25` has line=+1.25 with atoms [Home +1.25, Away -1.25];
+ * family `ft_ah_m1_25` has line=-1.25 with atoms [Home -1.25, Away +1.25]).
+ * For away-backed atoms we flip the sign once here so all downstream
+ * helpers can treat the line as backed-side perspective.
  */
 const settleHandicap = (
   scope: ScopeScore,
   backed: Leg,
   line: number,
 ): Outcome => {
-  if (isQuarterLine(line)) {
-    const [a, b] = splitQuarterAhLine(line);
+  const backedLine = backed === "home" ? line : -line;
+  if (isQuarterLine(backedLine)) {
+    const [a, b] = splitQuarterAhLine(backedLine);
     return foldLegs(settleAhLeg(scope, backed, a), settleAhLeg(scope, backed, b));
   }
-  const v = settleAhLeg(scope, backed, line);
+  const v = settleAhLeg(scope, backed, backedLine);
   return v === "won" ? "won" : v === "lost" ? "lost" : "void";
 };
 

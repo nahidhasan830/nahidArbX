@@ -16,7 +16,7 @@ import "dotenv/config";
 import { ensureDbReady, db } from "@/lib/db/client";
 import { bets, mlModels, mlTrainingExamples } from "@/lib/db/schema";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 import { sql, type SQL } from "drizzle-orm";
 
 const execute = process.argv.includes("--execute");

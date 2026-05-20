@@ -36,7 +36,7 @@ npm run db:generate  # Drizzle codegen
 npm run db:migrate   # Drizzle migrations
 ```
 
-Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.**
+Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used — prefer API/curl over Playwright.**
 
 ## Architecture
 
@@ -140,7 +140,7 @@ Postgres-backed alias system replacing legacy JSON files. 5 tables: `entities`, 
 
 ```
 trueProb       = vig-removed Pinnacle probability
-adjustedOdds   = softOdds * (1 - commissionPct/100)
+adjustedOdds   = 1 + (softOdds - 1) * (1 - commissionPct/100)
 evPct          = (adjustedOdds * trueProb - 1) * 100
 kellyFraction  = max(0, (b*p - q) / b)
 kellyStake     = kellyFraction * KELLY_FRACTION * VALUE_TOTAL_STAKE

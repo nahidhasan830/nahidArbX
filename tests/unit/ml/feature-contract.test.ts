@@ -8,7 +8,7 @@ import {
   FEATURE_NAMES,
   FEATURE_NAMES_HASH,
   FEATURE_VERSION,
-} from "@/lib/ml/features";
+} from "@/lib/ml/feature-contract";
 import { FEATURE_CATALOG } from "@/lib/ml/feature-catalog";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 

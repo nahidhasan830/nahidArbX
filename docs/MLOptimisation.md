@@ -63,13 +63,13 @@ Hard gates (any failure = rejection):
 - Minimum 200 training samples
 - AUC ≥ 0.55
 - ECE ≤ 0.15
-- Score bucket monotonicity ≥ 0.6
+- Score bucket profit monotonicity ≥ 0.5
 - ML-gated policy with ≥ 100 samples and non-negative ROI
 - DSR ≥ 0.6
 
 Permission levels (escalation order):
 1. **observe** — score and log, no effect on placement
-2. **gate_only** — skip low-score bets (requires AUC ≥ 0.60, DSR ≥ 0.7)
+2. **gate_only** — skip bets whose model EV is not positive (requires AUC ≥ 0.60, DSR ≥ 0.7, ≥250 ML-policy samples, and non-negative lift vs the simple EV rule)
 3. **stake_reduce** — reduce stakes on weak bets (requires AUC ≥ 0.65, DSR ≥ 0.8, monotonicity ≥ 0.8)
 4. **stake_increase** — increase stakes on strong bets (disabled; requires real placed-settled evidence)
 
@@ -127,7 +127,7 @@ Equal-count quantile buckets (6 by default) test whether higher ML scores produc
 | TypeScript | `lib/ml/deployment-gate.ts` | Runtime permission checking |
 | TypeScript | `lib/ml/features.ts` | Feature extraction (25-dim vector) |
 | TypeScript | `lib/ml/outcomes.ts` | Outcome → label derivation |
-| TypeScript | `lib/optimizer/scheduler.ts` | Auto-retrain trigger (≥20% data growth) + drift + stake-increase pilot |
+| TypeScript | `lib/optimizer/scheduler.ts` | Auto-retrain trigger (≥200-example corpus growth) + drift + stake-increase pilot |
 | DB | `lib/db/schema.ts` (`ml_models`) | Model lifecycle tracking |
 | UI | `components/lab/ml/MLPipelineDashboard.tsx` | ML Optimizer dashboard (Overview + Paper Trading tabs) |
 | UI | `components/lab/ml/tabs/OverviewTab.tsx` | Overview tab |

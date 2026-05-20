@@ -86,6 +86,12 @@ def export_onnx(
         )
         onnx_model.metadata_props.append(
             StringStringEntryProto(
+                key="policy_edge_threshold_pct",
+                value=str(metrics.policy_edge_threshold_pct),
+            )
+        )
+        onnx_model.metadata_props.append(
+            StringStringEntryProto(
                 key="calibration_intercept",
                 value=str(metrics.calibration_params.get("intercept", 0.0)),
             )
@@ -315,6 +321,8 @@ def write_model_row(
                 "simple_policy_sample_size": metrics.simple_policy_sample_size,
                 "simple_policy_coverage": metrics.simple_policy_coverage,
                 "model_vs_simple_roi_delta": metrics.model_vs_simple_roi_delta,
+                "policy_lower_confidence_roi_pct": metrics.policy_lower_confidence_roi_pct,
+                "policy_threshold_candidates": metrics.policy_threshold_candidates,
                 "calibration_method": metrics.calibration_method,
                 "calibration_params": metrics.calibration_params,
                 "score_bucket_report": _serialize_bucket_report(metrics.score_bucket_report),

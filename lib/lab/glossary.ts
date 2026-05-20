@@ -348,7 +348,7 @@ export const GLOSSARY = {
     short:
       "The safety lock that controls how much authority ML has over real bets.",
     example:
-      "A new model may start in shadow mode, where it only logs what it would have done. After enough evidence, the gate can allow it to skip low-score bets, then reduce weak stakes, and only later increase strong stakes. The old deterministic EV rule remains the fallback when the gate is closed.",
+      "A new model may start in shadow mode, where it only logs what it would have done. After enough evidence, the gate can allow it to skip bets whose model EV is not positive, then reduce weak stakes, and only later increase strong stakes. The old deterministic EV rule remains the fallback when the gate is closed.",
   },
   shadow_mode: {
     short:
@@ -699,9 +699,9 @@ export const GLOSSARY = {
   },
   model_gate: {
     short:
-      "Pass-through filter: Simple EV Rule ∧ mlScore ≥ ML_MIN_SCORE.",
+      "Pass-through filter: Simple EV Rule ∧ positive model EV at offered odds.",
     example:
-      "Of 640 Simple EV Rule bets, 480 also scored ≥ 0.50 → +4.1% ROI vs the rule's +2.8% (Lift = +1.3 pts). The 160 bets the gate rejected returned −0.8% — exactly the bets the gate is meant to remove.",
+      "Of 640 Simple EV Rule bets, 480 also had positive model EV at the offered odds → +4.1% ROI vs the rule's +2.8% (Lift = +1.3 pts). The 160 bets the gate rejected returned -0.8% — exactly the bets the gate is meant to remove.",
   },
   permission_level: {
     short:

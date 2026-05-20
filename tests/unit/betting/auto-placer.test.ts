@@ -220,23 +220,38 @@ describe("maybeAutoPlace — ML score gating", () => {
     vi.mocked(getBetById).mockResolvedValue(mockRow as never);
   });
 
-  it("skips placement in observe mode even when a score exists", async () => {
+  it("passes through baseline placement in observe mode", async () => {
+    vi.mocked(placeBetForValueBet).mockResolvedValue({
+      status: "placed",
+    } as never);
+
     await maybeAutoPlace(makeValueBet() as never, {
       permissionLevel: "observe",
       mlScore: 0.9,
+      mlKellyMultiplier: 1.8,
     });
 
-    expect(placeBetForValueBet).not.toHaveBeenCalled();
-    expect(recordDecision).toHaveBeenCalledWith(
-      expect.objectContaining({
-        gate: "ml_permission",
-        status: "skipped",
-        mlScore: 0.9,
-      }),
-    );
+    expect(placeBetForValueBet).toHaveBeenCalledOnce();
+    const args = vi.mocked(placeBetForValueBet).mock.calls[0][0];
+    expect(args.mode).toBe("auto");
+    expect(args.mlScore).toBe(0.9);
+    expect(args.mlKellyMultiplier).toBeNull();
   });
 
-  it("skips placement when gate is allowed but the bet has no ML score", async () => {
+  it("passes through baseline placement with no model/options", async () => {
+    vi.mocked(placeBetForValueBet).mockResolvedValue({
+      status: "placed",
+    } as never);
+
+    await maybeAutoPlace(makeValueBet() as never);
+
+    expect(placeBetForValueBet).toHaveBeenCalledOnce();
+    const args = vi.mocked(placeBetForValueBet).mock.calls[0][0];
+    expect(args.mlScore).toBeNull();
+    expect(args.mlKellyMultiplier).toBeNull();
+  });
+
+  it("skips placement when active ML permission has no score", async () => {
     await maybeAutoPlace(makeValueBet() as never, {
       permissionLevel: "gate_only",
       mlScore: null,
@@ -247,7 +262,7 @@ describe("maybeAutoPlace — ML score gating", () => {
       expect.objectContaining({
         gate: "ml_score",
         status: "skipped",
-        reason: "ML score unavailable; auto-placement requires a scored bet",
+        reason: "ML score unavailable; active ML permission requires a scored bet",
       }),
     );
   });

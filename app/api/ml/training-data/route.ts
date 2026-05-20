@@ -15,7 +15,7 @@ import { sql, and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { bets, mlModels, mlTrainingExamples } from "@/lib/db/schema";
 import { ML_FEATURE_VERSION, ML_FEATURE_COUNT } from "@/lib/shared/constants";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;

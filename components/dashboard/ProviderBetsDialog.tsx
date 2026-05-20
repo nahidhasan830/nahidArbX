@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/ui/data-table";
+import { derive } from "@/lib/bets-history/derive";
 import { useBetsList } from "@/lib/bets-history/hooks";
 import type { ValueBetRow } from "@/lib/bets-history/types";
 import { cn } from "@/lib/utils";
@@ -117,7 +118,7 @@ export function ProviderBetsDialog({
           } else {
             const ev =
               r.sharpTrueProb && r.softOdds
-                ? (r.softOdds * r.sharpTrueProb - 1) * 100
+                ? derive(r).evPct
                 : null;
             return (
               <div className="text-right font-mono text-[12px]">

@@ -15,7 +15,7 @@
 import { NextResponse } from "next/server";
 import { logger } from "@/lib/shared/logger";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
-import { FEATURE_NAMES_HASH } from "@/lib/ml/features";
+import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 import { spawn, execSync } from "child_process";
 import path from "path";
 import {

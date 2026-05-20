@@ -141,8 +141,8 @@ function formatMlTrainingCompleted(
       lines.push(`${aucIcon} AUC-ROC: <b>${e.aucRoc.toFixed(4)}</b>`);
     }
     if (e.dsr != null) {
-      const dsrIcon = e.dsr >= 1.0 ? "✅" : e.dsr >= 0 ? "⚠️" : "❌";
-      lines.push(`${dsrIcon} Sharpe: <b>${e.dsr.toFixed(3)}</b>`);
+      const dsrIcon = e.dsr >= 0.6 ? "✅" : e.dsr >= 0.3 ? "⚠️" : "❌";
+      lines.push(`${dsrIcon} DSR: <b>${e.dsr.toFixed(3)}</b>`);
     }
     if (e.pbo != null) {
       const pboIcon = e.pbo <= 0.5 ? "✅" : e.pbo <= 0.7 ? "⚠️" : "❌";
@@ -166,7 +166,7 @@ function formatMlTrainingCompleted(
     const PERM_LABELS: Record<string, { emoji: string; label: string }> = {
       stake_increase: { emoji: "🟢", label: "Full ML Sizing" },
       stake_reduce: { emoji: "🟡", label: "Stake Reduce" },
-      gate_only: { emoji: "🟠", label: "Gate Only (skip low scores)" },
+      gate_only: { emoji: "🟠", label: "Gate Only (positive model EV)" },
       shadow: { emoji: "🔵", label: "Shadow (log only)" },
     };
     const perm = PERM_LABELS[e.permissionLevel] ?? {

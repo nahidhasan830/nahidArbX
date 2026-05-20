@@ -200,6 +200,7 @@ def _run_pipeline(settings, log, start_time: float) -> None:
     training_model_id = os.environ.get("TRAINING_MODEL_ID")
     result = train(
         data,
+        calibration_method="isotonic",
         progress_callback=lambda stage, message, eta=0: _set_training_stage(
             training_model_id,
             stage,

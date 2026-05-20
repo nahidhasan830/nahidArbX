@@ -1,4 +1,4 @@
-import { FEATURE_NAMES } from "./features";
+import { FEATURE_NAMES } from "./feature-contract";
 
 const F = Object.fromEntries(
   FEATURE_NAMES.map((n, i) => [n, i]),

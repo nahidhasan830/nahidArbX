@@ -16,10 +16,9 @@
  * Gates:
  *   1. Per-provider toggle (auto-place must be ON for the soft provider)
  *   2. Provider must have a registered adapter
- *   3. ML confidence gate (fail-closed):
- *      - shadow/no permission: skip; ML may audit but cannot place money
- *      - no score: skip; auto-placement requires a scored bet
- *      - gate_only+: skip if score is below mlMinScore
+ *   3. ML gate:
+ *      - observe/no model: pass through baseline staking
+ *      - gate_only+: requires a scored bet and learned-policy approval
  *   4. Market phase gate (pre-match / in-play) from Strategy & limits
  */
 import { isAutoPlaceEnabled } from "./auto-place-config";
@@ -109,51 +108,45 @@ export async function maybeAutoPlace(
     return;
   }
 
-  // ── ML confidence gate ──────────────────────────────────────────────
-  // Auto-placement is allowed to spend money only when the deployed
-  // model has gate_only+ permission and this specific bet has a score.
+  // ── ML gate ────────────────────────────────────────────────────────
+  // observe means "score and log only" and must not change baseline
+  // auto-placement. Active permissions (gate_only+) fail closed if the
+  // bet cannot be scored or the model score fails the learned policy gate.
   const { row: settings } = await getBettingSettings();
-  if (permissionLevel === "observe") {
-    recordDecision({
-      ...logBase,
-      gate: "ml_permission",
-      status: "skipped",
-      reason:
-        "ML permission is shadow; auto-placement requires gate_only or higher",
-    });
-    return;
-  }
-  if (mlScore == null) {
-    recordDecision({
-      ...logBase,
-      gate: "ml_score",
-      status: "skipped",
-      reason: "ML score unavailable; auto-placement requires a scored bet",
-    });
-    return;
-  }
   const mlMultiplier = options.mlKellyMultiplier;
-  if (mlMultiplier == null) {
-    recordDecision({
-      ...logBase,
-      gate: "ml_score",
-      status: "skipped",
-      reason: "ML edge unavailable; auto-placement requires a model gate decision",
-    });
-    return;
-  }
-  if (mlMultiplier <= 0) {
-    logger.info(
-      "AutoPlacer",
-      `[${vb.softProvider}] ${stableId} → skipped: ML model edge is not positive`,
-    );
-    recordDecision({
-      ...logBase,
-      gate: "ml_score",
-      status: "skipped",
-      reason: "ML model edge is not positive at offered odds",
-    });
-    return;
+  if (permissionLevel !== "observe") {
+    if (mlScore == null) {
+      recordDecision({
+        ...logBase,
+        gate: "ml_score",
+        status: "skipped",
+        reason: "ML score unavailable; active ML permission requires a scored bet",
+      });
+      return;
+    }
+    if (mlMultiplier == null) {
+      recordDecision({
+        ...logBase,
+        gate: "ml_score",
+        status: "skipped",
+        reason:
+          "ML edge unavailable; active ML permission requires a model gate decision",
+      });
+      return;
+    }
+    if (mlMultiplier <= 0) {
+      logger.info(
+        "AutoPlacer",
+        `[${vb.softProvider}] ${stableId} → skipped: ML model edge is below learned policy threshold`,
+      );
+      recordDecision({
+        ...logBase,
+        gate: "ml_score",
+        status: "skipped",
+        reason: "ML model edge is below learned policy threshold",
+      });
+      return;
+    }
   }
 
   const row = await getBetById(stableId);
@@ -192,7 +185,7 @@ export async function maybeAutoPlace(
     valueBet: row as unknown as ValueBetRow,
     kellyStake: vb.kellyStake,
     mlScore,
-    mlKellyMultiplier: options.mlKellyMultiplier,
+    mlKellyMultiplier: permissionLevel === "observe" ? null : mlMultiplier,
     mode: "auto",
   });
 
@@ -208,5 +201,5 @@ export async function maybeAutoPlace(
   // The placer records its own log entries for outcomes it produces
   // (balance, dedup, book reject, placed, etc.). We only need to record
   // here for gates checked in this function (toggle, adapter,
-  // ml_permission, ml_score, row_missing, phase). The placer handles the rest.
+  // ml_score, row_missing, phase). The placer handles the rest.
 }

@@ -60,23 +60,81 @@ function getGeminiModel(tier?: string): string {
   return process.env.GEMINI_FLASH_MODEL || "gemini-3-flash";
 }
 
+const formatTz = (d: Date, tz: string) => {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(d);
+  const val = (type: string) => parts.find(p => p.type === type)!.value;
+  return {
+    date: `${val("year")}-${val("month")}-${val("day")}`,
+    time: `${val("hour")}:${val("minute")}`,
+  };
+};
+
+function getGroundingDates(iso: string) {
+  try {
+    const d = new Date(iso);
+    if (!isNaN(d.getTime())) {
+      const utc = formatTz(d, "UTC");
+      const bst = formatTz(d, "Asia/Dhaka");
+      return {
+        utcDate: utc.date,
+        utcTime: utc.time,
+        bstDate: bst.date,
+        bstTime: bst.time,
+      };
+    }
+  } catch {}
+  const fallback = iso.length >= 10 ? iso.slice(0, 10) : "";
+  const timeFallback = iso.length >= 16 ? iso.slice(11, 16) : "";
+  return {
+    utcDate: fallback,
+    utcTime: timeFallback,
+    bstDate: fallback,
+    bstTime: timeFallback,
+  };
+}
+
 export function buildMatchQueries(
   eventA: EventInfo,
   eventB: EventInfo,
 ): string[] {
   const queries: string[] = [];
-  const dateStr = eventA.startTime.length >= 10 ? eventA.startTime.slice(0, 10) : "";
-  const timeStr = eventA.startTime.length >= 16 ? eventA.startTime.slice(11, 16) : "";
+  const { utcDate, utcTime, bstDate, bstTime } = getGroundingDates(eventA.startTime);
 
   queries.push(
-    `${eventA.homeTeam} ${eventA.awayTeam} ${dateStr} ${eventA.competition} football fixture`,
+    `${eventA.homeTeam} ${eventA.awayTeam} ${utcDate} ${eventA.competition} football fixture`,
   );
+  if (utcDate !== bstDate) {
+    queries.push(
+      `${eventA.homeTeam} ${eventA.awayTeam} ${bstDate} ${eventA.competition} football fixture`,
+    );
+  }
+
   queries.push(
-    `${eventB.homeTeam} ${eventB.awayTeam} ${dateStr} ${eventB.competition} football fixture`,
+    `${eventB.homeTeam} ${eventB.awayTeam} ${utcDate} ${eventB.competition} football fixture`,
   );
+  if (utcDate !== bstDate) {
+    queries.push(
+      `${eventB.homeTeam} ${eventB.awayTeam} ${bstDate} ${eventB.competition} football fixture`,
+    );
+  }
+
   queries.push(
-    `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${dateStr} same football match`,
+    `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${utcDate} same football match`,
   );
+  if (utcDate !== bstDate) {
+    queries.push(
+      `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${bstDate} same football match`,
+    );
+  }
 
   if (eventA.homeTeam.toLowerCase() !== eventB.homeTeam.toLowerCase()) {
     queries.push(
@@ -97,8 +155,13 @@ export function buildMatchQueries(
   }
 
   queries.push(
-    `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${dateStr} ${timeStr} football match`,
+    `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${utcDate} ${utcTime} football match`,
   );
+  if (utcDate !== bstDate || utcTime !== bstTime) {
+    queries.push(
+      `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${bstDate} ${bstTime} football match`,
+    );
+  }
 
   return queries;
 }
@@ -119,8 +182,13 @@ export function buildBatchMatchQueries(
       comps.add(eventA.competition);
       comps.add(eventB.competition);
     }
-    if (eventA.startTime.length >= 10) dates.add(eventA.startTime.slice(0, 10));
-    if (eventB.startTime.length >= 10) dates.add(eventB.startTime.slice(0, 10));
+    const datesA = getGroundingDates(eventA.startTime);
+    if (datesA.utcDate) dates.add(datesA.utcDate);
+    if (datesA.bstDate) dates.add(datesA.bstDate);
+
+    const datesB = getGroundingDates(eventB.startTime);
+    if (datesB.utcDate) dates.add(datesB.utcDate);
+    if (datesB.bstDate) dates.add(datesB.bstDate);
   }
 
   const queries: string[] = [];
@@ -138,18 +206,29 @@ export function buildBatchMatchQueries(
 }
 
 export function buildSettlementQueries(event: EventInfo): string[] {
-  const dateStr = event.startTime.length >= 10
-    ? event.startTime.slice(0, 10)
-    : event.startTime;
+  const { utcDate, bstDate } = getGroundingDates(event.startTime);
 
-  return [
-    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${dateStr} final score result`,
-    `${event.homeTeam} vs ${event.awayTeam} ${dateStr} full time score football`,
-    `${event.homeTeam} ${event.awayTeam} ${dateStr} score flashscore livescore sofascore`,
-    `${event.homeTeam} ${event.awayTeam} ${dateStr} result ESPN BBC Sport`,
-    `${event.homeTeam} ${event.awayTeam} resultado ${dateStr} futebol football`,
-    `"${event.homeTeam}" "${event.awayTeam}" "${dateStr}" "FT" score`,
+  const queries = [
+    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${utcDate} final score result`,
+    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${utcDate} full time score football`,
+    `${event.homeTeam} ${event.awayTeam} ${utcDate} score flashscore livescore sofascore`,
+    `${event.homeTeam} ${event.awayTeam} ${utcDate} result ESPN BBC Sport`,
+    `${event.homeTeam} ${event.awayTeam} resultado ${utcDate} futebol football`,
+    `"${event.homeTeam}" "${event.awayTeam}" "${utcDate}" "FT" score`,
   ];
+
+  if (utcDate !== bstDate) {
+    queries.push(
+      `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${bstDate} final score result`,
+      `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${bstDate} full time score football`,
+      `${event.homeTeam} ${event.awayTeam} ${bstDate} score flashscore livescore sofascore`,
+      `${event.homeTeam} ${event.awayTeam} ${bstDate} result ESPN BBC Sport`,
+      `${event.homeTeam} ${event.awayTeam} resultado ${bstDate} futebol football`,
+      `"${event.homeTeam}" "${event.awayTeam}" "${bstDate}" "FT" score`,
+    );
+  }
+
+  return queries;
 }
 
 class GroundingEngine {
@@ -301,10 +380,6 @@ class GroundingEngine {
     event: EventInfo,
     question: string,
   ): Promise<SettlementVerdict> {
-    const dateStr = event.startTime.length >= 10
-      ? event.startTime.slice(0, 10)
-      : event.startTime;
-
     const queries = buildSettlementQueries(event);
 
     const allResults: SearchResult[] = [];
@@ -330,7 +405,7 @@ class GroundingEngine {
       event.homeTeam,
       event.awayTeam,
       event.competition,
-      dateStr,
+      event.startTime,
       question,
     );
     if (evidenceText) {

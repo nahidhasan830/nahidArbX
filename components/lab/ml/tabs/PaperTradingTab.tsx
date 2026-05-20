@@ -95,18 +95,28 @@ interface PaperTradeStats {
   total: number;
   resolved: number;
   unresolved: number;
+  evaluated: number;
+  eventCount: number;
   avgModelStakeMultiplier: string;
   avgRawKellyFraction: string;
   wins: number;
   losses: number;
   voids: number;
   winRate: string;
-  /** Cumulative PnL under the configured baseline stake, in bankroll % */
+  /** Average per evaluated bet under the configured baseline stake, in bankroll % */
   baselinePnlPct: string;
-  /** Cumulative PnL under the ML-adjusted stake, in bankroll % */
+  /** Average per evaluated bet under the ML-adjusted stake, in bankroll % */
   modelPnlPct: string;
-  /** Model PnL − Baseline PnL, in bankroll % */
+  /** Average model PnL − baseline PnL per evaluated bet, in bankroll % */
   pnlDeltaPct: string;
+  /** Average model PnL − baseline PnL per event, in bankroll % */
+  avgEventPnlDeltaPct: string;
+  /** Raw cumulative baseline PnL, retained for audit only */
+  cumulativeBaselinePnlPct: string;
+  /** Raw cumulative model PnL, retained for audit only */
+  cumulativeModelPnlPct: string;
+  /** Raw cumulative model PnL − baseline PnL, retained for audit only */
+  cumulativePnlDeltaPct: string;
   /** Average stake multiplier on winning bets */
   avgWinStakeMultiplier: string | null;
   /** Average stake multiplier on losing bets */
@@ -770,8 +780,8 @@ function PaperTradingToolbar({
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                Win rate across {stats.resolved} resolved bets ({stats.wins}W /{" "}
-                {stats.losses}L / {stats.voids}V)
+                Win rate across {stats.evaluated} evaluated bets ({stats.wins}
+                W / {stats.losses}L); {stats.voids} voids ignored.
               </TooltipContent>
             </Tooltip>
 
@@ -798,7 +808,7 @@ function PaperTradingToolbar({
               </TooltipContent>
             </Tooltip>
 
-            {/* ── PnL Comparison (the bottom-line metric) ── */}
+            {/* ── PnL Comparison (normalized headline, cumulative audit) ── */}
             {stats.pnlDeltaPct != null && (
               <>
                 <div className="w-px h-4 bg-border/60 shrink-0" />
@@ -822,33 +832,36 @@ function PaperTradingToolbar({
                         )}
                       >
                         {parseFloat(stats.pnlDeltaPct) > 0 ? "+" : ""}
-                        {parseFloat(stats.pnlDeltaPct).toFixed(2)}%
+                        {parseFloat(stats.pnlDeltaPct).toFixed(3)}%
+                        <span className="ml-1 text-muted-foreground/70 font-normal">
+                          avg/bet
+                        </span>
                       </span>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-[280px]">
                     <div className="space-y-1 text-xs">
                       <p className="font-medium">
-                        Model PnL − Baseline PnL on the same bets
+                        Average model PnL − baseline PnL per evaluated bet
                       </p>
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">
-                          Baseline:
+                          Avg baseline:
                         </span>
                         <span className="tabular-nums">
-                          {parseFloat(stats.baselinePnlPct).toFixed(3)}%
+                          {parseFloat(stats.baselinePnlPct).toFixed(4)}%
                         </span>
                       </div>
                       <div className="flex justify-between gap-4">
                         <span className="text-muted-foreground">
-                          Model:
+                          Avg model:
                         </span>
                         <span className="tabular-nums">
-                          {parseFloat(stats.modelPnlPct).toFixed(3)}%
+                          {parseFloat(stats.modelPnlPct).toFixed(4)}%
                         </span>
                       </div>
                       <div className="flex justify-between gap-4 border-t border-border pt-1">
-                        <span className="font-medium">Delta:</span>
+                        <span className="font-medium">Avg delta:</span>
                         <span
                           className={cn(
                             "font-semibold tabular-nums",
@@ -858,11 +871,38 @@ function PaperTradingToolbar({
                           )}
                         >
                           {parseFloat(stats.pnlDeltaPct) > 0 ? "+" : ""}
-                          {parseFloat(stats.pnlDeltaPct).toFixed(3)}%
+                          {parseFloat(stats.pnlDeltaPct).toFixed(4)}%
                         </span>
                       </div>
-                      <p className="text-muted-foreground/70 text-[10px] pt-0.5">
-                        Positive ⇒ the model would have done better.
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
+                          Avg/event:
+                        </span>
+                        <span className="tabular-nums">
+                          {parseFloat(stats.avgEventPnlDeltaPct) > 0 ? "+" : ""}
+                          {parseFloat(stats.avgEventPnlDeltaPct).toFixed(4)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-muted-foreground">
+                          Evaluated:
+                        </span>
+                        <span className="tabular-nums">
+                          {stats.evaluated} bets / {stats.eventCount} events
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4 border-t border-border pt-1">
+                        <span className="text-muted-foreground">
+                          Cumulative audit:
+                        </span>
+                        <span className="tabular-nums">
+                          {parseFloat(stats.cumulativePnlDeltaPct) > 0 ? "+" : ""}
+                          {parseFloat(stats.cumulativePnlDeltaPct).toFixed(3)}%
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground/70 text-xs pt-0.5">
+                        Cumulative totals are retrospective backfill sums, not
+                        live portfolio returns.
                       </p>
                     </div>
                   </TooltipContent>

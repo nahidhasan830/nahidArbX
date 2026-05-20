@@ -3,32 +3,64 @@
  *
  * Shared utility functions for formatting dates, numbers, and percentages
  * used across UI components, Telegram messages, and API responses.
+ *
+ * NOTE: All timestamp formatting intentionally uses Date.now() / UTC dates —
+ * `fmtSeen` and `fmtRelative` measure elapsed time universally (seconds are the
+ * same in any timezone). `fmtDateTime` uses Asia/Dhaka for display consistency.
  */
 
+import { DhakaTimezone } from "./datetime";
+
 /**
- * Format an ISO date string to a human-readable date/time label.
- * e.g., "2024-01-15T15:00:00Z" → "Today 15:00" or "Jan 15 15:00"
+ * Format an ISO UTC timestamp to a human-readable date/time label in BD.
+ * e.g., "2024-01-15T15:00:00Z" → "Today 21:00" or "15 Jan 21:00"
+ *
+ * Server times are UTC; display must show Asia/Dhaka (BDT = UTC+6).
  */
 export function fmtDateTime(iso: string): string {
   const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(now.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-  const time = d.toLocaleTimeString(undefined, {
+
+  // "now in Dhaka" so Today/Tomorrow labels are BD-aware.
+  const nowDhkMs = Date.now() + 6 * 3600 * 1000;
+  const nowDhk = new Date(nowDhkMs);
+
+  const f = new Intl.DateTimeFormat("en-GB", {
+    timeZone: DhakaTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
-  if (sameDay) return `Today ${time}`;
-  if (isTomorrow) return `Tomorrow ${time}`;
-  return `${d.toLocaleDateString(undefined, { month: "short", day: "2-digit" })} ${time}`;
+
+  const parts = f.formatToParts(d);
+  const v = (type: string) => parts.find(p => p.type === type)!.value;
+  const dateDhk = `${v("year")}-${v("month")}-${v("day")}`;
+  const timeDhk = `${v("hour")}:${v("minute")}`;
+
+  const nowParts = f.formatToParts(nowDhk);
+  const nv = (type: string) => nowParts.find(p => p.type === type)!.value;
+  const nowDateDhk = `${nv("year")}-${nv("month")}-${nv("day")}`;
+
+  const tomorrow = new Date(nowDhkMs + 86400000);
+  const tomParts = f.formatToParts(tomorrow);
+  const tv = (type: string) => tomParts.find(p => p.type === type)!.value;
+  const tomorrowDhk = `${tv("year")}-${tv("month")}-${tv("day")}`;
+
+  if (dateDhk === nowDateDhk) return `Today ${timeDhk}`;
+  if (dateDhk === tomorrowDhk) return `Tomorrow ${timeDhk}`;
+
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${parseInt(v("day"))} ${months[parseInt(v("month")) - 1]} ${timeDhk}`;
 }
 
 /**
  * Format elapsed time since `iso` as a terse badge: "now", "Nm", "Nh", "Nd".
  * Intended for table cells like "Seen" / "Settled" where a one-glance age
  * matters more than precision. For future-facing "in Xm" use `fmtRelative`.
+ *
+ * Uses UTC timestamps — universal, timezone-independent.
  */
 export function fmtSeen(iso: string): string {
   const d = new Date(iso);

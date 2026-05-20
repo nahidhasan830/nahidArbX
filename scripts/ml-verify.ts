@@ -1,4 +1,6 @@
 #!/usr/bin/env npx tsx
+import "dotenv/config";
+
 /**
  * ML Pipeline Operations Verification Script
  *
@@ -30,9 +32,13 @@ import {
   FEATURE_COUNT,
   FEATURE_NAMES_HASH,
   FEATURE_VERSION,
-} from "../lib/ml/features";
+} from "../lib/ml/feature-contract";
 import { FEATURE_CATALOG } from "../lib/ml/feature-catalog";
-import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "../lib/shared/constants";
+import {
+  ML_COLD_START_THRESHOLD,
+  ML_FEATURE_COUNT,
+  ML_FEATURE_VERSION,
+} from "../lib/shared/constants";
 
 type Severity = "pass" | "warn" | "fail";
 
@@ -298,26 +304,39 @@ async function runDbChecks(): Promise<void> {
 
   // 3. Enrichment coverage
   console.log("── Enrichment Coverage ──");
-  const [{ distinctComps }] = await db
-    .select({ distinctComps: sql<number>`count(DISTINCT competition)::int` })
-    .from(bets)
-    .where(isNotNull(bets.competition));
-
-  const [{ enrichedCount }] = await db
-    .select({ enrichedCount: sql<number>`count(*)::int` })
-    .from(competitionEnrichments);
-
-  const [{ highConfidence }] = await db
-    .select({ highConfidence: sql<number>`count(*)::int` })
-    .from(competitionEnrichments)
-    .where(sql`${competitionEnrichments.confidence} >= 70`);
+  const enrichmentCoverage = await db.execute(sql`
+    WITH bet_competitions AS (
+      SELECT DISTINCT
+        lower(regexp_replace(btrim(competition), '\\s+', ' ', 'g')) AS name
+      FROM bets
+      WHERE competition IS NOT NULL AND btrim(competition) <> ''
+    )
+    SELECT
+      count(*)::int AS distinct_comps,
+      count(${competitionEnrichments.name})::int AS enriched_count,
+      count(*) FILTER (WHERE ${competitionEnrichments.confidence} >= 70)::int AS high_confidence,
+      (SELECT count(*)::int FROM ${competitionEnrichments}) AS cache_rows
+    FROM bet_competitions
+    LEFT JOIN ${competitionEnrichments}
+      ON ${competitionEnrichments.name} = bet_competitions.name
+  `);
+  const enrichmentRow = (enrichmentCoverage.rows[0] ?? {}) as {
+    distinct_comps?: number | string;
+    enriched_count?: number | string;
+    high_confidence?: number | string;
+    cache_rows?: number | string;
+  };
+  const distinctComps = Number(enrichmentRow.distinct_comps ?? 0);
+  const enrichedCount = Number(enrichmentRow.enriched_count ?? 0);
+  const highConfidence = Number(enrichmentRow.high_confidence ?? 0);
+  const cacheRows = Number(enrichmentRow.cache_rows ?? 0);
 
   const coveragePct =
     distinctComps > 0 ? Math.round((enrichedCount / distinctComps) * 100) : 0;
   push(
     "Enrichment coverage",
     coveragePct >= 80 ? "pass" : coveragePct >= 50 ? "warn" : "warn",
-    `${enrichedCount}/${distinctComps} competitions enriched (${coveragePct}%), ${highConfidence} high-confidence`,
+    `${enrichedCount}/${distinctComps} bet competitions enriched (${coveragePct}%), ${highConfidence} high-confidence, ${cacheRows} total cache rows`,
   );
 
   // 4. Trainable sample count
@@ -361,7 +380,7 @@ async function runDbChecks(): Promise<void> {
       : settledWithFeatures >= 100
         ? "warn"
         : "warn",
-    `${settledWithFeatures} (cold start threshold: 100)`,
+    `${settledWithFeatures} (cold start threshold: ${ML_COLD_START_THRESHOLD})`,
   );
 
   // 5. Score bucket performance
@@ -435,10 +454,15 @@ async function runDbChecks(): Promise<void> {
       `  created_at: ${latestModel.createdAt}`,
     ].join("\n");
 
+    const status = String(latestModel.status);
+    const expectedTerminalStatus =
+      status === "deployed" || status === "rejected" || status === "retired";
     push(
       "Latest model",
-      latestModel.status === "deployed" ? "pass" : "warn",
-      `v${latestModel.version} (${latestModel.status})`,
+      expectedTerminalStatus ? "pass" : "warn",
+      status === "rejected"
+        ? `v${latestModel.version} rejected by deployment gate`
+        : `v${latestModel.version} (${status})`,
       detail,
     );
   }

@@ -25,7 +25,7 @@ import {
   ML_FEATURE_VERSION,
   ML_RETRAIN_GROWTH_STEP,
 } from "../shared/constants";
-import { FEATURE_NAMES_HASH } from "../ml/features";
+import { FEATURE_NAMES_HASH } from "../ml/feature-contract";
 import { processPendingModelNotifications } from "./notifier-tick";
 import {
   startTrainingPoller,

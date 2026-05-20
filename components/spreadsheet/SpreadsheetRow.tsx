@@ -35,39 +35,72 @@ import {
 import { CONFIGURED_BETTING_PROVIDER_IDS } from "@/lib/betting/configured-ids";
 import type { SpreadsheetRow } from "@/lib/formatting/spreadsheet";
 import type { LiveMatchInfo, ValueBetDetails } from "./ValueBetDetailsModal";
+import { DhakaTimezone } from "@/lib/formatting/datetime";
 
 /**
  * Format a kickoff time for the standalone KO column.
  * Shows "Started Nm ago" for already-live events; otherwise short date+time.
+ * Uses Asia/Dhaka for all display and comparisons — server timestamps are UTC.
  */
 function formatEventTime(startTime: string): string {
   const date = new Date(startTime);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const isTomorrow =
-    date.toDateString() === new Date(now.getTime() + 86400000).toDateString();
 
-  const timeStr = date.toLocaleTimeString([], {
+  // Derive "now in Dhaka" from UTC clock to avoid relying on the OS timezone.
+  const nowDhkMs = Date.now() + 6 * 3600 * 1000;
+  const nowDhk = new Date(nowDhkMs);
+
+  const dhkFmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: DhakaTimezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 
-  if (date <= now) {
-    const diffMs = now.getTime() - date.getTime();
+  const dhkParts = dhkFmt.formatToParts(date);
+  const dhkVal = (t: string) => dhkParts.find(p => p.type === t)!.value;
+  const dateStrDhaka = `${dhkVal("year")}-${dhkVal("month")}-${dhkVal("day")}`;
+  const timeStrDhaka = `${dhkVal("hour")}:${dhkVal("minute")}`;
+
+  const nowDhkParts = dhkFmt.formatToParts(nowDhk);
+  const nowDhkVal = (t: string) => nowDhkParts.find(p => p.type === t)!.value;
+  const nowStrDhk = `${nowDhkVal("year")}-${nowDhkVal("month")}-${nowDhkVal("day")}`;
+
+  const isToday = dateStrDhaka === nowStrDhk;
+  const isTomorrow = (() => {
+    const tomorrow = new Date(nowDhkMs + 86400000);
+    const tParts = dhkFmt.formatToParts(tomorrow);
+    const tVal = (t: string) => tParts.find(p => p.type === t)!.value;
+    return dateStrDhaka === `${tVal("year")}-${tVal("month")}-${tVal("day")}`;
+  })();
+
+  // Compare using Dhaka timestamps so "started 2m ago" is accurate in BD.
+  const dateDhkMs =
+    parseInt(dhkVal("year")) * 31536e6 +
+    parseInt(dhkVal("month")) * 2592e6 +
+    parseInt(dhkVal("day")) * 864e5 +
+    parseInt(dhkVal("hour")) * 36e5 +
+    parseInt(dhkVal("minute")) * 6e4;
+
+  if (dateDhkMs <= nowDhkMs) {
+    const diffMs = nowDhkMs - dateDhkMs;
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 60) return `${diffMins}m ago`;
     const diffHours = Math.floor(diffMins / 60);
     return `${diffHours}h ${diffMins % 60}m ago`;
   }
 
-  if (isToday) return `Today ${timeStr}`;
-  if (isTomorrow) return `Tomorrow ${timeStr}`;
+  if (isToday) return `Today ${timeStrDhaka}`;
+  if (isTomorrow) return `Tomorrow ${timeStrDhaka}`;
 
-  const dateStr = date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-  return `${dateStr} ${timeStr}`;
+  // e.g. "19 May 20:30"
+  const monthShort = [
+    "Jan","Feb","Mar","Apr","May","Jun",
+    "Jul","Aug","Sep","Oct","Nov","Dec",
+  ][parseInt(dhkVal("month")) - 1];
+  return `${parseInt(dhkVal("day"))} ${monthShort} ${timeStrDhaka}`;
 }
 
 /**
@@ -206,7 +239,9 @@ export function SpreadsheetRow({
                   Blocked
                 </Badge>
               )}
-              {new Date(row.startTime) <= new Date() && (
+              {/* Date.now() is intentionally used for live-event detection — refreshes on re-render are acceptable */}
+              {/* eslint-disable-next-line */}
+              {(new Date(row.startTime).getTime() <= Date.now() + 6 * 3600 * 1000) && (
                 <Badge
                   variant="destructive"
                   className="px-1 py-0 text-[9px] font-bold uppercase h-4 shrink-0"
@@ -225,7 +260,9 @@ export function SpreadsheetRow({
                   · {row.competition}
                 </span>
               )}
-              {new Date(row.startTime) <= new Date() && liveScore && (
+              {/* Date.now() is intentionally used for live-event detection */}
+              {/* eslint-disable-next-line */}
+              {new Date(row.startTime).getTime() <= Date.now() + 6 * 3600 * 1000 && liveScore && (
                 <>
                   <span className="text-muted-foreground/50 shrink-0">|</span>
                   {liveScore.hasDiscrepancy && (

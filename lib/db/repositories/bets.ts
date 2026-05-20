@@ -16,7 +16,7 @@
  */
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
-import { bets, autoPlacerLog, mlTrainingExamples, type BetRow } from "../schema";
+import { bets, autoPlacerLog, matchScores, mlTrainingExamples, type BetRow } from "../schema";
 import { getEvent } from "@/lib/store";
 import { getFamily } from "@/lib/atoms/registry";
 import { logger } from "@/lib/shared/logger";
@@ -27,11 +27,17 @@ import {
   FEATURE_COUNT,
   FEATURE_NAMES_HASH,
   FEATURE_VERSION,
-} from "@/lib/ml/features";
+} from "@/lib/ml/feature-contract";
+import { adjustOddsForCommission } from "@/lib/shared/commission";
 
 // ─── Type re-exports for backwards compatibility ────────────────────────────────
 
+import type { BetMatchScore } from "@/lib/bets-history/types";
+
 export type { BetRow as ValueBetRow };
+
+/** BetRow augmented with the cached match score subset attached by listBets. */
+export type BetRowWithScore = BetRow & { matchScore?: BetMatchScore | null };
 export type PersistResult = {
   attempted: number;
   inserted: number;
@@ -394,11 +400,11 @@ const buildFilterClauses = (filters: ListFilters) => {
 
 export const listBets = async (
   filters: ListFilters = {},
-): Promise<{ rows: BetRow[]; total: number }> => {
+): Promise<{ rows: BetRowWithScore[]; total: number }> => {
   const clauses = buildFilterClauses(filters);
   const where = clauses.length ? and(...clauses) : undefined;
 
-  const rows = await db
+  const baseRows = await db
     .select()
     .from(bets)
     .where(where)
@@ -410,6 +416,58 @@ export const listBets = async (
     .select({ count: sql<number>`count(*)::int` })
     .from(bets)
     .where(where);
+
+  // Attach cached match scores so the UI can render the FT/HT/source breakdown
+  // in the outcome-status tooltip without an extra round-trip per row. We
+  // intentionally fetch only the columns the tooltip needs.
+  const rows: BetRowWithScore[] = baseRows;
+  const eventIds = Array.from(new Set(rows.map((r) => r.eventId)));
+  if (eventIds.length > 0) {
+    const scoreRows = await db
+      .select({
+        eventId: matchScores.eventId,
+        status: matchScores.status,
+        htHome: matchScores.htHome,
+        htAway: matchScores.htAway,
+        ftHome: matchScores.ftHome,
+        ftAway: matchScores.ftAway,
+        etHome: matchScores.etHome,
+        etAway: matchScores.etAway,
+        penHome: matchScores.penHome,
+        penAway: matchScores.penAway,
+        cornersHome: matchScores.cornersHome,
+        cornersAway: matchScores.cornersAway,
+        bookingsHome: matchScores.bookingsHome,
+        bookingsAway: matchScores.bookingsAway,
+        source: matchScores.source,
+        confidence: matchScores.confidence,
+      })
+      .from(matchScores)
+      .where(inArray(matchScores.eventId, eventIds));
+    const scoreById = new Map(scoreRows.map((s) => [s.eventId, s]));
+    for (const row of rows) {
+      const s = scoreById.get(row.eventId);
+      if (s) {
+        row.matchScore = {
+          status: s.status,
+          htHome: s.htHome,
+          htAway: s.htAway,
+          ftHome: s.ftHome,
+          ftAway: s.ftAway,
+          etHome: s.etHome,
+          etAway: s.etAway,
+          penHome: s.penHome,
+          penAway: s.penAway,
+          cornersHome: s.cornersHome,
+          cornersAway: s.cornersAway,
+          bookingsHome: s.bookingsHome,
+          bookingsAway: s.bookingsAway,
+          source: s.source,
+          confidence: Number(s.confidence),
+        };
+      }
+    }
+  }
 
   return { rows, total: count ?? 0 };
 };
@@ -1034,7 +1092,10 @@ export async function recordClosingOdds(args: {
     } else if (current.softOdds) {
       // Non-placed: CLV against commission-adjusted soft odds at detection
       const commission = Number(current.softCommissionPct ?? 0);
-      const adjSoftOdds = Number(current.softOdds) * (1 - commission / 100);
+      const adjSoftOdds = adjustOddsForCommission(
+        Number(current.softOdds),
+        commission,
+      );
       clvPct = Number(
         ((adjSoftOdds / args.closingSharpOdds - 1) * 100).toFixed(2),
       );

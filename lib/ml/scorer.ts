@@ -16,7 +16,7 @@ import {
   FEATURE_COUNT,
   FEATURE_NAMES_HASH,
   FEATURE_VERSION,
-} from "./features";
+} from "./feature-contract";
 
 // ============================================
 // Calibration — unified type + helpers
@@ -71,16 +71,19 @@ function parseCalibration(report: unknown): ScoreCalibration {
 function applyCalibration(rawScore: number, cal: ScoreCalibration): number {
   if (!Number.isFinite(rawScore)) return rawScore;
 
+  let result: number;
   switch (cal.method) {
     case "identity":
-      return rawScore;
+      result = rawScore;
+      break;
 
     case "platt_logit": {
       const clipped = Math.min(1 - 1e-6, Math.max(1e-6, rawScore));
       const logit = Math.log(clipped / (1 - clipped));
       const z = Math.min(35, Math.max(-35,
         (cal.params.intercept as number) + (cal.params.slope as number) * logit));
-      return 1 / (1 + Math.exp(-z));
+      result = 1 / (1 + Math.exp(-z));
+      break;
     }
 
     case "beta": {
@@ -90,30 +93,36 @@ function applyCalibration(rawScore: number, cal: ScoreCalibration): number {
       const p = Math.min(1 - 1e-6, Math.max(1e-6, rawScore));
       const z = Math.min(35, Math.max(-35,
         a * Math.log(p) - b * Math.log(1 - p) + c));
-      return 1 / (1 + Math.exp(-z));
+      result = 1 / (1 + Math.exp(-z));
+      break;
     }
 
     case "isotonic": {
       const x = cal.params.x as number[];
       const y = cal.params.y as number[];
-      // Linear interpolation (piecewise-linear PAV step function)
       let idx = 0;
       for (let i = 0; i < x.length; i++) {
         if (rawScore <= x[i]) { idx = i; break; }
         if (i === x.length - 1) idx = i;
       }
-      if (idx === 0) return Math.max(0, Math.min(1, y[0]));
+      if (idx === 0) { result = Math.max(0, Math.min(1, y[0])); break; }
       const lo = x[idx - 1];
       const hi = x[idx];
       const ly = y[idx - 1];
       const hy = y[idx];
       const t = (hi - lo) > 1e-12 ? (rawScore - lo) / (hi - lo) : 0;
-      return Math.max(0, Math.min(1, ly + (hy - ly) * Math.max(0, Math.min(1, t))));
+      result = Math.max(0, Math.min(1, ly + (hy - ly) * Math.max(0, Math.min(1, t))));
+      break;
     }
 
     default:
-      return rawScore;
+      result = rawScore;
+      break;
   }
+
+  // Calibration should never produce extreme 0/1 probabilities — those
+  // create unrealistic edge estimates. Clamp to a reasonable range.
+  return Math.min(0.95, Math.max(0.05, result));
 }
 
 // ============================================
@@ -311,6 +320,8 @@ export async function ensureModel(): Promise<boolean> {
   }
 
   const loaded = await loadModel(resolved);
+  const { refreshPermissionLevel } = await import("./deployment-gate");
+  await refreshPermissionLevel(true);
   // Load ensemble on startup
   await refreshEnsemble();
   startModelWatcher();
