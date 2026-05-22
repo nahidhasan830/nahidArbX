@@ -13,14 +13,14 @@
  *   4. A mutex prevents concurrent passes; queued signals fire one follow-up pass
  *   5. A 30s heartbeat acts as a safety net to flush any orphaned dirty families
  *
- * Phase 8 ML integration:
+ * ML integration:
  *   - Features are extracted for ALL detected value bets (training data)
- *   - Scoring runs through the ONNX model (returns null when no model loaded)
+ *   - Scoring runs through Vertex AI Prediction (returns null on miss/failure)
  *   - Permission-aware staking via `computeScoredStake()` respects the
  *     deployment gate (shadow/gate_only/stake_reduce/stake_increase)
  *   - Shadow analytics are derived from bets on demand (no separate table)
  *
- * Phase 9 near-miss + shadow data:
+ * Shadow & near-miss data:
  *   - Shadow-scored detection snapshots stored for every value bet (outcome later)
  *   - Near-miss atoms (0.5% ≤ EV% < MIN_EV_PCT) collected as lower-weight
  *     negative training examples to reduce survival bias
@@ -77,6 +77,7 @@ import { computeDelta } from "@/lib/cache/delta";
 import { syncBus } from "@/lib/events/event-bus";
 import { buildMovementSnapshot } from "@/lib/atoms/odds-history";
 import { extractFeatures, isFeatureWarm } from "@/lib/ml/features";
+import { FEATURE_INDEX } from "@/lib/ml/feature-contract";
 import { scoreBatch, isModelLoaded } from "@/lib/ml/scorer";
 import { computeScoredStake, computeKellyMultiplier } from "@/lib/ml/staker";
 import {
@@ -146,8 +147,6 @@ const lastPersisted = singleton(
   "reactive-detector:lastPersisted",
   (): Map<string, PersistedSnapshot> => new Map(),
 );
-
-
 
 // ============================================
 // Core detection pass
@@ -239,7 +238,7 @@ async function runDetectionPass(): Promise<void> {
       const betsToPersist = forceFullRescore ? valueBets : changedBets;
 
       if (betsToPersist.length > 0) {
-        // ── Phase 4: ML feature extraction for ALL live bets ────────
+        // ── ML feature extraction for ALL live bets ────────────────
         // Extract features for every live value bet, not just changed
         // ones. Time-moving features (tick_velocity, convergence,
         // hours_since_line_opened) would freeze on unchanged bets if
@@ -248,8 +247,8 @@ async function runDetectionPass(): Promise<void> {
         // Feature extraction failure must never block detection.
 
         // Build event → active market count from the odds store so
-        // feature[24] (num_markets_same_event) reflects actual market
-        // coverage, not just value-bet detections.
+        // num_markets_same_event reflects actual market coverage, not
+        // just value-bet detections.
         const eventMarketCounts = new Map<string, number>();
         const seenEvents = new Set<string>();
         for (const vb of valueBets) {
@@ -270,10 +269,19 @@ async function runDetectionPass(): Promise<void> {
           try {
             const f = extractFeatures(vb, eventMarketCounts.get(vb.eventId));
             featuresMap.set(vb.id, f);
-            // Feature quality tracking (indexes: 5=tick_count, 6=time_to_kickoff, 16=opening_sharp, 20=vig_pct)
-            if (f[6] === 0 && f[5] === 0 && f[16] === 0) fqMissingEvent++;
-            if (f[5] === 0 && f[16] === 0) fqMissingHistory++;
-            if (f[20] === 0) fqMissingVig++;
+            const tickCount = f[FEATURE_INDEX.tick_count] ?? 0;
+            const timeToKickoff = f[FEATURE_INDEX.time_to_kickoff_min] ?? 0;
+            const openingSharpOdds = f[FEATURE_INDEX.opening_sharp_odds] ?? 0;
+            const vigPct = f[FEATURE_INDEX.vig_pct] ?? 0;
+            if (
+              timeToKickoff === 0 &&
+              tickCount === 0 &&
+              openingSharpOdds === 0
+            ) {
+              fqMissingEvent++;
+            }
+            if (tickCount === 0 && openingSharpOdds === 0) fqMissingHistory++;
+            if (vigPct === 0) fqMissingVig++;
             if (!isFeatureWarm(f)) fqCold++;
           } catch {
             // Feature extraction failure must never block detection
@@ -299,13 +307,13 @@ async function runDetectionPass(): Promise<void> {
         }
 
         // ── ML scoring ────────────────────────────────────────────
-        // Batch-score all bets with warm features through the ONNX
-        // model. Without a model, scoreBatch returns null for all
+        // Batch-score all bets with warm features through the cloud-only
+        // stub. Without a model, scoreBatch returns null for all
         // (pass-through). Score ALL warm bets — non-positive model-edge
         // bets are still valuable training data. Filtering happens at
         // the auto-placer gate only.
         //
-        // Phase 4 warmup gate: bets with cold features (insufficient
+        // Warmup gate: bets with cold features (insufficient
         // odds history) get null ML score. The rule-based value bet
         // row is kept but we don't claim ML confidence.
         const permissionLevel = getPermissionLevel();
@@ -486,7 +494,7 @@ async function runDetectionPass(): Promise<void> {
           );
         }
 
-        // ── Phase 9: Shadow-scored detection snapshots ────────────────
+        // ── Shadow-scored detection snapshots ────────────────────────
         // Store a feature snapshot for every detected value bet so we can
         // later attach outcome/CLV when the bet settles. This builds the
         // shadow_scored training examples dataset.
@@ -503,7 +511,7 @@ async function runDetectionPass(): Promise<void> {
           }
         }
 
-        // Phase 9 near-miss collection removed: simulation showed 524
+        // Near-miss collection removed: simulation showed 524
         // fabricated negative labels inflated the negative training class
         // by 40.1%, distorting the model's learned decision boundary.
       }
@@ -690,14 +698,8 @@ function runStaleCleanup(): void {
     }
   }
 
-
-
   const totalPruned =
-    prunedOdds +
-    prunedHistory +
-    prunedScores +
-    prunedMultiScores +
-    prunedDedup;
+    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedDedup;
   if (totalPruned > 0) {
     const histStats = getHistoryStats();
     logger.info(

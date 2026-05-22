@@ -164,7 +164,7 @@ registerCommand({
   usage: "/mlstatus",
   description: "Live ML scorer status from the engine.",
   explanation:
-    "Queries the engine HTTP API for the ONNX scorer's real-time state: " +
+    "Queries the engine HTTP API for the ML scorer's real-time state: " +
     "whether a model is loaded, which version, total bets scored, and " +
     "average inference time. Useful for confirming that a newly deployed " +
     "model is active and the scorer is healthy.",
@@ -176,6 +176,7 @@ registerCommand({
         modelVersion: number | null;
         modelPath: string | null;
         featureCount: number;
+        totalScoringAttempts: number;
         totalScored: number;
         avgInferenceMs: number;
         lastInferenceMs: number;
@@ -193,6 +194,7 @@ registerCommand({
           status.modelVersion != null ? `v${status.modelVersion}` : "—",
         ],
         ["Features", String(status.featureCount)],
+        ["Total Attempts", status.totalScoringAttempts.toLocaleString()],
         ["Total Scored", status.totalScored.toLocaleString()],
         ["Avg Inference", `${status.avgInferenceMs.toFixed(2)} ms`],
         ["Last Inference", `${status.lastInferenceMs.toFixed(2)} ms`],

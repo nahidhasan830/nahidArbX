@@ -13,6 +13,7 @@ import { eventPromptLine } from "../formatting/event-label";
 import type { ModelTier } from "./models";
 import { logAiActivity } from "./activity-logger";
 import { recordAiActivity } from "../db/repositories/ai-activity-log";
+import { format, isValid, parseISO } from "date-fns";
 
 export type { ModelTier } from "./models";
 export type Verdict = "SAME" | "DIFFERENT" | "UNCERTAIN";
@@ -122,7 +123,6 @@ export async function analyzeMatchWithGemini(
   try {
     const prompt = `A: ${eventPromptLine(eventA)}\nB: ${eventPromptLine(eventB)}`;
 
-    let responseText = "";
     const res = await logAiActivity(
       {
         system: "llm",
@@ -143,7 +143,6 @@ export async function analyzeMatchWithGemini(
             temperature: 0.1,
           },
         });
-        responseText = r.text || "";
         return r;
       },
     );
@@ -215,11 +214,17 @@ export function buildHumanSearchUrl(
   eventA: EventLike,
   eventB: EventLike,
 ): string {
-  const iso = new Date(eventA.startTime).toISOString();
+  const kickoff =
+    eventA.startTime instanceof Date
+      ? eventA.startTime
+      : parseISO(eventA.startTime);
+  const kickoffText = isValid(kickoff)
+    ? format(kickoff, "yyyy-MM-dd HH:mm")
+    : String(eventA.startTime);
   const query =
     `Are "${eventA.homeTeam}" vs "${eventA.awayTeam}" (${eventA.competition}) & ` +
     `"${eventB.homeTeam}" vs "${eventB.awayTeam}" (${eventB.competition}) the exact same match on ` +
-    `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC? ` +
+    `${kickoffText}? ` +
     `Explain step-by-step (verify tier, division, kickoff). ` +
     `End with a line containing exactly YES or NO.`;
 

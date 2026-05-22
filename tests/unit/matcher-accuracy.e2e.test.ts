@@ -146,8 +146,12 @@ function compact(value: string, max = 42): string {
 }
 
 function printTable(results: TestResult[]) {
-  console.log("| # | Request | Expected | Response | Rating | Conf | Model | Src | By |");
-  console.log("|---|---------|----------|----------|--------|------|-------|-----|----|");
+  console.log(
+    "| # | Request | Expected | Response | Rating | Conf | Model | Src | By |",
+  );
+  console.log(
+    "|---|---------|----------|----------|--------|------|-------|-----|----|",
+  );
   for (const r of results) {
     console.log(
       `| ${r.idx} | ${compact(r.request)} | ${r.expected} | ${compact(r.response)} | ${r.rating} | ${r.confidence} | ${compact(r.model, 22)} | ${r.sources} | ${r.decidedBy} |`,
@@ -251,7 +255,8 @@ describe("Event Matching AI Accuracy (HTTP e2e)", () => {
 
       const decided = correct + incorrect;
       const accuracy = decided > 0 ? (correct / decided) * 100 : 0;
-      const coverage = samples.length > 0 ? (decided / samples.length) * 100 : 0;
+      const coverage =
+        samples.length > 0 ? (decided / samples.length) * 100 : 0;
 
       console.log("\nEVENT MATCHING AI ACCURACY RESULTS (DeepSeek Flash)");
       console.log(`Total: ${samples.length}`);

@@ -21,7 +21,9 @@ const QUERY = process.argv[2] || "Today football matches high voltage";
 const MODEL = process.env.MODEL || "deepseek-v4-flash";
 
 const sep = (label: string) =>
-  console.log(`\n\x1b[36m──── ${label} ${"─".repeat(Math.max(0, 60 - label.length))}\x1b[0m`);
+  console.log(
+    `\n\x1b[36m──── ${label} ${"─".repeat(Math.max(0, 60 - label.length))}\x1b[0m`,
+  );
 
 async function getJson(path: string): Promise<unknown> {
   const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
@@ -64,7 +66,9 @@ async function main() {
 
   // 2. LLM stats (per-engine state)
   sep("2. /api/ai-search/llm-stats");
-  console.log(JSON.stringify(await getJson("/api/ai-search/llm-stats"), null, 2));
+  console.log(
+    JSON.stringify(await getJson("/api/ai-search/llm-stats"), null, 2),
+  );
 
   // 3. Web search — what the playground sends in step 1
   sep("3. POST /api/ai-search/search");
@@ -119,7 +123,9 @@ async function main() {
   console.log(`status=${groundedFull.status}  ms=${groundedFull.ms}`);
   console.log("\n── answer ──");
   console.log(groundedFull.body.answer);
-  console.log(`\nsources=${((groundedFull.body.sources as unknown[]) || []).length}`);
+  console.log(
+    `\nsources=${((groundedFull.body.sources as unknown[]) || []).length}`,
+  );
 
   sep("DONE");
 }

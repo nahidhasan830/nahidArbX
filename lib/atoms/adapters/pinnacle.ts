@@ -30,7 +30,6 @@ import {
 } from "../../adapters/pinnacle/index";
 import { buildEventMarketsUrl } from "../../adapters/pinnacle/urls";
 
-
 // Re-export for backward compatibility
 export {
   SOCCER_SPORT_ID,

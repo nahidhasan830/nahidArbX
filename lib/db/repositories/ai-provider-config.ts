@@ -194,7 +194,9 @@ export async function getSearchProviders(): Promise<AiProvider[]> {
 /**
  * Get a single provider by name.
  */
-export async function getProviderByName(name: string): Promise<AiProvider | null> {
+export async function getProviderByName(
+  name: string,
+): Promise<AiProvider | null> {
   const rows = await db
     .select()
     .from(aiProviderConfig)
@@ -210,7 +212,10 @@ export async function getProviderConfigs(): Promise<
   Record<string, { enabled: boolean; disabledReason: string | null }>
 > {
   const rows = await db.select().from(aiProviderConfig);
-  const map: Record<string, { enabled: boolean; disabledReason: string | null }> = {};
+  const map: Record<
+    string,
+    { enabled: boolean; disabledReason: string | null }
+  > = {};
   for (const r of rows) {
     map[r.name] = { enabled: r.enabled, disabledReason: r.disabledReason };
   }
@@ -230,14 +235,14 @@ export async function setProviderEnabled(
     .values({
       name,
       enabled,
-      disabledReason: enabled ? null : reason ?? "manual",
+      disabledReason: enabled ? null : (reason ?? "manual"),
       updatedAt: new Date().toISOString(),
     })
     .onConflictDoUpdate({
       target: aiProviderConfig.name,
       set: {
         enabled,
-        disabledReason: enabled ? null : reason ?? "manual",
+        disabledReason: enabled ? null : (reason ?? "manual"),
         updatedAt: sql`now()`,
       },
     });

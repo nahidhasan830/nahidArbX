@@ -13,9 +13,9 @@ export type ScoreSource =
   | "pinnacle-settled"
   | "ai-search-deepseek"
   | "ai-search-hf"
-  | "ai-search-groq"   // legacy — kept for old DB rows; new rows use ai-search-deepseek
-  | "url-context"     // legacy — no longer produced, but old DB rows have this
-  | "gemini-batch"    // legacy — no longer produced, but old DB rows have this
+  | "ai-search-groq" // legacy — kept for old DB rows; new rows use ai-search-deepseek
+  | "url-context" // legacy — no longer produced, but old DB rows have this
+  | "gemini-batch" // legacy — no longer produced, but old DB rows have this
   | "legacy-ai"
   | "manual";
 

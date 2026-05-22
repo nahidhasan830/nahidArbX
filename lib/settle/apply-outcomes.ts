@@ -131,7 +131,7 @@ export async function applySettlementOutcomes(
     }
   }
 
-  // ── Phase 9: ML training data hooks ─────────────────────────────
+  // ── ML training data hooks ───────────────────────────────────────
   // After settlement outcomes are applied, write training examples and
   // resolve shadow-scored detection snapshots. Fire-and-forget to never
   // block the settlement pipeline.
@@ -160,6 +160,8 @@ export async function applySettlementOutcomes(
               await resolveDetectionSnapshot(
                 row.id,
                 row.outcome,
+                Number(row.softOdds ?? row.odds ?? 0),
+                Number(row.softCommissionPct ?? 0),
                 row.pnl ?? null,
                 row.clvPct ?? null,
                 row.settledAt ?? null,
@@ -186,7 +188,11 @@ export async function applySettlementOutcomes(
               });
               // Feed pilot experiment if active
               if (unitReturn != null) {
-                try { settlePilotBet(row.id, unitReturn); } catch { /* non-critical */ }
+                try {
+                  settlePilotBet(row.id, unitReturn);
+                } catch {
+                  /* non-critical */
+                }
               }
             }
           } catch {
@@ -213,10 +219,15 @@ function computeUnitReturnFromRow(row: ValueBetRow): number | null {
   const commissionPct = Number(row.softCommissionPct ?? 0);
   const b = (odds - 1) * (1 - commissionPct / 100);
   switch (outcome) {
-    case "won": return b;
-    case "half_won": return b * 0.5;
-    case "lost": return -1;
-    case "half_lost": return -0.5;
-    default: return null;
+    case "won":
+      return b;
+    case "half_won":
+      return b * 0.5;
+    case "lost":
+      return -1;
+    case "half_lost":
+      return -0.5;
+    default:
+      return null;
   }
 }

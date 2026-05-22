@@ -38,6 +38,7 @@ import type {
   SystemBootEvent,
   UnifiedBootEvent,
 } from "./types";
+import { format, isSameDay, parseISO } from "date-fns";
 import { logger } from "@/lib/shared/logger";
 import { formatMarketType as formatMarketTypeBase } from "@/lib/formatting/labels";
 
@@ -127,10 +128,9 @@ function formatMlTrainingCompleted(
 
   lines.push(`${outcomeIcon} <b>${esc(outcomeLabel)} — v${e.version}</b>`);
   lines.push(``);
-  const durationPart = e.durationMs > 0 ? ` · ${esc(durationLabel(e.durationMs))}` : "";
-  lines.push(
-    `📊 ${e.trainingSamples.toLocaleString()} samples${durationPart}`,
-  );
+  const durationPart =
+    e.durationMs > 0 ? ` · ${esc(durationLabel(e.durationMs))}` : "";
+  lines.push(`📊 ${e.trainingSamples.toLocaleString()} samples${durationPart}`);
 
   // Metrics block
   if (e.aucRoc != null || e.dsr != null || e.pbo != null) {
@@ -970,22 +970,10 @@ function sportEmoji(sport?: string | null): string {
 }
 
 function formatAbsoluteTime(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate();
-  const time = d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  if (sameDay) return time;
-  const date = d.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-  return `${date} ${time}`;
+  const d = parseISO(iso);
+  const time = format(d, "HH:mm");
+  if (isSameDay(d, new Date())) return time;
+  return `${format(d, "MMM d")} ${time}`;
 }
 
 function truncate(s: string, max: number): string {

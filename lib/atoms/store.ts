@@ -357,7 +357,7 @@ export function getFamiliesForEvent(eventId: string): string[] {
 
 /**
  * Count matched markets (atoms with ≥2 providers) for an event.
- * Used for ML feature[24] (num_markets_same_event) so it reflects
+ * Used for the ML num_markets_same_event feature so it reflects
  * actual market coverage, not just the number of value bets detected.
  */
 export function getActiveMarketCountForEvent(eventId: string): number {

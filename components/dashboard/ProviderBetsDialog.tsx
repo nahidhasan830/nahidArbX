@@ -116,10 +116,7 @@ export function ProviderBetsDialog({
               </div>
             );
           } else {
-            const ev =
-              r.sharpTrueProb && r.softOdds
-                ? derive(r).evPct
-                : null;
+            const ev = r.sharpTrueProb && r.softOdds ? derive(r).evPct : null;
             return (
               <div className="text-right font-mono text-[12px]">
                 {ev !== null ? ev.toFixed(2) + "%" : "—"}

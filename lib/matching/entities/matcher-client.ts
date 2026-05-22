@@ -1,30 +1,35 @@
 /**
- * HTTP client for the entity-matcher Cloud Run Service.
+ * Entity Matcher Client — Vertex AI Embeddings
  *
- * Replaces the LightGBM `classifier.ts` client. Talks to the FastAPI app
- * at `ENTITY_MATCHER_URL` exposing /embed, /score (bi-encoder | cross-encoder),
- * and /reload.
+ * Generates embeddings for entity matching using Vertex AI's managed
+ * text-embedding models. Replaces self-hosted Hugging Face models.
  *
- * Auth: the Cloud Run service requires IAM auth (`--no-allow-unauthenticated`).
- * We use `google-auth-library` to obtain an ID token with the service URL as
- * audience — same ADC pattern the optimizer client uses.
+ * Fallback: if VERTEX_EMBEDDING_MODEL is not configured, falls back to
+ * the Cloud Run entity-matcher service (if ENTITY_MATCHER_URL is set).
  *
- * Failure mode: every call returns `null` on timeout or non-2xx. The
+ * Auth: Vertex AI uses ADC. Cloud Run service requires IAM auth.
+ *
+ * Failure mode: every call returns `null` on timeout or error. The
  * auto-resolver treats `null` as "model unavailable → escalate to operator
  * inbox". The sync hot path never throws because of a matcher outage.
  */
 
 import { GoogleAuth } from "google-auth-library";
 import { logger } from "../../shared/logger";
+import {
+  embedBatch as vertexEmbedBatch,
+  embed as vertexEmbed,
+  cosineSimilarity,
+  EMBEDDING_DIM as VERTEX_EMBEDDING_DIM,
+} from "./vertex-embeddings-client";
 
 const tag = "EntityMatcherClient";
 
-// 1.5 s timeout matches the previous classifier client. Bi-encoder calls
-// finish in ~50 ms; cross-encoder in ~150 ms — 1.5 s leaves headroom for
-// cold starts on the matcher service.
+// 1.5 s timeout matches the previous classifier client. Vertex AI calls
+// finish in ~100-200ms; 1.5s leaves headroom for cold starts.
 const TIMEOUT_MS = 1500;
 
-export const EMBEDDING_DIM = 1024;
+export const EMBEDDING_DIM = VERTEX_EMBEDDING_DIM; // 768 for text-embedding-004
 
 export interface MatcherScore {
   score: number;
@@ -114,94 +119,27 @@ async function postJson<T>(
   }
 }
 
-// ── HF Serverless Inference API (primary embedding provider) ────────
-
-const HF_INFERENCE_URL = "https://router.huggingface.co/hf-inference/models";
-
 /**
- * Embed texts via HF Serverless Inference API (hf-inference provider).
- * Free tier: ~300 req/hour, rate-based (no credits consumed).
- * Returns null on any failure — caller falls through to Cloud Run.
- */
-async function embedViaHF(texts: string[]): Promise<number[][] | null> {
-  const token = process.env.HF_API_KEY;
-  const model = process.env.HF_EMBED_MODEL || "BAAI/bge-m3";
-  if (!token) return null;
-
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30_000); // 30s for cold starts
-    try {
-      const res = await fetch(
-        `${HF_INFERENCE_URL}/${model}/pipeline/feature-extraction`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ inputs: texts }),
-          signal: ctrl.signal,
-        },
-      );
-
-      if (res.status === 429 || res.status === 503) {
-        logger.debug(tag, `HF embed ${res.status} — falling back to Cloud Run`);
-        return null;
-      }
-      if (!res.ok) {
-        logger.warn(tag, `HF embed returned ${res.status}`);
-        return null;
-      }
-
-      const vectors = (await res.json()) as number[][];
-      if (!Array.isArray(vectors) || vectors.length !== texts.length) {
-        logger.warn(
-          tag,
-          `HF embed returned wrong shape: ${vectors?.length} vs ${texts.length}`,
-        );
-        return null;
-      }
-      // Validate first vector dimension
-      if (vectors[0] && vectors[0].length !== EMBEDDING_DIM) {
-        logger.warn(
-          tag,
-          `HF embed dim mismatch: ${vectors[0].length} vs ${EMBEDDING_DIM}`,
-        );
-        return null;
-      }
-      return vectors;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch (err) {
-    if ((err as Error).name !== "AbortError") {
-      logger.debug(tag, `HF embed failed: ${(err as Error).message}`);
-    }
-    return null;
-  }
-}
-
-/**
- * Embed a single surface form. Returns a 1024-dim vector or null if the
- * matcher service is unreachable or returns the wrong shape.
+ * Embed a single surface form. Returns a 768-dim vector or null on failure.
+ * Uses Vertex AI managed embeddings (primary) or Cloud Run service (fallback).
  */
 export async function embed(text: string): Promise<number[] | null> {
-  // Try HF Serverless first
-  const hfResult = await embedViaHF([text]);
-  if (hfResult?.[0] && hfResult[0].length === EMBEDDING_DIM) {
-    return hfResult[0];
-  }
-  // Fallback: Cloud Run
+  // Primary: Vertex AI managed embeddings
+  const vertexResult = await vertexEmbed(text);
+  if (vertexResult !== null) return vertexResult;
+
+  // Fallback: Cloud Run entity-matcher service (if configured)
+  const base = baseUrl();
+  if (!base) return null;
+
   const out = await postJson<{ embedding?: number[] }>("/embed", { text });
   if (!out?.embedding || out.embedding.length !== EMBEDDING_DIM) return null;
   return out.embedding;
 }
 
 /**
- * Bi-encoder cosine similarity in [0, 1]. Fast (~50 ms) — used as the
- * first stage of the auto-resolver to filter the easy cases before
- * burning cross-encoder cycles.
+ * Bi-encoder cosine similarity in [0, 1]. Fast (~100-200ms with Vertex AI).
+ * Used as the first stage of the auto-resolver to filter easy cases.
  *
  * Returns null on service failure (caller skips this stage and falls
  * through to the cross-encoder or operator inbox).
@@ -211,6 +149,19 @@ export async function scoreBiEncoder(
   nameB: string,
   context?: ScoreContext,
 ): Promise<number | null> {
+  // Primary: Vertex AI embeddings + local cosine similarity
+  const [embA, embB] = await Promise.all([
+    vertexEmbed(nameA),
+    vertexEmbed(nameB),
+  ]);
+
+  if (embA && embB) {
+    const similarity = cosineSimilarity(embA, embB);
+    // Convert from [-1, 1] to [0, 1] range
+    return (similarity + 1) / 2;
+  }
+
+  // Fallback: Cloud Run entity-matcher service (if configured)
   const out = await postJson<MatcherScore>("/score", {
     name_a: nameA,
     name_b: nameB,
@@ -243,15 +194,11 @@ export async function scoreCrossEncoder(
 
 /**
  * Batch-embed a list of surface forms. Returns a Map from each input text
- * to its 1024-dim BGE-M3 embedding vector, or null if the service is
- * unreachable.
+ * to its 768-dim embedding vector, or null on failure.
  *
  * Used by the ML pair scorer to embed all unique team/competition names
- * from a batch of match pairs in a single round-trip (~100ms for 150
- * names), then compute cosine similarities locally.
- *
- * The /embed-batch endpoint accepts `{ texts: string[] }` and returns
- * `{ embeddings: number[][] }` in the same order.
+ * from a batch of match pairs in a single round-trip, then compute cosine
+ * similarities locally.
  */
 export async function embedBatch(
   texts: string[],
@@ -260,21 +207,22 @@ export async function embedBatch(
 
   const deduped = [...new Set(texts)];
 
-  // ── Primary: HF Serverless Inference API (free, ~300 RPH) ──
-  const hfVectors = await embedViaHF(deduped);
-  if (hfVectors && hfVectors.length === deduped.length) {
+  // Primary: Vertex AI managed embeddings
+  const vertexResults = await vertexEmbedBatch(deduped);
+  const allValid = vertexResults.every((r) => r !== null);
+
+  if (allValid) {
     const map = new Map<string, number[]>();
     for (let i = 0; i < deduped.length; i++) {
-      const vec = hfVectors[i];
-      if (vec && vec.length === EMBEDDING_DIM) {
-        map.set(deduped[i], vec);
-      }
+      map.set(deduped[i], vertexResults[i]!);
     }
-    if (map.size === deduped.length) return map;
-    // Some vectors had wrong dim — fall through to Cloud Run
+    return map;
   }
 
-  // ── Fallback: Cloud Run entity-matcher (self-hosted BGE-M3) ──
+  // Fallback: Cloud Run entity-matcher service (if configured)
+  const base = baseUrl();
+  if (!base) return null;
+
   const out = await postJson<{ embeddings?: number[][] }>(
     "/embed-batch",
     { texts: deduped },

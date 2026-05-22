@@ -398,8 +398,8 @@ class TestScoringIntegration:
         assert all(np.isfinite(s) for s in sharpes)
 
 
-class TestPhase6Calibration:
-    """Phase 6: Score bucket calibration and monotonicity tests."""
+class TestScoreBucketCalibration:
+    """Score bucket calibration and monotonicity tests."""
 
     def test_score_bucket_report_present(self, synthetic_data: TrainingData):
         """Training should produce a score bucket report."""

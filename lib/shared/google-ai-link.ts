@@ -12,6 +12,8 @@
  * DB schemas, notification types, or UI components.
  */
 
+import { format, isValid, parseISO } from "date-fns";
+
 export interface BetGradeDescriptor {
   homeTeam: string;
   awayTeam: string;
@@ -34,36 +36,15 @@ const scopeLabel = (scope?: string): string => {
   return "full time";
 };
 
-const formatTz = (d: Date, tz: string) => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(d);
-  const val = (type: string) => parts.find(p => p.type === type)!.value;
-  return {
-    date: `${val("year")}-${val("month")}-${val("day")}`,
-    time: `${val("hour")}:${val("minute")}`,
-  };
-};
-
 export function buildBetGradeUrl(bet: BetGradeDescriptor): string {
   const kickoff =
     typeof bet.eventStartTime === "string"
-      ? new Date(bet.eventStartTime)
+      ? parseISO(bet.eventStartTime)
       : bet.eventStartTime;
 
-  const utc = formatTz(kickoff, "UTC");
-  const bst = formatTz(kickoff, "Asia/Dhaka");
-
-  const dateTimeClause = utc.date === bst.date && utc.time === bst.time
-    ? `${utc.date} ${utc.time} UTC`
-    : `UTC: ${utc.date} ${utc.time} / Dhaka: ${bst.date} ${bst.time}`;
+  const dateTimeClause = isValid(kickoff)
+    ? format(kickoff, "yyyy-MM-dd HH:mm")
+    : String(bet.eventStartTime);
 
   const query = [
     `Grade bet for match: ${bet.homeTeam} vs ${bet.awayTeam} ${bet.competition ? `(${bet.competition})` : ""} on ${dateTimeClause}.`,

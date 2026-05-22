@@ -30,10 +30,8 @@ import {
   lookupCompetitionSlug,
   normalizeCompetition,
 } from "../aliases";
-import {
-  verifySettlementMatch,
-  AI_MAYBE_FLOOR,
-} from "./ai-match";
+import { verifySettlementMatch, AI_MAYBE_FLOOR } from "./ai-match";
+import { addDays, format } from "date-fns";
 
 // ─── Configuration ──────────────────────────────────────────────────────────
 
@@ -56,7 +54,7 @@ interface QuotaState {
 }
 
 function currentDayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return format(new Date(), "yyyy-MM-dd");
 }
 
 const quota = singleton<QuotaState>("settle:api-football:quota", () => ({
@@ -458,9 +456,7 @@ const teamSimilarity = (a: string, b: string): number => {
   return compareTwoStrings(na, nb);
 };
 
-const mapStatus = (
-  short: string,
-): MatchScore["status"] | null => {
+const mapStatus = (short: string): MatchScore["status"] | null => {
   switch (short) {
     case "FT":
       return "FT";
@@ -537,12 +533,12 @@ export async function fetchApiFootballScores(
   const out = new Map<string, MatchScore>();
   if (events.length === 0 || !API_KEY) return out;
 
-  // Collect unique dates from events, pad ±1 day for timezone skew
+  // Collect unique local dates from events, pad +/-1 day for provider catalog variance.
   const dateSet = new Set<string>();
   for (const e of events) {
-    const t = new Date(e.startTime).getTime();
-    for (const offset of [-86_400_000, 0, 86_400_000]) {
-      dateSet.add(new Date(t + offset).toISOString().slice(0, 10));
+    const start = new Date(e.startTime);
+    for (const offset of [-1, 0, 1]) {
+      dateSet.add(format(addDays(start, offset), "yyyy-MM-dd"));
     }
   }
 
@@ -574,14 +570,8 @@ export async function fetchApiFootballScores(
       const kickoff = new Date(theirs.fixture.date).getTime();
       if (Math.abs(kickoff - ourStart) > KICKOFF_WINDOW_MS) continue;
 
-      const homeSim = teamSimilarity(
-        ours.homeTeam,
-        theirs.teams.home.name,
-      );
-      const awaySim = teamSimilarity(
-        ours.awayTeam,
-        theirs.teams.away.name,
-      );
+      const homeSim = teamSimilarity(ours.homeTeam, theirs.teams.home.name);
+      const awaySim = teamSimilarity(ours.awayTeam, theirs.teams.away.name);
       const combined = (homeSim + awaySim) / 2;
       if (combined < AI_MAYBE_FLOOR) continue; // Too different even for AI
 
@@ -652,11 +642,7 @@ export async function fetchApiFootballScores(
     // Learn aliases
     if (ours.competition) {
       const leagueId = best.fixture.league.id;
-      learnCompetitionSlug(
-        ours.competition,
-        "api-football",
-        String(leagueId),
-      );
+      learnCompetitionSlug(ours.competition, "api-football", String(leagueId));
     }
     try {
       learnTeamAlias(ours.homeTeam, best.fixture.teams.home.name);
@@ -701,15 +687,15 @@ async function fetchFixtureStats(
   });
   if (!resp?.response || resp.response.length < 2) return null;
 
-  const getStat = (
-    team: ApiStatTeam,
-    type: string,
-  ): number => {
+  const getStat = (team: ApiStatTeam, type: string): number => {
     const item = team.statistics.find(
       (s) => s.type.toLowerCase() === type.toLowerCase(),
     );
     if (!item || item.value == null) return 0;
-    const n = typeof item.value === "number" ? item.value : Number.parseInt(String(item.value), 10);
+    const n =
+      typeof item.value === "number"
+        ? item.value
+        : Number.parseInt(String(item.value), 10);
     return Number.isFinite(n) ? n : 0;
   };
 
@@ -777,10 +763,8 @@ export async function enrichApiFootballStats(
     }
     if (needsBookings) {
       // Pinnacle convention: 1 pt per yellow, 2 pts per red
-      score.bookingsHome =
-        stats.yellowCardsHome + 2 * stats.redCardsHome;
-      score.bookingsAway =
-        stats.yellowCardsAway + 2 * stats.redCardsAway;
+      score.bookingsHome = stats.yellowCardsHome + 2 * stats.redCardsHome;
+      score.bookingsAway = stats.yellowCardsAway + 2 * stats.redCardsAway;
     }
     enriched++;
 

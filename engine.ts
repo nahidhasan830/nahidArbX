@@ -40,6 +40,14 @@ async function main() {
   await ensureDbReady();
   logger.info("Boot", "Database pool initialized");
 
+  // ── ML feature contract diagnostic ──────────────────────────────────
+  const { FEATURE_VERSION, FEATURE_COUNT, FEATURE_NAMES_HASH } =
+    await import("./lib/ml/feature-contract");
+  logger.info(
+    "Boot",
+    `ML feature contract: FEATURE_VERSION=${FEATURE_VERSION} FEATURE_COUNT=${FEATURE_COUNT} hash=${FEATURE_NAMES_HASH}`,
+  );
+
   // ── Import all subsystems (same as instrumentation.ts) ──────────────
   const [
     { startScheduler, stopScheduler, isSchedulerRunning },
@@ -160,26 +168,24 @@ async function main() {
     "Reactive value detector started (event-driven, 500ms debounce)",
   );
 
-  // ML model warmup — front-load the ONNX session creation (50-200ms)
-  // so the first detection pass doesn't eat that latency. Non-blocking:
-  // if no model is deployed yet, the scorer operates in pass-through mode.
+  // ML scorer warmup — check for deployed model metadata.
+  // Non-blocking: scorer returns null (fail-open) when the Vertex AI Prediction
+  // endpoint is unreachable or no model is deployed yet.
   import("./lib/ml/scorer")
     .then(({ ensureModel }) => ensureModel())
-    .then((loaded) => {
+    .then(() => {
       logger.info(
         "Boot",
-        loaded
-          ? "ML model loaded successfully — scoring active"
-          : "No ML model deployed — operating in pass-through mode",
+        "ML scorer initialized (Vertex AI Prediction; returns null until a model is deployed and reachable)",
       );
     })
     .catch((err) => {
       logger.error(
         "Boot",
-        `ML model warmup FAILED: ${err instanceof Error ? err.message : String(err)}`,
+        `ML scorer warmup FAILED: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
-  logger.info("Boot", "ML model warmup initiated (non-blocking)");
+  logger.info("Boot", "ML scorer warmup initiated (non-blocking)");
 
   // Warm up competition enrichment cache (non-blocking). Detection never
   // waits for AI; unknown competitions use tier 1 until the warmer catches up.
@@ -301,9 +307,8 @@ async function main() {
 
       // Clean up SofaScore transport (no-op for curl_cffi, kept for API compat)
       try {
-        const { closeSofaScoreSession } = await import(
-          "./lib/settle/sources/sofascore-browser"
-        );
+        const { closeSofaScoreSession } =
+          await import("./lib/settle/sources/sofascore-browser");
         await closeSofaScoreSession();
       } catch {
         /* sofascore-browser may not have been loaded */

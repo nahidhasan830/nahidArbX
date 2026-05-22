@@ -8,7 +8,6 @@ import "dotenv/config";
 import { db, ensureDbReady } from "../lib/db/client";
 import { matchSingle } from "../lib/matching/ai-search-client";
 
-
 async function main() {
   await ensureDbReady();
 

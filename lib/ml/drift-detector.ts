@@ -113,7 +113,10 @@ class AdwinInstance {
       const w0Count = this.bucketSum(cut + 1, this.buckets.length);
       const w1Count = this.bucketSum(0, cut + 1);
 
-      if (w0Count < this.config.minSubWindow || w1Count < this.config.minSubWindow) {
+      if (
+        w0Count < this.config.minSubWindow ||
+        w1Count < this.config.minSubWindow
+      ) {
         continue;
       }
 
@@ -267,7 +270,11 @@ export function observeBet(obs: DriftObservation): void {
     tracker.winRate.observe(obs.outcome);
   }
 
-  if (obs.mlScore != null && obs.outcome != null && Number.isFinite(obs.mlScore)) {
+  if (
+    obs.mlScore != null &&
+    obs.outcome != null &&
+    Number.isFinite(obs.mlScore)
+  ) {
     // Score bias: positive = overconfident (predicted higher than actual)
     const bias = obs.mlScore - obs.outcome;
     tracker.mlScoreBias.observe(bias);
@@ -372,9 +379,7 @@ const PERMISSION_NAMES: Record<number, string> = {
  *
  * @returns the new (degraded) permission level, or null if no degradation needed.
  */
-export function computeDriftDegradation(
-  currentLevel: string,
-): string | null {
+export function computeDriftDegradation(currentLevel: string): string | null {
   const currentIdx = PERMISSION_ORDER[currentLevel];
   if (currentIdx === undefined || currentIdx <= 0) {
     return null; // Already at shadow, can't go lower
@@ -410,7 +415,10 @@ export function clearDriftDegradation(): string | null {
   tracker.degradedAt = 0;
 
   if (restored) {
-    logger.info("MLDrift", `Drift degradation cleared. Permission restored to ${restored}.`);
+    logger.info(
+      "MLDrift",
+      `Drift degradation cleared. Permission restored to ${restored}.`,
+    );
   }
   return restored;
 }
@@ -466,11 +474,20 @@ export async function checkCalibrationHealth(): Promise<CalibrationHealth> {
       .limit(CAL_CHECK_WINDOW);
 
     if (rows.length < CAL_MIN_SAMPLES) {
-      return { checked: false, sampleSize: rows.length, ece: 0, eceExceeded: false, meanScore: 0, winRate: 0 };
+      return {
+        checked: false,
+        sampleSize: rows.length,
+        ece: 0,
+        eceExceeded: false,
+        meanScore: 0,
+        winRate: 0,
+      };
     }
 
     const scores = rows.map((r) => r.mlScore ?? 0);
-    const labels = rows.map((r) => (r.outcome === "won" || r.outcome === "half_won" ? 1 : 0));
+    const labels = rows.map((r) =>
+      r.outcome === "won" || r.outcome === "half_won" ? 1 : 0,
+    );
 
     const ece = computeECE(scores, labels);
     const meanScore = scores.reduce((a: number, b) => a + b, 0) / scores.length;
@@ -484,14 +501,35 @@ export async function checkCalibrationHealth(): Promise<CalibrationHealth> {
       );
     }
 
-    return { checked: true, sampleSize: rows.length, ece, eceExceeded: exceeded, meanScore, winRate };
+    return {
+      checked: true,
+      sampleSize: rows.length,
+      ece,
+      eceExceeded: exceeded,
+      meanScore,
+      winRate,
+    };
   } catch (err) {
-    logger.warn("MLCalibration", `Calibration check failed: ${(err as Error).message}`);
-    return { checked: false, sampleSize: 0, ece: 0, eceExceeded: false, meanScore: 0, winRate: 0 };
+    logger.warn(
+      "MLCalibration",
+      `Calibration check failed: ${(err as Error).message}`,
+    );
+    return {
+      checked: false,
+      sampleSize: 0,
+      ece: 0,
+      eceExceeded: false,
+      meanScore: 0,
+      winRate: 0,
+    };
   }
 }
 
-function computeECE(yProb: number[], yTrue: number[], nBins: number = 10): number {
+function computeECE(
+  yProb: number[],
+  yTrue: number[],
+  nBins: number = 10,
+): number {
   const n = yProb.length;
   if (n === 0) return 0;
   const binEdges = Array.from({ length: nBins + 1 }, (_, i) => i / nBins);
@@ -499,9 +537,15 @@ function computeECE(yProb: number[], yTrue: number[], nBins: number = 10): numbe
   for (let i = 0; i < nBins; i++) {
     const lo = binEdges[i];
     const hi = i === nBins - 1 ? 1.0001 : binEdges[i + 1];
-    let sumPred = 0, sumTrue = 0, count = 0;
+    let sumPred = 0,
+      sumTrue = 0,
+      count = 0;
     for (let j = 0; j < n; j++) {
-      if (yProb[j] >= lo && yProb[j] < hi) { sumPred += yProb[j]; sumTrue += yTrue[j]; count++; }
+      if (yProb[j] >= lo && yProb[j] < hi) {
+        sumPred += yProb[j];
+        sumTrue += yTrue[j];
+        count++;
+      }
     }
     if (count > 0) {
       eceTotal += (count / n) * Math.abs(sumPred / count - sumTrue / count);

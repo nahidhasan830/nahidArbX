@@ -26,7 +26,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { verifyAiMatch } from "./api";
 import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
-import type { AiModelMenuEngine, AiModelMenuCallbacks } from "@/components/shared/AiModelMenuItems";
+import type {
+  AiModelMenuEngine,
+  AiModelMenuCallbacks,
+} from "@/components/shared/AiModelMenuItems";
 import type { ModelTier } from "@/lib/ai/models";
 
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +56,6 @@ import {
 } from "./types";
 import { SchedulerPopover } from "./SchedulerPopover";
 import { format, isValid, parseISO } from "date-fns";
-import { DhakaTimezone } from "@/lib/formatting/datetime";
 
 import { AppShell } from "@/components/nav/AppShell";
 
@@ -64,27 +66,15 @@ const REFRESH_INTERVALS: Partial<Record<MatchPairStage, number>> = {
   human_review: 30_000,
 };
 
-function fmtDhkMmmHm(iso: string | null): string {
+function fmtMmmHm(iso: string | null): string {
   if (!iso) return "—";
   const d = parseISO(iso);
   if (!isValid(d)) return "—";
-  // Build parts ourselves to inject Asia/Dhaka instead of relying on local TZ.
-  const f = new Intl.DateTimeFormat("en-GB", {
-    timeZone: DhakaTimezone,
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = f.formatToParts(d);
-  const v = (t: string) => parts.find(p => p.type === t)!.value;
-  return `${v("day")} ${v("month")} ${v("hour")}:${v("minute")}`;
+  return format(d, "dd MMM HH:mm");
 }
 
 function formatKickoff(iso: string | null): string {
-  return fmtDhkMmmHm(iso);
+  return fmtMmmHm(iso);
 }
 
 function scoreColor(score: number | null): string {
@@ -437,11 +427,7 @@ export function MatcherLab() {
   const [isBulkVerifying, setIsBulkVerifying] = useState(false);
 
   const handleVerifyAi = useCallback(
-    async (
-      engine: AiModelMenuEngine,
-      model: ModelTier,
-      singleId?: string,
-    ) => {
+    async (engine: AiModelMenuEngine, model: ModelTier, singleId?: string) => {
       const idsToRun = singleId ? [singleId] : [...selectedPairIds];
       if (idsToRun.length === 0) return;
 
@@ -475,7 +461,10 @@ export function MatcherLab() {
                 65,
               )
             : id.slice(0, 30);
-          const result = await verifyAiMatch(id, { engine: apiEngine, model: "flash" as const });
+          const result = await verifyAiMatch(id, {
+            engine: apiEngine,
+            model: "flash" as const,
+          });
           if (result.decision === "UNCERTAIN") {
             uncertain++;
             toast.warning(`${engineEmoji} Uncertain — ${pairLabel}`, {
@@ -749,7 +738,7 @@ export function MatcherLab() {
               <span>
                 Last ML run:{" "}
                 <span className="text-zinc-400">
-                  {fmtDhkMmmHm(mlStats.lastRunAt)}
+                  {fmtMmmHm(mlStats.lastRunAt)}
                 </span>
               </span>
               <span>
@@ -815,7 +804,9 @@ export function MatcherLab() {
               disabled={selectedCount === 0}
               running={isBulkVerifying}
               selectedCount={selectedCount}
-              onVerify={(engine, model) => handleVerifyAi(engine, "flash", undefined)}
+              onVerify={(engine, _model) =>
+                handleVerifyAi(engine, "flash", undefined)
+              }
             />
           )}
 
@@ -989,7 +980,7 @@ function buildColumns(
     cell: ({ row }) => (
       <span
         className="tabular-nums text-zinc-400 text-[11px]"
-        title={fmtDhkMmmHm(row.original.eventAStartTime)}
+        title={fmtMmmHm(row.original.eventAStartTime)}
       >
         {formatKickoff(row.original.eventAStartTime)}
       </span>
@@ -1230,7 +1221,7 @@ function buildColumns(
         accessorFn: (row) => row.decidedAt,
         cell: ({ row }) => (
           <span className="text-zinc-500 tabular-nums">
-            {fmtDhkMmmHm(row.original.decidedAt)}
+            {fmtMmmHm(row.original.decidedAt)}
           </span>
         ),
       },
@@ -1248,7 +1239,7 @@ function buildColumns(
     accessorFn: (row) => row.detectedAt,
     cell: ({ row }) => (
       <span className="text-zinc-500 tabular-nums">
-        {fmtDhkMmmHm(row.original.detectedAt)}
+        {fmtMmmHm(row.original.detectedAt)}
       </span>
     ),
   });
@@ -1294,7 +1285,7 @@ function buildColumns(
               inline
               disabled={busy}
               running={aiVerifyingIds.has(id)}
-              onVerify={(engine, model) => onVerifyAi(engine, "flash", id)}
+              onVerify={(engine, _model) => onVerifyAi(engine, "flash", id)}
             />
             <a
               href={buildSearchUrl(row.original)}
@@ -1357,35 +1348,13 @@ function EventCell({
   );
 }
 
-const formatTz = (d: Date, tz: string) => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(d);
-  const val = (type: string) => parts.find(p => p.type === type)!.value;
-  return {
-    date: `${val("year")}-${val("month")}-${val("day")}`,
-    time: `${val("hour")}:${val("minute")}`,
-  };
-};
-
 function buildSearchUrl(pair: MatchPairRow): string {
   let scheduledStr = "";
   if (pair.eventAStartTime) {
     try {
-      const kickoff = new Date(pair.eventAStartTime);
-      if (!isNaN(kickoff.getTime())) {
-        const utc = formatTz(kickoff, "UTC");
-        const bst = formatTz(kickoff, "Asia/Dhaka");
-        scheduledStr = utc.date === bst.date && utc.time === bst.time
-          ? `${utc.date} ${utc.time} UTC`
-          : `UTC: ${utc.date} ${utc.time} / Dhaka: ${bst.date} ${bst.time}`;
+      const kickoff = parseISO(pair.eventAStartTime);
+      if (isValid(kickoff)) {
+        scheduledStr = format(kickoff, "yyyy-MM-dd HH:mm");
       }
     } catch {}
   }

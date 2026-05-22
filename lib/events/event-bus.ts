@@ -40,52 +40,7 @@ export type BusEvent =
   | {
       type: "settle:log";
       entry: import("../settle/activity-log").ActivityEntry;
-    }
-  | {
-      type: "ml:training:update";
-      training: MLTrainingUpdate;
     };
-
-/** Real-time ML training status pushed from engine → UI via SSE. */
-export interface MLTrainingUpdate {
-  /** Model version being trained. */
-  version: number;
-  /** Current phase: started → loading → training → validating → exporting → completed | failed | rejected */
-  phase:
-    | "started"
-    | "loading"
-    | "training"
-    | "validating"
-    | "exporting"
-    | "completed"
-    | "failed"
-    | "rejected";
-  /** Fine-grained Python training stage, when available. */
-  stage?: string;
-  /** Human-readable message for the current phase. */
-  message: string;
-  /** Optional progress percentage [0–100] within the current phase. */
-  progressPct?: number;
-  /** Timestamp of this update. */
-  updatedAt: number;
-  /** Model ID in the ml_models table. */
-  modelId: string;
-  /** Training metrics (available in completed/rejected phases). */
-  metrics?: {
-    aucRoc?: number;
-    dsr?: number;
-    pbo?: number;
-    trainingSamples?: number;
-    permissionLevel?: string;
-    rejectionReasons?: string[];
-  };
-  /** Duration since training started (ms). */
-  elapsedMs?: number;
-  /** Last heartbeat timestamp written by the Python trainer. */
-  lastHeartbeatAt?: string;
-  /** Trainer-side ETA estimate. */
-  estimatedRemainingMs?: number;
-}
 
 // ============================================
 // Event Bus Class

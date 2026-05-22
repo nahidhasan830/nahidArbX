@@ -20,6 +20,7 @@
 import axios, { type AxiosRequestConfig } from "axios";
 import { singleton } from "../../util/singleton";
 import { logger } from "../../shared/logger";
+import { format } from "date-fns";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -46,8 +47,7 @@ interface ProxyState {
 }
 
 function currentMonthKey(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return format(new Date(), "yyyy-MM");
 }
 
 const state = singleton<ProxyState>("settle:scrapedo-proxy", () => ({

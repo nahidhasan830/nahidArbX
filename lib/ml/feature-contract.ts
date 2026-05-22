@@ -36,6 +36,12 @@ export const FEATURE_NAMES: string[] = [
 
 export const FEATURE_COUNT = ML_FEATURE_COUNT;
 export const FEATURE_VERSION = ML_FEATURE_VERSION;
+export const FEATURE_INDEX = Object.freeze(
+  Object.fromEntries(FEATURE_NAMES.map((name, index) => [name, index])),
+) as Record<string, number>;
+export const FEATURE_SQL_INDEX = Object.freeze(
+  Object.fromEntries(FEATURE_NAMES.map((name, index) => [name, index + 1])),
+) as Record<string, number>;
 export const FEATURE_NAMES_HASH = createHash("sha256")
   .update(FEATURE_NAMES.join(","))
   .digest("hex");

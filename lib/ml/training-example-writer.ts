@@ -15,7 +15,7 @@
  *   - Rows with source_bet_id: unique on (source_bet_id, example_type)
  *   - Rows without source_bet_id: unique on (event_id, family_id, atom_id, example_type)
  *
- * Phase 2 changes:
+ * Notes:
  *   - Uses shared outcomes module for label derivation and weights
  *   - Computes unit returns for financial metrics
  *   - Writer counts only increment on actual DB changes
@@ -28,6 +28,7 @@ import { logger } from "@/lib/shared/logger";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 import {
+  computeUnitReturn,
   deriveLabel,
   deriveSampleWeight,
   type ExampleType,
@@ -50,7 +51,7 @@ const isUniqueViolation = (err: unknown): boolean => {
  * prevent duplicate rows. If a row already exists for the same bet+type,
  * the insert is skipped (settled data doesn't change once written).
  *
- * Phase 2: Also stores unit_return for simulated financial metrics.
+ * Also stores unit_return for simulated financial metrics.
  *
  * @param settledBets - Bet rows that just had their outcome set.
  * @returns Number of examples actually written (not skipped).
@@ -70,10 +71,19 @@ export async function writeSettledExamples(
     const exampleType: ExampleType = bet.placedAt
       ? "placed_settled"
       : "settled_detected";
+    const unitReturn = computeUnitReturn(
+      bet.outcome,
+      Number(bet.softOdds ?? 0),
+      Number(bet.softCommissionPct ?? 0),
+    );
 
     try {
       const [existing] = await db
-        .select({ id: mlTrainingExamples.id })
+        .select({
+          id: mlTrainingExamples.id,
+          featureVersion: mlTrainingExamples.featureVersion,
+          features: mlTrainingExamples.features,
+        })
         .from(mlTrainingExamples)
         .where(
           and(
@@ -82,7 +92,41 @@ export async function writeSettledExamples(
           ),
         )
         .limit(1);
-      if (existing) continue;
+
+      const featureVersion = bet.mlFeatureVersion ?? ML_FEATURE_VERSION;
+      const featureCount = bet.mlFeatures.length;
+      const sampleWeight = deriveSampleWeight(bet.outcome, unitReturn);
+
+      if (existing) {
+        const alreadyCurrent =
+          existing.featureVersion === featureVersion &&
+          Array.isArray(existing.features) &&
+          existing.features.length === featureCount;
+        if (alreadyCurrent) continue;
+
+        const result = await db
+          .update(mlTrainingExamples)
+          .set({
+            eventId: bet.eventId,
+            familyId: bet.familyId,
+            atomId: bet.atomId,
+            features: bet.mlFeatures,
+            featureVersion,
+            label,
+            labelSource: "outcome",
+            sampleWeight,
+            outcome: bet.outcome,
+            pnl: bet.pnl,
+            clvPct: bet.clvPct,
+            settledAt: bet.settledAt,
+          })
+          .where(eq(mlTrainingExamples.id, existing.id))
+          .returning({ id: mlTrainingExamples.id });
+        if (result.length > 0) {
+          written++;
+        }
+        continue;
+      }
 
       const result = await db
         .insert(mlTrainingExamples)
@@ -93,10 +137,10 @@ export async function writeSettledExamples(
           familyId: bet.familyId,
           atomId: bet.atomId,
           features: bet.mlFeatures,
-          featureVersion: bet.mlFeatureVersion ?? ML_FEATURE_VERSION,
+          featureVersion,
           label,
           labelSource: "outcome",
-          sampleWeight: deriveSampleWeight(bet.outcome, exampleType, bet.pnl),
+          sampleWeight,
           outcome: bet.outcome,
           pnl: bet.pnl,
           clvPct: bet.clvPct,
@@ -131,7 +175,8 @@ export async function writeMissingSettledExamples(
   const missing = await db
     .select()
     .from(bets)
-    .where(sql`
+    .where(
+      sql`
       ${bets.outcome} NOT IN ('pending', 'void')
       AND ${bets.mlFeatures} IS NOT NULL
       AND ${bets.mlFeatureVersion} = ${ML_FEATURE_VERSION}
@@ -147,7 +192,8 @@ export async function writeMissingSettledExamples(
           AND m.feature_version = ${ML_FEATURE_VERSION}
           AND array_length(m.features, 1) = ${ML_FEATURE_COUNT}
       )
-    `)
+    `,
+    )
     .orderBy(bets.settledAt, bets.firstSeenAt)
     .limit(limit);
 
@@ -161,6 +207,28 @@ export async function writeMissingSettledExamples(
     );
   }
   return written;
+}
+
+export async function reconcileMissingSettledExamples(
+  batchSize = 500,
+  writeBatch: (limit?: number) => Promise<number> = writeMissingSettledExamples,
+): Promise<number> {
+  let totalWritten = 0;
+
+  while (true) {
+    const written = await writeBatch(batchSize);
+    totalWritten += written;
+    if (written === 0) break;
+  }
+
+  if (totalWritten > 0) {
+    logger.info(
+      tag,
+      `Reconciled ${totalWritten} missing settled training examples`,
+    );
+  }
+
+  return totalWritten;
 }
 
 /**
@@ -247,6 +315,8 @@ export async function writeDetectionSnapshot(
 export async function resolveDetectionSnapshot(
   betId: string,
   outcome: string,
+  softOdds: number | null,
+  softCommissionPct: number | null,
   pnl: number | null,
   clvPct: number | null,
   settledAt: string | null,
@@ -255,6 +325,12 @@ export async function resolveDetectionSnapshot(
   if (label === null) return; // void — don't resolve
 
   try {
+    const unitReturn = computeUnitReturn(
+      outcome,
+      Number(softOdds ?? 0),
+      Number(softCommissionPct ?? 0),
+    );
+
     // Find the latest shadow_scored example for this bet
     const [existing] = await db
       .select({ id: mlTrainingExamples.id })
@@ -275,7 +351,7 @@ export async function resolveDetectionSnapshot(
       .set({
         label,
         labelSource: "outcome",
-        sampleWeight: deriveSampleWeight(outcome, "shadow_scored", pnl),
+        sampleWeight: deriveSampleWeight(outcome, unitReturn),
         outcome,
         pnl,
         clvPct,

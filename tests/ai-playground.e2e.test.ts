@@ -62,7 +62,11 @@ async function isUp(url: string, timeoutMs = 10_000): Promise<boolean> {
   }
 }
 
-async function postJson<T>(path: string, body: object, timeoutMs: number): Promise<{
+async function postJson<T>(
+  path: string,
+  body: object,
+  timeoutMs: number,
+): Promise<{
   status: number;
   body: T;
 }> {
@@ -82,7 +86,10 @@ async function postJson<T>(path: string, body: object, timeoutMs: number): Promi
   return { status: res.status, body: parsed as T };
 }
 
-async function getJson<T>(path: string, timeoutMs = 8_000): Promise<{
+async function getJson<T>(
+  path: string,
+  timeoutMs = 8_000,
+): Promise<{
   status: number;
   body: T;
 }> {
@@ -179,79 +186,87 @@ describe("AI Playground (e2e)", () => {
   });
 
   describe("step 2 — AI synthesis", () => {
-    it("POST /api/ai-search/grounded-query (skip_search=true, with context) returns clean prose, never raw JSON", async () => {
-      if (!servicesUp) return;
+    it(
+      "POST /api/ai-search/grounded-query (skip_search=true, with context) returns clean prose, never raw JSON",
+      async () => {
+        if (!servicesUp) return;
 
-      // Mirror exactly what app/ai-playground/page.tsx does:
-      // run search first, then pass results as `context.web_search_results`.
-      const search = await postJson<SearchResp>(
-        "/api/ai-search/search",
-        { query: QUERY, max_results: 5, service: "PlaygroundTest" },
-        15_000,
-      );
-      expect(search.body.provider_used).not.toBe("none");
+        // Mirror exactly what app/ai-playground/page.tsx does:
+        // run search first, then pass results as `context.web_search_results`.
+        const search = await postJson<SearchResp>(
+          "/api/ai-search/search",
+          { query: QUERY, max_results: 5, service: "PlaygroundTest" },
+          15_000,
+        );
+        expect(search.body.provider_used).not.toBe("none");
 
-      const { status, body } = await postJson<GroundedResp>(
-        "/api/ai-search/grounded-query",
-        {
-          question: QUERY,
-          context: { web_search_results: search.body.results },
-          skip_search: true,
-          model: MODEL,
-          service: "PlaygroundTest",
-        },
-        LLM_TIMEOUT_MS,
-      );
+        const { status, body } = await postJson<GroundedResp>(
+          "/api/ai-search/grounded-query",
+          {
+            question: QUERY,
+            context: { web_search_results: search.body.results },
+            skip_search: true,
+            model: MODEL,
+            service: "PlaygroundTest",
+          },
+          LLM_TIMEOUT_MS,
+        );
 
-      expect(status).toBe(200);
-      expect(body.model).toBeTruthy();
+        expect(status).toBe(200);
+        expect(body.model).toBeTruthy();
 
-      // Core regression guards — bug we just fixed:
-      // 1. Answer must NOT be the raw JSON envelope leaking through
-      //    (e.g. `{"answer": "Today, Bangladesh is playing the 2nd`).
-      const answer = body.answer.trim();
-      expect(answer.length).toBeGreaterThan(20);
-      expect(answer.startsWith("{")).toBe(false);
-      expect(answer).not.toMatch(/^\s*\{?\s*"answer"\s*:/);
+        // Core regression guards — bug we just fixed:
+        // 1. Answer must NOT be the raw JSON envelope leaking through
+        //    (e.g. `{"answer": "Today, Bangladesh is playing the 2nd`).
+        const answer = body.answer.trim();
+        expect(answer.length).toBeGreaterThan(20);
+        expect(answer.startsWith("{")).toBe(false);
+        expect(answer).not.toMatch(/^\s*\{?\s*"answer"\s*:/);
 
-      // 2. Truncation heuristic: the answer should end with normal
-      //    punctuation, not be cut off mid-word or mid-quoted-string.
-      //    A trailing lone double-quote with no closing brace is a
-      //    classic JSON-truncation tell.
-      expect(answer.endsWith('"')).toBe(false);
-      expect(answer.endsWith("\\")).toBe(false);
+        // 2. Truncation heuristic: the answer should end with normal
+        //    punctuation, not be cut off mid-word or mid-quoted-string.
+        //    A trailing lone double-quote with no closing brace is a
+        //    classic JSON-truncation tell.
+        expect(answer.endsWith('"')).toBe(false);
+        expect(answer.endsWith("\\")).toBe(false);
 
-      // 3. Reasoning is optional but if present must also be clean.
-      if (body.reasoning) {
-        expect(body.reasoning.startsWith("{")).toBe(false);
-      }
-    }, LLM_TIMEOUT_MS + 20_000);
+        // 3. Reasoning is optional but if present must also be clean.
+        if (body.reasoning) {
+          expect(body.reasoning.startsWith("{")).toBe(false);
+        }
+      },
+      LLM_TIMEOUT_MS + 20_000,
+    );
 
-    it("POST /api/ai-search/grounded-query (skip_search=false) populates sources from the service-side search", async () => {
-      if (!servicesUp) return;
+    it(
+      "POST /api/ai-search/grounded-query (skip_search=false) populates sources from the service-side search",
+      async () => {
+        if (!servicesUp) return;
 
-      const { status, body } = await postJson<GroundedResp>(
-        "/api/ai-search/grounded-query",
-        {
-          question: QUERY,
-          skip_search: false,
-          model: MODEL,
-          service: "PlaygroundTest",
-        },
-        LLM_TIMEOUT_MS,
-      );
+        const { status, body } = await postJson<GroundedResp>(
+          "/api/ai-search/grounded-query",
+          {
+            question: QUERY,
+            skip_search: false,
+            model: MODEL,
+            service: "PlaygroundTest",
+          },
+          LLM_TIMEOUT_MS,
+        );
 
-      expect(status).toBe(200);
-      expect(body.answer.trim().length).toBeGreaterThan(20);
-      expect(body.answer.startsWith("{")).toBe(false);
+        expect(status).toBe(200);
+        expect(body.answer.trim().length).toBeGreaterThan(20);
+        expect(body.answer.startsWith("{")).toBe(false);
 
-      // When the service does its own search, sources MUST be populated.
-      expect(Array.isArray(body.sources)).toBe(true);
-      expect(body.sources.length).toBeGreaterThan(0);
-      for (const src of body.sources) {
-        expect(src.url).toMatch(/^https?:\/\//);
-      }
-    }, LLM_TIMEOUT_MS + 20_000);
+        // When the service does its own search, sources MUST be populated.
+        expect(Array.isArray(body.sources)).toBe(true);
+        expect(body.sources.length).toBeGreaterThan(0);
+        for (const src of body.sources) {
+          expect(src.url).toMatch(/^https?:\/\//);
+        }
+      },
+      LLM_TIMEOUT_MS + 20_000,
+    );
   });
 
   describe("error handling", () => {

@@ -5,8 +5,6 @@
  * computation, and sample weight derivation. Used by both the
  * training-example-writer (TS) and referenced by the Python loader
  * for parity.
- *
- * Phase 2: Canonical Training Corpus
  */
 
 // ── Outcome vocabulary ────────────────────────────────────────────────
@@ -91,45 +89,30 @@ export function computeUnitReturn(
 
 // ── Sample weight derivation ──────────────────────────────────────────
 
-/** PnL-magnitude boost scale and cap — must match Python _pnl_boost(). */
-const PNL_BOOST_SCALE = 5.0;
-const PNL_BOOST_CAP = 2.0;
+const HALF_OUTCOME_WEIGHT = 0.5;
+const MIN_SAMPLE_WEIGHT = 0.1;
+const MAX_SAMPLE_WEIGHT = 10.0;
 
 /**
- * Multiplicative boost from absolute PnL — higher impact → more weight.
- * Returns a multiplier in [1.0, PNL_BOOST_CAP]. Zero PnL → 1.0.
- */
-export function pnlBoost(pnlAbs: number): number {
-  if (pnlAbs <= 0) return 1.0;
-  const boost = 1.0 + Math.log1p(pnlAbs / PNL_BOOST_SCALE) * 0.3;
-  return Math.min(boost, PNL_BOOST_CAP);
-}
-
-/**
- * Derive sample weight from outcome, example type, and PnL magnitude.
+ * Derive sample weight from outcome and absolute unit-return magnitude.
  *
  * Weight formula:
- *   base = 0.5 for half outcomes, 1.0 otherwise
- *   boost = pnlBoost(|pnl|)
- *   final = base × boost
- *
- * Shadow-scored examples start at 1.0 (adjusted when resolved).
+ *   base = |unit_return|
+ *   half_outcome_adjustment = 0.5 for half outcomes
+ *   final = clip(base × adjustment, 0.1, 10.0)
  */
 export function deriveSampleWeight(
   outcome: string,
-  _exampleType: ExampleType,
-  pnl: number | null,
+  unitReturn: number | null,
 ): number {
-  let base: number;
-  switch (outcome) {
-    case "half_won":
-    case "half_lost":
-      base = 0.5;
-      break;
-    default:
-      base = 1.0;
+  let weight = Math.abs(unitReturn ?? 0);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    weight = 1.0;
   }
-  return base * pnlBoost(Math.abs(pnl ?? 0));
+  if (outcome === "half_won" || outcome === "half_lost") {
+    weight *= HALF_OUTCOME_WEIGHT;
+  }
+  return Math.min(MAX_SAMPLE_WEIGHT, Math.max(MIN_SAMPLE_WEIGHT, weight));
 }
 
 // ── Training precedence ───────────────────────────────────────────────

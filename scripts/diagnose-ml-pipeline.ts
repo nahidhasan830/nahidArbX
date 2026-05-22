@@ -7,7 +7,9 @@
  */
 import { ensureDbReady, db } from "../lib/db/client";
 import { sql } from "drizzle-orm";
+import { FEATURE_COUNT, FEATURE_SQL_INDEX } from "../lib/ml/feature-contract";
 import { computeRawStakeMultiplier } from "../lib/ml/staker";
+import { ML_FEATURE_VERSION } from "../lib/shared/constants";
 
 const PASS = "✅";
 const FAIL = "❌";
@@ -20,11 +22,17 @@ let warnings = 0;
 
 function check(name: string, ok: boolean, detail: string) {
   totalChecks++;
-  if (ok) { passed++; console.log(`  ${PASS} ${name}: ${detail}`); }
-  else { failed++; console.log(`  ${FAIL} ${name}: ${detail}`); }
+  if (ok) {
+    passed++;
+    console.log(`  ${PASS} ${name}: ${detail}`);
+  } else {
+    failed++;
+    console.log(`  ${FAIL} ${name}: ${detail}`);
+  }
 }
 function warn(name: string, detail: string) {
-  totalChecks++; warnings++;
+  totalChecks++;
+  warnings++;
   console.log(`  ${WARN} ${name}: ${detail}`);
 }
 
@@ -46,17 +54,27 @@ async function main() {
     ) sub
   `);
   const nDupes = Number(dupes.rows[0]?.cnt ?? 0);
-  check("No duplicate source/type examples", nDupes === 0,
-    nDupes === 0 ? "All examples are unique per source/type" : `${nDupes} source/type groups have duplicate examples`);
+  check(
+    "No duplicate source/type examples",
+    nDupes === 0,
+    nDupes === 0
+      ? "All examples are unique per source/type"
+      : `${nDupes} source/type groups have duplicate examples`,
+  );
 
-  // 1b. All features have correct length (25)
+  // 1b. All features have the current contract length
   const badLen = await db.execute(sql`
     SELECT count(*) as cnt FROM ml_training_examples
-    WHERE features IS NOT NULL AND array_length(features, 1) != 25
+    WHERE features IS NOT NULL AND array_length(features, 1) != ${FEATURE_COUNT}
   `);
   const nBadLen = Number(badLen.rows[0]?.cnt ?? 0);
-  check("All feature vectors are 25-dim", nBadLen === 0,
-    nBadLen === 0 ? "All correct" : `${nBadLen} examples have wrong feature length`);
+  check(
+    "All feature vectors match the current contract",
+    nBadLen === 0,
+    nBadLen === 0
+      ? "All correct"
+      : `${nBadLen} examples have wrong feature length`,
+  );
 
   // 1c. No NaN/Inf in features
   const nanFeats = await db.execute(sql`
@@ -69,8 +87,11 @@ async function main() {
       )
   `);
   const nNan = Number(nanFeats.rows[0]?.cnt ?? 0);
-  check("No NaN/Inf in features", nNan === 0,
-    nNan === 0 ? "All finite" : `${nNan} examples have NaN/Inf features`);
+  check(
+    "No NaN/Inf in features",
+    nNan === 0,
+    nNan === 0 ? "All finite" : `${nNan} examples have NaN/Inf features`,
+  );
 
   // 1d. Feature version consistency
   const fvCheck = await db.execute(sql`
@@ -78,9 +99,16 @@ async function main() {
     FROM ml_training_examples WHERE label IS NOT NULL AND features IS NOT NULL
     GROUP BY feature_version
   `);
-  const versions = fvCheck.rows.map((r: any) => `v${r.feature_version}(${r.cnt})`).join(", ");
-  check("Single feature version", fvCheck.rows.length === 1,
-    fvCheck.rows.length === 1 ? `All at ${versions}` : `Mixed versions: ${versions}`);
+  const versions = fvCheck.rows
+    .map((r: any) => `v${r.feature_version}(${r.cnt})`)
+    .join(", ");
+  check(
+    "Single feature version",
+    fvCheck.rows.length === 1,
+    fvCheck.rows.length === 1
+      ? `All at ${versions}`
+      : `Mixed versions: ${versions}`,
+  );
 
   // 1e. Class balance sanity
   const classBal = await db.execute(sql`
@@ -94,10 +122,13 @@ async function main() {
   const pos = Number(classBal.rows[0]?.pos ?? 0);
   const neg = Number(classBal.rows[0]?.neg ?? 0);
   const total = Number(classBal.rows[0]?.total ?? 0);
-  const posRate = total > 0 ? (pos / total * 100).toFixed(1) : "0";
+  const posRate = total > 0 ? ((pos / total) * 100).toFixed(1) : "0";
   const balOk = total > 0 && pos / total > 0.25 && pos / total < 0.75;
-  check("Class balance reasonable", balOk,
-    `${pos} pos / ${neg} neg (${posRate}% positive rate)`);
+  check(
+    "Class balance reasonable",
+    balOk,
+    `${pos} pos / ${neg} neg (${posRate}% positive rate)`,
+  );
 
   // 1f. Labels match bets outcomes
   const labelMismatch = await db.execute(sql`
@@ -111,8 +142,13 @@ async function main() {
       )
   `);
   const nMismatch = Number(labelMismatch.rows[0]?.cnt ?? 0);
-  check("Labels match bet outcomes", nMismatch === 0,
-    nMismatch === 0 ? "All labels consistent" : `${nMismatch} label/outcome mismatches!`);
+  check(
+    "Labels match bet outcomes",
+    nMismatch === 0,
+    nMismatch === 0
+      ? "All labels consistent"
+      : `${nMismatch} label/outcome mismatches!`,
+  );
 
   // ═══════════════════════════════════════════════════════════════
   // 2. FEATURE CONSISTENCY (runtime vs training)
@@ -132,45 +168,58 @@ async function main() {
       AND m.example_type = 'settled_detected'
   `);
   const r = featDrift.rows[0] as any;
-  const matchRate = r.total > 0 ? (Number(r.exact_match) / Number(r.total) * 100).toFixed(1) : "N/A";
-  check("Training features match bets table", Number(r.differ) === 0,
-    `${r.exact_match}/${r.total} exact match (${matchRate}%), ${r.differ} differ, ${r.bet_missing} missing on bet`);
+  const matchRate =
+    r.total > 0
+      ? ((Number(r.exact_match) / Number(r.total)) * 100).toFixed(1)
+      : "N/A";
+  check(
+    "Training features match bets table",
+    Number(r.differ) === 0,
+    `${r.exact_match}/${r.total} exact match (${matchRate}%), ${r.differ} differ, ${r.bet_missing} missing on bet`,
+  );
 
-  // 2b. Feature ranges sanity (ev_pct, sharp_true_prob, soft_odds)
+  // 2b. Feature ranges sanity (sharp_true_prob, soft_odds, adjusted_soft_odds, competition_tier)
   const ranges = await db.execute(sql`
     SELECT
-      round(min(features[1])::numeric, 3) as min_ev,
-      round(max(features[1])::numeric, 3) as max_ev,
-      round(min(features[2])::numeric, 3) as min_sharp_prob,
-      round(max(features[2])::numeric, 3) as max_sharp_prob,
-      round(min(features[3])::numeric, 3) as min_soft_odds,
-      round(max(features[3])::numeric, 3) as max_soft_odds,
-      round(min(features[20])::numeric, 3) as min_kelly,
-      round(max(features[20])::numeric, 3) as max_kelly
+      round(min(features[${FEATURE_SQL_INDEX.sharp_true_prob}])::numeric, 3) as min_sharp_prob,
+      round(max(features[${FEATURE_SQL_INDEX.sharp_true_prob}])::numeric, 3) as max_sharp_prob,
+      round(min(features[${FEATURE_SQL_INDEX.soft_odds}])::numeric, 3) as min_soft_odds,
+      round(max(features[${FEATURE_SQL_INDEX.soft_odds}])::numeric, 3) as max_soft_odds,
+      round(min(features[${FEATURE_SQL_INDEX.adjusted_soft_odds}])::numeric, 3) as min_adjusted_soft_odds,
+      round(max(features[${FEATURE_SQL_INDEX.adjusted_soft_odds}])::numeric, 3) as max_adjusted_soft_odds,
+      round(min(features[${FEATURE_SQL_INDEX.competition_tier}])::numeric, 3) as min_competition_tier,
+      round(max(features[${FEATURE_SQL_INDEX.competition_tier}])::numeric, 3) as max_competition_tier
     FROM ml_training_examples
     WHERE features IS NOT NULL AND label IS NOT NULL
   `);
   const rng = ranges.rows[0] as any;
-  const evOk = Number(rng.min_ev) >= 0 && Number(rng.max_ev) <= 50;
-  if (evOk) {
-    check("ev_pct range sane", true, `[${rng.min_ev}, ${rng.max_ev}]`);
-  } else {
-    // Raw DB has historical outliers; runtime cap (features.ts) and loader cap (loader.py)
-    // both clamp at 50% before training/scoring. Count raw outliers as info, not failure.
-    const outlierCount = await db.execute(sql`
-      SELECT count(*) as cnt FROM ml_training_examples
-      WHERE features IS NOT NULL AND label IS NOT NULL AND features[1] > 50
-    `);
-    const nOutliers = Number(outlierCount.rows[0]?.cnt ?? 0);
-    warn("ev_pct raw outliers in DB (capped at runtime)",
-      `${nOutliers} examples have ev_pct > 50% in DB (max=${rng.max_ev}), but runtime+loader cap at 50%`);
-  }
-  const probOk = Number(rng.min_sharp_prob) >= 0 && Number(rng.max_sharp_prob) <= 1;
-  check("sharp_true_prob in [0,1]", probOk,
-    `[${rng.min_sharp_prob}, ${rng.max_sharp_prob}]`);
+  const probOk =
+    Number(rng.min_sharp_prob) >= 0 && Number(rng.max_sharp_prob) <= 1;
+  check(
+    "sharp_true_prob in [0,1]",
+    probOk,
+    `[${rng.min_sharp_prob}, ${rng.max_sharp_prob}]`,
+  );
   const oddsOk = Number(rng.min_soft_odds) >= 1;
-  check("soft_odds >= 1.0", oddsOk,
-    `[${rng.min_soft_odds}, ${rng.max_soft_odds}]`);
+  check(
+    "soft_odds >= 1.0",
+    oddsOk,
+    `[${rng.min_soft_odds}, ${rng.max_soft_odds}]`,
+  );
+  const adjustedOddsOk = Number(rng.min_adjusted_soft_odds) >= 1;
+  check(
+    "adjusted_soft_odds >= 1.0",
+    adjustedOddsOk,
+    `[${rng.min_adjusted_soft_odds}, ${rng.max_adjusted_soft_odds}]`,
+  );
+  const tierOk =
+    Number(rng.min_competition_tier) >= 1 &&
+    Number(rng.max_competition_tier) <= 3;
+  check(
+    "competition_tier in [1,3]",
+    tierOk,
+    `[${rng.min_competition_tier}, ${rng.max_competition_tier}]`,
+  );
 
   // 2c. Feature hash consistency on recent bets
   const hashCheck = await db.execute(sql`
@@ -179,10 +228,15 @@ async function main() {
       AND first_seen_at > NOW() - INTERVAL '24 hours'
     GROUP BY ml_feature_names_hash
   `);
-  check("Single feature hash (24h)", hashCheck.rows.length <= 1,
-    hashCheck.rows.length === 0 ? "No recent scored bets"
-      : hashCheck.rows.length === 1 ? `All same hash (${(hashCheck.rows[0] as any).cnt} bets)`
-      : `Multiple hashes — contract drift!`);
+  check(
+    "Single feature hash (24h)",
+    hashCheck.rows.length <= 1,
+    hashCheck.rows.length === 0
+      ? "No recent scored bets"
+      : hashCheck.rows.length === 1
+        ? `All same hash (${(hashCheck.rows[0] as any).cnt} bets)`
+        : `Multiple hashes — contract drift!`,
+  );
 
   // ═══════════════════════════════════════════════════════════════
   // 3. MODEL QUALITY & DEPLOYMENT
@@ -203,21 +257,21 @@ async function main() {
     console.log(`  Model v${m.version} deployed at ${m.deployed_at}`);
 
     const auc = Number(m.oos_auc_roc);
-    check("AUC-ROC > 0.55 (baseline)", auc > 0.55,
-      `AUC=${auc.toFixed(4)}`);
-    if (auc < 0.60) warn("AUC-ROC < 0.60 (weak)", `AUC=${auc.toFixed(4)} — model has limited discrimination`);
+    check("AUC-ROC > 0.55 (baseline)", auc > 0.55, `AUC=${auc.toFixed(4)}`);
+    if (auc < 0.6)
+      warn(
+        "AUC-ROC < 0.60 (weak)",
+        `AUC=${auc.toFixed(4)} — model has limited discrimination`,
+      );
 
     const ll = Number(m.oos_log_loss);
-    check("LogLoss < 0.75", ll < 0.75,
-      `LL=${ll.toFixed(4)}`);
+    check("LogLoss < 0.75", ll < 0.75, `LL=${ll.toFixed(4)}`);
 
     const ce = Number(m.calibration_error);
-    check("CalibrationError < 0.15", ce < 0.15,
-      `CalErr=${ce.toFixed(4)}`);
+    check("CalibrationError < 0.15", ce < 0.15, `CalErr=${ce.toFixed(4)}`);
 
     const dsr = Number(m.deflated_sharpe);
-    check("DSR >= 0.6", dsr >= 0.6,
-      `DSR=${dsr.toFixed(4)}`);
+    check("DSR >= 0.6", dsr >= 0.6, `DSR=${dsr.toFixed(4)}`);
 
     // Score bucket analysis
     const tr = m.training_report as Record<string, any> | null;
@@ -226,10 +280,16 @@ async function main() {
       const roiMono = Number(br.roi_monotonicity ?? 0);
       const clvMono = Number(br.clv_monotonicity ?? 0);
       const buckets = br.buckets as any[];
-      const finiteClvBuckets = buckets.filter((b) => Number.isFinite(Number(b.mean_clv_pct))).length;
-      const profitMono = finiteClvBuckets >= 2 ? (roiMono + clvMono) / 2 : roiMono;
-      check("Score bucket profit monotonicity >= 0.6", profitMono >= 0.6,
-        `Profit=${profitMono.toFixed(2)} (ROI=${roiMono}, CLV=${clvMono}; win-rate is diagnostic only)`);
+      const finiteClvBuckets = buckets.filter((b) =>
+        Number.isFinite(Number(b.mean_clv_pct)),
+      ).length;
+      const profitMono =
+        finiteClvBuckets >= 2 ? (roiMono + clvMono) / 2 : roiMono;
+      check(
+        "Score bucket profit monotonicity >= 0.6",
+        profitMono >= 0.6,
+        `Profit=${profitMono.toFixed(2)} (ROI=${roiMono}, CLV=${clvMono}; win-rate is diagnostic only)`,
+      );
 
       // Check for the ROI inversion bug we fixed
       if (buckets.length >= 2) {
@@ -238,17 +298,29 @@ async function main() {
         const firstWR = buckets[0]?.win_rate ?? 0;
         const lastWR = buckets[buckets.length - 1]?.win_rate ?? 0;
         const firstClv = Number(buckets[0]?.mean_clv_pct ?? NaN);
-        const lastClv = Number(buckets[buckets.length - 1]?.mean_clv_pct ?? NaN);
-        check("Highest edge bucket has better profit signal than lowest",
-          lastROI > firstROI || (Number.isFinite(firstClv) && Number.isFinite(lastClv) && lastClv > firstClv),
-          `Q1 ROI=${firstROI.toFixed(1)}%, CLV=${Number.isFinite(firstClv) ? firstClv.toFixed(1) : "n/a"} → Q${buckets.length} ROI=${lastROI.toFixed(1)}%, CLV=${Number.isFinite(lastClv) ? lastClv.toFixed(1) : "n/a"}; WR ${((firstWR ?? 0) * 100).toFixed(1)}%→${((lastWR ?? 0) * 100).toFixed(1)}%`);
+        const lastClv = Number(
+          buckets[buckets.length - 1]?.mean_clv_pct ?? NaN,
+        );
+        check(
+          "Highest edge bucket has better profit signal than lowest",
+          lastROI > firstROI ||
+            (Number.isFinite(firstClv) &&
+              Number.isFinite(lastClv) &&
+              lastClv > firstClv),
+          `Q1 ROI=${firstROI.toFixed(1)}%, CLV=${Number.isFinite(firstClv) ? firstClv.toFixed(1) : "n/a"} → Q${buckets.length} ROI=${lastROI.toFixed(1)}%, CLV=${Number.isFinite(lastClv) ? lastClv.toFixed(1) : "n/a"}; WR ${((firstWR ?? 0) * 100).toFixed(1)}%→${((lastWR ?? 0) * 100).toFixed(1)}%`,
+        );
 
         if (firstROI > lastROI + 5) {
-          warn("ROI inversion persists",
-            `Q1 ROI=${firstROI.toFixed(1)}% > Q${buckets.length} ROI=${lastROI.toFixed(1)}% — lowest scores still most profitable`);
+          warn(
+            "ROI inversion persists",
+            `Q1 ROI=${firstROI.toFixed(1)}% > Q${buckets.length} ROI=${lastROI.toFixed(1)}% — lowest scores still most profitable`,
+          );
         } else {
-          check("No severe ROI inversion", true,
-            `Q1 ROI=${firstROI.toFixed(1)}% vs Q${buckets.length} ROI=${lastROI.toFixed(1)}%`);
+          check(
+            "No severe ROI inversion",
+            true,
+            `Q1 ROI=${firstROI.toFixed(1)}% vs Q${buckets.length} ROI=${lastROI.toFixed(1)}%`,
+          );
         }
       }
     }
@@ -269,10 +341,15 @@ async function main() {
     WHERE first_seen_at > NOW() - INTERVAL '6 hours'
   `);
   const sr = scoringRate.rows[0] as any;
-  const scorePct = Number(sr.total) > 0
-    ? (Number(sr.scored) / Number(sr.total) * 100).toFixed(1) : "N/A";
-  check("Recent bets are being scored", Number(sr.scored) > 0 || Number(sr.total) === 0,
-    `${sr.scored}/${sr.total} scored (${scorePct}%) in last 6h`);
+  const scorePct =
+    Number(sr.total) > 0
+      ? ((Number(sr.scored) / Number(sr.total)) * 100).toFixed(1)
+      : "N/A";
+  check(
+    "Recent bets are being scored",
+    Number(sr.scored) > 0 || Number(sr.total) === 0,
+    `${sr.scored}/${sr.total} scored (${scorePct}%) in last 6h`,
+  );
 
   // 4b. Score distribution health (not all same value)
   const scoreDist = await db.execute(sql`
@@ -288,8 +365,11 @@ async function main() {
   const sd = scoreDist.rows[0] as any;
   if (sd.avg_score != null) {
     const std = Number(sd.std_score ?? 0);
-    check("Score distribution has variance", std > 0.05,
-      `avg=${sd.avg_score} std=${sd.std_score} range=[${sd.min_score}, ${sd.max_score}] bins=${sd.unique_bins}`);
+    check(
+      "Score distribution has variance",
+      std > 0.05,
+      `avg=${sd.avg_score} std=${sd.std_score} range=[${sd.min_score}, ${sd.max_score}] bins=${sd.unique_bins}`,
+    );
   } else {
     warn("No scored bets in 6h", "Cannot check score distribution");
   }
@@ -308,9 +388,16 @@ async function main() {
   const sep = separation.rows[0] as any;
   if (sep.avg_win != null && sep.avg_lose != null) {
     const gap = Number(sep.avg_win) - Number(sep.avg_lose);
-    check("Winners score higher than losers", gap > 0,
-      `WinAvg=${sep.avg_win} LoseAvg=${sep.avg_lose} gap=${gap.toFixed(4)} (N: ${sep.n_win}W/${sep.n_lose}L)`);
-    if (gap < 0.03) warn("Score separation very weak", `gap=${gap.toFixed(4)} — model barely distinguishes W/L`);
+    check(
+      "Winners score higher than losers",
+      gap > 0,
+      `WinAvg=${sep.avg_win} LoseAvg=${sep.avg_lose} gap=${gap.toFixed(4)} (N: ${sep.n_win}W/${sep.n_lose}L)`,
+    );
+    if (gap < 0.03)
+      warn(
+        "Score separation very weak",
+        `gap=${gap.toFixed(4)} — model barely distinguishes W/L`,
+      );
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -328,8 +415,11 @@ async function main() {
     WHERE first_seen_at > NOW() - INTERVAL '7 days'
   `);
   const shd = shadowData.rows[0] as any;
-  check("Shadow data available (7d)", Number(shd.shadow_ready) > 0,
-    `${shd.shadow_ready}/${shd.total} bets have score+features, ${shd.settled} settled`);
+  check(
+    "Shadow data available (7d)",
+    Number(shd.shadow_ready) > 0,
+    `${shd.shadow_ready}/${shd.total} bets have score+features, ${shd.settled} settled`,
+  );
 
   // 5b. Staker multiplier sanity — verify on a sample of scored bets
   const sampleBets = await db.execute(sql`
@@ -348,7 +438,10 @@ async function main() {
   for (const row of sampleBets.rows) {
     const score = Number((row as any).ml_score);
     const features = (row as any).ml_features as number[];
-    if (!features || features.length !== 25) { multiplierIssues++; continue; }
+    if (!features || features.length !== FEATURE_COUNT) {
+      multiplierIssues++;
+      continue;
+    }
 
     const mult = computeRawStakeMultiplier(score, features);
     if (mult === 0) skippedByModelEdge++;
@@ -356,8 +449,11 @@ async function main() {
 
     if (!isFinite(mult) || mult < 0) multiplierIssues++;
   }
-  check("Staker multiplier produces valid values", multiplierIssues === 0,
-    `Checked ${sampleBets.rows.length} bets: ${positiveModelEdge} positive model edge, ${skippedByModelEdge} skipped by model edge, ${multiplierIssues} issues`);
+  check(
+    "Staker multiplier produces valid values",
+    multiplierIssues === 0,
+    `Checked ${sampleBets.rows.length} bets: ${positiveModelEdge} positive model edge, ${skippedByModelEdge} skipped by model edge, ${multiplierIssues} issues`,
+  );
 
   // ═══════════════════════════════════════════════════════════════
   // 6. TRAINING → SCORING CONSISTENCY
@@ -375,8 +471,11 @@ async function main() {
     WHERE label IS NOT NULL AND features IS NOT NULL
   `);
   const rec = recency.rows[0] as any;
-  check("Training data spans recent period", Number(rec.last_7d) > 0,
-    `Oldest: ${rec.oldest}, Newest: ${rec.newest}, Last 3d: ${rec.last_3d}, Last 7d: ${rec.last_7d}`);
+  check(
+    "Training data spans recent period",
+    Number(rec.last_7d) > 0,
+    `Oldest: ${rec.oldest}, Newest: ${rec.newest}, Last 3d: ${rec.last_3d}, Last 7d: ${rec.last_7d}`,
+  );
 
   // 6b. Unsettled shadow_scored pending examples
   const pending = await db.execute(sql`
@@ -386,7 +485,10 @@ async function main() {
   `);
   const nPending = Number(pending.rows[0]?.cnt ?? 0);
   if (nPending > 100) {
-    warn("Many unlabeled training examples", `${nPending} pending — may need label backfill`);
+    warn(
+      "Many unlabeled training examples",
+      `${nPending} pending — may need label backfill`,
+    );
   } else {
     check("Unlabeled examples count reasonable", true, `${nPending} pending`);
   }
@@ -397,7 +499,7 @@ async function main() {
     FROM bets b
     WHERE b.outcome NOT IN ('pending', 'void')
       AND b.ml_features IS NOT NULL
-      AND b.ml_feature_version = 2
+      AND b.ml_feature_version = ${ML_FEATURE_VERSION}
       AND b.first_seen_at > NOW() - INTERVAL '3 days'
       AND NOT EXISTS (
         SELECT 1 FROM ml_training_examples m
@@ -406,7 +508,10 @@ async function main() {
   `);
   const nGap = Number(gap.rows[0]?.cnt ?? 0);
   if (nGap > 50) {
-    warn("Training example gap", `${nGap} settled bets in 3d have features but no training example`);
+    warn(
+      "Training example gap",
+      `${nGap} settled bets in 3d have features but no training example`,
+    );
   } else {
     check("Training examples cover recent bets", true, `${nGap} uncovered`);
   }
@@ -437,7 +542,10 @@ async function main() {
     FROM buckets GROUP BY bucket ORDER BY bucket
   `);
   if (cal.rows.length === 0) {
-    warn("No settled+scored bets in 48h", "Cannot check calibration yet — waiting for data");
+    warn(
+      "No settled+scored bets in 48h",
+      "Cannot check calibration yet — waiting for data",
+    );
   } else {
     let worstCalGap = 0;
     for (const row of cal.rows) {
@@ -447,15 +555,24 @@ async function main() {
       const n = Number(b.n);
       const gap = Math.abs(pred - actual);
       if (gap > worstCalGap) worstCalGap = gap;
-      const calStatus = n < 10 ? WARN : gap < 0.1 ? PASS : gap < 0.2 ? WARN : FAIL;
+      const calStatus =
+        n < 10 ? WARN : gap < 0.1 ? PASS : gap < 0.2 ? WARN : FAIL;
       const small = n < 10 ? " small-sample" : "";
-      console.log(`  ${calStatus} ${b.bucket}: predicted=${b.predicted} actual=${b.actual} gap=${gap.toFixed(3)} (N=${b.n}${small})`);
+      console.log(
+        `  ${calStatus} ${b.bucket}: predicted=${b.predicted} actual=${b.actual} gap=${gap.toFixed(3)} (N=${b.n}${small})`,
+      );
     }
     if (worstCalGap > 0.25) {
-      warn("Calibration gap > 25% (may include stale model scores)",
-        `Worst gap: ${(worstCalGap * 100).toFixed(1)}% — this should improve as the current model scores more settled bets`);
+      warn(
+        "Calibration gap > 25% (may include stale model scores)",
+        `Worst gap: ${(worstCalGap * 100).toFixed(1)}% — this should improve as the current model scores more settled bets`,
+      );
     } else {
-      check("Calibration within 25%", true, `Worst gap: ${(worstCalGap * 100).toFixed(1)}%`);
+      check(
+        "Calibration within 25%",
+        true,
+        `Worst gap: ${(worstCalGap * 100).toFixed(1)}%`,
+      );
     }
   }
 
@@ -466,25 +583,42 @@ async function main() {
 
   // Read the trainer file to verify constraints
   const fs = await import("fs");
-  const trainerSrc = fs.readFileSync("services/optimizer/app/trainer.py", "utf-8");
-  const constraintMatch = trainerSrc.match(/"monotone_constraints":\s*\[([\s\S]*?)\]/);
+  const trainerSrc = fs.readFileSync(
+    "services/optimizer/app/trainer.py",
+    "utf-8",
+  );
+  const constraintMatch = trainerSrc.match(
+    /"monotone_constraints":\s*\[([\s\S]*?)\]/,
+  );
   if (constraintMatch) {
     const constraintStr = constraintMatch[1];
     const constraints = constraintStr
       .split("\n")
-      .map(l => l.trim())
-      .filter(l => l.match(/^[01-]/));
+      .map((l) => l.trim())
+      .filter((l) => l.match(/^[01-]/));
 
-    const values = constraints.map(l => parseInt(l));
+    const values = constraints.map((l) => parseInt(l));
     // sharp_true_prob is index 1, implied_prob_gap is index 4
-    check("sharp_true_prob is unconstrained (0)", values[1] === 0,
-      `Constraint value: ${values[1]} (was 1, should be 0 after fix)`);
-    check("implied_prob_gap is unconstrained (0)", values[4] === 0,
-      `Constraint value: ${values[4]} (was 1, should be 0 after fix)`);
-    check("ev_pct still constrained (+1)", values[0] === 1,
-      `Constraint value: ${values[0]}`);
-    check("kelly_fraction_raw still constrained (+1)", values[19] === 1,
-      `Constraint value: ${values[19]}`);
+    check(
+      "sharp_true_prob is unconstrained (0)",
+      values[1] === 0,
+      `Constraint value: ${values[1]} (was 1, should be 0 after fix)`,
+    );
+    check(
+      "implied_prob_gap is unconstrained (0)",
+      values[4] === 0,
+      `Constraint value: ${values[4]} (was 1, should be 0 after fix)`,
+    );
+    check(
+      "ev_pct still constrained (+1)",
+      values[0] === 1,
+      `Constraint value: ${values[0]}`,
+    );
+    check(
+      "kelly_fraction_raw still constrained (+1)",
+      values[19] === 1,
+      `Constraint value: ${values[19]}`,
+    );
   } else {
     check("Found monotone_constraints in trainer.py", false, "Could not parse");
   }
@@ -493,7 +627,9 @@ async function main() {
   // SUMMARY
   // ═══════════════════════════════════════════════════════════════
   console.log("\n" + "═".repeat(50));
-  console.log(`RESULTS: ${totalChecks} checks — ${PASS} ${passed} passed, ${FAIL} ${failed} failed, ${WARN} ${warnings} warnings`);
+  console.log(
+    `RESULTS: ${totalChecks} checks — ${PASS} ${passed} passed, ${FAIL} ${failed} failed, ${WARN} ${warnings} warnings`,
+  );
   if (failed > 0) {
     console.log("\n🔴 Pipeline has issues that need attention.");
     process.exit(1);
@@ -504,4 +640,7 @@ async function main() {
   }
   process.exit(0);
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

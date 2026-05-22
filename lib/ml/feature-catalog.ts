@@ -1,31 +1,19 @@
 /**
- * ML Feature Catalog — shared metadata for the 25-dimension feature vector.
+ * ML Feature Catalog — shared metadata for the 22-dimension feature vector.
  *
- * Used by both the ML Optimizer dashboard (Pipeline Steps → Data Collection)
- * and the Feature Inspector dialog (Bets History table).
- *
- * Each entry maps to one dimension in the feature vector produced by
- * `extractFeatures()` in `lib/ml/features.ts`. The order here matches
- * `FEATURE_NAMES` in that file.
+ * Used by the ML Optimizer dashboard and the feature inspection surfaces in
+ * bets history. The order must match FEATURE_NAMES exactly.
  */
 
-export type FeatureCategory =
-  | "Value"
-  | "Odds"
-  | "Movement"
-  | "Market"
-  | "Staking";
+import { FEATURE_NAMES } from "./feature-contract";
+
+export type FeatureCategory = "Value" | "Odds" | "Movement" | "Market";
 
 export interface FeatureMeta {
-  /** Internal feature name (matches Python training pipeline). */
   name: string;
-  /** Human-readable short label. */
   label: string;
-  /** One-sentence description for tooltips / inspector. */
   desc: string;
-  /** Grouping category. */
   cat: FeatureCategory;
-  /** Display format hint: how to render the numeric value. */
   fmt: "pct" | "odds" | "ms" | "int" | "float" | "binary" | "dir";
 }
 
@@ -34,7 +22,6 @@ export const CATEGORY_COLORS: Record<FeatureCategory, string> = {
   Odds: "bg-cyan-400",
   Movement: "bg-violet-400",
   Market: "bg-amber-400",
-  Staking: "bg-rose-400",
 };
 
 export const CATEGORY_TEXT_COLORS: Record<FeatureCategory, string> = {
@@ -42,21 +29,17 @@ export const CATEGORY_TEXT_COLORS: Record<FeatureCategory, string> = {
   Odds: "text-cyan-400",
   Movement: "text-violet-400",
   Market: "text-amber-400",
-  Staking: "text-rose-400",
 };
 
-export const FEATURE_CATALOG: FeatureMeta[] = [
-  {
-    name: "ev_pct",
-    label: "EV %",
-    desc: "Expected value percentage — how much edge this bet has over the soft bookmaker's implied probability.",
-    cat: "Value",
-    fmt: "pct",
-  },
+export const FEATURE_CATEGORIES = Object.keys(
+  CATEGORY_COLORS,
+) as FeatureCategory[];
+
+const featureCatalog: FeatureMeta[] = [
   {
     name: "sharp_true_prob",
     label: "Sharp True Prob",
-    desc: "True probability derived from the sharp (Pinnacle) line after removing vig.",
+    desc: "True probability derived from the sharp line after removing vig.",
     cat: "Value",
     fmt: "pct",
   },
@@ -70,160 +53,157 @@ export const FEATURE_CATALOG: FeatureMeta[] = [
   {
     name: "adjusted_soft_odds",
     label: "Adjusted Soft Odds",
-    desc: "Soft odds adjusted for commission — the effective odds you actually receive.",
+    desc: "Soft odds adjusted for commission so they reflect the payout you actually receive.",
     cat: "Odds",
     fmt: "odds",
   },
   {
-    name: "implied_prob_gap",
-    label: "Implied Prob Gap",
-    desc: "Difference between sharp true probability and the soft book's implied probability. Larger gap = more value.",
-    cat: "Value",
-    fmt: "pct",
-  },
-  {
     name: "tick_count",
     label: "Tick Count",
-    desc: "Number of odds updates (ticks) recorded for the sharp line. More ticks = more liquid market.",
+    desc: "Number of sharp-market odds updates recorded for this atom.",
     cat: "Movement",
     fmt: "int",
   },
   {
     name: "time_to_kickoff_min",
     label: "Time to Kickoff",
-    desc: "Minutes until match start. Odds behaviour changes dramatically close to kickoff.",
+    desc: "Minutes until the event starts.",
     cat: "Market",
     fmt: "int",
   },
   {
     name: "movement_pct_sharp",
     label: "Sharp Movement %",
-    desc: "Percentage change in sharp odds from opening to current. Indicates how much the sharp line has drifted.",
+    desc: "Percentage change in the sharp odds from opening to current.",
     cat: "Movement",
     fmt: "pct",
   },
   {
     name: "movement_pct_soft",
     label: "Soft Movement %",
-    desc: "Percentage change in soft odds from opening to current.",
+    desc: "Percentage change in the soft odds from opening to current.",
     cat: "Movement",
     fmt: "pct",
   },
   {
     name: "steam_move_sharp",
-    label: "Steam Move (Sharp)",
-    desc: "Binary: detected a sudden sharp odds movement (steam move) — often indicates insider or syndicate action.",
+    label: "Sharp Steam",
+    desc: "Whether the sharp market made a sudden move that qualifies as steam.",
     cat: "Movement",
     fmt: "binary",
   },
   {
     name: "steam_move_soft",
-    label: "Steam Move (Soft)",
-    desc: "Binary: detected a sudden soft odds movement — the soft book is reacting to market pressure.",
+    label: "Soft Steam",
+    desc: "Whether the soft market made a sudden move that qualifies as steam.",
     cat: "Movement",
     fmt: "binary",
   },
   {
     name: "sharp_direction",
     label: "Sharp Direction",
-    desc: "Direction of recent sharp line movement: +1 (drifting up), -1 (shortening), 0 (stable).",
+    desc: "Direction of the recent sharp move: up, down, or stable.",
     cat: "Movement",
     fmt: "dir",
   },
   {
     name: "soft_direction",
     label: "Soft Direction",
-    desc: "Direction of recent soft line movement: +1 (drifting up), -1 (shortening), 0 (stable).",
+    desc: "Direction of the recent soft move: up, down, or stable.",
     cat: "Movement",
     fmt: "dir",
   },
   {
     name: "convergence_rate",
     label: "Convergence Rate",
-    desc: "OLS regression slope measuring how fast soft odds are converging toward sharp odds. Positive = gap closing.",
+    desc: "How quickly the soft odds are moving toward or away from the sharp odds.",
     cat: "Movement",
     fmt: "float",
   },
   {
     name: "tick_velocity",
     label: "Tick Velocity",
-    desc: "Rate of odds updates per minute. High velocity indicates active trading / line movement.",
+    desc: "Rate of soft-market updates per minute.",
     cat: "Movement",
     fmt: "float",
   },
   {
     name: "provider_count",
     label: "Provider Count",
-    desc: "Number of bookmakers currently offering odds on this market. More providers = better price discovery.",
+    desc: "Number of providers currently offering odds on this atom.",
     cat: "Market",
     fmt: "int",
   },
   {
     name: "opening_sharp_odds",
     label: "Opening Sharp Odds",
-    desc: "The earliest recorded sharp odds for this market — measures how much the line has moved since open.",
+    desc: "Earliest recorded sharp odds for this atom.",
     cat: "Odds",
     fmt: "odds",
   },
   {
     name: "market_type_encoded",
     label: "Market Type",
-    desc: "Ordinal encoding of the market (Match Result=0, Total Goals=1, Asian Handicap=2, etc.).",
+    desc: "Ordinal encoding of the market type used by the model.",
     cat: "Market",
     fmt: "int",
   },
   {
     name: "is_asian_line",
     label: "Is Asian Line",
-    desc: "Binary: whether this is a quarter-ball Asian line (e.g. -0.25, +0.75). These have different dynamics.",
+    desc: "Whether the market uses a quarter-ball Asian line such as -0.25 or +0.75.",
     cat: "Market",
     fmt: "binary",
   },
   {
-    name: "kelly_fraction_raw",
-    label: "Kelly Fraction",
-    desc: "Raw Kelly criterion bet fraction before any adjustment. Indicates optimal stake sizing for this edge.",
-    cat: "Staking",
-    fmt: "float",
-  },
-  {
     name: "vig_pct",
     label: "Vig %",
-    desc: "The sharp bookmaker's overround (vigorish). Lower vig = more reliable true probability estimate.",
-    cat: "Staking",
+    desc: "Sharp-market vigorish used when deriving fair probability.",
+    cat: "Value",
     fmt: "pct",
   },
   {
     name: "competition_tier",
     label: "Competition Tier",
-    desc: "Cached market-efficiency tier for the competition: 3 is most efficient, 1 is default or lower-confidence.",
+    desc: "Competition efficiency tier used as market context.",
     cat: "Market",
     fmt: "int",
   },
   {
     name: "hours_since_line_opened",
     label: "Hours Since Open",
-    desc: "Hours since the sharp line first appeared in local odds history. Missing or future timestamps clamp to 0.",
+    desc: "Hours since the sharp line first appeared in history.",
     cat: "Movement",
     fmt: "float",
   },
   {
     name: "sharp_soft_spread",
     label: "Sharp/Soft Spread",
-    desc: "Difference between the soft book odds and the sharp-derived fair odds.",
+    desc: "Difference between the soft odds and the sharp-derived fair odds.",
     cat: "Value",
     fmt: "odds",
   },
   {
     name: "num_markets_same_event",
     label: "Event Market Count",
-    desc: "Number of value markets currently detected on the same event, with a minimum of 1.",
+    desc: "Number of active matched markets currently available on the same event.",
     cat: "Market",
     fmt: "int",
   },
 ];
 
-/** Format a raw feature value for display. */
+const catalogNames = featureCatalog.map((feature) => feature.name);
+if (
+  catalogNames.length !== FEATURE_NAMES.length ||
+  catalogNames.some((name, index) => name !== FEATURE_NAMES[index])
+) {
+  throw new Error(
+    `FEATURE_CATALOG order mismatch. Expected ${FEATURE_NAMES.join(", ")}; got ${catalogNames.join(", ")}`,
+  );
+}
+
+export const FEATURE_CATALOG = featureCatalog;
+
 export function formatFeatureValue(
   value: number,
   fmt: FeatureMeta["fmt"],
@@ -234,7 +214,6 @@ export function formatFeatureValue(
     case "odds":
       return value.toFixed(4);
     case "ms":
-      // Show ms < 1000 as "Xms", else as "X.Xs"
       if (Math.abs(value) < 1000) return `${Math.round(value)}ms`;
       return `${(value / 1000).toFixed(1)}s`;
     case "int":

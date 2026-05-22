@@ -27,14 +27,12 @@ import {
   lookupCompetitionSlug,
   normalizeCompetition,
 } from "../aliases";
-import {
-  verifySettlementMatch,
-  AI_MAYBE_FLOOR,
-} from "./ai-match";
+import { verifySettlementMatch, AI_MAYBE_FLOOR } from "./ai-match";
+import { addDays, format } from "date-fns";
 
 const BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer";
 const MATCH_SCORE_THRESHOLD = 0.65;
-const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers timezone skew + leagues where Pinnacle times differ from ESPN
+const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers leagues where Pinnacle times differ from ESPN
 const HTTP_TIMEOUT_MS = 12_000;
 
 /**
@@ -445,8 +443,7 @@ const eventToScore = (
 
 // ─── Scoreboard fetch ────────────────────────────────────────────────────────
 
-const yyyymmdd = (d: Date): string =>
-  `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
+const yyyymmdd = (d: Date): string => format(d, "yyyyMMdd");
 
 /**
  * Fetch a single league's scoreboard covering [dateFrom, dateTo]. ESPN's
@@ -514,12 +511,12 @@ export async function fetchEspnScores(
 
   for (const [slug, bucket] of bySlug) {
     // Widest date range needed for this bucket. ESPN `dates` is inclusive
-    // on both sides. Pad 1 day each side to tolerate timezone skew.
+    // on both sides. Pad 1 day each side for provider catalog variance.
     const stamps = bucket
       .map((e) => new Date(e.startTime).getTime())
       .sort((a, b) => a - b);
-    const earliest = new Date(stamps[0] - 86_400_000);
-    const latest = new Date(stamps[stamps.length - 1] + 86_400_000);
+    const earliest = addDays(new Date(stamps[0]), -1);
+    const latest = addDays(new Date(stamps[stamps.length - 1]), 1);
     const dateFrom = yyyymmdd(earliest);
     const dateTo = yyyymmdd(latest);
 
@@ -683,10 +680,7 @@ async function fetchEspnMatchStats(
     const away = teams.find((t) => t.homeAway === "away");
     if (!home || !away) return null;
 
-    const stat = (
-      team: EspnBoxscoreTeam,
-      label: string,
-    ): number => {
+    const stat = (team: EspnBoxscoreTeam, label: string): number => {
       const row = team.statistics.find(
         (s) => s.label.toLowerCase() === label.toLowerCase(),
       );
@@ -776,10 +770,8 @@ export async function enrichEspnStats(
     }
     if (needsBookings) {
       // Pinnacle convention: 1 pt per yellow, 2 pts per red
-      score.bookingsHome =
-        stats.yellowCardsHome + 2 * stats.redCardsHome;
-      score.bookingsAway =
-        stats.yellowCardsAway + 2 * stats.redCardsAway;
+      score.bookingsHome = stats.yellowCardsHome + 2 * stats.redCardsHome;
+      score.bookingsAway = stats.yellowCardsAway + 2 * stats.redCardsAway;
     }
     enriched++;
   }

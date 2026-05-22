@@ -20,7 +20,11 @@ import "dotenv/config";
 import { ensureDbReady, db } from "../lib/db/client";
 import { bets, mlTrainingExamples } from "../lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
-import { deriveLabel, deriveSampleWeight, type ExampleType } from "../lib/ml/outcomes";
+import {
+  deriveLabel,
+  deriveSampleWeight,
+  type ExampleType,
+} from "../lib/ml/outcomes";
 
 const EXECUTE = process.argv.includes("--execute");
 
@@ -37,7 +41,9 @@ interface AffectedRow {
 async function main(): Promise<void> {
   await ensureDbReady();
 
-  console.log(`[fix-ml-training-examples] mode=${EXECUTE ? "EXECUTE" : "DRY-RUN"}`);
+  console.log(
+    `[fix-ml-training-examples] mode=${EXECUTE ? "EXECUTE" : "DRY-RUN"}`,
+  );
 
   // 1. Find all bets corrected by the AH fix backfill
   const correctedBets = await db
@@ -59,7 +65,9 @@ async function main(): Promise<void> {
     );
 
   if (correctedBets.length === 0) {
-    console.log("[fix-ml-training-examples] no corrected bets found — nothing to do.");
+    console.log(
+      "[fix-ml-training-examples] no corrected bets found — nothing to do.",
+    );
     process.exit(0);
   }
 
@@ -136,8 +144,10 @@ async function main(): Promise<void> {
   const beforeLabelDist: Record<string, number> = {};
   const afterLabelDist: Record<string, number> = {};
   for (const d of diffs) {
-    if (d.oldLabel) beforeLabelDist[d.oldLabel] = (beforeLabelDist[d.oldLabel] ?? 0) + 1;
-    if (d.newLabel) afterLabelDist[d.newLabel] = (afterLabelDist[d.newLabel] ?? 0) + 1;
+    if (d.oldLabel)
+      beforeLabelDist[d.oldLabel] = (beforeLabelDist[d.oldLabel] ?? 0) + 1;
+    if (d.newLabel)
+      afterLabelDist[d.newLabel] = (afterLabelDist[d.newLabel] ?? 0) + 1;
   }
   console.log("\n[fix-ml-training-examples] label shifts:");
   console.log("  Before →", beforeLabelDist);
@@ -192,7 +202,9 @@ async function main(): Promise<void> {
     if (result) updated++;
   }
 
-  console.log(`\n[fix-ml-training-examples] corrected ${updated} training examples.`);
+  console.log(
+    `\n[fix-ml-training-examples] corrected ${updated} training examples.`,
+  );
 
   // 6. Verify: count remaining mismatches
   const remaining = await db

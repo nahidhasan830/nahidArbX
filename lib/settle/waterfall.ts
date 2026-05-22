@@ -121,8 +121,7 @@ type StatType = "corners" | "bookings";
  * Check if a score is still missing a specific stat type.
  */
 const isMissingStat = (s: MatchScore, stat: StatType): boolean => {
-  if (stat === "corners")
-    return s.cornersHome == null || s.cornersAway == null;
+  if (stat === "corners") return s.cornersHome == null || s.cornersAway == null;
   return s.bookingsHome == null || s.bookingsAway == null;
 };
 
@@ -150,7 +149,10 @@ async function enrichStats(
       if (!isMissingStat(s, stat)) await persist(s, `${stat}-enrich-espn`);
     }
     if (enriched > 0) {
-      logger.info("Waterfall", `ESPN enriched ${enriched} events with ${stat}.`);
+      logger.info(
+        "Waterfall",
+        `ESPN enriched ${enriched} events with ${stat}.`,
+      );
     }
   } catch (err) {
     logger.warn(
@@ -198,8 +200,10 @@ async function enrichStats(
       if (stat === "corners") {
         merged.cornersHome = s.cornersHome;
         merged.cornersAway = s.cornersAway;
-        merged.htCornersHome = s.htCornersHome ?? existing.htCornersHome ?? null;
-        merged.htCornersAway = s.htCornersAway ?? existing.htCornersAway ?? null;
+        merged.htCornersHome =
+          s.htCornersHome ?? existing.htCornersHome ?? null;
+        merged.htCornersAway =
+          s.htCornersAway ?? existing.htCornersAway ?? null;
       } else {
         merged.bookingsHome = s.bookingsHome;
         merged.bookingsAway = s.bookingsAway;
@@ -263,9 +267,12 @@ export async function resolveScores(
       opts.needsBookings === true &&
       (s.bookingsHome == null || s.bookingsAway == null);
     const htRequiredButMissing =
-      opts.needsHtScore === true &&
-      (s.htHome == null || s.htAway == null);
-    if (cornersRequiredButMissing || bookingsRequiredButMissing || htRequiredButMissing)
+      opts.needsHtScore === true && (s.htHome == null || s.htAway == null);
+    if (
+      cornersRequiredButMissing ||
+      bookingsRequiredButMissing ||
+      htRequiredButMissing
+    )
       continue;
     scores.set(id, s);
     telemetry.tier0_hits++;
@@ -462,8 +469,6 @@ export async function resolveScores(
       }
     }
   }
-
-
 
   // ── Source-health report ─────────────────────────────────────────────────
   const apiFbQuota = getApiFootballQuota();

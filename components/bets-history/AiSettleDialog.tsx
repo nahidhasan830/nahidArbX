@@ -1,12 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  ExternalLink,
-  Info,
-  Gavel,
-  Loader2,
-} from "lucide-react";
+import { ExternalLink, Info, Gavel, Loader2 } from "lucide-react";
 import {
   Tooltip,
   TooltipContent,
@@ -247,9 +242,9 @@ export function AiSettleDialog({
 
   const description = (
     <>
-      {candidateRows.length} bet{candidateRows.length === 1 ? "" : "s"}{" "}
-      settled through the waterfall (cache → ESPN → API-Football → SofaScore →
-      AI). Unresolved rows can be manually verified via the Google AI Mode link
+      {candidateRows.length} bet{candidateRows.length === 1 ? "" : "s"} settled
+      through the waterfall (cache → ESPN → API-Football → SofaScore → AI).
+      Unresolved rows can be manually verified via the Google AI Mode link
       beside each event.
     </>
   );
@@ -565,9 +560,7 @@ export function AiSettleDialog({
             {errorCount > 0 && (
               <span>
                 ·{" "}
-                <span className="font-medium text-rose-400">
-                  {errorCount}
-                </span>{" "}
+                <span className="font-medium text-rose-400">{errorCount}</span>{" "}
                 errored
               </span>
             )}

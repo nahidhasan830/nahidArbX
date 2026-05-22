@@ -100,8 +100,7 @@ export class SearchRouter {
         return { results, provider: p.name };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const isQueryError =
-          err instanceof Error && "isQueryError" in err;
+        const isQueryError = err instanceof Error && "isQueryError" in err;
         if (isQueryError) {
           logger.warn(tag, `Provider ${p.name} rejected query: ${msg}`);
         } else {
@@ -111,7 +110,10 @@ export class SearchRouter {
       }
     }
 
-    logger.error(tag, `All search providers failed for: "${query.slice(0, 80)}"`);
+    logger.error(
+      tag,
+      `All search providers failed for: "${query.slice(0, 80)}"`,
+    );
     return { results: [], provider: "none" };
   }
 
@@ -177,7 +179,10 @@ export class SearchRouter {
         else p.disable();
         // Persist to DB
         await setProviderEnabled(name, enabled);
-        logger.info(tag, `Provider ${p.name} ${enabled ? "enabled" : "disabled"}`);
+        logger.info(
+          tag,
+          `Provider ${p.name} ${enabled ? "enabled" : "disabled"}`,
+        );
         return true;
       }
     }

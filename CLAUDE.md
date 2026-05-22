@@ -2,6 +2,8 @@
 
 Full-form reference for this repository. [`AGENTS.md`](AGENTS.md) is the terse index — keep both in sync in the same commit.
 
+For the active ML rebuild, [`ML_REBUILD_PLAN.md`](ML_REBUILD_PLAN.md) is the sole source of truth for phases and status.
+
 ## Solo-developer workflow
 
 No branches. Everything lands on the working branch (treat as `master`). Commit everything relevant in as few commits as the work warrants — don't fragment across branches or separate agent vs user changes.
@@ -36,7 +38,7 @@ npm run db:generate  # Drizzle codegen
 npm run db:migrate   # Drizzle migrations
 ```
 
-Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used — prefer API/curl over Playwright.**
+Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used — prefer API/curl over Playwright.\*\*
 
 ## Architecture
 
@@ -52,15 +54,16 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 ## Routes
 
-| Route              | Purpose                                          |
-| ------------------ | ------------------------------------------------ |
-| `/dashboard`       | Central betting-account dashboard                |
-| `/value-bets`      | Value-bet / arb finder                           |
-| `/bets`            | Bets history — settlement + review               |
-| `/lab/ml`          | ML Optimizer — LightGBM model pipeline dashboard |
-| `/api/value-bets`  | GET: arb data, POST: manual sync                 |
-| `/api/ml/pipeline` | GET: ML pipeline stats                           |
-| `/api/ml/retrain`  | POST: trigger Cloud Run training job             |
+| Route                   | Purpose                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `/dashboard`            | Central betting-account dashboard                                                |
+| `/value-bets`           | Value-bet / arb finder                                                           |
+| `/bets`                 | Bets history — settlement + review                                               |
+| `/lab/ml`               | ML Optimizer — LightGBM pipeline dashboard with current-contract corpus progress |
+| `/api/value-bets`       | GET: arb data, POST: manual sync                                                 |
+| `/api/ml/pipeline`      | GET: ML pipeline stats plus current-contract corpus counters                     |
+| `/api/ml/training-data` | GET: trainer drill-down rows plus shared current-contract corpus summary         |
+| `/api/ml/retrain`       | POST: trigger Cloud Run training job                                             |
 
 ## Critical Rules
 
@@ -75,6 +78,7 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 - **Single `.env` file** at repo root. No `.env.local` or `.env.example`.
 - **Middleware uses `jose`** (Edge Runtime), not `jsonwebtoken`.
 - **All external data validated with Zod.**
+- **Current-contract corpus accounting lives in `lib/ml/training-sample-accounting.ts`.** `/api/ml/pipeline`, `/api/ml/training-data`, and `/lab/ml` must reuse that shared source and keep raw settled/current-contract/win/loss progress separate from stricter trainer-readiness counts.
 
 ### Settlement & AI
 

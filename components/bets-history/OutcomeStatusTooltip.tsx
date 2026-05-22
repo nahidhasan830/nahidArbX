@@ -59,7 +59,9 @@ function ScoreRow({ label, home, away, emphasized }: ScoreRowProps) {
       <span
         className={cn(
           "tabular-nums font-medium",
-          emphasized ? "text-sm text-foreground" : "text-[12px] text-foreground/85",
+          emphasized
+            ? "text-sm text-foreground"
+            : "text-[12px] text-foreground/85",
         )}
       >
         <span>{home}</span>
@@ -71,7 +73,10 @@ function ScoreRow({ label, home, away, emphasized }: ScoreRowProps) {
 }
 
 export interface OutcomeStatusTooltipContentProps {
-  row: Pick<ValueBetRow, "homeTeam" | "awayTeam" | "marketType" | "settledBySource"> & {
+  row: Pick<
+    ValueBetRow,
+    "homeTeam" | "awayTeam" | "marketType" | "settledBySource"
+  > & {
     matchScore?: BetMatchScore | null;
   };
   outcomeLabel: string;
@@ -154,7 +159,10 @@ export function OutcomeStatusTooltipContent({
         <span className="truncate text-foreground/85" title={row.homeTeam}>
           {row.homeTeam}
         </span>
-        <span className="truncate text-right text-foreground/85" title={row.awayTeam}>
+        <span
+          className="truncate text-right text-foreground/85"
+          title={row.awayTeam}
+        >
           {row.awayTeam}
         </span>
       </div>

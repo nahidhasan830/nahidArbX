@@ -10,6 +10,7 @@
  */
 
 import { useMemo } from "react";
+import { format, parseISO } from "date-fns";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   Tooltip,
@@ -238,7 +239,7 @@ export function AiActivityLogTable({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top">
-                {new Date(t).toLocaleString()}
+                {format(parseISO(t), "MMM d, yyyy HH:mm:ss")}
               </TooltipContent>
             </Tooltip>
           );

@@ -23,9 +23,12 @@ import { singleton } from "../util/singleton";
 // ── Source-health alert debounce ─────────────────────────────────────────
 // Avoids spamming Telegram on every tick when SofaScore is down.
 const SOURCE_ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-const alertState = singleton<{ lastSentAt: number }>("settle:source-alert", () => ({
-  lastSentAt: 0,
-}));
+const alertState = singleton<{ lastSentAt: number }>(
+  "settle:source-alert",
+  () => ({
+    lastSentAt: 0,
+  }),
+);
 
 export interface AutoSettleResult {
   scannedBets: number;

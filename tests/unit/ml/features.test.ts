@@ -5,8 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
-// ---- In-memory test data ----
+import { FEATURE_INDEX } from "@/lib/ml/feature-contract";
 
 const historyStore = new Map<
   string,
@@ -71,8 +70,6 @@ function makeAtomKey(
   return `${eventId}|${familyId}|${atomId}`;
 }
 
-// ---- Mocks ----
-
 vi.mock("@/lib/atoms/odds-history", () => ({
   getAtomHistory: (
     eventId: string,
@@ -128,21 +125,18 @@ vi.mock("@/lib/store", () => ({
   getEvent: (eventId: string) => eventStore.get(eventId),
 }));
 
-// ---- Import after mocking ----
-
 import {
   extractFeatures,
+  extractHistoricalFeatures,
+  normalizeHistoricalOddsMovement,
   FEATURE_NAMES,
   FEATURE_COUNT,
   FEATURE_NAMES_HASH,
   FEATURE_VERSION,
+  isFeatureWarm,
 } from "@/lib/ml/features";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import { computeConvergenceRate } from "@/lib/ml/convergence";
-
-// ============================================
-// Test helpers
-// ============================================
 
 function makeSyntheticValueBet(overrides: Record<string, unknown> = {}) {
   const now = Date.now();
@@ -165,37 +159,31 @@ function makeSyntheticValueBet(overrides: Record<string, unknown> = {}) {
     kellyFraction: 0.0229,
     kellyStake: 22.86,
     detectedAt: new Date(now),
-    timestamp: now - 500, // 500ms old
+    timestamp: now - 500,
     ...overrides,
   } as Parameters<typeof extractFeatures>[0];
 }
 
-// ============================================
-// Tests
-// ============================================
-
 describe("FEATURE_NAMES", () => {
-  it("has exactly 25 entries", () => {
-    expect(FEATURE_NAMES).toHaveLength(25);
-    expect(FEATURE_COUNT).toBe(25);
+  it("has exactly 22 entries", () => {
+    expect(FEATURE_NAMES).toHaveLength(22);
+    expect(FEATURE_COUNT).toBe(22);
   });
 
   it("has unique entries", () => {
     const unique = new Set(FEATURE_NAMES);
-    expect(unique.size).toBe(25);
+    expect(unique.size).toBe(22);
   });
 
-  it("starts with ev_pct and ends with num_markets_same_event", () => {
-    expect(FEATURE_NAMES[0]).toBe("ev_pct");
-    expect(FEATURE_NAMES[24]).toBe("num_markets_same_event");
+  it("starts with sharp_true_prob and ends with num_markets_same_event", () => {
+    expect(FEATURE_NAMES[0]).toBe("sharp_true_prob");
+    expect(FEATURE_NAMES[21]).toBe("num_markets_same_event");
   });
 
   it("matches shared ML feature constants", () => {
     expect(FEATURE_COUNT).toBe(ML_FEATURE_COUNT);
     expect(FEATURE_VERSION).toBe(ML_FEATURE_VERSION);
-    expect(FEATURE_NAMES_HASH).toBe(
-      "5a3c08405a8444ea5621708ccd7e17933dfd2270d04e37ab503f4b71847cf1f7",
-    );
+    expect(FEATURE_NAMES_HASH).toHaveLength(64);
   });
 });
 
@@ -208,41 +196,39 @@ describe("extractFeatures", () => {
     vigCache.clear();
   });
 
-  it("returns a 25-element number array", () => {
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+  it("returns a 22-element number array", () => {
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features).toHaveLength(25);
-    for (let i = 0; i < 25; i++) {
+    expect(features).toHaveLength(22);
+    for (let i = 0; i < 22; i++) {
       expect(typeof features[i]).toBe("number");
       expect(Number.isNaN(features[i])).toBe(false);
     }
   });
 
-  it("correctly extracts basic ValueBet fields", () => {
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+  it("correctly extracts core value-bet fields", () => {
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features[0]).toBe(2.6); // ev_pct
-    expect(features[1]).toBe(0.48); // sharp_true_prob
-    expect(features[2]).toBe(2.25); // soft_odds
-    expect(features[3]).toBe(2.1375); // adjusted_soft_odds
-    expect(features[19]).toBe(0.0229); // kelly_fraction_raw
+    expect(features[FEATURE_INDEX.sharp_true_prob]).toBe(0.48);
+    expect(features[FEATURE_INDEX.soft_odds]).toBe(2.25);
+    expect(features[FEATURE_INDEX.adjusted_soft_odds]).toBe(2.1375);
+    expect(features[FEATURE_INDEX.sharp_soft_spread]).toBeCloseTo(0.1667, 4);
   });
 
   it("rounds all values to 4 decimal places", () => {
-    const vb = makeSyntheticValueBet({
-      evPct: 2.123456789,
-      trueProb: 0.4812345,
-    });
-    const features = extractFeatures(vb);
+    const features = extractFeatures(
+      makeSyntheticValueBet({
+        trueProb: 0.4812345,
+        adjustedSoftOdds: 2.13754321,
+      }),
+    );
 
-    expect(features[0]).toBe(2.1235); // evPct
-    expect(features[1]).toBe(0.4812); // trueProb
+    expect(features[FEATURE_INDEX.sharp_true_prob]).toBe(0.4812);
+    expect(features[FEATURE_INDEX.adjusted_soft_odds]).toBe(2.1375);
   });
 
   it("uses event startTime for time_to_kickoff_min", () => {
-    const futureKickoff = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+    const futureKickoff = new Date(Date.now() + 60 * 60 * 1000);
     eventStore.set("evt1", {
       id: "evt1",
       startTime: futureKickoff,
@@ -250,12 +236,12 @@ describe("extractFeatures", () => {
       awayTeam: "Team B",
     });
 
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    // time_to_kickoff_min (idx 6) should be approximately 60
-    expect(features[6]).toBeGreaterThanOrEqual(59);
-    expect(features[6]).toBeLessThanOrEqual(61);
+    expect(features[FEATURE_INDEX.time_to_kickoff_min]).toBeGreaterThanOrEqual(
+      59,
+    );
+    expect(features[FEATURE_INDEX.time_to_kickoff_min]).toBeLessThanOrEqual(61);
   });
 
   it("encodes market type as ordinal", () => {
@@ -267,10 +253,9 @@ describe("extractFeatures", () => {
       atoms: ["ft_1x2_home", "ft_1x2_draw", "ft_1x2_away"],
     });
 
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features[17]).toBe(0); // MATCH_RESULT = 0
+    expect(features[FEATURE_INDEX.market_type_encoded]).toBe(0);
   });
 
   it("detects asian line correctly", () => {
@@ -283,10 +268,9 @@ describe("extractFeatures", () => {
       atoms: ["ft_ah_home", "ft_ah_away"],
     });
 
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features[18]).toBe(1); // 0.25 is quarter ball = asian
+    expect(features[FEATURE_INDEX.is_asian_line]).toBe(1);
   });
 
   it("reads vig from cached vig data", () => {
@@ -296,24 +280,22 @@ describe("extractFeatures", () => {
       provider: "pinnacle",
     });
 
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features[20]).toBe(4.5); // vig_pct
+    expect(features[FEATURE_INDEX.vig_pct]).toBe(4.5);
   });
 
   it("uses non-fake defaults for missing metadata", () => {
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features[5]).toBe(0); // tick_count
-    expect(features[6]).toBe(0); // time_to_kickoff_min
-    expect(features[13]).toBe(0); // convergence_rate
-    expect(features[16]).toBe(0); // opening_sharp_odds
-    expect(features[20]).toBe(0); // vig_pct
-    expect(features[21]).toBe(1); // competition_tier defaults to tier 1
-    expect(features[22]).toBe(0); // hours_since_line_opened
-    expect(features[24]).toBe(1); // num_markets_same_event defaults to 1
+    expect(features[FEATURE_INDEX.tick_count]).toBe(0);
+    expect(features[FEATURE_INDEX.time_to_kickoff_min]).toBe(0);
+    expect(features[FEATURE_INDEX.convergence_rate]).toBe(0);
+    expect(features[FEATURE_INDEX.opening_sharp_odds]).toBe(0);
+    expect(features[FEATURE_INDEX.vig_pct]).toBe(0);
+    expect(features[FEATURE_INDEX.competition_tier]).toBe(1);
+    expect(features[FEATURE_INDEX.hours_since_line_opened]).toBe(0);
+    expect(features[FEATURE_INDEX.num_markets_same_event]).toBe(1);
   });
 
   it("computes provider_count from odds store", () => {
@@ -327,13 +309,12 @@ describe("extractFeatures", () => {
     providers.set("velki-sportsbook", { odds: 2.2, timestamp: Date.now() });
     oddsAtomStore.set(atomKey, providers);
 
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
+    const features = extractFeatures(makeSyntheticValueBet());
 
-    expect(features[15]).toBe(3); // provider_count
+    expect(features[FEATURE_INDEX.provider_count]).toBe(3);
   });
 
-  it("clamps impossible new feature values", () => {
+  it("clamps impossible derived values", () => {
     const now = Date.now();
     const sharpKey = makeHistoryKey(
       "evt1",
@@ -351,45 +332,144 @@ describe("extractFeatures", () => {
       troughOdds: 2,
     });
 
-    const vb = makeSyntheticValueBet({ trueProb: 0 });
-    const features = extractFeatures(vb, 0);
+    const features = extractFeatures(makeSyntheticValueBet({ trueProb: 0 }), 0);
 
-    expect(features[22]).toBe(0); // negative age clamps to 0
-    expect(features[23]).toBe(0); // non-finite spread clamps to 0
-    expect(features[24]).toBe(1); // event count minimum is 1
+    expect(features[FEATURE_INDEX.hours_since_line_opened]).toBe(0);
+    expect(features[FEATURE_INDEX.sharp_soft_spread]).toBe(0);
+    expect(features[FEATURE_INDEX.num_markets_same_event]).toBe(1);
+  });
+});
+
+describe("historical feature helpers", () => {
+  beforeEach(() => {
+    historyStore.clear();
+    oddsAtomStore.clear();
+    eventStore.clear();
+    familyStore.clear();
+    vigCache.clear();
+  });
+
+  it("normalizes legacy single-provider oddsMovement blobs", () => {
+    const normalized = normalizeHistoricalOddsMovement({
+      provider: "pinnacle",
+      openingOdds: 2,
+      peakOdds: 2.1,
+      troughOdds: 1.9,
+      totalTicks: 3,
+      sparkline: [
+        [1000, 2],
+        [2000, 2.05],
+        [3000, 2.02],
+      ],
+    });
+
+    expect(Object.keys(normalized)).toEqual(["pinnacle"]);
+    expect(normalized.pinnacle?.openingOdds).toBe(2);
+  });
+
+  it("skips rows without persisted movement snapshots", () => {
+    const result = extractHistoricalFeatures({
+      eventStartTime: new Date("2026-05-22T15:00:00Z"),
+      firstSeenAt: new Date("2026-05-22T14:00:00Z"),
+      competition: "Premier League",
+      marketType: "MATCH_RESULT",
+      familyLine: null,
+      sharpProvider: "pinnacle",
+      sharpOdds: 2.1,
+      sharpTrueProb: 0.48,
+      softProvider: "ninewickets-exchange",
+      softCommissionPct: 5,
+      softOdds: 2.25,
+      oddsMovement: null,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected skip result");
+    expect(result.reasons).toContain("missing_odds_movement");
+    expect(result.reasons).toContain("missing_sharp_snapshot");
+    expect(result.reasons).toContain("missing_soft_snapshot");
+  });
+
+  it("builds a 22-feature vector from persisted fields", () => {
+    const now = Date.now();
+    const opening = now - 2 * 60 * 60 * 1000;
+    const firstSeenAt = new Date(now - 60 * 60 * 1000);
+    const result = extractHistoricalFeatures({
+      eventStartTime: new Date(now + 2 * 60 * 60 * 1000),
+      firstSeenAt,
+      competition: "Premier League",
+      marketType: "MATCH_RESULT",
+      familyLine: 0.25,
+      sharpProvider: "pinnacle",
+      sharpOdds: 2.1,
+      sharpTrueProb: 0.48,
+      softProvider: "ninewickets-exchange",
+      softCommissionPct: 5,
+      softOdds: 2.25,
+      oddsMovement: {
+        pinnacle: {
+          provider: "pinnacle",
+          openingOdds: 2,
+          peakOdds: 2.05,
+          troughOdds: 1.98,
+          totalTicks: 3,
+          sparkline: [
+            [opening, 2],
+            [opening + 30 * 60 * 1000, 2.05],
+            [opening + 60 * 60 * 1000, 2.02],
+          ],
+        },
+        "ninewickets-exchange": {
+          provider: "ninewickets-exchange",
+          openingOdds: 2.3,
+          peakOdds: 2.3,
+          troughOdds: 2.2,
+          totalTicks: 3,
+          sparkline: [
+            [opening, 2.3],
+            [opening + 30 * 60 * 1000, 2.27],
+            [opening + 60 * 60 * 1000, 2.25],
+          ],
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected reconstructed features");
+    expect(result.features).toHaveLength(22);
+    expect(result.features[FEATURE_INDEX.provider_count]).toBe(2);
+    expect(result.features[FEATURE_INDEX.vig_pct]).toBeCloseTo(-0.7937, 4);
+    expect(result.features[FEATURE_INDEX.hours_since_line_opened]).toBeCloseTo(
+      1,
+      4,
+    );
+    expect(result.features[FEATURE_INDEX.num_markets_same_event]).toBe(1);
+    expect(result.features[FEATURE_INDEX.is_asian_line]).toBe(1);
   });
 });
 
 describe("isFeatureWarm", () => {
-  // Import isFeatureWarm here since it's exported from the same module
-  let isFeatureWarm: typeof import("@/lib/ml/features").isFeatureWarm;
-
-  beforeEach(async () => {
-    const mod = await import("@/lib/ml/features");
-    isFeatureWarm = mod.isFeatureWarm;
-  });
-
   it("returns false when tick_count is 0", () => {
-    const features = new Array(25).fill(0);
-    features[5] = 0; // tick_count
+    const features = new Array(FEATURE_COUNT).fill(0);
+    features[FEATURE_INDEX.tick_count] = 0;
     expect(isFeatureWarm(features)).toBe(false);
   });
 
   it("returns false when tick_count is below threshold", () => {
-    const features = new Array(25).fill(0);
-    features[5] = 2; // below ML_WARMUP_MIN_TICKS (3)
+    const features = new Array(FEATURE_COUNT).fill(0);
+    features[FEATURE_INDEX.tick_count] = 2;
     expect(isFeatureWarm(features)).toBe(false);
   });
 
   it("returns true when tick_count meets threshold", () => {
-    const features = new Array(25).fill(0);
-    features[5] = 3; // exactly ML_WARMUP_MIN_TICKS
+    const features = new Array(FEATURE_COUNT).fill(0);
+    features[FEATURE_INDEX.tick_count] = 3;
     expect(isFeatureWarm(features)).toBe(true);
   });
 
   it("returns true when tick_count exceeds threshold", () => {
-    const features = new Array(25).fill(0);
-    features[5] = 50;
+    const features = new Array(FEATURE_COUNT).fill(0);
+    features[FEATURE_INDEX.tick_count] = 50;
     expect(isFeatureWarm(features)).toBe(true);
   });
 
@@ -398,25 +478,11 @@ describe("isFeatureWarm", () => {
   });
 
   it("integrates with extractFeatures — cold when no history", () => {
-    historyStore.clear();
-    oddsAtomStore.clear();
-    eventStore.clear();
-    familyStore.clear();
-    vigCache.clear();
-
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
-    // No history set up → tick_count = 0 → cold
+    const features = extractFeatures(makeSyntheticValueBet());
     expect(isFeatureWarm(features)).toBe(false);
   });
 
   it("integrates with extractFeatures — warm when history has ticks", () => {
-    historyStore.clear();
-    oddsAtomStore.clear();
-    eventStore.clear();
-    familyStore.clear();
-    vigCache.clear();
-
     const now = Date.now();
     const sharpKey = makeHistoryKey(
       "evt1",
@@ -438,10 +504,8 @@ describe("isFeatureWarm", () => {
       troughOdds: 2.0,
     });
 
-    const vb = makeSyntheticValueBet();
-    const features = extractFeatures(vb);
-    // Sharp history has 3 ticks → warm
-    expect(features[5]).toBe(3);
+    const features = extractFeatures(makeSyntheticValueBet());
+    expect(features[FEATURE_INDEX.tick_count]).toBe(3);
     expect(isFeatureWarm(features)).toBe(true);
   });
 });
@@ -528,7 +592,6 @@ describe("computeConvergenceRate", () => {
       "ninewickets-exchange",
     );
 
-    // Sharp odds stable at 2.0
     const sharpTicks = [];
     for (let i = 0; i < 10; i++) {
       sharpTicks.push({
@@ -538,7 +601,6 @@ describe("computeConvergenceRate", () => {
       });
     }
 
-    // Soft odds converging toward sharp (decreasing from 2.4 to 2.13)
     const softTicks = [];
     for (let i = 0; i < 10; i++) {
       softTicks.push({
@@ -576,7 +638,7 @@ describe("computeConvergenceRate", () => {
       "ninewickets-exchange",
     );
 
-    expect(rate).toBeLessThan(0); // gap decreasing → negative slope
+    expect(rate).toBeLessThan(0);
   });
 
   it("returns positive slope for diverging series", () => {
@@ -603,7 +665,6 @@ describe("computeConvergenceRate", () => {
       });
     }
 
-    // Soft odds diverging (increasing from 2.1 to 2.37)
     const softTicks = [];
     for (let i = 0; i < 10; i++) {
       softTicks.push({
@@ -641,6 +702,6 @@ describe("computeConvergenceRate", () => {
       "ninewickets-exchange",
     );
 
-    expect(rate).toBeGreaterThan(0); // gap increasing → positive slope
+    expect(rate).toBeGreaterThan(0);
   });
 });

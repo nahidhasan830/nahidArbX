@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import {
   getProviderChartStroke,
@@ -241,6 +242,5 @@ function layout(
 }
 
 function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return format(parseISO(iso), "MMM d");
 }

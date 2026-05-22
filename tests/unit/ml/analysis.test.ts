@@ -6,23 +6,27 @@ import {
   computeConfidence,
 } from "@/lib/ml/analysis";
 import type { SimilarBetRow } from "@/lib/ml/analysis-types";
+import { FEATURE_COUNT, FEATURE_INDEX } from "@/lib/ml/feature-contract";
 
-function makeFeatures(overrides: Record<number, number> = {}): number[] {
-  const f = new Array(25).fill(0);
-  f[2] = 2.15;
-  f[3] = 2.15;
-  f[5] = 5;
+function makeFeatures(
+  overrides: Partial<Record<number, number>> = {},
+): number[] {
+  const f = new Array(FEATURE_COUNT).fill(0);
+  f[FEATURE_INDEX.sharp_true_prob] = 0.5;
+  f[FEATURE_INDEX.soft_odds] = 2.15;
+  f[FEATURE_INDEX.adjusted_soft_odds] = 2.15;
+  f[FEATURE_INDEX.tick_count] = 5;
   for (const [idx, value] of Object.entries(overrides)) {
     f[Number(idx)] = value;
   }
   return f;
 }
 
-const IDX_SOFT_ODDS = 2;
-const IDX_ADJUSTED_SOFT_ODDS = 3;
-const IDX_TICK_COUNT = 5;
-const IDX_STEAM_SHARP = 9;
-const IDX_CONVERGENCE = 13;
+const IDX_SOFT_ODDS = FEATURE_INDEX.soft_odds;
+const IDX_ADJUSTED_SOFT_ODDS = FEATURE_INDEX.adjusted_soft_odds;
+const IDX_TICK_COUNT = FEATURE_INDEX.tick_count;
+const IDX_STEAM_SHARP = FEATURE_INDEX.steam_move_sharp;
+const IDX_CONVERGENCE = FEATURE_INDEX.convergence_rate;
 
 function similar(overrides: Partial<SimilarBetRow> = {}): SimilarBetRow {
   return {
@@ -122,9 +126,9 @@ describe("analysis engine", () => {
 
       expect(analysis.decision.type).toBe("shrink");
       expect(analysis.story.title).toBe("Value, But Fading");
-      expect(analysis.numbers.factors.some((f) => f.name === "Convergence")).toBe(
-        true,
-      );
+      expect(
+        analysis.numbers.factors.some((f) => f.name === "Convergence"),
+      ).toBe(true);
     });
 
     it("generates a deep boost story with 5-star confidence", () => {

@@ -12,10 +12,19 @@ const nextConfig: NextConfig = {
     "better-sqlite3",
     "bufferutil",
     "utf-8-validate",
-    "onnxruntime-node",
     "@google-cloud/storage",
     "@google-cloud/run",
   ],
+  // Workaround for Next.js 16 prerender bug: turbopack minification of the
+  // auto-generated /_global-error route corrupts the React import, so
+  // useContext returns null at prerender time. Keep the debug-prerender flags
+  // that are valid in a normal production build.
+  // Tracked in vercel/next.js #93011, #93024, #86965, #86178, #85668, #84994.
+  experimental: {
+    prerenderEarlyExit: false,
+    serverSourceMaps: true,
+    turbopackMinify: false,
+  },
 };
 
 export default nextConfig;

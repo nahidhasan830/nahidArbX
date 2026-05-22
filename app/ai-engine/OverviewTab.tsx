@@ -1,20 +1,18 @@
 "use client";
 
 import { type ReactNode } from "react";
+import { format } from "date-fns";
 import {
   Activity,
   AlertCircle,
   Brain,
   Cpu,
   Database,
-  Radar,
   Radio,
   RadioReceiver,
   Search,
-  Server,
   Signal,
   Sparkles,
-  Zap,
   ZapOff,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +74,10 @@ export interface HealthData {
 // ── Provider Meta ────────────────────────────────────────────────
 // Priority order: Vertex AI Search (primary), Brave, Tavily
 
-const PROVIDER_META: Record<string, { label: string; icon: ReactNode; color: string; desc: string }> = {
+const PROVIDER_META: Record<
+  string,
+  { label: string; icon: ReactNode; color: string; desc: string }
+> = {
   brave: {
     label: "Brave Search",
     icon: <Search className="w-4 h-4" />,
@@ -110,7 +111,7 @@ export function formatRelative(iso: string): string {
   if (secs < 60) return `${secs}s ago`;
   if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`;
-  return d.toLocaleDateString();
+  return format(d, "MMM d, yyyy");
 }
 
 export function deriveModelStatus(
@@ -120,9 +121,15 @@ export function deriveModelStatus(
 ): ModelStatus | null {
   if (health?.llmEngine) {
     const eng = health.llmEngine;
-    const activeProvider = (eng.active as string) ?? (eng.provider as string) ?? "unknown";
-    const providerStats = eng.providers as Record<string, Record<string, unknown>> | null;
-    const activeModel = providerStats?.[activeProvider]?.model as string | undefined;
+    const activeProvider =
+      (eng.active as string) ?? (eng.provider as string) ?? "unknown";
+    const providerStats = eng.providers as Record<
+      string,
+      Record<string, unknown>
+    > | null;
+    const activeModel = providerStats?.[activeProvider]?.model as
+      | string
+      | undefined;
     const model =
       activeModel ??
       eng.model ??
@@ -134,7 +141,8 @@ export function deriveModelStatus(
 
     return {
       reachable: true,
-      healthy: typeof eng.healthy === "boolean" ? eng.healthy : health.status === "ok",
+      healthy:
+        typeof eng.healthy === "boolean" ? eng.healthy : health.status === "ok",
       configured_model: model,
       engine: activeProvider,
       checked_at: lastLoadedAt ?? "",
@@ -146,7 +154,8 @@ export function deriveModelStatus(
 
 export function getModelUi(status: ModelStatus | null) {
   if (!status) return { value: "Unknown", tone: "warning" as const };
-  if (!status.reachable) return { value: "Service Down", tone: "negative" as const };
+  if (!status.reachable)
+    return { value: "Service Down", tone: "negative" as const };
   if (status.healthy) return { value: "Healthy", tone: "positive" as const };
   return { value: "Unhealthy", tone: "negative" as const };
 }
@@ -221,11 +230,15 @@ function StatusBadge({
         c.glow,
       )}
     >
-      <span className={cn(status === "online" && "relative flex size-2 mr-1.5")}>
-        <span className={cn(
-          "absolute inline-flex size-full rounded-full opacity-75",
-          status === "online" && "animate-ping bg-emerald-400",
-        )} />
+      <span
+        className={cn(status === "online" && "relative flex size-2 mr-1.5")}
+      >
+        <span
+          className={cn(
+            "absolute inline-flex size-full rounded-full opacity-75",
+            status === "online" && "animate-ping bg-emerald-400",
+          )}
+        />
         {c.icon}
       </span>
       <span className={cn(size === "sm" ? "text-[10px]" : "text-xs")}>
@@ -371,14 +384,18 @@ function ProviderCard({
             <div
               className={cn(
                 "flex size-9 items-center justify-center rounded-xl bg-background/60 backdrop-blur-sm transition-shadow duration-500",
-                isEnabled && isHealthy && "shadow-[0_0_15px_rgba(16,185,129,0.15)]",
+                isEnabled &&
+                  isHealthy &&
+                  "shadow-[0_0_15px_rgba(16,185,129,0.15)]",
                 meta.color,
               )}
             >
               {meta.icon}
             </div>
             <div>
-              <div className="text-sm font-semibold tracking-tight">{meta.label}</div>
+              <div className="text-sm font-semibold tracking-tight">
+                {meta.label}
+              </div>
               <div className="text-[10px] text-muted-foreground/40 font-medium tracking-wide uppercase">
                 {meta.desc}
               </div>
@@ -411,12 +428,19 @@ function ProviderCard({
         {/* Usage bar */}
         <div className="mb-3">
           <div className="flex justify-between text-[10px] mb-1.5">
-            <span className="text-muted-foreground/50 font-medium tracking-wide uppercase">Requests</span>
+            <span className="text-muted-foreground/50 font-medium tracking-wide uppercase">
+              Requests
+            </span>
             <span className="font-mono tabular-nums text-muted-foreground/70">
               {provider.requestsUsed.toLocaleString()}
-              {usagePct !== null
-                ? <><span className="text-muted-foreground/30 mx-1">/</span>{provider.quotaLimit?.toLocaleString() ?? "∞"}</>
-                : " used"}
+              {usagePct !== null ? (
+                <>
+                  <span className="text-muted-foreground/30 mx-1">/</span>
+                  {provider.quotaLimit?.toLocaleString() ?? "∞"}
+                </>
+              ) : (
+                " used"
+              )}
             </span>
           </div>
           {usagePct !== null ? (
@@ -444,13 +468,7 @@ function ProviderCard({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 min-w-0">
             <StatusBadge
-              status={
-                !isEnabled
-                  ? "offline"
-                  : isHealthy
-                    ? "online"
-                    : "warning"
-              }
+              status={!isEnabled ? "offline" : isHealthy ? "online" : "warning"}
             />
             {provider.lastError && !isEnabled && (
               <Badge
@@ -474,7 +492,10 @@ function ProviderCard({
 
 // ── Engine Meta ────────────────────────────────────────────────
 
-const ENGINE_META: Record<string, { label: string; icon: ReactNode; color: string; variants: string[] }> = {
+const ENGINE_META: Record<
+  string,
+  { label: string; icon: ReactNode; color: string; variants: string[] }
+> = {
   deepseek: {
     label: "DeepSeek",
     icon: <DeepSeekIcon className="w-4 h-4" />,
@@ -566,8 +587,16 @@ function LlmEngineCard({
             <div
               className={cn(
                 "flex size-9 items-center justify-center rounded-xl bg-background/60 backdrop-blur-sm transition-shadow duration-500",
-                isEnabled && !autoDisabled && !isExhausted && engine.name === "deepseek" && "shadow-[0_0_15px_rgba(77,107,254,0.15)]",
-                isEnabled && !autoDisabled && !isExhausted && engine.name === "gemini" && "shadow-[0_0_15px_rgba(96,165,250,0.15)]",
+                isEnabled &&
+                  !autoDisabled &&
+                  !isExhausted &&
+                  engine.name === "deepseek" &&
+                  "shadow-[0_0_15px_rgba(77,107,254,0.15)]",
+                isEnabled &&
+                  !autoDisabled &&
+                  !isExhausted &&
+                  engine.name === "gemini" &&
+                  "shadow-[0_0_15px_rgba(96,165,250,0.15)]",
                 meta.color,
               )}
             >
@@ -631,7 +660,9 @@ function LlmEngineCard({
         {/* Stats */}
         <div className="space-y-2 text-[11px]">
           <div className="flex justify-between">
-            <span className="text-muted-foreground/50 font-medium tracking-wide uppercase">Requests</span>
+            <span className="text-muted-foreground/50 font-medium tracking-wide uppercase">
+              Requests
+            </span>
             <span className="font-mono tabular-nums text-muted-foreground/70">
               {engine.total_requests?.toLocaleString() ?? "0"}
             </span>
@@ -693,18 +724,25 @@ export function OverviewTab({
 }: OverviewTabProps) {
   // Count active engines from llmStats
   const usage = llmStats?.usage as Record<string, unknown> | undefined;
-  const providersMap = usage?.providers as Record<string, Record<string, unknown>> | undefined;
+  const providersMap = usage?.providers as
+    | Record<string, Record<string, unknown>>
+    | undefined;
   const activeEngines = providersMap
-    ? Object.values(providersMap).filter((p) => !p.disabled && !p.manual_disabled).length
+    ? Object.values(providersMap).filter(
+        (p) => !p.disabled && !p.manual_disabled,
+      ).length
     : 0;
   const totalEngines = providersMap ? Object.keys(providersMap).length : 0;
 
   const modelStatus = deriveModelStatus(health, stats, lastLoadedAt);
   const modelUi = getModelUi(modelStatus);
-  const serviceOnline = Boolean(health?.status === "ok" || health?.status === "degraded");
+  const serviceOnline = Boolean(
+    health?.status === "ok" || health?.status === "degraded",
+  );
 
   const totalSearches = stats?.totalSearches ?? 0;
-  const providersHealthy = stats?.providers?.filter((p) => p.healthy).length ?? 0;
+  const providersHealthy =
+    stats?.providers?.filter((p) => p.healthy).length ?? 0;
   const providersTotal = stats?.providers?.length ?? 0;
   const serviceError = health?.service?.error ?? null;
 
@@ -726,7 +764,6 @@ export function OverviewTab({
       });
     }
   }
-
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -765,16 +802,28 @@ export function OverviewTab({
               />
               <StatCard
                 label="LLM Engines"
-                value={totalEngines > 0 ? `${activeEngines}/${totalEngines}` : modelStatus?.engine ?? "---"}
+                value={
+                  totalEngines > 0
+                    ? `${activeEngines}/${totalEngines}`
+                    : (modelStatus?.engine ?? "---")
+                }
                 sub={totalEngines > 0 ? "active" : modelUi.value.toLowerCase()}
                 icon={<Brain className="w-5 h-5" />}
-                trend={activeEngines === totalEngines && totalEngines > 0 ? "up" : modelStatus?.healthy ? "up" : "down"}
+                trend={
+                  activeEngines === totalEngines && totalEngines > 0
+                    ? "up"
+                    : modelStatus?.healthy
+                      ? "up"
+                      : "down"
+                }
                 accent="violet"
               />
               <StatCard
                 label="Status"
                 value={serviceOnline ? "Online" : "Offline"}
-                sub={lastLoadedAt ? formatRelative(lastLoadedAt) : "connecting..."}
+                sub={
+                  lastLoadedAt ? formatRelative(lastLoadedAt) : "connecting..."
+                }
                 icon={<RadioReceiver className="w-5 h-5" />}
                 trend={serviceOnline ? "up" : "down"}
                 accent={serviceOnline ? "green" : "amber"}
@@ -782,7 +831,10 @@ export function OverviewTab({
             </>
           ) : (
             Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="rounded-2xl bg-card/20 border border-border/30 p-5 space-y-3 backdrop-blur-sm">
+              <div
+                key={i}
+                className="rounded-2xl bg-card/20 border border-border/30 p-5 space-y-3 backdrop-blur-sm"
+              >
                 <div className="flex items-center gap-2">
                   <Skeleton className="size-5 rounded-lg" />
                   <Skeleton className="h-3 w-16 rounded" />
@@ -821,7 +873,10 @@ export function OverviewTab({
                 </div>
               ) : (
                 Array.from({ length: 2 }).map((_, i) => (
-                  <div key={`skeleton-llm-${i}`} className="rounded-2xl bg-card/20 border border-border/30 p-4 space-y-3 backdrop-blur-sm">
+                  <div
+                    key={`skeleton-llm-${i}`}
+                    className="rounded-2xl bg-card/20 border border-border/30 p-4 space-y-3 backdrop-blur-sm"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Skeleton className="size-9 rounded-xl" />

@@ -4,6 +4,7 @@
  */
 
 import axios from "axios";
+import { format, subDays } from "date-fns";
 
 const BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer";
 
@@ -25,11 +26,9 @@ const SLUGS = [
 ] as const;
 
 async function probe(slug: string, label: string): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const yesterday = new Date(Date.now() - 86_400_000)
-    .toISOString()
-    .slice(0, 10)
-    .replace(/-/g, "");
+  const now = new Date();
+  const today = format(now, "yyyyMMdd");
+  const yesterday = format(subDays(now, 1), "yyyyMMdd");
   const url = `${BASE}/${slug}/scoreboard?dates=${yesterday}-${today}`;
   try {
     const { data } = await axios.get(url, { timeout: 10_000 });

@@ -118,7 +118,9 @@ function JsonPanel({ data, label, onCopy, copied }: JsonPanelProps) {
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-2 flex-shrink-0">
-        <span className="text-sm font-medium text-muted-foreground">{label}</span>
+        <span className="text-sm font-medium text-muted-foreground">
+          {label}
+        </span>
         <Button
           variant="outline"
           size="sm"
@@ -159,7 +161,10 @@ function SyntaxHighlighter({ json }: { json: string }) {
           .replace(/"([^"]+)":/g, '<span class="text-purple-400">"$1"</span>:')
           .replace(/: "([^"]*)"/g, ': <span class="text-green-400">"$1"</span>')
           .replace(/: (\d+)/g, ': <span class="text-blue-400">$1</span>')
-          .replace(/: (true|false|null)/g, ': <span class="text-orange-400">$1</span>')
+          .replace(
+            /: (true|false|null)/g,
+            ': <span class="text-orange-400">$1</span>',
+          )
           .replace(/\{/g, '<span class="text-yellow-400">{"</span>')
           .replace(/\}/g, '<span class="text-yellow-400">}</span>')
           .replace(/\[/g, '<span class="text-yellow-400">["</span>')

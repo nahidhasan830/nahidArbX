@@ -1,20 +1,26 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDecisionReason } from "@/lib/ml/decision-reason";
+import { FEATURE_COUNT, FEATURE_INDEX } from "@/lib/ml/feature-contract";
 
-function makeFeatures(overrides: Record<number, number> = {}): number[] {
-  const f = new Array(25).fill(0);
-  f[2] = 2.15;
-  f[3] = 2.15;
-  f[5] = 5;
+function makeFeatures(
+  overrides: Partial<Record<number, number>> = {},
+): number[] {
+  const f = new Array(FEATURE_COUNT).fill(0);
+  f[FEATURE_INDEX.sharp_true_prob] = 0.5;
+  f[FEATURE_INDEX.soft_odds] = 2.15;
+  f[FEATURE_INDEX.adjusted_soft_odds] = 2.15;
+  f[FEATURE_INDEX.tick_count] = 5;
   for (const [idx, val] of Object.entries(overrides)) {
     f[Number(idx)] = val;
   }
   return f;
 }
 
-const IDX_TICK_COUNT = 5;
-const IDX_STEAM_SHARP = 9;
-const IDX_CONVERGENCE = 13;
+const IDX_SOFT_ODDS = FEATURE_INDEX.soft_odds;
+const IDX_ADJUSTED_SOFT_ODDS = FEATURE_INDEX.adjusted_soft_odds;
+const IDX_TICK_COUNT = FEATURE_INDEX.tick_count;
+const IDX_STEAM_SHARP = FEATURE_INDEX.steam_move_sharp;
+const IDX_CONVERGENCE = FEATURE_INDEX.convergence_rate;
 
 describe("buildDecisionReason", () => {
   describe("skip case", () => {
@@ -54,7 +60,9 @@ describe("buildDecisionReason", () => {
       expect(steamTech!.tone).toBe("positive");
       expect(steamTech!.value).toContain("Sharp");
 
-      const persistenceTech = result.technical.find((f) => f.label === "Persistence");
+      const persistenceTech = result.technical.find(
+        (f) => f.label === "Persistence",
+      );
       expect(persistenceTech).toBeDefined();
       expect(persistenceTech!.tone).toBe("positive");
       expect(persistenceTech!.value).toContain("20");
@@ -107,8 +115,9 @@ describe("buildDecisionReason", () => {
 
       const steamTech = result.technical.find((f) => f.label === "Steam");
       expect(steamTech).toBeUndefined();
-      // Persistence shown as neutral "no bonus" when tickCount <= 10
-      const persistenceTech = result.technical.find((f) => f.label === "Persistence");
+      const persistenceTech = result.technical.find(
+        (f) => f.label === "Persistence",
+      );
       expect(persistenceTech).toBeDefined();
       expect(persistenceTech!.tone).toBe("neutral");
       expect(persistenceTech!.value).toContain("no bonus");
@@ -117,8 +126,7 @@ describe("buildDecisionReason", () => {
 
   describe("technical tones", () => {
     it("renders Score as negative when mlScore <= 0.4", () => {
-      const features = makeFeatures();
-      const result = buildDecisionReason(0.35, features, 1.0);
+      const result = buildDecisionReason(0.35, makeFeatures(), 1.0);
       const scoreTech = result.technical.find((f) => f.label === "Score");
       expect(scoreTech).toBeDefined();
       expect(scoreTech!.tone).toBe("negative");
@@ -126,8 +134,7 @@ describe("buildDecisionReason", () => {
     });
 
     it("renders Score as positive when mlScore >= 0.6", () => {
-      const features = makeFeatures();
-      const result = buildDecisionReason(0.75, features, 1.0);
+      const result = buildDecisionReason(0.75, makeFeatures(), 1.0);
       const scoreTech = result.technical.find((f) => f.label === "Score");
       expect(scoreTech).toBeDefined();
       expect(scoreTech!.tone).toBe("positive");
@@ -135,24 +142,35 @@ describe("buildDecisionReason", () => {
     });
 
     it("omits Steam in technical when steam_move_sharp = 0", () => {
-      const features = makeFeatures({ [IDX_STEAM_SHARP]: 0 });
-      const result = buildDecisionReason(0.55, features, 0.85);
+      const result = buildDecisionReason(
+        0.55,
+        makeFeatures({ [IDX_STEAM_SHARP]: 0 }),
+        0.85,
+      );
       const steamTech = result.technical.find((f) => f.label === "Steam");
       expect(steamTech).toBeUndefined();
     });
 
     it("shows Persistence as neutral when tick_count <= 10", () => {
-      const features = makeFeatures({ [IDX_TICK_COUNT]: 10 });
-      const result = buildDecisionReason(0.55, features, 1.5);
-      const persistenceTech = result.technical.find((f) => f.label === "Persistence");
+      const result = buildDecisionReason(
+        0.55,
+        makeFeatures({ [IDX_TICK_COUNT]: 10 }),
+        1.5,
+      );
+      const persistenceTech = result.technical.find(
+        (f) => f.label === "Persistence",
+      );
       expect(persistenceTech).toBeDefined();
       expect(persistenceTech!.tone).toBe("neutral");
       expect(persistenceTech!.value).toContain("no bonus");
     });
 
     it("renders Convergence as Stable when >= 0", () => {
-      const features = makeFeatures({ [IDX_CONVERGENCE]: 0.1 });
-      const result = buildDecisionReason(0.55, features, 1.0);
+      const result = buildDecisionReason(
+        0.55,
+        makeFeatures({ [IDX_CONVERGENCE]: 0.1 }),
+        1.0,
+      );
       const convTech = result.technical.find((f) => f.label === "Convergence");
       expect(convTech!.value).toContain("Stable");
       expect(convTech!.tone).toBe("neutral");
@@ -161,8 +179,7 @@ describe("buildDecisionReason", () => {
 
   describe("similar context", () => {
     it("includes similar section when context has >= 3 resolved bets", () => {
-      const features = makeFeatures();
-      const result = buildDecisionReason(0.55, features, 1.0, {
+      const result = buildDecisionReason(0.55, makeFeatures(), 1.0, {
         decision: "agree",
         driver: "no_signal",
         driverLabel: "No clear signal agrees",
@@ -179,8 +196,7 @@ describe("buildDecisionReason", () => {
     });
 
     it("omits similar section when total < 3", () => {
-      const features = makeFeatures();
-      const result = buildDecisionReason(0.55, features, 1.0, {
+      const result = buildDecisionReason(0.55, makeFeatures(), 1.0, {
         decision: "agree",
         driver: "no_signal",
         driverLabel: "No clear signal agrees",
@@ -193,15 +209,15 @@ describe("buildDecisionReason", () => {
     });
 
     it("omits similar section when context is null", () => {
-      const features = makeFeatures();
-      const result = buildDecisionReason(0.55, features, 1.0, null);
-      expect(result.similar).toBeUndefined();
+      expect(buildDecisionReason(0.55, makeFeatures(), 1.0, null).similar).toBe(
+        undefined,
+      );
     });
 
     it("omits similar section when context is undefined", () => {
-      const features = makeFeatures();
-      const result = buildDecisionReason(0.55, features, 1.0);
-      expect(result.similar).toBeUndefined();
+      expect(buildDecisionReason(0.55, makeFeatures(), 1.0).similar).toBe(
+        undefined,
+      );
     });
   });
 
@@ -213,15 +229,13 @@ describe("buildDecisionReason", () => {
       });
       const result = buildDecisionReason(0.95, features, 1.87);
       expect(result.multiplierChain).toContain("×");
-      expect(result.multiplierChain).toContain("2.34"); // 1.0 × 1.5 × 1.2 × 1.3 = 2.34
+      expect(result.multiplierChain).toContain("2.34");
     });
 
     it("shows no adjustments when all factors are at 1.0", () => {
-      // mlScore=0.5 × odds=2.10 → edgePct=5% → edgeScaling=0.5+5/10=1.0 exactly
       const features = makeFeatures({ [IDX_TICK_COUNT]: 5 });
-      // Override soft odds to 2.10 so edgeScaling = 1.0
-      features[2] = 2.1;
-      features[3] = 2.1;
+      features[IDX_SOFT_ODDS] = 2.1;
+      features[IDX_ADJUSTED_SOFT_ODDS] = 2.1;
       const result = buildDecisionReason(0.5, features, 1.0);
       expect(result.multiplierChain).toContain("no adjustments");
     });

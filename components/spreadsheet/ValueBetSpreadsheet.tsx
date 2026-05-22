@@ -71,6 +71,8 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   actions: 100,
 };
 
+const SHEET_CLOCK_REFRESH_MS = 30_000;
+
 export interface DegradedProvider {
   id: string;
   label: string;
@@ -410,6 +412,15 @@ export function ValueBetSpreadsheet({
 
   const [copyingRawData, setCopyingRawData] = useState<string | null>(null);
   const [hiddenFamilies, setHiddenFamilies] = useState<Set<string>>(new Set());
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(
+      () => setNowMs(Date.now()),
+      SHEET_CLOCK_REFRESH_MS,
+    );
+    return () => window.clearInterval(id);
+  }, []);
 
   const handleHideFamily = useCallback((eventId: string, familyId: string) => {
     setHiddenFamilies((prev) => new Set(prev).add(`${eventId}|${familyId}`));
@@ -956,6 +967,7 @@ export function ValueBetSpreadsheet({
                       rows[index + 1]?.familyId !== row.familyId ||
                       rows[index + 1]?.eventId !== row.eventId
                     }
+                    nowMs={nowMs}
                     eventProviders={eventInfo?.providers || []}
                     providerEventIds={eventInfo?.providerEventIds || {}}
                     copyingRawData={copyingRawData}

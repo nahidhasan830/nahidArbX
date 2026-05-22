@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { format, parseISO } from "date-fns";
 import {
   Calendar,
   Check,
@@ -227,17 +228,13 @@ function getCompactPresetLabel(key: DatePresetKey) {
 function formatDateValue(value?: string) {
   if (!value) return null;
 
-  const date = new Date(value);
+  const date = parseISO(value);
   if (Number.isNaN(date.getTime())) return value.slice(0, 10);
 
   const isBoundaryTime =
     value.endsWith("T00:00:00.000Z") || value.endsWith("T23:59:59.000Z");
 
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(isBoundaryTime ? {} : { hour: "numeric", minute: "2-digit" }),
-  });
+  return format(date, isBoundaryTime ? "MMM d" : "MMM d HH:mm");
 }
 
 function describeDateSelection(

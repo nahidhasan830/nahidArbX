@@ -109,15 +109,22 @@ export async function GET(
     }
 
     if (subPath === "llm-stats") {
-      const { getProviderConfigs } = await import("@/lib/db/repositories/ai-provider-config");
+      const { getProviderConfigs } =
+        await import("@/lib/db/repositories/ai-provider-config");
       const geminiHealthy = Boolean(process.env.GEMINI_API_KEY);
 
       const configs = await getProviderConfigs().catch(() => {
-        return {} as Record<string, { enabled: boolean; disabledReason: string | null }>;
+        return {} as Record<
+          string,
+          { enabled: boolean; disabledReason: string | null }
+        >;
       });
 
-      const deepseekCfg = configs["deepseek-flash"] ?? configs["deepseek-pro"] ?? { enabled: true, disabledReason: null };
-      const geminiCfg = configs["gemini-lite"] ?? configs["gemini-flash"] ?? configs["gemini-pro"] ?? { enabled: true, disabledReason: null };
+      const deepseekCfg = configs["deepseek-flash"] ??
+        configs["deepseek-pro"] ?? { enabled: true, disabledReason: null };
+      const geminiCfg = configs["gemini-lite"] ??
+        configs["gemini-flash"] ??
+        configs["gemini-pro"] ?? { enabled: true, disabledReason: null };
 
       const providers: Record<string, Record<string, unknown>> = {};
 
@@ -141,11 +148,12 @@ export async function GET(
         };
       }
 
-      const activeEngine = deepseekCfg.enabled && Boolean(process.env.DEEPSEEK_API_KEY)
-        ? "deepseek"
-        : geminiCfg.enabled && geminiHealthy
-          ? "gemini"
-          : "none";
+      const activeEngine =
+        deepseekCfg.enabled && Boolean(process.env.DEEPSEEK_API_KEY)
+          ? "deepseek"
+          : geminiCfg.enabled && geminiHealthy
+            ? "gemini"
+            : "none";
 
       return NextResponse.json({
         model: DEEPSEEK_MODEL,
@@ -172,7 +180,12 @@ export async function POST(
   const { path } = await params;
   const subPath = path.join("/");
 
-  const directAllowed = ["search", "entity-match", "grounded-query", "verify-settlement"];
+  const directAllowed = [
+    "search",
+    "entity-match",
+    "grounded-query",
+    "verify-settlement",
+  ];
   const isProviderToggle = /^providers\/[^/]+\/toggle$/.test(subPath);
   if (!directAllowed.includes(subPath) && !isProviderToggle) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -188,7 +201,10 @@ export async function POST(
       const name = subPath.split("/")[1];
       const ok = getGroundingEngine().toggleProvider(name, body.enabled);
       if (!ok) {
-        return NextResponse.json({ error: `Provider '${name}' not found` }, { status: 404 });
+        return NextResponse.json(
+          { error: `Provider '${name}' not found` },
+          { status: 404 },
+        );
       }
       return NextResponse.json({ name, enabled: body.enabled });
     }
@@ -237,7 +253,8 @@ export async function POST(
     // Grounded query
     if (subPath === "grounded-query") {
       const question = body.question || body.query || "";
-      const llmProvider = (body.provider as "deepseek" | "gemini") || "deepseek";
+      const llmProvider =
+        (body.provider as "deepseek" | "gemini") || "deepseek";
       const skipSearch = body.skip_search === true || body.skipSearch === true;
       const result = await getGroundingEngine().query(question, body.context, {
         provider: llmProvider,
@@ -262,7 +279,10 @@ export async function POST(
         startTime: body.event?.start_time || "",
         provider: body.event?.provider,
       };
-      const result = await getGroundingEngine().verifySettlement(event, body.question || "");
+      const result = await getGroundingEngine().verifySettlement(
+        event,
+        body.question || "",
+      );
       return logAndRespond(subPath, body, startMs, {
         answer: result.answer,
         confidence: result.confidence,
@@ -340,7 +360,12 @@ async function logAndRespond(
 
     recordAiActivity({
       system: ENDPOINT_SYSTEM[subPath] ?? "grounding",
-      trigger: bodyService === "Playground" ? "playground" : bodyService === "Auto Matcher" ? "batch" : "manual",
+      trigger:
+        bodyService === "Playground"
+          ? "playground"
+          : bodyService === "Auto Matcher"
+            ? "batch"
+            : "manual",
       status: "success",
       model: (data.model as string) ?? DEEPSEEK_MODEL,
       itemCount: Array.isArray(data.results) ? data.results.length : 1,

@@ -1,9 +1,8 @@
 /**
  * ML Deployment Gate — runtime permission checking for deployed models.
  *
- * Phase 7 of the ML optimizer plan. This module provides runtime
- * permission-level checks that determine how the ML model's score
- * affects bet placement behavior.
+ * Provides runtime permission-level checks that determine how the ML
+ * model's score affects bet placement behavior.
  *
  * Permission levels (escalation order):
  *   - observe: score and log only — no effect on placement
@@ -77,7 +76,10 @@ const REFRESH_INTERVAL_MS = 60_000;
  */
 export const POLICY_EDGE_THRESHOLD_DENY_ALL_PCT = 1_000_000;
 
-export type PolicyEdgeThresholdSource = "artifact" | "missing_artifact" | "no_model";
+export type PolicyEdgeThresholdSource =
+  | "artifact"
+  | "missing_artifact"
+  | "no_model";
 
 export interface PolicyEdgeThresholdResolution {
   thresholdPct: number;

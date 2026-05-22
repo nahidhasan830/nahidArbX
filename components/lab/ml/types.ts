@@ -8,10 +8,13 @@ export interface PipelineData {
     betsWithFeatures: number;
     settledWithFeatures: number;
     qualifiedForTraining: number;
+    canonicalExamples: number;
+    uncoveredQualifiedBets: number;
     coldStartThreshold: number;
     coldStartProgress: number;
     featureExtractionHealthy: boolean;
     recentFeatureRate: number;
+    currentCorpus: CurrentCorpusSummary;
   };
   training: {
     totalModels: number;
@@ -41,6 +44,7 @@ export interface PipelineData {
   inference: {
     modelLoaded: boolean;
     modelVersion: number | null;
+    totalScoringAttempts: number;
     totalScored: number;
     avgInferenceMs: number;
     error?: string;
@@ -84,6 +88,13 @@ export interface PipelineData {
       semanticPass: boolean;
     };
     allSemanticChecksPass: boolean;
+    recentTierHealth?: {
+      windowHours: number;
+      betsWithFeatures: number;
+      betsWithValidTier: number;
+      validTierPct: number | null;
+      healthy: boolean;
+    };
   };
   scoreBucketROI: {
     bucket: string;
@@ -169,4 +180,25 @@ export interface PaperEvaluationMetric {
   winRatePct: number | null;
   avgEvPct: number | null;
   avgOdds: number | null;
+}
+
+export interface CurrentCorpusDailyHistoryRow {
+  day: string;
+  totalSettled: number;
+  currentContractFeatures: number;
+  wins: number;
+  losses: number;
+}
+
+export interface CurrentCorpusSummary {
+  totalSettled: number;
+  currentContractFeatures: number;
+  wins: number;
+  losses: number;
+  coldStartThreshold: number;
+  collectionTarget: number;
+  remainingToColdStart: number;
+  remainingToTarget: number;
+  dailyTrend?: CurrentCorpusDailyHistoryRow[];
+  dailyHistory?: CurrentCorpusDailyHistoryRow[];
 }

@@ -89,7 +89,10 @@ export async function matchSingle(
 
   try {
     const engine = getGroundingEngine();
-    const result = await engine.matchSingle(toEventInfo(eventA), toEventInfo(eventB));
+    const result = await engine.matchSingle(
+      toEventInfo(eventA),
+      toEventInfo(eventB),
+    );
 
     const durationMs = Date.now() - t0;
     recordAiActivity({
@@ -162,7 +165,9 @@ export async function matchBatch(
 
       const durationMs = Date.now() - t0;
       const same = result.verdicts.filter((v) => v.decision === "SAME").length;
-      const diff = result.verdicts.filter((v) => v.decision === "DIFFERENT").length;
+      const diff = result.verdicts.filter(
+        (v) => v.decision === "DIFFERENT",
+      ).length;
       recordAiActivity({
         system: "entity-match",
         trigger: "batch",
@@ -173,7 +178,11 @@ export async function matchBatch(
         costUsd: null,
         summary: `AI Search batch: ${pairs.length} pairs → ${same} SAME, ${diff} DIFFERENT`,
         error: null,
-        metadata: { same, different: diff, sourcesCount: result.sources?.length ?? 0 },
+        metadata: {
+          same,
+          different: diff,
+          sourcesCount: result.sources?.length ?? 0,
+        },
       }).catch(() => {});
 
       return {
@@ -235,7 +244,10 @@ export async function matchBatch(
       allQueries.push(...result.searchQueriesUsed);
       model = result.model;
     } catch (err) {
-      logger.warn(tag, `Batch chunk ${i / MAX_BATCH_SIZE + 1} failed, aborting batch`);
+      logger.warn(
+        tag,
+        `Batch chunk ${i / MAX_BATCH_SIZE + 1} failed, aborting batch`,
+      );
       const durationMs = Date.now() - t0;
       recordAiActivity({
         system: "entity-match",
@@ -247,7 +259,10 @@ export async function matchBatch(
         costUsd: null,
         summary: `AI Search batch chunk ${i / MAX_BATCH_SIZE + 1} failed (${pairs.length} pairs)`,
         error: (err as Error).message,
-        metadata: { failedChunk: i / MAX_BATCH_SIZE + 1, processedSoFar: allVerdicts.length },
+        metadata: {
+          failedChunk: i / MAX_BATCH_SIZE + 1,
+          processedSoFar: allVerdicts.length,
+        },
       }).catch(() => {});
       return null;
     }

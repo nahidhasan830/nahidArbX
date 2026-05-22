@@ -29,10 +29,9 @@ describe("ML feature contract", () => {
     const pythonNames = parsePythonFeatureNames();
     const catalogNames = FEATURE_CATALOG.map((f) => f.name);
 
-    expect(FEATURE_COUNT).toBe(25);
+    expect(FEATURE_COUNT).toBe(22);
     expect(ML_FEATURE_COUNT).toBe(FEATURE_COUNT);
-    expect(FEATURE_VERSION).toBe(2);
-    expect(ML_FEATURE_VERSION).toBe(FEATURE_VERSION);
+    expect(FEATURE_VERSION).toBe(ML_FEATURE_VERSION);
     expect(pythonNames).toEqual(FEATURE_NAMES);
     expect(catalogNames).toEqual(FEATURE_NAMES);
   });

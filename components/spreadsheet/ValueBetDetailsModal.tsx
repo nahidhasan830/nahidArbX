@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { format, parseISO } from "date-fns";
 import {
   Dialog,
   DialogContent,
@@ -151,20 +152,13 @@ type Selection = ProviderKey | "custom";
 // ============================================
 
 function formatTime(isoString: string): { display: string; relative: string } {
-  const date = new Date(isoString);
+  const date = parseISO(isoString);
   const now = new Date();
   const diffMs = date.getTime() - now.getTime();
   const diffMins = Math.floor(diffMs / 60000);
 
-  const timeStr = date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const dateStr = date.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
+  const timeStr = format(date, "HH:mm");
+  const dateStr = format(date, "EEE, MMM d");
 
   let relative: string;
   if (diffMs < 0) {

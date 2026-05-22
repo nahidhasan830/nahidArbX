@@ -99,7 +99,10 @@ export async function ensureDbReady(): Promise<void> {
           }
         }
       }
-      throw lastErr ?? new Error("Failed to establish DB connection after 5 attempts");
+      throw (
+        lastErr ??
+        new Error("Failed to establish DB connection after 5 attempts")
+      );
     });
   }
   await _initPromise;

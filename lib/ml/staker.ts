@@ -1,9 +1,9 @@
 /**
  * ML Staker — Permission-Aware Kelly Sizing
  *
- * Phase 8 of the ML optimizer plan. Adjusts the base Kelly fraction
- * using the ML model's confidence score and feature-derived signals,
- * but ONLY when the deployment gate grants the appropriate permission.
+ * Adjusts the base Kelly fraction using the ML model's confidence score
+ * and feature-derived signals, but ONLY when the deployment gate grants
+ * the appropriate permission.
  *
  * Permission-level behavior:
  *   - observe:        returns null (no Kelly adjustment — persist score only)
@@ -25,7 +25,7 @@
  *   - Capped at 1× base Kelly for stake_reduce (never increase)
  */
 
-import { FEATURE_NAMES } from "./feature-contract";
+import { FEATURE_INDEX } from "./feature-contract";
 import {
   getPolicyEdgeThresholdPct,
   type MLPermissionLevel,
@@ -42,9 +42,7 @@ import { isPilotActive, pilotCoinFlip } from "./pilot";
  * undefined access on a typo would produce NaN, which downstream
  * arithmetic would propagate visibly.
  */
-const F = Object.fromEntries(
-  FEATURE_NAMES.map((n, i) => [n, i]),
-) as Record<string, number>;
+const F = FEATURE_INDEX;
 
 const MODEL_EDGE_FULL_SCALE_PCT = 10;
 const SIMPLE_RULE_MIN_EV_PCT = 3;
@@ -108,7 +106,7 @@ function computeRawMultiplier(mlScore: number, features: number[]): number {
  * auto-placer. It respects the deployment gate permission level:
  *
  * @param baseKelly       Raw Kelly fraction from value detector (e.g. 0.03)
- * @param mlScore         Calibrated P(win) from ONNX scorer [0, 1], or null if no model
+ * @param mlScore         Calibrated P(win) from cloud scorer [0, 1], or null if no model
  * @param features        25-element feature vector
  * @param permissionLevel Current model's deployment permission
  * @param betId           Unique bet identifier (required for stake-increase pilot)
@@ -217,7 +215,10 @@ export function computeRawStakeMultiplier(
  * Decimal odds EV per unit stake is p * odds - 1. The adjusted soft odds
  * feature already reflects commission when available.
  */
-export function computeModelEdgePct(mlScore: number, features: number[]): number {
+export function computeModelEdgePct(
+  mlScore: number,
+  features: number[],
+): number {
   const adjustedSoftOdds = features[F.adjusted_soft_odds] ?? 0;
   const softOdds = features[F.soft_odds] ?? 0;
   const odds = adjustedSoftOdds > 1.01 ? adjustedSoftOdds : softOdds;
@@ -228,8 +229,15 @@ export function computeModelEdgePct(mlScore: number, features: number[]): number
 }
 
 function passesSimpleEvOverlay(features: number[]): boolean {
-  const evPct = features[F.ev_pct] ?? 0;
+  const sharpTrueProb = features[F.sharp_true_prob] ?? 0;
+  const softOdds = features[F.soft_odds] ?? 0;
+  const adjustedSoftOdds = features[F.adjusted_soft_odds] ?? 0;
   const marketType = features[F.market_type_encoded] ?? Number.NaN;
+  const odds = adjustedSoftOdds > 1.01 ? adjustedSoftOdds : softOdds;
+  const evPct =
+    Number.isFinite(sharpTrueProb) && Number.isFinite(odds) && odds > 1.01
+      ? (odds * sharpTrueProb - 1) * 100
+      : Number.NEGATIVE_INFINITY;
   return (
     evPct >= SIMPLE_RULE_MIN_EV_PCT &&
     SIMPLE_RULE_MARKET_TYPE_CODES.has(marketType)

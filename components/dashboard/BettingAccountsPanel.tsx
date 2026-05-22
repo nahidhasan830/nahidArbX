@@ -15,6 +15,14 @@
  */
 import { useState } from "react";
 import {
+  differenceInDays,
+  differenceInHours,
+  differenceInMinutes,
+  differenceInSeconds,
+  isAfter,
+  parseISO,
+} from "date-fns";
+import {
   AlertCircle,
   CheckCircle2,
   Loader2,
@@ -677,22 +685,21 @@ function money(n: number | null, currency: string): string {
 
 function formatRelative(iso: string | null): string {
   if (!iso) return "—";
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "—";
-  const diff = Date.now() - t;
-  const sec = Math.round(diff / 1000);
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  return `${day}d ago`;
+  const date = parseISO(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const now = new Date();
+  const seconds = differenceInSeconds(now, date);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = differenceInMinutes(now, date);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = differenceInHours(now, date);
+  if (hours < 24) return `${hours}h ago`;
+  return `${differenceInDays(now, date)}d ago`;
 }
 
 function renderAutoLoginAge(iso: string): string | null {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t) || t <= 86_400_000) return null;
+  const date = parseISO(iso);
+  if (Number.isNaN(date.getTime()) || !isAfter(date, new Date(0))) return null;
   return formatRelative(iso);
 }

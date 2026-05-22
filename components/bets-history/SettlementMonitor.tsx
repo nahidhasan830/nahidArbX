@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import {
   Activity,
@@ -535,7 +536,7 @@ function ActivityRow({
     >
       <div className="flex items-start gap-2 text-[11px]">
         <span className="tabular-nums text-muted-foreground shrink-0 w-20">
-          {new Date(entry.ts).toLocaleTimeString()}
+          {format(new Date(entry.ts), "HH:mm:ss")}
         </span>
         <span
           className={cn(
@@ -563,7 +564,7 @@ function RunRow({ run }: { run: SettlementRunRowApi }) {
   return (
     <tr className="border-b border-border/40 hover:bg-muted/20">
       <td className="px-3 py-1 tabular-nums">
-        {new Date(run.startedAt).toLocaleString()}
+        {format(parseISO(run.startedAt), "MMM d, yyyy HH:mm:ss")}
       </td>
       <td className="px-2 py-1 text-right tabular-nums">
         {(run.durationMs / 1000).toFixed(1)}s

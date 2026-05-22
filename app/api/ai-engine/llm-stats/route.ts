@@ -1,4 +1,7 @@
-import { seedProvidersIfEmpty, getAllProviders } from "@/lib/db/repositories/ai-provider-config";
+import {
+  seedProvidersIfEmpty,
+  getAllProviders,
+} from "@/lib/db/repositories/ai-provider-config";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +17,7 @@ export async function GET() {
   const allProviders = await getAllProviders();
 
   // Build provider map for quick lookup
-  const providerMap = new Map(allProviders.map(p => [p.name, p]));
+  const providerMap = new Map(allProviders.map((p) => [p.name, p]));
 
   // Get deepseek and gemini configs
   const deepseekFlash = providerMap.get("deepseek-flash");
@@ -26,13 +29,15 @@ export async function GET() {
   const providers: Record<string, Record<string, unknown>> = {};
 
   // DeepSeek (use flash by default)
-  const deepseekEnabled = deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true;
+  const deepseekEnabled =
+    deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true;
   providers["deepseek"] = {
     model: deepseekModel,
     healthy: deepseekHealthy,
     disabled: !deepseekEnabled,
     manual_disabled: !deepseekEnabled,
-    disabled_reason: deepseekFlash?.disabledReason ?? deepseekPro?.disabledReason ?? null,
+    disabled_reason:
+      deepseekFlash?.disabledReason ?? deepseekPro?.disabledReason ?? null,
     is_exhausted: !deepseekHealthy,
     monthlyUsage: deepseekFlash?.monthlyUsageCount ?? 0,
     monthlyLimit: deepseekFlash?.monthlyLimit ?? null,
@@ -54,8 +59,14 @@ export async function GET() {
     };
   }
 
-  const deepseekAllEnabled = (deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true) && deepseekHealthy;
-  const geminiAnyEnabled = (geminiLite?.enabled ?? geminiFlash?.enabled ?? geminiPro?.enabled ?? false) && geminiHealthy;
+  const deepseekAllEnabled =
+    (deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true) && deepseekHealthy;
+  const geminiAnyEnabled =
+    (geminiLite?.enabled ??
+      geminiFlash?.enabled ??
+      geminiPro?.enabled ??
+      false) &&
+    geminiHealthy;
 
   const activeEngine = deepseekAllEnabled
     ? "deepseek"
@@ -69,7 +80,7 @@ export async function GET() {
       active_engine: activeEngine,
       providers,
     },
-    allProviders: allProviders.map(p => ({
+    allProviders: allProviders.map((p) => ({
       name: p.name,
       enabled: p.enabled,
       engineType: p.engineType,

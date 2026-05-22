@@ -27,14 +27,26 @@ describe("Quick Settlement Test", () => {
     console.log(`Found scores for ${scores.size}/${eventIds.length} events`);
 
     const goalMarkets = new Set([
-      "MATCH_RESULT", "OVER_UNDER", "TOTAL_GOALS", "ASIAN_HANDICAP",
-      "BTTS", "DNB", "HOME_TEAM_TOTAL", "AWAY_TEAM_TOTAL",
-      "DOUBLE_CHANCE", "EUROPEAN_HANDICAP",
+      "MATCH_RESULT",
+      "OVER_UNDER",
+      "TOTAL_GOALS",
+      "ASIAN_HANDICAP",
+      "BTTS",
+      "DNB",
+      "HOME_TEAM_TOTAL",
+      "AWAY_TEAM_TOTAL",
+      "DOUBLE_CHANCE",
+      "EUROPEAN_HANDICAP",
     ]);
 
     const eligible = rows.filter((bet) => {
       const score = scores.get(bet.eventId);
-      return score && score.status !== "ABD" && score.status !== "POSTPONED" && goalMarkets.has(bet.marketType);
+      return (
+        score &&
+        score.status !== "ABD" &&
+        score.status !== "POSTPONED" &&
+        goalMarkets.has(bet.marketType)
+      );
     });
 
     console.log(`Eligible bets: ${eligible.length}`);
@@ -42,7 +54,9 @@ describe("Quick Settlement Test", () => {
       const sample = eligible.slice(0, 2);
       for (const bet of sample) {
         const score = scores.get(bet.eventId)!;
-        console.log(`  ${bet.homeTeam} vs ${bet.awayTeam} | ${bet.marketType} | ${score.ftHome}-${score.ftAway} | ${bet.outcome}`);
+        console.log(
+          `  ${bet.homeTeam} vs ${bet.awayTeam} | ${bet.marketType} | ${score.ftHome}-${score.ftAway} | ${bet.outcome}`,
+        );
       }
     }
     expect(eligible.length).toBeGreaterThan(0);

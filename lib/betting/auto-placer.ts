@@ -120,7 +120,8 @@ export async function maybeAutoPlace(
         ...logBase,
         gate: "ml_score",
         status: "skipped",
-        reason: "ML score unavailable; active ML permission requires a scored bet",
+        reason:
+          "ML score unavailable; active ML permission requires a scored bet",
       });
       return;
     }

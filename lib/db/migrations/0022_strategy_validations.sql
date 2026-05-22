@@ -1,4 +1,4 @@
--- AlphaSearch Phase 5 — periodic strategy re-validation + drift-based auto-pause.
+-- AlphaSearch periodic strategy re-validation + drift-based auto-pause.
 --
 -- One row per validation run per strategy. The auto-validator fires every
 -- ~7 days and writes one row per live strategy. Three consecutive

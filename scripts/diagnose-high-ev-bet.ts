@@ -87,11 +87,7 @@ async function listTop() {
 }
 
 async function diagnoseOne(betId: string) {
-  const [bet] = await db
-    .select()
-    .from(bets)
-    .where(eq(bets.id, betId))
-    .limit(1);
+  const [bet] = await db.select().from(bets).where(eq(bets.id, betId)).limit(1);
 
   if (!bet) {
     console.log(`Bet not found: ${betId}`);
@@ -137,16 +133,18 @@ async function diagnoseOne(betId: string) {
   console.log();
   console.log(`  Sharp provider:       ${bet.sharpProvider}`);
   console.log(`  Raw sharp odds:       ${bet.sharpOdds}`);
-  console.log(`  Sharp trueProb:       ${bet.sharpTrueProb}  (${(bet.sharpTrueProb * 100).toFixed(3)}%)`);
+  console.log(
+    `  Sharp trueProb:       ${bet.sharpTrueProb}  (${(bet.sharpTrueProb * 100).toFixed(3)}%)`,
+  );
   console.log(`  True odds (1/tp):     ${(1 / bet.sharpTrueProb).toFixed(4)}`);
   console.log();
-  console.log(
-    `  EV = adjSoftOdds * trueProb - 1`,
-  );
+  console.log(`  EV = adjSoftOdds * trueProb - 1`);
   console.log(
     `     = ${adjustedSoftOdds.toFixed(4)} * ${bet.sharpTrueProb} - 1`,
   );
-  console.log(`     = ${(adjustedSoftOdds * bet.sharpTrueProb).toFixed(4)} - 1`);
+  console.log(
+    `     = ${(adjustedSoftOdds * bet.sharpTrueProb).toFixed(4)} - 1`,
+  );
   console.log(`     = ${edge.toFixed(6)}`);
   console.log(`  EV%                   = ${evPct.toFixed(2)}%`);
   console.log();
@@ -161,7 +159,10 @@ async function diagnoseOne(betId: string) {
     `  Registry commission%:    ${registryCommission ?? "UNKNOWN PROVIDER"}`,
   );
   console.log(`  DB commission%:           ${bet.softCommissionPct}`);
-  if (registryCommission !== null && registryCommission !== bet.softCommissionPct) {
+  if (
+    registryCommission !== null &&
+    registryCommission !== bet.softCommissionPct
+  ) {
     console.log(
       `  ⚠️  MISMATCH! Registry says ${registryCommission}%, DB has ${bet.softCommissionPct}%`,
     );
@@ -185,7 +186,7 @@ async function diagnoseOne(betId: string) {
     `  De-vig ratio:            ${vigRatio.toFixed(4)}  (>1 means vig was removed, increasing prob)`,
   );
   console.log(
-    `  Implied vig (approx):    ${((1 / rawSharpProb - bet.sharpTrueProb) / (1 / rawSharpProb) * 100).toFixed(2)}%`,
+    `  Implied vig (approx):    ${(((1 / rawSharpProb - bet.sharpTrueProb) / (1 / rawSharpProb)) * 100).toFixed(2)}%`,
   );
   console.log(
     `  Interpretation: The trueProb is the WORST-CASE (highest prob) across`,
@@ -235,7 +236,9 @@ async function diagnoseOne(betId: string) {
           console.log(`    Peak:    ${data.peakOdds}`);
           console.log(`    Trough:  ${data.troughOdds}`);
           console.log(`    Ticks:   ${data.totalTicks}`);
-          console.log(`    Range:   ${data.troughOdds} - ${data.peakOdds}  (spread: ${(data.peakOdds - data.troughOdds).toFixed(2)})`);
+          console.log(
+            `    Range:   ${data.troughOdds} - ${data.peakOdds}  (spread: ${(data.peakOdds - data.troughOdds).toFixed(2)})`,
+          );
           if (data.sparkline?.length > 0) {
             const last = data.sparkline[data.sparkline.length - 1];
             const firstS = data.sparkline[0];
@@ -262,7 +265,9 @@ async function diagnoseOne(betId: string) {
   const lifespan = (lastSeen - firstSeen) / 1000;
   console.log(`  Detection lifespan:  ${lifespan.toFixed(0)}s`);
   console.log(`  Tick count:          ${bet.tickCount}`);
-  console.log(`  Avg interval:        ${(lifespan / Math.max(bet.tickCount - 1, 1)).toFixed(0)}s between ticks`);
+  console.log(
+    `  Avg interval:        ${(lifespan / Math.max(bet.tickCount - 1, 1)).toFixed(0)}s between ticks`,
+  );
   console.log(
     `  Active detection window: ${bet.firstSeenAt} → ${bet.lastSeenAt}`,
   );
@@ -297,7 +302,10 @@ async function diagnoseOne(betId: string) {
   }
 
   // Check: Is commission wrong for this provider?
-  if (registryCommission !== null && registryCommission !== bet.softCommissionPct) {
+  if (
+    registryCommission !== null &&
+    registryCommission !== bet.softCommissionPct
+  ) {
     issues.push(
       `Commission mismatch: provider "${bet.softProvider}" has ${registryCommission}% in registry but ${bet.softCommissionPct}% on DB row`,
     );
@@ -320,7 +328,9 @@ async function diagnoseOne(betId: string) {
   }
 
   if (issues.length === 0) {
-    console.log("  No obvious anomalies detected. The bet may be genuinely high EV.");
+    console.log(
+      "  No obvious anomalies detected. The bet may be genuinely high EV.",
+    );
   } else {
     for (const issue of issues) {
       console.log(`  ${issue}`);

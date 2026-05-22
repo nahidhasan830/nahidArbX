@@ -27,6 +27,7 @@ import type { MatchScore } from "../types";
 import { verifySettlement } from "@/lib/matching/ai-search-client";
 import { logger } from "../../shared/logger";
 import { saveScoreIfAbsent } from "../../db/repositories/match-scores";
+import { format, isValid, parseISO } from "date-fns";
 
 const tag = "T2d-AiSearch";
 
@@ -42,9 +43,9 @@ function parseScore(answer: string): { home: number; away: number } | null {
 
   // Try common score formats: "2-1", "2 - 1", "2:1", "2 x 1"
   const patterns = [
-    /(\d+)\s*[-–—:]\s*(\d+)/,       // "2-1", "2 : 1"
-    /(\d+)\s*x\s*(\d+)/i,           // "2 x 1" (Brazilian style)
-    /(\d+)\s+to\s+(\d+)/i,          // "2 to 1"
+    /(\d+)\s*[-–—:]\s*(\d+)/, // "2-1", "2 : 1"
+    /(\d+)\s*x\s*(\d+)/i, // "2 x 1" (Brazilian style)
+    /(\d+)\s+to\s+(\d+)/i, // "2 to 1"
   ];
 
   for (const pat of patterns) {
@@ -52,7 +53,14 @@ function parseScore(answer: string): { home: number; away: number } | null {
     if (m) {
       const home = parseInt(m[1], 10);
       const away = parseInt(m[2], 10);
-      if (!isNaN(home) && !isNaN(away) && home >= 0 && away >= 0 && home <= 20 && away <= 20) {
+      if (
+        !isNaN(home) &&
+        !isNaN(away) &&
+        home >= 0 &&
+        away >= 0 &&
+        home <= 20 &&
+        away <= 20
+      ) {
         return { home, away };
       }
     }
@@ -64,7 +72,9 @@ function parseScore(answer: string): { home: number; away: number } | null {
  * Try to extract HT score from the answer text.
  * Looks for patterns like "half-time: 1-0", "HT 1-0", "(1-0 at half time)"
  */
-function parseHtScore(answer: string): { htHome: number; htAway: number } | null {
+function parseHtScore(
+  answer: string,
+): { htHome: number; htAway: number } | null {
   const htPatterns = [
     /(?:half[\s-]*time|HT|1st\s*half)[\s:]*(\d+)\s*[-–—:]\s*(\d+)/i,
     /\((\d+)\s*[-–—:]\s*(\d+)\s*(?:at\s*)?(?:half[\s-]*time|HT)\)/i,
@@ -83,24 +93,6 @@ function parseHtScore(answer: string): { htHome: number; htAway: number } | null
   return null;
 }
 
-const formatTz = (d: Date, tz: string) => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(d);
-  const val = (type: string) => parts.find(p => p.type === type)!.value;
-  return {
-    date: `${val("year")}-${val("month")}-${val("day")}`,
-    time: `${val("hour")}:${val("minute")}`,
-  };
-};
-
 /**
  * Fetch final scores for unresolved events using DeepSeek Flash + web search.
  *
@@ -116,25 +108,28 @@ export async function fetchAiSearchScores(
   const results = new Map<string, MatchScore>();
   if (events.length === 0) return results;
 
-  logger.info(tag, `Attempting AI Search score lookup for ${events.length} event(s).`);
+  logger.info(
+    tag,
+    `Attempting AI Search score lookup for ${events.length} event(s).`,
+  );
 
   // Process sequentially — LLM providers have rate limits, and each call
   // involves web search + LLM inference (~5s). Parallelism would
   // overwhelm the rate limit on large batches.
   for (const event of events) {
     try {
-      const kickoff = new Date(event.startTime);
-      const utc = formatTz(kickoff, "UTC");
-      const bst = formatTz(kickoff, "Asia/Dhaka");
-
-      const dateClause = utc.date === bst.date
-        ? utc.date
-        : `${utc.date} (Dhaka local date: ${bst.date})`;
+      const kickoff = parseISO(event.startTime);
+      const dateClause = isValid(kickoff)
+        ? format(kickoff, "yyyy-MM-dd")
+        : event.startTime.slice(0, 10);
+      const kickoffClause = isValid(kickoff)
+        ? format(kickoff, "HH:mm")
+        : event.startTime.slice(11, 16);
 
       const question =
         `What was the final score of the football match ${event.homeTeam} vs ${event.awayTeam}` +
         (event.competition ? ` in ${event.competition}` : "") +
-        ` on ${dateClause} (kickoff ${utc.time} UTC / ${bst.time} Dhaka time)? ` +
+        ` on ${dateClause} (kickoff ${kickoffClause})? ` +
         `Please give the exact final score (e.g. "2-1") and half-time score if available.`;
 
       const verdict = await verifySettlement(
@@ -148,7 +143,10 @@ export async function fetchAiSearchScores(
       );
 
       if (!verdict) {
-        logger.debug(tag, `${event.homeTeam} v ${event.awayTeam}: AI Search unreachable`);
+        logger.debug(
+          tag,
+          `${event.homeTeam} v ${event.awayTeam}: AI Search unreachable`,
+        );
         continue;
       }
 
@@ -173,7 +171,8 @@ export async function fetchAiSearchScores(
         }
       }
 
-      const ht = parseHtScore(verdict.answer) ?? parseHtScore(verdict.reasoning);
+      const ht =
+        parseHtScore(verdict.answer) ?? parseHtScore(verdict.reasoning);
 
       const matchScore: MatchScore = {
         eventId: event.eventId,
@@ -204,7 +203,10 @@ export async function fetchAiSearchScores(
       try {
         await saveScoreIfAbsent(matchScore);
       } catch (err) {
-        logger.warn(tag, `Cache persist failed for ${event.eventId}: ${(err as Error).message}`);
+        logger.warn(
+          tag,
+          `Cache persist failed for ${event.eventId}: ${(err as Error).message}`,
+        );
       }
     } catch (err) {
       logger.warn(
@@ -214,6 +216,9 @@ export async function fetchAiSearchScores(
     }
   }
 
-  logger.info(tag, `AI Search resolved ${results.size}/${events.length} events.`);
+  logger.info(
+    tag,
+    `AI Search resolved ${results.size}/${events.length} events.`,
+  );
   return results;
 }

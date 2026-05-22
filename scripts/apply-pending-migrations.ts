@@ -57,6 +57,8 @@ const MIGRATIONS = [
   "0064_paper_trading_rename.sql",
   "0065_ml_training_visibility.sql",
   "0066_deepseek_rename_lite_to_flash.sql",
+  "0067_ml_vertex_metadata.sql",
+  "0068_ml_rebuild_phase1_defaults.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -281,6 +283,20 @@ async function main() {
       sql: `SELECT count(*)::int AS n FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'ml_models'
                 AND column_name = 'estimated_time_remaining_ms'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.vertex_model_name column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'vertex_model_name'`,
+      expect: 1,
+    },
+    {
+      what: "ml_models.vertex_endpoint_name column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'ml_models'
+                AND column_name = 'vertex_endpoint_name'`,
       expect: 1,
     },
     {

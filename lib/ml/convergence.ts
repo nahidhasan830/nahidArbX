@@ -13,7 +13,12 @@
  *    Positive slope = diverging (edge growing)
  */
 
-import { getOrderedTicks, type OddsTick } from "@/lib/atoms/odds-history";
+import { getOrderedTicks } from "@/lib/atoms/odds-history";
+
+export interface ConvergenceTick {
+  odds: number;
+  timestamp: number;
+}
 
 /**
  * Compute the rate at which soft odds are converging toward sharp odds.
@@ -30,21 +35,28 @@ export function computeConvergenceRate(
   softProvider: string,
   windowTicks = 20,
 ): number {
-  const sharpTicks = getOrderedTicks(eventId, familyId, atomId, sharpProvider);
-  const softTicks = getOrderedTicks(eventId, familyId, atomId, softProvider);
+  const sharpTicks = getOrderedTicks(eventId, familyId, atomId, sharpProvider)
+    .filter((tick) => !tick.suspended)
+    .map((tick) => ({ odds: tick.odds, timestamp: tick.timestamp }));
+  const softTicks = getOrderedTicks(eventId, familyId, atomId, softProvider)
+    .filter((tick) => !tick.suspended)
+    .map((tick) => ({ odds: tick.odds, timestamp: tick.timestamp }));
 
+  return computeConvergenceRateFromTicks(sharpTicks, softTicks, windowTicks);
+}
+
+export function computeConvergenceRateFromTicks(
+  sharpTicks: ConvergenceTick[],
+  softTicks: ConvergenceTick[],
+  windowTicks = 20,
+): number {
   if (sharpTicks.length < 2 || softTicks.length < 2) return 0;
 
-  // Take last `windowTicks` from each
   const sharpWindow = sharpTicks.slice(-windowTicks);
   const softWindow = softTicks.slice(-windowTicks);
-
-  // For each soft tick, interpolate the sharp odds at that timestamp
   const alignedPairs: { timestamp: number; gap: number }[] = [];
 
   for (const softTick of softWindow) {
-    if (softTick.suspended) continue;
-
     const interpolated = interpolateSharpOdds(sharpWindow, softTick.timestamp);
     if (interpolated === null) continue;
 
@@ -54,15 +66,12 @@ export function computeConvergenceRate(
     });
   }
 
-  // Need at least 3 aligned pairs for meaningful regression
   if (alignedPairs.length < 3) return 0;
 
-  // Normalize timestamps: x = (tick.timestamp - firstTick.timestamp) / 1000
   const t0 = alignedPairs[0].timestamp;
   const xs = alignedPairs.map((p) => (p.timestamp - t0) / 1000);
   const ys = alignedPairs.map((p) => p.gap);
 
-  // OLS linear regression: slope = Σ((x-x̄)(y-ȳ)) / Σ((x-x̄)²)
   const n = xs.length;
   const xMean = xs.reduce((a, b) => a + b, 0) / n;
   const yMean = ys.reduce((a, b) => a + b, 0) / n;
@@ -88,16 +97,14 @@ export function computeConvergenceRate(
  * - Otherwise: null (no aligned pair)
  */
 function interpolateSharpOdds(
-  sharpTicks: OddsTick[],
+  sharpTicks: ConvergenceTick[],
   targetTs: number,
 ): number | null {
-  // Find surrounding sharp ticks [before, after]
-  let before: OddsTick | null = null;
-  let after: OddsTick | null = null;
+  let before: ConvergenceTick | null = null;
+  let after: ConvergenceTick | null = null;
 
   for (let i = 0; i < sharpTicks.length; i++) {
     const tick = sharpTicks[i];
-    if (tick.suspended) continue;
 
     if (tick.timestamp <= targetTs) {
       before = tick;
@@ -108,7 +115,6 @@ function interpolateSharpOdds(
   }
 
   if (before && after) {
-    // Linear interpolation
     const range = after.timestamp - before.timestamp;
     if (range === 0) return before.odds;
     const t = (targetTs - before.timestamp) / range;
@@ -116,7 +122,6 @@ function interpolateSharpOdds(
   }
 
   if (before) {
-    // Flat extrapolation if age < 5 seconds
     const ageMs = targetTs - before.timestamp;
     if (ageMs < 5000) return before.odds;
   }

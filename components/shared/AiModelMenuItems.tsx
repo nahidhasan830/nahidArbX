@@ -50,13 +50,14 @@ export function AiModelMenuItems({
 
   // Group providers by engine
   const llmProviders = providers.filter((p) => p.engineType === "llm");
-  const deepseekProviders = llmProviders.filter((p) => p.name.startsWith("deepseek"));
-  const geminiProviders = llmProviders.filter((p) => p.name.startsWith("gemini"));
+  const deepseekProviders = llmProviders.filter((p) =>
+    p.name.startsWith("deepseek"),
+  );
+  const geminiProviders = llmProviders.filter((p) =>
+    p.name.startsWith("gemini"),
+  );
 
-  const menuItem = (
-    provider: AIProvider,
-    onSelect: () => void,
-  ) => {
+  const menuItem = (provider: AIProvider, onSelect: () => void) => {
     const isDisabled = !provider.enabled;
 
     return (
@@ -71,7 +72,7 @@ export function AiModelMenuItems({
         aria-label={
           isDisabled
             ? `${provider.label} is disabled`
-            : provider.tagline ?? provider.name
+            : (provider.tagline ?? provider.name)
         }
       >
         <Zap

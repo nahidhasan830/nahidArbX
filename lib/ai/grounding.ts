@@ -32,6 +32,7 @@ import { getSearchRouter, type SearchRouter } from "./search/router";
 import { logAiActivity } from "./activity-logger";
 import { bestSim } from "../matching/string-sim";
 import { normalize, normalizeCompetition } from "../matching/normalize";
+import { format, isValid, parseISO } from "date-fns";
 
 function getDeepSeekClient(): OpenAI {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -56,49 +57,26 @@ function getGeminiClient(): GoogleGenAI {
 
 function getGeminiModel(tier?: string): string {
   if (tier === "pro") return process.env.GEMINI_PRO_MODEL || "gemini-3.1-pro";
-  if (tier === "lite") return process.env.GEMINI_LITE_MODEL || "gemini-3.1-flash-lite";
+  if (tier === "lite")
+    return process.env.GEMINI_LITE_MODEL || "gemini-3.1-flash-lite";
   return process.env.GEMINI_FLASH_MODEL || "gemini-3-flash";
 }
 
-const formatTz = (d: Date, tz: string) => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(d);
-  const val = (type: string) => parts.find(p => p.type === type)!.value;
-  return {
-    date: `${val("year")}-${val("month")}-${val("day")}`,
-    time: `${val("hour")}:${val("minute")}`,
-  };
-};
-
 function getGroundingDates(iso: string) {
   try {
-    const d = new Date(iso);
-    if (!isNaN(d.getTime())) {
-      const utc = formatTz(d, "UTC");
-      const bst = formatTz(d, "Asia/Dhaka");
+    const d = parseISO(iso);
+    if (isValid(d)) {
       return {
-        utcDate: utc.date,
-        utcTime: utc.time,
-        bstDate: bst.date,
-        bstTime: bst.time,
+        date: format(d, "yyyy-MM-dd"),
+        time: format(d, "HH:mm"),
       };
     }
   } catch {}
   const fallback = iso.length >= 10 ? iso.slice(0, 10) : "";
   const timeFallback = iso.length >= 16 ? iso.slice(11, 16) : "";
   return {
-    utcDate: fallback,
-    utcTime: timeFallback,
-    bstDate: fallback,
-    bstTime: timeFallback,
+    date: fallback,
+    time: timeFallback,
   };
 }
 
@@ -107,34 +85,13 @@ export function buildMatchQueries(
   eventB: EventInfo,
 ): string[] {
   const queries: string[] = [];
-  const { utcDate, utcTime, bstDate, bstTime } = getGroundingDates(eventA.startTime);
+  const { date, time } = getGroundingDates(eventA.startTime);
 
   queries.push(
-    `${eventA.homeTeam} ${eventA.awayTeam} ${utcDate} ${eventA.competition} football fixture`,
+    `${eventA.homeTeam} ${eventA.awayTeam} ${date} ${eventA.competition} football fixture`,
+    `${eventB.homeTeam} ${eventB.awayTeam} ${date} ${eventB.competition} football fixture`,
+    `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${date} same football match`,
   );
-  if (utcDate !== bstDate) {
-    queries.push(
-      `${eventA.homeTeam} ${eventA.awayTeam} ${bstDate} ${eventA.competition} football fixture`,
-    );
-  }
-
-  queries.push(
-    `${eventB.homeTeam} ${eventB.awayTeam} ${utcDate} ${eventB.competition} football fixture`,
-  );
-  if (utcDate !== bstDate) {
-    queries.push(
-      `${eventB.homeTeam} ${eventB.awayTeam} ${bstDate} ${eventB.competition} football fixture`,
-    );
-  }
-
-  queries.push(
-    `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${utcDate} same football match`,
-  );
-  if (utcDate !== bstDate) {
-    queries.push(
-      `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${bstDate} same football match`,
-    );
-  }
 
   if (eventA.homeTeam.toLowerCase() !== eventB.homeTeam.toLowerCase()) {
     queries.push(
@@ -155,13 +112,8 @@ export function buildMatchQueries(
   }
 
   queries.push(
-    `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${utcDate} ${utcTime} football match`,
+    `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${date} ${time} football match`,
   );
-  if (utcDate !== bstDate || utcTime !== bstTime) {
-    queries.push(
-      `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${bstDate} ${bstTime} football match`,
-    );
-  }
 
   return queries;
 }
@@ -183,19 +135,19 @@ export function buildBatchMatchQueries(
       comps.add(eventB.competition);
     }
     const datesA = getGroundingDates(eventA.startTime);
-    if (datesA.utcDate) dates.add(datesA.utcDate);
-    if (datesA.bstDate) dates.add(datesA.bstDate);
+    if (datesA.date) dates.add(datesA.date);
 
     const datesB = getGroundingDates(eventB.startTime);
-    if (datesB.utcDate) dates.add(datesB.utcDate);
-    if (datesB.bstDate) dates.add(datesB.bstDate);
+    if (datesB.date) dates.add(datesB.date);
   }
 
   const queries: string[] = [];
   const nameList = [...names].slice(0, 8).join(", ");
   const dateList = [...dates].slice(0, 4).join(" ");
   if (nameList) {
-    queries.push(`football teams official names league affiliations ${dateList}: ${nameList}`);
+    queries.push(
+      `football teams official names league affiliations ${dateList}: ${nameList}`,
+    );
   }
   const compList = [...comps].slice(0, 4).join(", ");
   if (compList) {
@@ -206,29 +158,16 @@ export function buildBatchMatchQueries(
 }
 
 export function buildSettlementQueries(event: EventInfo): string[] {
-  const { utcDate, bstDate } = getGroundingDates(event.startTime);
+  const { date } = getGroundingDates(event.startTime);
 
-  const queries = [
-    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${utcDate} final score result`,
-    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${utcDate} full time score football`,
-    `${event.homeTeam} ${event.awayTeam} ${utcDate} score flashscore livescore sofascore`,
-    `${event.homeTeam} ${event.awayTeam} ${utcDate} result ESPN BBC Sport`,
-    `${event.homeTeam} ${event.awayTeam} resultado ${utcDate} futebol football`,
-    `"${event.homeTeam}" "${event.awayTeam}" "${utcDate}" "FT" score`,
+  return [
+    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${date} final score result`,
+    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${date} full time score football`,
+    `${event.homeTeam} ${event.awayTeam} ${date} score flashscore livescore sofascore`,
+    `${event.homeTeam} ${event.awayTeam} ${date} result ESPN BBC Sport`,
+    `${event.homeTeam} ${event.awayTeam} resultado ${date} futebol football`,
+    `"${event.homeTeam}" "${event.awayTeam}" "${date}" "FT" score`,
   ];
-
-  if (utcDate !== bstDate) {
-    queries.push(
-      `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${bstDate} final score result`,
-      `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${bstDate} full time score football`,
-      `${event.homeTeam} ${event.awayTeam} ${bstDate} score flashscore livescore sofascore`,
-      `${event.homeTeam} ${event.awayTeam} ${bstDate} result ESPN BBC Sport`,
-      `${event.homeTeam} ${event.awayTeam} resultado ${bstDate} futebol football`,
-      `"${event.homeTeam}" "${event.awayTeam}" "${bstDate}" "FT" score`,
-    );
-  }
-
-  return queries;
 }
 
 class GroundingEngine {
@@ -256,8 +195,20 @@ class GroundingEngine {
 
     const evidenceText = formatEvidence(allEvidence);
     let prompt = entityMatchPrompt(
-      { homeTeam: eventA.homeTeam, awayTeam: eventA.awayTeam, competition: eventA.competition, startTime: eventA.startTime, provider: eventA.provider },
-      { homeTeam: eventB.homeTeam, awayTeam: eventB.awayTeam, competition: eventB.competition, startTime: eventB.startTime, provider: eventB.provider },
+      {
+        homeTeam: eventA.homeTeam,
+        awayTeam: eventA.awayTeam,
+        competition: eventA.competition,
+        startTime: eventA.startTime,
+        provider: eventA.provider,
+      },
+      {
+        homeTeam: eventB.homeTeam,
+        awayTeam: eventB.awayTeam,
+        competition: eventB.competition,
+        startTime: eventB.startTime,
+        provider: eventB.provider,
+      },
     );
     if (evidenceText) {
       prompt += `\n\nWEB SEARCH EVIDENCE:\n${evidenceText}`;
@@ -293,8 +244,14 @@ class GroundingEngine {
     );
 
     raw = resp.choices[0]?.message?.content || "{}";
-    return this._parseMatchVerdict(raw, model, allEvidence, queriesUsed, eventA, eventB);
-    return this._parseMatchVerdict(raw, model, allEvidence, queriesUsed, eventA, eventB);
+    return this._parseMatchVerdict(
+      raw,
+      model,
+      allEvidence,
+      queriesUsed,
+      eventA,
+      eventB,
+    );
   }
 
   // ── Entity matching (batch) ────────────────────────────────────────
@@ -371,7 +328,13 @@ class GroundingEngine {
     );
 
     rawBatch = resp.choices[0]?.message?.content || "[]";
-    return this._parseBatchVerdict(rawBatch, model, pairs.length, allEvidence, queriesUsed);
+    return this._parseBatchVerdict(
+      rawBatch,
+      model,
+      pairs.length,
+      allEvidence,
+      queriesUsed,
+    );
   }
 
   // ── Settlement verification ────────────────────────────────────────
@@ -516,7 +479,12 @@ class GroundingEngine {
         async () => {
           const r = await client.models.generateContent({
             model: modelId,
-            contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${prompt}` }] }],
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: `${systemPrompt}\n\n${prompt}` }],
+              },
+            ],
           });
           return r;
         },
@@ -525,7 +493,12 @@ class GroundingEngine {
 
       try {
         const data = JSON.parse(raw) as { answer?: string; reasoning?: string };
-        return { answer: data.answer || raw, reasoning: data.reasoning || "", sources, model: modelId };
+        return {
+          answer: data.answer || raw,
+          reasoning: data.reasoning || "",
+          sources,
+          model: modelId,
+        };
       } catch {
         return { answer: raw, reasoning: "", sources, model: modelId };
       }
@@ -628,7 +601,8 @@ class GroundingEngine {
       decision === "DIFFERENT_MATCH"
     )
       decision = "DIFFERENT";
-    if (!["SAME", "DIFFERENT", "UNCERTAIN"].includes(decision)) decision = "UNCERTAIN";
+    if (!["SAME", "DIFFERENT", "UNCERTAIN"].includes(decision))
+      decision = "UNCERTAIN";
     const confidence = clampConfidence(
       data?.confidence ??
         data?.confidence_score ??
@@ -675,16 +649,28 @@ class GroundingEngine {
     const arr = parseJson(raw);
     const items = Array.isArray(arr) ? arr : [];
 
-    const verdicts: PairVerdict[] = items.map((item: Record<string, unknown>) => ({
-      pairIndex: (typeof item.pair === "number" ? item.pair : typeof item.pair_index === "number" ? item.pair_index : 0) as number,
-      decision: ((item.decision as string) || "UNCERTAIN") as PairVerdict["decision"],
-      confidence: clampConfidence(item.confidence),
-      reasoning: (item.reasoning as string) || "",
-    }));
+    const verdicts: PairVerdict[] = items.map(
+      (item: Record<string, unknown>) => ({
+        pairIndex: (typeof item.pair === "number"
+          ? item.pair
+          : typeof item.pair_index === "number"
+            ? item.pair_index
+            : 0) as number,
+        decision: ((item.decision as string) ||
+          "UNCERTAIN") as PairVerdict["decision"],
+        confidence: clampConfidence(item.confidence),
+        reasoning: (item.reasoning as string) || "",
+      }),
+    );
 
     if (verdicts.length < pairCount) {
       for (let i = verdicts.length + 1; i <= pairCount; i++) {
-        verdicts.push({ pairIndex: i, decision: "UNCERTAIN", confidence: 50, reasoning: "" });
+        verdicts.push({
+          pairIndex: i,
+          decision: "UNCERTAIN",
+          confidence: 50,
+          reasoning: "",
+        });
       }
     }
 
@@ -724,7 +710,11 @@ class GroundingEngine {
 function heuristicMatchVerdict(
   eventA: EventInfo,
   eventB: EventInfo,
-): { decision: MatchVerdict["decision"]; confidence: number; reasoning: string } | null {
+): {
+  decision: MatchVerdict["decision"];
+  confidence: number;
+  reasoning: string;
+} | null {
   const startA = Date.parse(eventA.startTime);
   const startB = Date.parse(eventB.startTime);
   const timeDiffMs =
@@ -734,10 +724,22 @@ function heuristicMatchVerdict(
   const timeClose = timeDiffMs <= 15 * 60 * 1000;
   const timeFar = timeDiffMs > 2 * 60 * 60 * 1000;
 
-  const homeHome = bestSim(normalize(eventA.homeTeam), normalize(eventB.homeTeam));
-  const awayAway = bestSim(normalize(eventA.awayTeam), normalize(eventB.awayTeam));
-  const homeAway = bestSim(normalize(eventA.homeTeam), normalize(eventB.awayTeam));
-  const awayHome = bestSim(normalize(eventA.awayTeam), normalize(eventB.homeTeam));
+  const homeHome = bestSim(
+    normalize(eventA.homeTeam),
+    normalize(eventB.homeTeam),
+  );
+  const awayAway = bestSim(
+    normalize(eventA.awayTeam),
+    normalize(eventB.awayTeam),
+  );
+  const homeAway = bestSim(
+    normalize(eventA.homeTeam),
+    normalize(eventB.awayTeam),
+  );
+  const awayHome = bestSim(
+    normalize(eventA.awayTeam),
+    normalize(eventB.homeTeam),
+  );
   const sameOrientation = (homeHome + awayAway) / 2;
   const swappedOrientation = (homeAway + awayHome) / 2;
   const bestTeamScore = Math.max(sameOrientation, swappedOrientation);
@@ -750,15 +752,20 @@ function heuristicMatchVerdict(
     return {
       decision: "SAME",
       confidence: Math.max(72, Math.min(95, Math.round(sameOrientation * 100))),
-      reasoning: "Deterministic fallback: team-name variants, kickoff, and competition context align.",
+      reasoning:
+        "Deterministic fallback: team-name variants, kickoff, and competition context align.",
     };
   }
 
   if (timeClose && swappedOrientation >= 0.88 && compScore >= 0.55) {
     return {
       decision: "SAME",
-      confidence: Math.max(70, Math.min(90, Math.round(swappedOrientation * 100))),
-      reasoning: "Deterministic fallback: teams align under swapped display order at the same kickoff.",
+      confidence: Math.max(
+        70,
+        Math.min(90, Math.round(swappedOrientation * 100)),
+      ),
+      reasoning:
+        "Deterministic fallback: teams align under swapped display order at the same kickoff.",
     };
   }
 
@@ -766,7 +773,8 @@ function heuristicMatchVerdict(
     return {
       decision: "DIFFERENT",
       confidence: 90,
-      reasoning: "Deterministic fallback: kickoff times are more than two hours apart and teams do not align.",
+      reasoning:
+        "Deterministic fallback: kickoff times are more than two hours apart and teams do not align.",
     };
   }
 
@@ -774,7 +782,8 @@ function heuristicMatchVerdict(
     return {
       decision: "DIFFERENT",
       confidence: 88,
-      reasoning: "Deterministic fallback: same kickoff window but both team names differ strongly.",
+      reasoning:
+        "Deterministic fallback: same kickoff window but both team names differ strongly.",
     };
   }
 
@@ -878,7 +887,8 @@ function stripWebResults(context: unknown): Record<string, unknown> | null {
   const obj = context as Record<string, unknown>;
   const cleaned: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (k === "web_search_results" || k === "results" || k === "evidence") continue;
+    if (k === "web_search_results" || k === "results" || k === "evidence")
+      continue;
     cleaned[k] = v;
   }
   return cleaned;

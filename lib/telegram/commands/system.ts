@@ -4,6 +4,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { startOfMonth } from "date-fns";
 import { db } from "@/lib/db/client";
 import { getAllProviderStatus, getSyncStatus } from "@/lib/store";
 import {
@@ -257,9 +258,7 @@ registerCommand({
     "Aggregates settlement_runs since the 1st of this month so you can see if Gemini cost is creeping up. Shows total estimated USD spend, tier-1 (free), tier-2 (free), tier-3 (paid url_context), and tier-4 (batched Gemini) hit counts. The April 2026 incident burned $35+ when one wrong URL blew the cap — this command exists to catch that earlier.",
   group: "read",
   async handler({ reply }) {
-    const start = new Date();
-    start.setUTCDate(1);
-    start.setUTCHours(0, 0, 0, 0);
+    const start = startOfMonth(new Date());
     const startIso = start.toISOString();
     try {
       const res = await db.execute(sql`
@@ -325,7 +324,14 @@ registerCommand({
         ["Daily limit", num(apiFb.dailyLimit)],
         ["Used today", num(apiFb.used)],
         ["Remaining", num(apiFb.remaining)],
-        ["Status", apiFb.remaining > 10 ? "🟢 healthy" : apiFb.remaining > 0 ? "🟡 low" : "🔴 exhausted"],
+        [
+          "Status",
+          apiFb.remaining > 10
+            ? "🟢 healthy"
+            : apiFb.remaining > 0
+              ? "🟡 low"
+              : "🔴 exhausted",
+        ],
       ]),
       "",
       b("SofaScore (Tier 2c — curl_cffi TLS impersonation)"),
@@ -334,9 +340,7 @@ registerCommand({
         ["Requests served", num(sofa.requestCount)],
         [
           "Idle",
-          sofa.lastUsedAt > 0
-            ? durationLabel(sofa.idleMs)
-            : "never used",
+          sofa.lastUsedAt > 0 ? durationLabel(sofa.idleMs) : "never used",
         ],
       ]),
     ];

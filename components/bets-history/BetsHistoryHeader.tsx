@@ -241,22 +241,19 @@ function SettlementChip() {
             ? "Error"
             : "Unknown";
 
-  const tooltipBody = degraded
-    ? (
-        <span>
-          <b>Settlement is running but data sources are degraded.</b>{" "}
-          {sourceIssues.join(" ")} Bookings and corners markets may not settle
-          until access is restored.
-        </span>
-      )
-    : (
-        <span>
-          <b>Settlement pipeline.</b> The background job that checks each match
-          result and marks your bets won / lost / void automatically. Green =
-          running; Amber = running with recent errors; Red = stopped or
-          disabled.
-        </span>
-      );
+  const tooltipBody = degraded ? (
+    <span>
+      <b>Settlement is running but data sources are degraded.</b>{" "}
+      {sourceIssues.join(" ")} Bookings and corners markets may not settle until
+      access is restored.
+    </span>
+  ) : (
+    <span>
+      <b>Settlement pipeline.</b> The background job that checks each match
+      result and marks your bets won / lost / void automatically. Green =
+      running; Amber = running with recent errors; Red = stopped or disabled.
+    </span>
+  );
 
   return (
     <Tooltip>
@@ -267,9 +264,7 @@ function SettlementChip() {
           <span className={cn("font-medium", color)}>{label}</span>
         </span>
       </TooltipTrigger>
-      <TooltipContent className="max-w-[300px]">
-        {tooltipBody}
-      </TooltipContent>
+      <TooltipContent className="max-w-[300px]">{tooltipBody}</TooltipContent>
     </Tooltip>
   );
 }

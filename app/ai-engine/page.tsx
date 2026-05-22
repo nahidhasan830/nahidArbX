@@ -1,10 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  RadioReceiver,
-  RefreshCw,
-} from "lucide-react";
+import { RadioReceiver, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -99,8 +96,11 @@ export default function AiSearchDashboard() {
     const llm = new Set<string>();
     for (const p of providers) {
       // toggleBusy stores UI names ("deepseek"/"gemini"), not DB names ("deepseek-flash")
-      const uiName = p.name.startsWith("deepseek") ? "deepseek" :
-                     p.name.startsWith("gemini") ? "gemini" : p.name;
+      const uiName = p.name.startsWith("deepseek")
+        ? "deepseek"
+        : p.name.startsWith("gemini")
+          ? "gemini"
+          : p.name;
       if (isToggling(uiName)) {
         if (p.engineType === "search") search.add(uiName);
         else llm.add(uiName);
@@ -110,51 +110,69 @@ export default function AiSearchDashboard() {
   })();
 
   // Convert hook data to StatsData format for OverviewTab
-  const statsData: StatsData | null = searchProviders.length > 0
-    ? {
-        providers: searchProviders.map(p => ({
-          name: p.name,
-          healthy: p.enabled,
-          enabled: p.enabled,
-          requestsUsed: p.monthlyUsageCount,
-          quotaLimit: p.monthlyLimit,
-          quotaRemaining: p.monthlyRemaining,
-          quotaSource: p.monthlyLimit !== null ? "live" as const : "none" as const,
-          lastError: p.disabledReason,
-          lastUsedAt: null,
-        })),
-        totalSearches: searchProviders.reduce((sum, p) => sum + p.monthlyUsageCount, 0),
-        llmEngine: "deepseek-v4-flash",
-        llmHealthy: true,
-      }
-    : null;
-
-  const llmStats = llmProviders.length > 0
-    ? {
-        usage: {
-          active_engine: llmProviders.some(p => p.enabled) ? "deepseek" : "none",
-          providers: Object.fromEntries(
-            ["deepseek", "gemini"].flatMap(family => {
-              const familyProviders = llmProviders.filter(p =>
-                family === "deepseek" ? p.name.startsWith("deepseek") : p.name.startsWith("gemini")
-              );
-              // Use the -lite variant as the representative (matches toggle mapping in useAiProviders)
-              const representative = familyProviders.find(p => p.name === `${family}-lite`) ?? familyProviders[0];
-              if (!representative) return [];
-              return [[family, {
-                model: representative.modelId,
-                healthy: representative.enabled,
-                disabled: !representative.enabled,
-                monthlyUsage: representative.monthlyUsageCount,
-                monthlyLimit: representative.monthlyLimit,
-              }]];
-            })
+  const statsData: StatsData | null =
+    searchProviders.length > 0
+      ? {
+          providers: searchProviders.map((p) => ({
+            name: p.name,
+            healthy: p.enabled,
+            enabled: p.enabled,
+            requestsUsed: p.monthlyUsageCount,
+            quotaLimit: p.monthlyLimit,
+            quotaRemaining: p.monthlyRemaining,
+            quotaSource:
+              p.monthlyLimit !== null ? ("live" as const) : ("none" as const),
+            lastError: p.disabledReason,
+            lastUsedAt: null,
+          })),
+          totalSearches: searchProviders.reduce(
+            (sum, p) => sum + p.monthlyUsageCount,
+            0,
           ),
+          llmEngine: "deepseek-v4-flash",
+          llmHealthy: true,
         }
-      }
-    : null;
+      : null;
 
-  const serviceOnline = health?.status === "ok" || health?.status === "degraded";
+  const llmStats =
+    llmProviders.length > 0
+      ? {
+          usage: {
+            active_engine: llmProviders.some((p) => p.enabled)
+              ? "deepseek"
+              : "none",
+            providers: Object.fromEntries(
+              ["deepseek", "gemini"].flatMap((family) => {
+                const familyProviders = llmProviders.filter((p) =>
+                  family === "deepseek"
+                    ? p.name.startsWith("deepseek")
+                    : p.name.startsWith("gemini"),
+                );
+                // Use the -lite variant as the representative (matches toggle mapping in useAiProviders)
+                const representative =
+                  familyProviders.find((p) => p.name === `${family}-lite`) ??
+                  familyProviders[0];
+                if (!representative) return [];
+                return [
+                  [
+                    family,
+                    {
+                      model: representative.modelId,
+                      healthy: representative.enabled,
+                      disabled: !representative.enabled,
+                      monthlyUsage: representative.monthlyUsageCount,
+                      monthlyLimit: representative.monthlyLimit,
+                    },
+                  ],
+                ];
+              }),
+            ),
+          },
+        }
+      : null;
+
+  const serviceOnline =
+    health?.status === "ok" || health?.status === "degraded";
 
   const serviceBadge = initialLoad
     ? { label: "loading...", online: false, loading: true }

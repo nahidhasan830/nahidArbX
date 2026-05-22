@@ -6,6 +6,7 @@
 
 import { config } from "../../config";
 import { SOCCER_SPORT_ID } from "./schemas";
+import { addDays, format } from "date-fns";
 
 /**
  * Build URL for fetching events list.
@@ -15,14 +16,14 @@ export function buildEventsUrl(): string {
   const { daysAhead, pageSize } = config.providers.pinnacle;
 
   const now = new Date();
-  const fromDate = now.toISOString().slice(0, 10) + "T00:00:00";
+  const fromDate = `${format(now, "yyyy-MM-dd")}T00:00:00`;
 
   // Calculate end date (today + daysAhead)
-  const endDate = new Date(now);
-  endDate.setDate(endDate.getDate() + daysAhead);
-  const toDate = endDate.toISOString().slice(0, 10) + "T23:59:59";
+  const endDate = addDays(now, daysAhead);
+  const toDate = `${format(endDate, "yyyy-MM-dd")}T23:59:59`;
 
-  // Get timezone offset in format like "-04:00"
+  // Pinnacle's path router requires the timezone segment for this endpoint.
+  // Without it, the same request shape returns a 404 "No static resource".
   const tzOffset = now.getTimezoneOffset();
   const tzSign = tzOffset <= 0 ? "+" : "-";
   const tzHours = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, "0");

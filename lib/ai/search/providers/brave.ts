@@ -19,15 +19,23 @@ export class BraveSearchProvider {
   private _serverLimit: number | null = null;
   private _serverUsed: number | null = null;
 
-  get healthy() { return this._healthy; }
-  get enabled() { return this._enabled && Boolean(this._apiKey); }
+  get healthy() {
+    return this._healthy;
+  }
+  get enabled() {
+    return this._enabled && Boolean(this._apiKey);
+  }
 
   private get _apiKey(): string {
     return process.env.BRAVE_SEARCH_API_KEY || "";
   }
 
-  enable() { this._enabled = true; }
-  disable() { this._enabled = false; }
+  enable() {
+    this._enabled = true;
+  }
+  disable() {
+    this._enabled = false;
+  }
 
   async _syncFromDb() {
     try {
@@ -48,7 +56,9 @@ export class BraveSearchProvider {
   markUnhealthy(error: string, cooldownMs = 60_000) {
     this._healthy = false;
     this._lastError = error;
-    setTimeout(() => { this._healthy = true; }, cooldownMs);
+    setTimeout(() => {
+      this._healthy = true;
+    }, cooldownMs);
     logger.warn(tag, `Marked unhealthy: ${error}`);
   }
 
@@ -81,7 +91,8 @@ export class BraveSearchProvider {
   getStats() {
     const used = this._serverUsed ?? this._sessionRequests;
     const limit = this._serverLimit ?? 1000;
-    const remaining = this._serverRemaining ?? Math.max(0, limit - this._sessionRequests);
+    const remaining =
+      this._serverRemaining ?? Math.max(0, limit - this._sessionRequests);
     return {
       name: this.name,
       healthy: this._healthy,
@@ -89,7 +100,11 @@ export class BraveSearchProvider {
       requestsUsed: used,
       quotaLimit: this._serverLimit ?? limit,
       quotaRemaining: remaining,
-      quotaSource: (this._serverRemaining !== null ? "live" : this._sessionRequests > 0 ? "local" : "none") as "live" | "local" | "none",
+      quotaSource: (this._serverRemaining !== null
+        ? "live"
+        : this._sessionRequests > 0
+          ? "local"
+          : "none") as "live" | "local" | "none",
       lastError: this._lastError,
       lastUsedAt: this._lastUsedAt?.toISOString() ?? null,
     };
@@ -117,7 +132,9 @@ export class BraveSearchProvider {
     });
 
     if (res.status === 422) {
-      throw Object.assign(new Error(`Brave rejected query (422)`), { isQueryError: true });
+      throw Object.assign(new Error(`Brave rejected query (422)`), {
+        isQueryError: true,
+      });
     }
 
     if (!res.ok) {
@@ -127,7 +144,9 @@ export class BraveSearchProvider {
     this._parseRateLimitHeaders(res.headers);
 
     const data = (await res.json()) as {
-      web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+      web?: {
+        results?: Array<{ title?: string; url?: string; description?: string }>;
+      };
     };
 
     this._lastUsedAt = new Date();

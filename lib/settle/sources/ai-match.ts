@@ -32,7 +32,7 @@ const AI_CONFIDENCE_THRESHOLD = 70;
  * If the combined team similarity is below this, the teams are too
  * different for AI to plausibly confirm.
  */
-export const AI_MAYBE_FLOOR = 0.40;
+export const AI_MAYBE_FLOOR = 0.4;
 
 /**
  * Fuzzy-score ceiling — above this we accept without AI. This is the
@@ -88,9 +88,12 @@ async function isAiAvailable(): Promise<boolean> {
   }
   _healthChecked = true;
   // Reset after 5 minutes so we re-check on the next batch
-  setTimeout(() => {
-    _healthChecked = false;
-  }, 5 * 60 * 1000);
+  setTimeout(
+    () => {
+      _healthChecked = false;
+    },
+    5 * 60 * 1000,
+  );
   return _isHealthy;
 }
 

@@ -11,8 +11,8 @@ nearby rows via overlapping events. We drop train rows that share an
 event_id with any test row, plus an additional time-based embargo
 buffer around test boundaries.
 
-Phase 5 changes:
-  - Event-aware purging: remove ALL train rows whose event_id appears
+Current behavior:
+  - Event-aware purging removes all train rows whose event_id appears
     in the test set, not just adjacent-index rows.
   - Embargo still applies as a time-based safety margin around test
     boundaries to catch events not captured by event_id matching.
@@ -49,7 +49,7 @@ def make_cpcv_splits(df: pl.DataFrame, cfg: CpcvConfig) -> list[CpcvSplit]:
     Assumes `df` is already sorted by `event_start_time` (loader.py guarantees
     this).
 
-    Phase 5: event-aware purging. For each split we:
+    For each split we:
       1. Mark test rows by group membership.
       2. Collect all event_ids that appear in the test set.
       3. Remove from train any row whose event_id is in that test event set
@@ -87,7 +87,7 @@ def make_cpcv_splits(df: pl.DataFrame, cfg: CpcvConfig) -> list[CpcvSplit]:
         # Train mask = everything not in test
         train_mask = ~test_mask
 
-        # Phase 5: event-aware purging — remove train rows whose event_id
+        # Event-aware purging — remove train rows whose event_id
         # appears in the test set. This prevents leakage from bets on the
         # same event appearing in both train and test.
         if event_ids is not None:

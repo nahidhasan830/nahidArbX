@@ -394,9 +394,8 @@ export function registerEngineRoutes() {
       return jsonResponse(res, { ok: true, results });
     }
     if (action === "resetCircuitBreaker") {
-      const { resetCircuitBreaker, getCircuitBreakerStats } = await import(
-        "./circuit-breaker"
-      );
+      const { resetCircuitBreaker, getCircuitBreakerStats } =
+        await import("./circuit-breaker");
       const providerId = parsed.provider as string;
       if (!providerId) {
         return jsonResponse(res, { error: "provider is required" }, 400);
@@ -499,6 +498,7 @@ export function registerEngineRoutes() {
         modelVersion: null,
         modelPath: null,
         featureCount: 0,
+        totalScoringAttempts: 0,
         totalScored: 0,
         avgInferenceMs: 0,
         lastInferenceMs: 0,

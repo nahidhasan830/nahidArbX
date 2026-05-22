@@ -118,9 +118,7 @@ export function AiAnalyzeDialog({
                           : "—";
                       return (
                         <TableRow key={i}>
-                          <TableCell className="text-sm">
-                            {m.market}
-                          </TableCell>
+                          <TableCell className="text-sm">{m.market}</TableCell>
                           <TableCell className="text-right tabular-nums">
                             {m.total}
                           </TableCell>
@@ -137,11 +135,8 @@ export function AiAnalyzeDialog({
                             {m.pending}
                           </TableCell>
                           <TableCell className="text-right tabular-nums font-medium">
-                            {typeof winRate === "string" &&
-                            winRate === "—" ? (
-                              <span className="text-muted-foreground">
-                                —
-                              </span>
+                            {typeof winRate === "string" && winRate === "—" ? (
+                              <span className="text-muted-foreground">—</span>
                             ) : (
                               `${winRate}%`
                             )}

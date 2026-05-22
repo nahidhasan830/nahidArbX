@@ -14,9 +14,15 @@
  * The settlement cascade (value_bets → placed_bets) is no longer needed
  * since outcome lives on the same row.
  */
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
-import { bets, autoPlacerLog, matchScores, mlTrainingExamples, type BetRow } from "../schema";
+import {
+  bets,
+  autoPlacerLog,
+  matchScores,
+  mlTrainingExamples,
+  type BetRow,
+} from "../schema";
 import { getEvent } from "@/lib/store";
 import { getFamily } from "@/lib/atoms/registry";
 import { logger } from "@/lib/shared/logger";
@@ -668,6 +674,93 @@ export const getBetsByIds = async (ids: string[]): Promise<BetRow[]> => {
   return db.select().from(bets).where(inArray(bets.id, ids));
 };
 
+export interface HistoricalBackfillBetRow {
+  id: string;
+  eventStartTime: string;
+  firstSeenAt: string;
+  competition: string | null;
+  marketType: string;
+  familyLine: number | null;
+  sharpProvider: string;
+  sharpOdds: number;
+  sharpTrueProb: number;
+  softProvider: string;
+  softCommissionPct: number;
+  softOdds: number;
+  oddsMovement:
+    | Record<string, import("@/lib/bets-history/types").OddsMovementData>
+    | import("@/lib/bets-history/types").OddsMovementData
+    | null;
+  mlFeatures: number[] | null;
+  mlFeatureVersion: number | null;
+  mlFeatureCount: number | null;
+  mlFeatureNamesHash: string | null;
+}
+
+export async function listHistoricalBackfillBets(args: {
+  afterId?: string;
+  limit: number;
+}): Promise<HistoricalBackfillBetRow[]> {
+  const clauses = [sql`${bets.outcome} NOT IN ('pending', 'void')`];
+  if (args.afterId) {
+    clauses.push(gt(bets.id, args.afterId));
+  }
+
+  return db
+    .select({
+      id: bets.id,
+      eventStartTime: bets.eventStartTime,
+      firstSeenAt: bets.firstSeenAt,
+      competition: bets.competition,
+      marketType: bets.marketType,
+      familyLine: bets.familyLine,
+      sharpProvider: bets.sharpProvider,
+      sharpOdds: bets.sharpOdds,
+      sharpTrueProb: bets.sharpTrueProb,
+      softProvider: bets.softProvider,
+      softCommissionPct: bets.softCommissionPct,
+      softOdds: bets.softOdds,
+      oddsMovement: bets.oddsMovement,
+      mlFeatures: bets.mlFeatures,
+      mlFeatureVersion: bets.mlFeatureVersion,
+      mlFeatureCount: bets.mlFeatureCount,
+      mlFeatureNamesHash: bets.mlFeatureNamesHash,
+    })
+    .from(bets)
+    .where(and(...clauses))
+    .orderBy(bets.id)
+    .limit(args.limit);
+}
+
+export async function updateHistoricalMlFeatures(
+  updates: Array<{
+    id: string;
+    features: number[];
+    featureVersion: number;
+    featureCount: number;
+    featureNamesHash: string;
+  }>,
+): Promise<number> {
+  if (updates.length === 0) return 0;
+
+  let updated = 0;
+  for (const row of updates) {
+    const result = await db
+      .update(bets)
+      .set({
+        mlFeatures: row.features,
+        mlFeatureVersion: row.featureVersion,
+        mlFeatureCount: row.featureCount,
+        mlFeatureNamesHash: row.featureNamesHash,
+      })
+      .where(eq(bets.id, row.id))
+      .returning({ id: bets.id });
+    updated += result.length;
+  }
+
+  return updated;
+}
+
 // ─── Outcome / settlement ─────────────────────────────────────────────────────
 
 /**
@@ -1057,7 +1150,9 @@ export async function attachTicketId(
 export async function deleteBet(betId: string): Promise<boolean> {
   const result = await db.transaction(async (tx) => {
     await tx.delete(autoPlacerLog).where(eq(autoPlacerLog.betId, betId));
-    await tx.delete(mlTrainingExamples).where(eq(mlTrainingExamples.sourceBetId, betId));
+    await tx
+      .delete(mlTrainingExamples)
+      .where(eq(mlTrainingExamples.sourceBetId, betId));
     const deleted = await tx
       .delete(bets)
       .where(eq(bets.id, betId))

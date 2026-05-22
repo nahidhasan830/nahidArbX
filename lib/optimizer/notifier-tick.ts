@@ -42,10 +42,7 @@ export async function processPendingModelNotifications(): Promise<number> {
           isNull(mlModels.notifiedAt),
           // Only notify real models (version > 0 = Python assigned a real version)
           // or failed placeholder models (version 0 but status = failed)
-          or(
-            sql`${mlModels.version} > 0`,
-            eq(mlModels.status, "failed"),
-          ),
+          or(sql`${mlModels.version} > 0`, eq(mlModels.status, "failed")),
         ),
       );
 

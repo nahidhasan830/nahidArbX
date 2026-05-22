@@ -26,13 +26,16 @@ import { logger } from "../../shared/logger";
 import { applyTeamAlias, learnTeamAlias } from "../aliases";
 import { singleton } from "../../util/singleton";
 import { fetchViaBrowser } from "./sofascore-browser";
+import { verifySettlementMatch, AI_MAYBE_FLOOR } from "./ai-match";
 import {
-  verifySettlementMatch,
-  AI_MAYBE_FLOOR,
-} from "./ai-match";
+  addDays,
+  differenceInCalendarDays,
+  format,
+  startOfDay,
+} from "date-fns";
 
 const MATCH_SCORE_THRESHOLD = 0.65;
-const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers timezone skew + leagues where kickoff times differ between providers
+const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers leagues where kickoff times differ between providers
 
 // ─── Response shapes (SofaScore ships ~60 fields per event; we need ~6) ─────
 
@@ -166,18 +169,15 @@ const eventsByDate = singleton<Map<string, DayEventsCacheEntry>>(
   () => new Map(),
 );
 
-const utcDayStart = (ms: number): number => {
-  const d = new Date(ms);
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-};
-
 export const getDayEventsCacheTtlMs = (
   date: string,
   nowMs: number = Date.now(),
 ): number => {
-  const dateMs = Date.parse(`${date}T00:00:00.000Z`);
+  const dateMs = Date.parse(`${date}T00:00:00`);
   if (!Number.isFinite(dateMs)) return SOFASCORE_LIVE_CACHE_TTL_MS;
-  const deltaDays = Math.abs(dateMs - utcDayStart(nowMs)) / 86_400_000;
+  const deltaDays = Math.abs(
+    differenceInCalendarDays(new Date(dateMs), startOfDay(new Date(nowMs))),
+  );
   return deltaDays <= 1
     ? SOFASCORE_LIVE_CACHE_TTL_MS
     : SOFASCORE_HISTORICAL_CACHE_TTL_MS;
@@ -216,8 +216,6 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
   eventsByDate.set(date, { fetchedAt: Date.now(), events: collected });
   return collected;
 };
-
-
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
 
@@ -271,15 +269,27 @@ const fetchEventStats = async (
   for (const period of data.statistics ?? []) {
     for (const g of period.groups ?? []) {
       for (const item of g.statisticsItems ?? []) {
-        if (item.key === "cornerKicks" && item.homeValue != null && item.awayValue != null) {
+        if (
+          item.key === "cornerKicks" &&
+          item.homeValue != null &&
+          item.awayValue != null
+        ) {
           cornersHome = item.homeValue;
           cornersAway = item.awayValue;
         }
-        if (item.key === "yellowCards" && item.homeValue != null && item.awayValue != null) {
+        if (
+          item.key === "yellowCards" &&
+          item.homeValue != null &&
+          item.awayValue != null
+        ) {
           yellowHome = item.homeValue;
           yellowAway = item.awayValue;
         }
-        if (item.key === "redCards" && item.homeValue != null && item.awayValue != null) {
+        if (
+          item.key === "redCards" &&
+          item.homeValue != null &&
+          item.awayValue != null
+        ) {
           redHome = item.homeValue;
           redAway = item.awayValue;
         }
@@ -303,7 +313,7 @@ const fetchEventStats = async (
 };
 
 /**
- * Resolve final scores via SofaScore. Groups events by UTC date,
+ * Resolve final scores via SofaScore. Groups events by local date,
  * fetches one scheduled-events/{date} payload per unique date, then
  * fuzzy-matches our events against the returned catalog.
  *
@@ -318,13 +328,13 @@ export async function fetchSofaScoreScores(
   const out = new Map<string, MatchScore>();
   if (events.length === 0) return out;
 
-  // Unique UTC dates needed — pad one day each side so timezone-skewed
-  // kickoffs still match.
+  // Unique local dates needed — pad one day each side so provider catalog
+  // boundaries still match.
   const dateSet = new Set<string>();
   for (const e of events) {
-    const t = new Date(e.startTime).getTime();
-    for (const offset of [-86_400_000, 0, 86_400_000]) {
-      dateSet.add(new Date(t + offset).toISOString().slice(0, 10));
+    const start = new Date(e.startTime);
+    for (const offset of [-1, 0, 1]) {
+      dateSet.add(format(addDays(start, offset), "yyyy-MM-dd"));
     }
   }
 

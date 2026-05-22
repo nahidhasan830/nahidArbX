@@ -23,7 +23,10 @@ export async function writeCloudTrainingProgress(
         and(
           eq(mlModels.id, modelId),
           eq(mlModels.status, "training"),
-          or(isNull(mlModels.trainingStage), eq(mlModels.trainingStage, "loading")),
+          or(
+            isNull(mlModels.trainingStage),
+            eq(mlModels.trainingStage, "loading"),
+          ),
         ),
       );
   } catch (err) {

@@ -19,10 +19,7 @@ export type AnalysisBucket =
   | "convergence"
   | "no_signal";
 
-export type AnalysisSignal =
-  | "steam"
-  | "persistence"
-  | "convergence_fading";
+export type AnalysisSignal = "steam" | "persistence" | "convergence_fading";
 
 export interface AnalysisBetSummary {
   id: string;

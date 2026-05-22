@@ -38,13 +38,13 @@ The core logic is in **`lib/atoms/value-detector.ts`** `detectValueForAtom()`. K
 
 ### Step 4: Most likely root causes (by likelihood)
 
-| # | Cause | How to verify |
-|---|-------|---------------|
-| 1 | **Stale Pinnacle odds** not caught by the 180s gate | Check sharp odds timestamp vs bet's `firstSeenAt` |
-| 2 | **Commission mismatch** — provider has wrong commission% | Verify in `lib/providers/registry.ts` |
-| 3 | **Atom mismatch** — comparing odds from different outcomes | Check atom IDs match exactly across providers |
-| 4 | **Odds scale error** — provider returning 10x actual odds | Check raw odds against known book odds |
-| 5 | **Devig artifact** — wide Pinnacle spreads producing nonsense devig | Check `lib/atoms/vig-removal.ts` output |
+| #   | Cause                                                               | How to verify                                     |
+| --- | ------------------------------------------------------------------- | ------------------------------------------------- |
+| 1   | **Stale Pinnacle odds** not caught by the 180s gate                 | Check sharp odds timestamp vs bet's `firstSeenAt` |
+| 2   | **Commission mismatch** — provider has wrong commission%            | Verify in `lib/providers/registry.ts`             |
+| 3   | **Atom mismatch** — comparing odds from different outcomes          | Check atom IDs match exactly across providers     |
+| 4   | **Odds scale error** — provider returning 10x actual odds           | Check raw odds against known book odds            |
+| 5   | **Devig artifact** — wide Pinnacle spreads producing nonsense devig | Check `lib/atoms/vig-removal.ts` output           |
 
 Create diagnostic script: `scripts/diagnose-high-ev-bet.ts` that takes a bet ID and dumps all provider odds, devig output, and full value detection trace.
 
@@ -71,7 +71,9 @@ export async function deleteBet(betId: string): Promise<boolean> {
     await tx.delete(autoPlacerLog).where(eq(autoPlacerLog.betId, betId));
 
     // 2. Delete ML training examples referencing this bet
-    await tx.delete(mlTrainingExamples).where(eq(mlTrainingExamples.sourceBetId, betId));
+    await tx
+      .delete(mlTrainingExamples)
+      .where(eq(mlTrainingExamples.sourceBetId, betId));
 
     // 3. Delete the bet itself
     const deleted = await tx

@@ -4,32 +4,28 @@ import {
   computeModelEdgePct,
   computeScoredStake,
 } from "@/lib/ml/staker";
+import { FEATURE_COUNT, FEATURE_INDEX } from "@/lib/ml/feature-contract";
 
-/**
- * Build a dummy 25-element feature vector.
- * Defaults: tick_count=5, convergence_rate=0, steam_move_sharp=0.
- * Override specific features by index.
- */
-function makeFeatures(overrides: Record<number, number> = {}): number[] {
-  const f = new Array(25).fill(0);
-  // Set reasonable defaults for features used by the multiplier:
-  // 0 = ev_pct, 2 = soft_odds, 3 = adjusted_soft_odds, 5 = tick_count,
-  // 17 = market_type_encoded.
-  f[0] = 4;
-  f[2] = 2.15;
-  f[3] = 2.15;
-  f[5] = 5; // tick_count (below persistence bonus threshold)
-  f[17] = 0; // MATCH_RESULT, part of the simple EV baseline cohort.
+function makeFeatures(
+  overrides: Partial<Record<number, number>> = {},
+): number[] {
+  const f = new Array(FEATURE_COUNT).fill(0);
+  f[FEATURE_INDEX.sharp_true_prob] = 0.5;
+  f[FEATURE_INDEX.soft_odds] = 2.15;
+  f[FEATURE_INDEX.adjusted_soft_odds] = 2.15;
+  f[FEATURE_INDEX.tick_count] = 5;
+  f[FEATURE_INDEX.market_type_encoded] = 0;
   for (const [idx, val] of Object.entries(overrides)) {
     f[Number(idx)] = val;
   }
   return f;
 }
 
-// Feature indices (from FEATURE_NAMES in features.ts)
-const IDX_TICK_COUNT = 5;
-const IDX_STEAM_SHARP = 9;
-const IDX_CONVERGENCE = 13;
+const IDX_TICK_COUNT = FEATURE_INDEX.tick_count;
+const IDX_STEAM_SHARP = FEATURE_INDEX.steam_move_sharp;
+const IDX_CONVERGENCE = FEATURE_INDEX.convergence_rate;
+const IDX_SHARP_TRUE_PROB = FEATURE_INDEX.sharp_true_prob;
+const IDX_MARKET_TYPE = FEATURE_INDEX.market_type_encoded;
 
 describe("computeKellyMultiplier", () => {
   it("returns null when mlScore is null (no model)", () => {
@@ -61,14 +57,14 @@ describe("computeKellyMultiplier", () => {
       expect(
         computeKellyMultiplier(
           0.9,
-          makeFeatures({ 0: 1.5 }),
+          makeFeatures({ [IDX_SHARP_TRUE_PROB]: 0.45 }),
           "gate_only",
         ),
       ).toBe(0);
       expect(
         computeKellyMultiplier(
           0.9,
-          makeFeatures({ 17: 7 }),
+          makeFeatures({ [IDX_MARKET_TYPE]: 7 }),
           "gate_only",
         ),
       ).toBe(0);
@@ -90,10 +86,9 @@ describe("computeKellyMultiplier", () => {
     });
 
     it("caps at 1.0 even with high score and bonuses", () => {
-      // High score + persistence + steam should exceed 1.0 raw
       const features = makeFeatures({
         [IDX_TICK_COUNT]: 20,
-        [IDX_STEAM_SHARP]: 5,
+        [IDX_STEAM_SHARP]: 1,
       });
       const m = computeKellyMultiplier(0.95, features, "stake_reduce");
       expect(m).toBe(1.0);
@@ -122,21 +117,18 @@ describe("computeKellyMultiplier", () => {
     });
 
     it("can return multiplier > 1.0 (allows increase)", () => {
-      // High score with bonuses
       const features = makeFeatures({
         [IDX_TICK_COUNT]: 20,
-        [IDX_STEAM_SHARP]: 5,
+        [IDX_STEAM_SHARP]: 1,
       });
       const m = computeKellyMultiplier(0.95, features, "stake_increase");
       expect(m!).toBeGreaterThan(1.0);
     });
 
     it("caps at 2.0", () => {
-      // Maximum possible: score=1.0 → base=1.5, × 1.2 (tick) × 1.3 (steam) = 2.34
-      // Should be capped at 2.0
       const features = makeFeatures({
         [IDX_TICK_COUNT]: 20,
-        [IDX_STEAM_SHARP]: 5,
+        [IDX_STEAM_SHARP]: 1,
       });
       const m = computeKellyMultiplier(1.0, features, "stake_increase");
       expect(m!).toBe(2.0);
@@ -146,7 +138,9 @@ describe("computeKellyMultiplier", () => {
 
 describe("computeScoredStake", () => {
   it("returns null when no model (mlScore is null)", () => {
-    expect(computeScoredStake(0.05, null, makeFeatures(), "observe")).toBeNull();
+    expect(
+      computeScoredStake(0.05, null, makeFeatures(), "observe"),
+    ).toBeNull();
   });
 
   it("returns null in observe mode", () => {

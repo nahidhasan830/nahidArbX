@@ -49,8 +49,9 @@ export const STEAM_MOVE_STRONG_PCT = 5; // ≥5% move in ≤30s = strong
 // ML pipeline
 export const ML_MIN_SCORE = 0.4; // Legacy UI score band only; auto-place now gates on model EV at offered odds
 export const ML_COLD_START_THRESHOLD = 200; // Aligned with Python deployment gate MIN_VALID_EXAMPLES (avoids noisy rejected training runs)
+export const ML_COLLECTION_TARGET = 500; // Current-contract corpus floor before expecting a useful first rebuilt model.
 export const ML_FEATURE_COUNT = 22; // Dimensionality of feature vector (removed ev_pct, implied_prob_gap, kelly_fraction_raw)
-export const ML_FEATURE_VERSION = 3; // Contract version for persisted ML feature vectors
+export const ML_FEATURE_VERSION = 1; // Contract version for persisted ML feature vectors after the clean rebuild reset
 export const ML_WARMUP_MIN_TICKS = 3; // Min sharp-provider ticks before trusting history-dependent features
 export const ML_RETRAIN_GROWTH_STEP = 200; // Auto-retrain after this many new training examples since the last deployed model. Aligned with ML_COLD_START_THRESHOLD so retrain cadence matches the minimum-viable training step.
 

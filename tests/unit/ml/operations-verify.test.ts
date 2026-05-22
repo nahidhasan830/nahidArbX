@@ -1,5 +1,5 @@
 /**
- * Phase 11: ML Operations Verification Tests
+ * ML Operations Verification Tests
  *
  * Ensures TS, Python, and UI feature contracts stay aligned,
  * constants are in sync, and the feature catalog is complete.
@@ -19,8 +19,6 @@ import {
 } from "@/lib/ml/feature-contract";
 import { FEATURE_CATALOG } from "@/lib/ml/feature-catalog";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
-
-// ── Helpers ──────────────────────────────────────────────────────
 
 function parsePythonFeatureNames(): {
   names: string[];
@@ -47,23 +45,20 @@ function parsePythonFeatureNames(): {
   return { names, count, version, hash };
 }
 
-// ── Tests ────────────────────────────────────────────────────────
-
-describe("Phase 11: Operations verification", () => {
+describe("ML operations verification", () => {
   describe("Feature contract alignment", () => {
-    it("TS FEATURE_NAMES has exactly 25 unique entries", () => {
-      expect(FEATURE_NAMES).toHaveLength(25);
-      expect(new Set(FEATURE_NAMES).size).toBe(25);
+    it("TS FEATURE_NAMES has exactly 22 unique entries", () => {
+      expect(FEATURE_NAMES).toHaveLength(22);
+      expect(new Set(FEATURE_NAMES).size).toBe(22);
     });
 
     it("FEATURE_COUNT matches ML_FEATURE_COUNT", () => {
       expect(FEATURE_COUNT).toBe(ML_FEATURE_COUNT);
-      expect(FEATURE_COUNT).toBe(25);
+      expect(FEATURE_COUNT).toBe(22);
     });
 
     it("FEATURE_VERSION matches ML_FEATURE_VERSION", () => {
       expect(FEATURE_VERSION).toBe(ML_FEATURE_VERSION);
-      expect(FEATURE_VERSION).toBe(2);
     });
 
     it("Python FEATURE_NAMES exactly matches TS", () => {
@@ -110,7 +105,7 @@ describe("Phase 11: Operations verification", () => {
       expect(categories.has("Odds")).toBe(true);
       expect(categories.has("Movement")).toBe(true);
       expect(categories.has("Market")).toBe(true);
-      expect(categories.has("Staking")).toBe(true);
+      expect(categories.has("Staking")).toBe(false);
     });
 
     it("catalog format types are all valid", () => {
@@ -130,9 +125,9 @@ describe("Phase 11: Operations verification", () => {
   });
 
   describe("Cross-pipeline consistency", () => {
-    it("first feature is ev_pct and last is num_markets_same_event", () => {
-      expect(FEATURE_NAMES[0]).toBe("ev_pct");
-      expect(FEATURE_NAMES[24]).toBe("num_markets_same_event");
+    it("first feature is sharp_true_prob and last is num_markets_same_event", () => {
+      expect(FEATURE_NAMES[0]).toBe("sharp_true_prob");
+      expect(FEATURE_NAMES[21]).toBe("num_markets_same_event");
     });
 
     it("ONNX exporter embeds feature version and hash metadata", () => {

@@ -101,10 +101,10 @@ function runContractChecks(): void {
   console.log("\n═══ Feature Contract Checks ═══\n");
 
   // 1. TS feature count
-  if (FEATURE_COUNT === 25) {
-    push("TS FEATURE_COUNT", "pass", `${FEATURE_COUNT} (expected 25)`);
+  if (FEATURE_COUNT === 22) {
+    push("TS FEATURE_COUNT", "pass", `${FEATURE_COUNT} (expected 22)`);
   } else {
-    push("TS FEATURE_COUNT", "fail", `${FEATURE_COUNT} (expected 25)`);
+    push("TS FEATURE_COUNT", "fail", `${FEATURE_COUNT} (expected 22)`);
   }
 
   // 2. TS feature names length
@@ -167,7 +167,7 @@ function runContractChecks(): void {
     const namesMatch =
       JSON.stringify(py.names) === JSON.stringify(FEATURE_NAMES);
     if (namesMatch) {
-      push("Python ↔ TS names", "pass", "All 25 feature names match exactly");
+      push("Python ↔ TS names", "pass", "All 22 feature names match exactly");
     } else {
       // Find mismatches
       const diffs: string[] = [];

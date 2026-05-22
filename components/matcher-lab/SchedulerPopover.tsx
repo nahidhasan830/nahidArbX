@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { format } from "date-fns";
 import { Clock, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { updateScheduler, fetchStats } from "./api";
-import type {
-  MlSchedulerStats,
-  MlRunHistoryEntry,
-} from "./types";
+import type { MlSchedulerStats, MlRunHistoryEntry } from "./types";
 
 interface SchedulerPopoverProps {
   mlStats: MlSchedulerStats | null;
@@ -33,13 +31,7 @@ function formatTime(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return format(d, "MMM d HH:mm:ss");
 }
 
 function formatDuration(ms: number): string {

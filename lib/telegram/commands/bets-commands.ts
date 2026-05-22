@@ -8,6 +8,12 @@
  */
 
 import { sql } from "drizzle-orm";
+import {
+  addHours,
+  hoursToMilliseconds,
+  minutesToMilliseconds,
+  subDays,
+} from "date-fns";
 import { db } from "@/lib/db/client";
 import { listBettingProviders } from "@/lib/betting/registry";
 import {
@@ -144,7 +150,7 @@ registerCommand({
   group: "read",
   async handler({ args, reply }) {
     const days = Math.min(365, Math.max(1, parseInt(args[0] ?? "7", 10) || 7));
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const since = subDays(new Date(), days).toISOString();
     try {
       const r = await db.execute(sql`
         SELECT
@@ -301,10 +307,12 @@ registerCommand({
       for (const row of rows) {
         const startMs = new Date(String(row.event_start_time)).getTime();
         const diff = startMs - now;
+        const staleStartedThresholdMs =
+          hoursToMilliseconds(2) + minutesToMilliseconds(15);
         const when =
           diff > 0
             ? `kicks off in ${durationLabel(diff)}`
-            : Math.abs(diff) > 2 * 3600 * 1000 + 15 * 60 * 1000
+            : Math.abs(diff) > staleStartedThresholdMs
               ? `⚠️ started ${durationLabel(-diff)} ago`
               : `started ${durationLabel(-diff)} ago`;
         lines.push(
@@ -419,7 +427,7 @@ registerCommand({
   group: "read",
   async handler({ args, reply }) {
     const hours = Math.min(72, Math.max(1, parseInt(args[0] ?? "6", 10) || 6));
-    const cutoffMs = Date.now() + hours * 3600 * 1000;
+    const cutoffMs = addHours(new Date(), hours).getTime();
     const grouped = getValueBetsByEvent();
     const events = new Map<string, ReturnType<typeof getEvents>[number]>();
     for (const e of getEvents()) events.set(e.id, e);
@@ -462,7 +470,7 @@ registerCommand({
       365,
       Math.max(1, parseInt(args[0] ?? "30", 10) || 30),
     );
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const since = subDays(new Date(), days).toISOString();
     try {
       const r = await db.execute(sql`
         SELECT
@@ -515,7 +523,7 @@ registerCommand({
       365,
       Math.max(1, parseInt(args[0] ?? "30", 10) || 30),
     );
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const since = subDays(new Date(), days).toISOString();
     try {
       const r = await db.execute(sql`
         SELECT soft_provider AS prov,
@@ -570,7 +578,7 @@ registerCommand({
       365,
       Math.max(1, parseInt(args[0] ?? "30", 10) || 30),
     );
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const since = subDays(new Date(), days).toISOString();
     try {
       const r = await db.execute(sql`
         SELECT market_type AS m,
@@ -625,7 +633,7 @@ registerCommand({
       365,
       Math.max(1, parseInt(args[0] ?? "60", 10) || 60),
     );
-    const since = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+    const since = subDays(new Date(), days).toISOString();
     try {
       const r = await db.execute(sql`
         SELECT FLOOR(sharp_true_prob * 10)::int AS bucket,

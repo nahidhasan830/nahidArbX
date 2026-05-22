@@ -1,16 +1,12 @@
 "use client";
 
 /**
- * FeatureInspectorDialog — wide, compact modal that visualises the 25-dimension
- * ML feature vector attached to a bet.
+ * FeatureInspectorDialog — wide, compact modal that visualises the ML feature
+ * vector attached to a bet.
  *
  * Layout: header row with event context + ML scores + feature version info,
- * then a flat 3-column grid of all 25 features. Each cell shows category dot,
- * label, and formatted value. Hover for full description. Fits on screen
- * without scrolling.
- *
- * Phase 10: shows feature version, enrichment confidence, and whether
- * the ML score affected placement behavior.
+ * then a flat 3-column grid of all features. Each cell shows category dot,
+ * label, and formatted value. Hover for full description.
  */
 
 import {
@@ -28,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   FEATURE_CATALOG,
+  FEATURE_CATEGORIES,
   CATEGORY_COLORS,
   formatFeatureValue,
 } from "@/lib/ml/feature-catalog";
@@ -35,7 +32,7 @@ import {
 interface FeatureInspectorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The 25-element feature vector, or null if not available. */
+  /** The stored ML feature vector, or null if not available. */
   features: number[] | null | undefined;
   /** ML confidence score (0–1), if available. */
   mlScore?: number | null;
@@ -139,19 +136,14 @@ export function FeatureInspectorDialog({
         <div className="flex items-center gap-3 flex-wrap">
           {/* Category legend — compact inline */}
           <div className="flex gap-3 text-[10px] text-muted-foreground">
-            {(["Value", "Odds", "Movement", "Market", "Staking"] as const).map(
-              (cat) => (
-                <span key={cat} className="flex items-center gap-1">
-                  <span
-                    className={cn(
-                      "size-1.5 rounded-full",
-                      CATEGORY_COLORS[cat],
-                    )}
-                  />
-                  {cat}
-                </span>
-              ),
-            )}
+            {FEATURE_CATEGORIES.map((cat) => (
+              <span key={cat} className="flex items-center gap-1">
+                <span
+                  className={cn("size-1.5 rounded-full", CATEGORY_COLORS[cat])}
+                />
+                {cat}
+              </span>
+            ))}
           </div>
           <div className="flex-1" />
           {/* Score placement effect badge */}

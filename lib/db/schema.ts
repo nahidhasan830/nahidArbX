@@ -111,7 +111,7 @@ export const bets = pgTable(
     >(),
 
     // ML pipeline columns
-    mlFeatures: real("ml_features").array(), // 25-dim feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
+    mlFeatures: real("ml_features").array(), // ML feature vector (real[] for speed and preventing JSONB tuple bloat during HOT updates)
     mlScore: real(), // Calibrated P(win) from LightGBM [0,1]; staker converts to model EV at offered odds
     mlStakeFraction: real("ml_stake_fraction"), // Model-adjusted stake fraction = baseline × multiplier (capped). Renamed from ml_kelly_adjusted.
     mlFeatureVersion: integer(), // Feature contract version at extraction time
@@ -404,8 +404,8 @@ export type NewBettingSettingsRow = typeof bettingSettings.$inferInsert;
  * Each row represents a trained model version. The training pipeline
  * (Python sidecar on Cloud Run Job) writes rows here after CPCV
  * evaluation. Only models passing quality gates (DSR >= 0.6, active
- * permissions stricter) get status='deployed'. The Node.js ONNX scorer
- * watches for the latest deployed model and hot-reloads it.
+ * permissions stricter) get status='deployed'. The runtime scorer
+ * (Vertex AI Prediction client) watches for the latest deployed model version.
  */
 export const mlModels = pgTable(
   "ml_models",
@@ -415,8 +415,8 @@ export const mlModels = pgTable(
     status: text().notNull().default("training"), // training|validated|deployed|retired|rejected
     modelType: text().notNull().default("lightgbm"),
     trainingSamples: integer().notNull(),
-    featureCount: integer().notNull().default(25),
-    featureVersion: integer().notNull().default(2),
+    featureCount: integer().notNull().default(22),
+    featureVersion: integer().notNull().default(1),
     featureNamesHash: text(),
     trainingStartedAt: ts().notNull(),
     trainingCompletedAt: ts(),
@@ -433,8 +433,8 @@ export const mlModels = pgTable(
     calibrationError: numeric({ precision: 8, scale: 6, mode: "number" }),
     featureImportance: jsonb(),
     modelArtifactPath: text(),
-    /** Raw ONNX model binary stored in Postgres (bytea). Typically <1MB for LightGBM.
-     *  The scorer reads this blob directly — no GCS or local file cache needed. */
+    /** DEPRECATED: Raw ONNX model binary stored in Postgres (bytea). Legacy from local inference.
+     *  Cloud-only inference via Vertex AI. Kept for rollback only. */
     onnxBlob: customType<{ data: Buffer; driverData: Buffer }>({
       dataType() {
         return "bytea";
@@ -445,6 +445,10 @@ export const mlModels = pgTable(
     permissionLevel: text().default("observe"), // observe|gate_only|stake_reduce|stake_increase
     /** JSON array of reasons why a model was rejected by the deployment gate (null if accepted). */
     rejectionReasons: jsonb().$type<string[] | null>(),
+    /** Vertex AI Model resource name (projects/{project}/locations/{region}/models/{id}) */
+    vertexModelName: text("vertex_model_name"),
+    /** Vertex AI Endpoint resource name (projects/{project}/locations/{region}/endpoints/{id}) */
+    vertexEndpointName: text("vertex_endpoint_name"),
     deployedAt: ts(),
     retiredAt: ts(),
     /** Telegram notification timestamp — restart-safe idempotency marker. */
@@ -939,7 +943,7 @@ export const mlTrainingExamples = pgTable(
     familyId: text().notNull(),
     atomId: text().notNull(),
     features: real().array(),
-    featureVersion: integer().notNull().default(2),
+    featureVersion: integer().notNull().default(1),
     label: text(), // 'positive' | 'negative' | null (pending)
     labelSource: text(), // 'outcome' | 'clv' | null
     sampleWeight: real().notNull().default(1.0),

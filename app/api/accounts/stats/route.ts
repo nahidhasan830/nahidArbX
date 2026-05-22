@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { listPlacedBets } from "@/lib/db/repositories/bets";
 import { BETTING_PROVIDERS } from "@/lib/betting/registry";
 import type { BetRow } from "@/lib/db/schema";
+import { addDays, format, getDay, getHours, parseISO } from "date-fns";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -192,16 +193,18 @@ function buildPnlSeries(rows: BetRow[]): PnlPoint[] {
   const byDay = new Map<string, number>();
   for (const r of rows) {
     if (r.outcome === "pending" || r.outcome === "cancelled") continue;
-    const day = (r.settledAt ?? r.placedAt ?? "").slice(0, 10);
+    const timestamp = r.settledAt ?? r.placedAt;
+    if (!timestamp) continue;
+    const day = format(parseISO(timestamp), "yyyy-MM-dd");
     byDay.set(day, (byDay.get(day) ?? 0) + Number(r.pnl ?? 0));
   }
   const days = [...byDay.keys()].sort();
   if (days.length === 0) return [];
   const filled: string[] = [];
-  const start = new Date(days[0]);
-  const end = new Date(days[days.length - 1]);
-  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-    filled.push(d.toISOString().slice(0, 10));
+  const start = parseISO(days[0]);
+  const end = parseISO(days[days.length - 1]);
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+    filled.push(format(d, "yyyy-MM-dd"));
   }
   let cum = 0;
   return filled.map((day) => {
@@ -235,8 +238,8 @@ function buildHeatmap(rows: BetRow[]) {
   >();
   for (const r of rows) {
     const d = new Date(r.placedAt ?? r.firstSeenAt);
-    const dow = d.getUTCDay();
-    const hour = d.getUTCHours();
+    const dow = getDay(d);
+    const hour = getHours(d);
     const key = `${dow}-${hour}`;
     if (!map.has(key)) map.set(key, { dow, hour, bets: 0, stake: 0 });
     const cell = map.get(key)!;

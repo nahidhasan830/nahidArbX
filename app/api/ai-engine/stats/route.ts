@@ -1,9 +1,11 @@
 import { logger } from "@/lib/shared/logger";
 import { getSearchRouter } from "@/lib/ai/search/router";
-import { seedProvidersIfEmpty, getAllProviders } from "@/lib/db/repositories/ai-provider-config";
+import {
+  seedProvidersIfEmpty,
+  getAllProviders,
+} from "@/lib/db/repositories/ai-provider-config";
 
 export const dynamic = "force-dynamic";
-
 
 export async function GET() {
   try {
@@ -19,7 +21,7 @@ export async function GET() {
     return Response.json({
       providers: stats.providers,
       totalSearches: stats.totalSearches,
-      allProviders: providers.map(p => ({
+      allProviders: providers.map((p) => ({
         name: p.name,
         enabled: p.enabled,
         engineType: p.engineType,

@@ -257,7 +257,7 @@ def whites_reality_check_pvalue(
     return float(misses / n_bootstraps)
 
 
-# ── Score Bucket Analysis (Phase 6) ────────────────────────────────────────
+# ── Score Bucket Analysis ───────────────────────────────────────────────────
 #
 # Evaluate whether higher ML edge scores produce better ROI/CLV. A model is
 # only useful if score buckets are directionally monotonic: higher modeled edge

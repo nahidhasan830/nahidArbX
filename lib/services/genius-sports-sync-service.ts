@@ -8,7 +8,10 @@ import {
   queryGeniusSportsCatalog as queryVelkiCatalog,
   queryGeniusSportsOdds as queryVelkiOdds,
 } from "../betting/velki/events-client";
-import { overlayAuthenticatedLimits, type SportsbookMarket } from "../atoms/adapters/ninewickets-sportsbook";
+import {
+  overlayAuthenticatedLimits,
+  type SportsbookMarket,
+} from "../atoms/adapters/ninewickets-sportsbook";
 
 // Unauthenticated 9W endpoint
 const NW_ENDPOINT =
@@ -245,7 +248,7 @@ export class GeniusSportsSyncService {
     entity: SyncEntity,
     state: SyncState,
     catalogFn: (id: string) => Promise<CatalogResult>,
-     
+
     oddsFn: (
       id: string,
       version: number,
@@ -258,10 +261,7 @@ export class GeniusSportsSyncService {
 
     // Access processRawOdds from BaseAtomsAdapter
     const baseAdapter = adapter as unknown as {
-      processRawOdds?: (
-        rawData: unknown,
-        ctx: Record<string, unknown>,
-      ) => void;
+      processRawOdds?: (rawData: unknown, ctx: Record<string, unknown>) => void;
     };
 
     // Initial catalog fetch

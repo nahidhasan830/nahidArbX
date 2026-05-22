@@ -14,7 +14,10 @@
  */
 
 import { recordAiLog } from "@/lib/db/repositories/ai-logs";
-import { incrementUsage, hasQuota } from "@/lib/db/repositories/ai-provider-config";
+import {
+  incrementUsage,
+  hasQuota,
+} from "@/lib/db/repositories/ai-provider-config";
 import { logger } from "@/lib/shared/logger";
 
 const tag = "AiActivity";
@@ -22,7 +25,13 @@ const tag = "AiActivity";
 // ── Types ────────────────────────────────────────────────────────────
 
 export type AiSystem = "search" | "llm";
-export type AiTrigger = "manual" | "auto" | "scheduler" | "playground" | "test" | string;
+export type AiTrigger =
+  | "manual"
+  | "auto"
+  | "scheduler"
+  | "playground"
+  | "test"
+  | string;
 
 export interface AiActivityOptions {
   system: AiSystem;
@@ -54,7 +63,17 @@ export async function withAiActivity<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const startTime = Date.now();
-  const { system, provider, endpoint, trigger = "manual", model, query, itemCount, costUsd, response } = options;
+  const {
+    system,
+    provider,
+    endpoint,
+    trigger = "manual",
+    model,
+    query,
+    itemCount,
+    costUsd,
+    response,
+  } = options;
 
   // 1. Check quota before call
   if (!(await hasQuota(provider))) {
@@ -127,7 +146,17 @@ export async function logAiActivity<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const startTime = Date.now();
-  const { system, provider, endpoint, trigger = "manual", model, query, itemCount, costUsd, response } = options;
+  const {
+    system,
+    provider,
+    endpoint,
+    trigger = "manual",
+    model,
+    query,
+    itemCount,
+    costUsd,
+    response,
+  } = options;
 
   try {
     const result = await fn();

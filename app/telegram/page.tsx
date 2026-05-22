@@ -17,6 +17,13 @@
 
 import * as React from "react";
 import {
+  differenceInDays,
+  differenceInHours,
+  differenceInMinutes,
+  differenceInSeconds,
+  parseISO,
+} from "date-fns";
+import {
   CheckCircle2,
   Info,
   MessageCircleMore,
@@ -110,12 +117,17 @@ const GROUP_PILLS: Array<{
 ];
 
 function relativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (ms < 0) return "now";
-  if (ms < 60_000) return `${Math.floor(ms / 1000)}s ago`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
-  return `${Math.floor(ms / 86_400_000)}d ago`;
+  const date = parseISO(iso);
+  if (Number.isNaN(date.getTime())) return "now";
+  const now = new Date();
+  const seconds = differenceInSeconds(now, date);
+  if (seconds < 0) return "now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = differenceInMinutes(now, date);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = differenceInHours(now, date);
+  if (hours < 24) return `${hours}h ago`;
+  return `${differenceInDays(now, date)}d ago`;
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────

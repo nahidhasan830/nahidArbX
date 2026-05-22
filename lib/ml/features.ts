@@ -5,7 +5,7 @@
  * in-memory odds stores. Feature order is contractual — it must match
  * the Python training pipeline's `feature_names.py` exactly.
  *
- * All values are rounded to 4 decimal places to prevent HOT-busting
+ * All values are rounded to 4 decimals to prevent HOT-busting
  * float drift when re-persisting unchanged bets.
  */
 
@@ -20,21 +20,28 @@ import { getAllOddsForAtom } from "@/lib/atoms/store";
 import { getFamily } from "@/lib/atoms/registry";
 import { getCachedVigData } from "@/lib/atoms/value-detector";
 import { getEvent } from "@/lib/store";
-import { computeConvergenceRate } from "@/lib/ml/convergence";
+import {
+  computeConvergenceRate,
+  computeConvergenceRateFromTicks,
+} from "@/lib/ml/convergence";
 import { getCompetitionTier } from "@/lib/ml/competition-enrichment";
-import { ML_WARMUP_MIN_TICKS } from "@/lib/shared/constants";
+import {
+  ML_WARMUP_MIN_TICKS,
+  STEAM_MOVE_WINDOW_MS,
+  STEAM_MOVE_MODERATE_PCT,
+  STEAM_MOVE_STRONG_PCT,
+} from "@/lib/shared/constants";
+import { adjustOddsForCommission } from "@/lib/shared/commission";
 import { differenceInMinutes } from "date-fns";
 import type { AtomMarketType } from "@/lib/atoms/types";
+import type { OddsMovementData } from "@/lib/bets-history/types";
 export {
   FEATURE_NAMES,
   FEATURE_COUNT,
   FEATURE_VERSION,
   FEATURE_NAMES_HASH,
 } from "@/lib/ml/feature-contract";
-
-// ============================================
-// Market type ordinal encoding
-// ============================================
+import { FEATURE_COUNT } from "@/lib/ml/feature-contract";
 
 const MARKET_TYPE_ORDINAL: Record<string, number> = {
   MATCH_RESULT: 0,
@@ -59,9 +66,50 @@ const MARKET_TYPE_ORDINAL: Record<string, number> = {
   TO_SCORE: 19,
 };
 
-// ============================================
-// Direction encoding
-// ============================================
+export type PersistedOddsMovement =
+  | Record<string, OddsMovementData>
+  | OddsMovementData
+  | null
+  | undefined;
+
+export type HistoricalFeatureSkipReason =
+  | "missing_odds_movement"
+  | "missing_sharp_snapshot"
+  | "missing_soft_snapshot"
+  | "missing_sharp_opening_odds"
+  | "missing_sharp_sparkline"
+  | "missing_soft_sparkline"
+  | "missing_vig_pct"
+  | "invalid_true_prob"
+  | "invalid_soft_odds"
+  | "invalid_market_type"
+  | "non_finite_feature"
+  | "wrong_feature_length";
+
+export interface HistoricalFeatureInput {
+  eventStartTime: Date | string;
+  firstSeenAt: Date | string;
+  competition: string | null;
+  marketType: string;
+  familyLine: number | null;
+  sharpProvider: string;
+  sharpOdds: number;
+  sharpTrueProb: number;
+  softProvider: string;
+  softCommissionPct: number;
+  softOdds: number;
+  numMarketsSameEvent?: number;
+  oddsMovement: PersistedOddsMovement;
+}
+
+export type HistoricalFeatureExtractionResult =
+  | { ok: true; features: number[] }
+  | { ok: false; reasons: HistoricalFeatureSkipReason[] };
+
+type HistoricalTick = {
+  odds: number;
+  timestamp: number;
+};
 
 function encodeDirection(dir: "up" | "down" | "stable" | undefined): number {
   if (dir === "up") return 1;
@@ -69,16 +117,281 @@ function encodeDirection(dir: "up" | "down" | "stable" | undefined): number {
   return 0;
 }
 
-// ============================================
-// Feature Extraction
-// ============================================
+function roundFeatureValue(value: number): number {
+  const safe = Number.isFinite(value) ? value : 0;
+  return Math.round(safe * 10000) / 10000;
+}
 
-/**
- * Extract a 22-element feature vector from a ValueBet.
- *
- * All values default to 0 for null/undefined sources.
- * All values rounded to 4 decimal places.
- */
+function isOddsMovementData(value: unknown): value is OddsMovementData {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as OddsMovementData;
+  return (
+    typeof candidate.provider === "string" &&
+    Array.isArray(candidate.sparkline) &&
+    typeof candidate.totalTicks === "number"
+  );
+}
+
+function normalizeHistoricalTicks(
+  snapshot: OddsMovementData | undefined,
+): HistoricalTick[] {
+  if (!snapshot) return [];
+
+  return snapshot.sparkline
+    .filter(
+      (point): point is [number, number] =>
+        Array.isArray(point) &&
+        point.length === 2 &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        point[1] > 0,
+    )
+    .map(([timestamp, odds]) => ({ timestamp, odds }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function computeHistoricalMovementPct(
+  snapshot: OddsMovementData,
+  ticks: HistoricalTick[],
+): number {
+  const openingOdds = snapshot.openingOdds;
+  const latestTick = ticks[ticks.length - 1];
+  if (!openingOdds || openingOdds <= 0 || !latestTick) return 0;
+
+  const changePct = ((latestTick.odds - openingOdds) / openingOdds) * 100;
+  return Math.max(-50, Math.min(50, changePct));
+}
+
+function computeHistoricalDirection(ticks: HistoricalTick[]): number {
+  const window = ticks.slice(-10);
+  if (window.length < 2) return 0;
+
+  const first = window[0];
+  const last = window[window.length - 1];
+  if (!first || !last || first.odds <= 0) return 0;
+
+  const changePct = ((last.odds - first.odds) / first.odds) * 100;
+  if (changePct > 0.1) return 1;
+  if (changePct < -0.1) return -1;
+  return 0;
+}
+
+function computeHistoricalSteamMove(ticks: HistoricalTick[]): number {
+  if (ticks.length < 3) return 0;
+
+  const lastTick = ticks[ticks.length - 1];
+  if (!lastTick) return 0;
+
+  const cutoff = lastTick.timestamp - STEAM_MOVE_WINDOW_MS;
+  const recent = ticks.filter((tick) => tick.timestamp >= cutoff);
+  if (recent.length < 2) return 0;
+
+  const first = recent[0];
+  const last = recent[recent.length - 1];
+  if (!first || !last || first.odds <= 0) return 0;
+
+  const changePct = Math.abs((last.odds - first.odds) / first.odds) * 100;
+  const durationMs = last.timestamp - first.timestamp;
+
+  if (changePct < 1) return 0;
+  if (changePct >= STEAM_MOVE_STRONG_PCT && durationMs <= 30_000) return 1;
+  if (changePct >= STEAM_MOVE_MODERATE_PCT) return 1;
+  return 0;
+}
+
+function computeHistoricalTickVelocity(ticks: HistoricalTick[]): number {
+  if (ticks.length < 2) return 0;
+
+  const first = ticks[0];
+  const last = ticks[ticks.length - 1];
+  if (!first || !last) return 0;
+
+  const spanMs = last.timestamp - first.timestamp;
+  if (spanMs <= 0) return 0;
+
+  return (ticks.length / spanMs) * 60_000;
+}
+
+function computeHistoricalVigPct(
+  sharpOdds: number,
+  sharpTrueProb: number,
+): number {
+  if (!Number.isFinite(sharpOdds) || sharpOdds <= 1) return Number.NaN;
+  if (!Number.isFinite(sharpTrueProb) || sharpTrueProb <= 0) return Number.NaN;
+
+  const rawProb = 1 / sharpOdds;
+  return (rawProb / sharpTrueProb - 1) * 100;
+}
+
+function computeHistoricalHoursSinceLineOpened(
+  firstSeenAt: Date | string,
+  ticks: HistoricalTick[],
+): number {
+  if (ticks.length === 0) return 0;
+
+  const openingTick = ticks[0];
+  if (!openingTick || !Number.isFinite(openingTick.timestamp)) return 0;
+
+  const deltaMs = toDate(firstSeenAt).getTime() - openingTick.timestamp;
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) return 0;
+
+  return deltaMs / 3_600_000;
+}
+
+function isAsianLine(line: number | null): number {
+  if (line == null) return 0;
+  if ((line * 4) % 1 === 0 && line % 0.5 !== 0) return 1;
+  return 0;
+}
+
+function toDate(value: Date | string): Date {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function pushReason(
+  reasons: HistoricalFeatureSkipReason[],
+  reason: HistoricalFeatureSkipReason,
+): void {
+  if (!reasons.includes(reason)) reasons.push(reason);
+}
+
+export function normalizeHistoricalOddsMovement(
+  oddsMovement: PersistedOddsMovement,
+): Record<string, OddsMovementData> {
+  if (!oddsMovement) return {};
+
+  if (isOddsMovementData(oddsMovement)) {
+    return oddsMovement.provider
+      ? { [oddsMovement.provider]: oddsMovement }
+      : {};
+  }
+
+  const normalized: Record<string, OddsMovementData> = {};
+  for (const [provider, snapshot] of Object.entries(oddsMovement)) {
+    if (!isOddsMovementData(snapshot)) continue;
+    normalized[provider] = snapshot;
+  }
+  return normalized;
+}
+
+export function extractHistoricalFeatures(
+  input: HistoricalFeatureInput,
+): HistoricalFeatureExtractionResult {
+  const reasons: HistoricalFeatureSkipReason[] = [];
+  const normalizedMovement = normalizeHistoricalOddsMovement(
+    input.oddsMovement,
+  );
+  const sharpSnapshot = normalizedMovement[input.sharpProvider];
+  const softSnapshot = normalizedMovement[input.softProvider];
+  const sharpTicks = normalizeHistoricalTicks(sharpSnapshot);
+  const softTicks = normalizeHistoricalTicks(softSnapshot);
+  const marketTypeEncoded =
+    MARKET_TYPE_ORDINAL[input.marketType as AtomMarketType];
+  const providerCount = Object.keys(normalizedMovement).length;
+  const sharpDirection = computeHistoricalDirection(sharpTicks);
+  const softDirection = computeHistoricalDirection(softTicks);
+  const recoveredVigPct = computeHistoricalVigPct(
+    input.sharpOdds,
+    input.sharpTrueProb,
+  );
+  const hoursSinceLineOpened = computeHistoricalHoursSinceLineOpened(
+    input.firstSeenAt,
+    sharpTicks,
+  );
+  const numMarketsSameEvent = Math.max(1, input.numMarketsSameEvent ?? 1);
+
+  if (!input.oddsMovement || providerCount === 0) {
+    pushReason(reasons, "missing_odds_movement");
+  }
+  if (
+    !Number.isFinite(input.sharpTrueProb) ||
+    input.sharpTrueProb <= 0 ||
+    input.sharpTrueProb >= 1
+  ) {
+    pushReason(reasons, "invalid_true_prob");
+  }
+  if (!Number.isFinite(input.softOdds) || input.softOdds <= 1) {
+    pushReason(reasons, "invalid_soft_odds");
+  }
+  if (marketTypeEncoded == null) {
+    pushReason(reasons, "invalid_market_type");
+  }
+  if (!sharpSnapshot) {
+    pushReason(reasons, "missing_sharp_snapshot");
+  }
+  if (!softSnapshot) {
+    pushReason(reasons, "missing_soft_snapshot");
+  }
+  if (
+    sharpSnapshot &&
+    (!sharpSnapshot.openingOdds || sharpSnapshot.openingOdds <= 0)
+  ) {
+    pushReason(reasons, "missing_sharp_opening_odds");
+  }
+  if (sharpSnapshot && sharpTicks.length === 0) {
+    pushReason(reasons, "missing_sharp_sparkline");
+  }
+  if (softSnapshot && softTicks.length === 0) {
+    pushReason(reasons, "missing_soft_sparkline");
+  }
+  if (!Number.isFinite(recoveredVigPct)) {
+    pushReason(reasons, "missing_vig_pct");
+  }
+
+  if (reasons.length > 0) {
+    return { ok: false, reasons };
+  }
+
+  const adjustedSoftOdds = adjustOddsForCommission(
+    input.softOdds,
+    input.softCommissionPct,
+  );
+  const sharpSoftSpread = input.softOdds - 1 / input.sharpTrueProb;
+  const rawFeatures: number[] = [
+    input.sharpTrueProb,
+    input.softOdds,
+    adjustedSoftOdds,
+    sharpSnapshot?.totalTicks ?? 0,
+    differenceInMinutes(
+      toDate(input.eventStartTime),
+      toDate(input.firstSeenAt),
+    ),
+    sharpSnapshot ? computeHistoricalMovementPct(sharpSnapshot, sharpTicks) : 0,
+    softSnapshot ? computeHistoricalMovementPct(softSnapshot, softTicks) : 0,
+    computeHistoricalSteamMove(sharpTicks),
+    computeHistoricalSteamMove(softTicks),
+    encodeDirection(
+      sharpDirection > 0 ? "up" : sharpDirection < 0 ? "down" : "stable",
+    ),
+    encodeDirection(
+      softDirection > 0 ? "up" : softDirection < 0 ? "down" : "stable",
+    ),
+    computeConvergenceRateFromTicks(sharpTicks, softTicks),
+    computeHistoricalTickVelocity(softTicks),
+    providerCount,
+    sharpSnapshot?.openingOdds ?? 0,
+    marketTypeEncoded,
+    isAsianLine(input.familyLine),
+    recoveredVigPct,
+    getCompetitionTier(input.competition ?? ""),
+    hoursSinceLineOpened,
+    Number.isFinite(sharpSoftSpread) ? sharpSoftSpread : 0,
+    numMarketsSameEvent,
+  ];
+
+  if (rawFeatures.length !== FEATURE_COUNT) {
+    return { ok: false, reasons: ["wrong_feature_length"] };
+  }
+  if (rawFeatures.some((value) => !Number.isFinite(value))) {
+    return { ok: false, reasons: ["non_finite_feature"] };
+  }
+
+  return {
+    ok: true,
+    features: rawFeatures.map(roundFeatureValue),
+  };
+}
+
 export function extractFeatures(
   vb: ValueBet,
   numMarketsInEvent?: number,
@@ -87,7 +400,6 @@ export function extractFeatures(
   const fId = vb.familyId;
   const aId = vb.atomId;
 
-  // Pre-fetch shared data
   const sharpHistory = getAtomHistory(eId, fId, aId, vb.sharpProvider);
   const sharpMovement = getMovementSummary(eId, fId, aId, vb.sharpProvider);
   const softMovement = getMovementSummary(eId, fId, aId, vb.softProvider);
@@ -95,13 +407,11 @@ export function extractFeatures(
   const event = getEvent(eId);
   const vigData = getCachedVigData(eId, fId);
 
-  // Feature 7: time to kickoff
   let timeToKickoffMin = 0;
   if (event?.startTime) {
     timeToKickoffMin = differenceInMinutes(event.startTime, new Date());
   }
 
-  // Feature 15: tick velocity (ticks per minute)
   let tickVelocity = 0;
   const softTicks = getOrderedTicks(eId, fId, aId, vb.softProvider);
   if (softTicks.length >= 2) {
@@ -113,22 +423,19 @@ export function extractFeatures(
     }
   }
 
-  // Feature 18: market type encoding
   const marketTypeEncoded =
     family != null
       ? (MARKET_TYPE_ORDINAL[family.market_type as AtomMarketType] ?? 0)
       : 0;
 
-  // Feature 19: is asian line
-  let isAsianLine = 0;
+  let isAsianLineFeature = 0;
   if (family?.line != null) {
     const line = family.line;
     if ((line * 4) % 1 === 0 && line % 0.5 !== 0) {
-      isAsianLine = 1;
+      isAsianLineFeature = 1;
     }
   }
 
-  // Feature 22: hours_since_line_opened
   let hoursSinceLineOpened = 0;
   const sharpOpenTs = sharpHistory?.openingTimestamp;
   if (sharpOpenTs != null && sharpOpenTs > 0) {
@@ -143,74 +450,34 @@ export function extractFeatures(
   const safeMarketCount = Math.max(1, numMarketsInEvent ?? 1);
 
   const features: number[] = [
-    /* 0  sharp_true_prob   */ vb.trueProb,
-    /* 1  soft_odds         */ vb.softOdds,
-    /* 2  adjusted_soft_odds */ vb.adjustedSoftOdds,
-    /* 3  tick_count        */ sharpHistory?.totalTicks ?? 0,
-    /* 4  time_to_kickoff   */ timeToKickoffMin,
-    /* 5  movement_pct_sharp */ sharpMovement?.changePct ?? 0,
-    /* 6  movement_pct_soft */ softMovement?.changePct ?? 0,
-    /* 7  steam_move_sharp  */ detectSteamMove(
-      eId,
-      fId,
-      aId,
-      vb.sharpProvider,
-    ) != null
-      ? 1
-      : 0,
-    /* 8 steam_move_soft   */ detectSteamMove(eId, fId, aId, vb.softProvider) !=
-    null
-      ? 1
-      : 0,
-    /* 9 sharp_direction   */ encodeDirection(sharpMovement?.direction),
-    /* 10 soft_direction    */ encodeDirection(softMovement?.direction),
-    /* 11 convergence_rate  */ computeConvergenceRate(
-      eId,
-      fId,
-      aId,
-      vb.sharpProvider,
-      vb.softProvider,
-    ),
-    /* 12 tick_velocity     */ tickVelocity,
-    /* 13 provider_count    */ getAllOddsForAtom(eId, fId, aId).size,
-    /* 14 opening_sharp_odds */ sharpHistory?.openingOdds ?? 0,
-    /* 15 market_type_encoded */ marketTypeEncoded,
-    /* 16 is_asian_line     */ isAsianLine,
-    /* 17 vig_pct           */ vigData?.vigPct ?? 0,
-    /* 18 competition_tier  */ getCompetitionTier(event?.competition ?? ""),
-    /* 19 hours_since_line_opened */ hoursSinceLineOpened,
-    /* 20 sharp_soft_spread */ safeSharpSoftSpread,
-    /* 21 num_markets_same_event */ safeMarketCount,
+    vb.trueProb,
+    vb.softOdds,
+    vb.adjustedSoftOdds,
+    sharpHistory?.totalTicks ?? 0,
+    timeToKickoffMin,
+    sharpMovement?.changePct ?? 0,
+    softMovement?.changePct ?? 0,
+    detectSteamMove(eId, fId, aId, vb.sharpProvider) != null ? 1 : 0,
+    detectSteamMove(eId, fId, aId, vb.softProvider) != null ? 1 : 0,
+    encodeDirection(sharpMovement?.direction),
+    encodeDirection(softMovement?.direction),
+    computeConvergenceRate(eId, fId, aId, vb.sharpProvider, vb.softProvider),
+    tickVelocity,
+    getAllOddsForAtom(eId, fId, aId).size,
+    sharpHistory?.openingOdds ?? 0,
+    marketTypeEncoded,
+    isAsianLineFeature,
+    vigData?.vigPct ?? 0,
+    getCompetitionTier(event?.competition ?? ""),
+    hoursSinceLineOpened,
+    safeSharpSoftSpread,
+    safeMarketCount,
   ];
 
-  // Round all values to 4 decimal places to prevent HOT-busting float drift
-  return features.map((v) => {
-    const safe = Number.isFinite(v) ? v : 0;
-    return Math.round(safe * 10000) / 10000;
-  });
+  return features.map(roundFeatureValue);
 }
 
-// ============================================
-// Warmup Quality Gate
-// ============================================
-
-/**
- * Check whether the history-dependent features for a bet are warm enough
- * to produce a trustworthy ML score.
- *
- * After an engine restart, odds history starts cold — tick_count,
- * movement, steam, convergence, tick_velocity, opening sharp odds, and
- * hours_since_line_opened are all zero or near-zero. Scoring such
- * features produces misleading confidence. This function lets callers
- * know when to suppress ML scoring.
- *
- * Returns true when the sharp-provider tick count meets the minimum
- * warmup threshold (ML_WARMUP_MIN_TICKS). The threshold is intentionally
- * low (3) because even partial history is better than none once
- * opening odds have been observed.
- */
 export function isFeatureWarm(features: number[]): boolean {
-  // Feature index 3 = tick_count (sharp provider)
   const tickCount = features[3] ?? 0;
   return tickCount >= ML_WARMUP_MIN_TICKS;
 }

@@ -1,4 +1,4 @@
-"""Tests for the Phase 7 deployment gate.
+"""Tests for the deployment gate.
 
 Verifies that the deployment gate correctly evaluates training metrics
 and assigns appropriate permission levels or rejection reasons.
@@ -169,11 +169,11 @@ class TestDeploymentGateRejection:
         assert any("Deflated Sharpe" in r for r in result.rejection_reasons)
 
     def test_high_pbo(self):
-        """Phase 5: PBO is now a warning, not a hard rejection gate."""
+        """PBO is now a warning, not a hard rejection gate."""
         metrics = _make_metrics(pbo=0.8)
         result = evaluate_deployment_gate(metrics)
         assert result.approved, (
-            f"PBO should not cause rejection (Phase 5). Reasons: {result.rejection_reasons}"
+            f"PBO should not cause rejection. Reasons: {result.rejection_reasons}"
         )
         assert any("Overfitting" in w or "PBO" in w for w in result.warnings)
 

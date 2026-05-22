@@ -1,9 +1,12 @@
 # entity-matcher
 
+**⚠️ Status: Fallback Only** — This service is no longer the primary entity matching path. The engine now uses Vertex AI Text Embeddings API directly.
+
 Self-hosted ML pairwise matcher for the entity-resolution v2 store.
-Replaces the LightGBM-based `entity-classifier` service with two transformer
-models that handle multilingual surface forms (Cyrillic, Greek, Vietnamese
-transliteration) out of the box.
+Provides fallback entity matching when Vertex AI Text Embeddings API is unavailable.
+
+Primary path: Vertex AI Text Embeddings API (`lib/matching/entities/vertex-embeddings-client.ts`)
+Fallback path: This Cloud Run service (BGE-M3 embeddings + cross-encoder reranking)
 
 ## Endpoints
 

@@ -1,7 +1,7 @@
 -- AlphaSearch Phase 2 — recurring optimization runs.
 --
 -- A schedule is a saved configuration that the optimizer scheduler tick
--- fires on its own cadence (e.g. "every day at 03:00 Asia/Dhaka"). Each
+-- fires on its own cadence (e.g. "every day at 03:00"). Each
 -- fire creates a fresh row in optimization_runs with the schedule's
 -- snapshot (search_space, cv_strategy, data_filters, etc.).
 --
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "optimization_schedules" (
   "name"               text NOT NULL,
   "description"        text,
   "enabled"            boolean NOT NULL DEFAULT true,
-  "timezone"           text NOT NULL DEFAULT 'Asia/Dhaka',
+  "timezone"           text NOT NULL DEFAULT 'local',
   "frequency"          jsonb NOT NULL,
   "n_trials_target"    integer NOT NULL DEFAULT 2000,
   "search_algorithm"   text NOT NULL DEFAULT 'ensemble',

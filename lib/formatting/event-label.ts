@@ -4,6 +4,8 @@
  * UI, toasts, logs, and the Gemini prompt so they stay consistent.
  */
 
+import { format, isValid, parseISO } from "date-fns";
+
 export interface EventLabelSide {
   homeTeam: string;
   awayTeam: string;
@@ -41,7 +43,7 @@ export function pairLabel(a: EventLabelSide, b: EventLabelSide): string {
 }
 
 /**
- * "Home vs Away | Competition | YYYY-MM-DD HHmmZ" — the dense one-line format
+ * "Home vs Away | Competition | YYYY-MM-DD HH:mm" — the dense one-line format
  * used inside the Gemini prompt so the model sees all disambiguating fields.
  */
 export function eventPromptLine(e: {
@@ -50,6 +52,10 @@ export function eventPromptLine(e: {
   competition: string;
   startTime: Date | string;
 }): string {
-  const iso = new Date(e.startTime).toISOString();
-  return `${e.homeTeam} vs ${e.awayTeam} | ${e.competition} | ${iso.slice(0, 10)} ${iso.slice(11, 16)}Z`;
+  const kickoff =
+    e.startTime instanceof Date ? e.startTime : parseISO(e.startTime);
+  const kickoffText = isValid(kickoff)
+    ? format(kickoff, "yyyy-MM-dd HH:mm")
+    : String(e.startTime);
+  return `${e.homeTeam} vs ${e.awayTeam} | ${e.competition} | ${kickoffText}`;
 }

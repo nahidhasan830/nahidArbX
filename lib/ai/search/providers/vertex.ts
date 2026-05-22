@@ -28,11 +28,19 @@ export class VertexSearchProvider {
   private _serverRemaining: number | null = null;
   private _serverLimit: number | null = null;
 
-  get healthy() { return this._healthy; }
-  get enabled() { return this._enabled; }
+  get healthy() {
+    return this._healthy;
+  }
+  get enabled() {
+    return this._enabled;
+  }
 
-  enable() { this._enabled = true; }
-  disable() { this._enabled = false; }
+  enable() {
+    this._enabled = true;
+  }
+  disable() {
+    this._enabled = false;
+  }
 
   async _syncFromDb() {
     try {
@@ -52,7 +60,9 @@ export class VertexSearchProvider {
   markUnhealthy(error: string, cooldownMs = 60_000) {
     this._healthy = false;
     this._lastError = error;
-    setTimeout(() => { this._healthy = true; }, cooldownMs);
+    setTimeout(() => {
+      this._healthy = true;
+    }, cooldownMs);
   }
 
   hasQuota(): boolean {
@@ -79,7 +89,8 @@ export class VertexSearchProvider {
 
   getStats() {
     const limit = this._serverLimit ?? 1000;
-    const remaining = this._serverRemaining ?? Math.max(0, limit - this._sessionRequests);
+    const remaining =
+      this._serverRemaining ?? Math.max(0, limit - this._sessionRequests);
     return {
       name: this.name,
       healthy: this._healthy,
@@ -87,7 +98,8 @@ export class VertexSearchProvider {
       requestsUsed: this._sessionRequests,
       quotaLimit: this._serverLimit ?? limit,
       quotaRemaining: remaining,
-      quotaSource: this._serverRemaining !== null ? "db" as const : "none" as const,
+      quotaSource:
+        this._serverRemaining !== null ? ("db" as const) : ("none" as const),
       lastError: this._lastError,
       lastUsedAt: this._lastUsedAt?.toISOString() ?? null,
     };
@@ -96,7 +108,9 @@ export class VertexSearchProvider {
   async search(query: string, maxResults = 5): Promise<SearchResult[]> {
     const config = getConfig();
     if (!config.projectId || !config.engineId) {
-      throw new Error("Vertex AI Search not configured (missing GCP_PROJECT_ID or VERTEX_ENGINE_ID)");
+      throw new Error(
+        "Vertex AI Search not configured (missing GCP_PROJECT_ID or VERTEX_ENGINE_ID)",
+      );
     }
 
     // Check and increment quota
@@ -126,13 +140,14 @@ export class VertexSearchProvider {
         queryExpansionSpec: { condition: "AUTO" },
         spellCorrectionSpec: { mode: "AUTO" },
         languageCode: "en-US",
-        userInfo: { timeZone: "Asia/Dhaka" },
       }),
     });
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`Vertex AI Search returned ${res.status}: ${text.slice(0, 300)}`);
+      throw new Error(
+        `Vertex AI Search returned ${res.status}: ${text.slice(0, 300)}`,
+      );
     }
 
     const data = (await res.json()) as {

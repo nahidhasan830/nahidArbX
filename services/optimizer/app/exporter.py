@@ -1,8 +1,7 @@
-"""ONNX export + GCS upload + ml_models DB row.
+"""Vertex AI Model Registry + ml_models DB row.
 
-Converts a trained LightGBM model to ONNX format, embeds feature names
-in the model metadata for runtime validation, uploads to GCS, and writes
-the model lifecycle row to the ml_models table.
+Registers trained LightGBM models with Vertex AI Model Registry and deploys
+to Prediction endpoints. ONNX export is kept for validation only.
 """
 
 from __future__ import annotations
@@ -46,7 +45,7 @@ def export_onnx(
 
     Returns the output path.
     """
-    # Define input type: batch of 25-dim float vectors
+    # Define input type: batch of current-contract float vectors
     initial_type = [("input", FloatTensorType([None, FEATURE_COUNT]))]
 
     # Convert to ONNX with zipmap=False to avoid non-tensor outputs.
@@ -202,6 +201,8 @@ def write_model_row(
     permission_level: str = "observe",
     rejection_reasons: list[str] | None = None,
     onnx_blob: bytes | None = None,
+    vertex_model_name: str | None = None,
+    vertex_endpoint_name: str | None = None,
 ) -> str:
     """Write a row to ml_models tracking this training run.
 
@@ -266,6 +267,7 @@ def write_model_row(
                 deflated_sharpe, pbo, calibration_error,
                 feature_importance, model_artifact_path, onnx_blob, training_report,
                 permission_level, rejection_reasons,
+                vertex_model_name, vertex_endpoint_name,
                 deployed_at, created_at
             ) VALUES (
                 :id, :version, :status, :model_type, :training_samples,
@@ -277,6 +279,7 @@ def write_model_row(
                 :deflated_sharpe, :pbo, :calibration_error,
                 :feature_importance, :model_artifact_path, :onnx_blob, :training_report,
                 :permission_level, :rejection_reasons,
+                :vertex_model_name, :vertex_endpoint_name,
                 :deployed_at, :created_at
             )
         """),
@@ -329,6 +332,8 @@ def write_model_row(
             }),
             "permission_level": permission_level,
             "rejection_reasons": _json_dumps(rejection_reasons) if rejection_reasons else None,
+            "vertex_model_name": vertex_model_name,
+            "vertex_endpoint_name": vertex_endpoint_name,
             "deployed_at": now if deploy else None,
             "created_at": now,
         },
@@ -364,10 +369,15 @@ def export_and_upload(
     *,
     permission_level: str = "observe",
 ) -> str:
-    """Full export pipeline: ONNX → DB row (with embedded blob).
+    """Full export pipeline: ONNX → Vertex AI → DB row.
 
-    The ONNX binary is stored directly in Postgres as bytea so the
-    engine can load it without GCS or local file access.
+    1. Export to ONNX format
+    2. Register with Vertex AI Model Registry (if configured)
+    3. Deploy to Vertex AI Prediction endpoint (if configured)
+    4. Write ml_models row with Vertex AI resource names
+
+    Legacy: ONNX blob is still stored in DB for backward compatibility,
+    but runtime inference uses Vertex AI Prediction endpoint.
 
     Returns the model ID.
     """
@@ -381,26 +391,56 @@ def export_and_upload(
         # Validate the exported model produces sensible output
         _validate_onnx_output(onnx_path)
 
-        # Read the ONNX binary for DB storage
+        # Read the ONNX binary for DB storage (legacy)
         with open(onnx_path, "rb") as f:
             onnx_bytes = f.read()
         onnx_size_kb = len(onnx_bytes) / 1024
-        log.info("ONNX model v%d: %.1f KB — storing in Postgres", version, onnx_size_kb)
+        log.info("ONNX model v%d: %.1f KB", version, onnx_size_kb)
+
+        # Vertex AI registration (primary deployment path)
+        vertex_model_name = None
+        vertex_endpoint_name = None
+        try:
+            from .vertex_registry import export_and_register_vertex
+
+            vertex_model_name, vertex_endpoint_name = export_and_register_vertex(
+                model, metrics, version, onnx_path
+            )
+            log.info(
+                "Vertex AI registration complete: model=%s, endpoint=%s",
+                vertex_model_name,
+                vertex_endpoint_name,
+            )
+        except Exception as e:
+            log.warning(
+                "Vertex AI registration failed (non-fatal): %s. "
+                "Model will be stored in DB only.",
+                e,
+            )
 
         # Optional GCS upload (best-effort, not required)
         gcs_uri = upload_to_gcs(onnx_path, version)
-        artifact_path = gcs_uri or onnx_path
+        artifact_path = vertex_model_name or gcs_uri or onnx_path
 
-    # Write DB row with embedded ONNX blob
+    # Write DB row with embedded ONNX blob (legacy) and Vertex AI resource names
     model_id = write_model_row(
-        session, version, metrics, artifact_path,
-        deploy=True, permission_level=permission_level,
+        session,
+        version,
+        metrics,
+        artifact_path,
+        deploy=True,
+        permission_level=permission_level,
         onnx_blob=onnx_bytes,
+        vertex_model_name=vertex_model_name,
+        vertex_endpoint_name=vertex_endpoint_name,
     )
 
     log.info(
         "Model v%d exported and deployed: id=%s, AUC=%.4f, DSR=%.4f",
-        version, model_id, metrics.auc_roc, metrics.dsr,
+        version,
+        model_id,
+        metrics.auc_roc,
+        metrics.dsr,
     )
     return model_id
 

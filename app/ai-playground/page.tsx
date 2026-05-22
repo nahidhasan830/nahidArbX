@@ -24,7 +24,10 @@ import {
   Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAiProviders, type AiProvider } from "@/app/ai-engine/useAiProviders";
+import {
+  useAiProviders,
+  type AiProvider,
+} from "@/app/ai-engine/useAiProviders";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -39,10 +42,30 @@ function Markdown({ text }: { text: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: (props) => <h1 className="text-[16px] font-semibold text-foreground mt-3 mb-1.5" {...props} />,
-          h2: (props) => <h2 className="text-[15px] font-semibold text-foreground mt-3 mb-1.5" {...props} />,
-          h3: (props) => <h3 className="text-[14px] font-semibold text-foreground mt-2.5 mb-1" {...props} />,
-          h4: (props) => <h4 className="text-[13px] font-semibold text-foreground mt-2 mb-1" {...props} />,
+          h1: (props) => (
+            <h1
+              className="text-[16px] font-semibold text-foreground mt-3 mb-1.5"
+              {...props}
+            />
+          ),
+          h2: (props) => (
+            <h2
+              className="text-[15px] font-semibold text-foreground mt-3 mb-1.5"
+              {...props}
+            />
+          ),
+          h3: (props) => (
+            <h3
+              className="text-[14px] font-semibold text-foreground mt-2.5 mb-1"
+              {...props}
+            />
+          ),
+          h4: (props) => (
+            <h4
+              className="text-[13px] font-semibold text-foreground mt-2 mb-1"
+              {...props}
+            />
+          ),
           p: (props) => <p className="leading-relaxed" {...props} />,
           a: (props) => (
             <a
@@ -52,11 +75,25 @@ function Markdown({ text }: { text: string }) {
               className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 decoration-cyan-500/40 hover:decoration-cyan-300"
             />
           ),
-          ul: (props) => <ul className="list-disc pl-5 space-y-0.5 marker:text-muted-foreground/50" {...props} />,
-          ol: (props) => <ol className="list-decimal pl-5 space-y-0.5 marker:text-muted-foreground/60" {...props} />,
+          ul: (props) => (
+            <ul
+              className="list-disc pl-5 space-y-0.5 marker:text-muted-foreground/50"
+              {...props}
+            />
+          ),
+          ol: (props) => (
+            <ol
+              className="list-decimal pl-5 space-y-0.5 marker:text-muted-foreground/60"
+              {...props}
+            />
+          ),
           li: (props) => <li className="leading-snug" {...props} />,
-          strong: (props) => <strong className="font-semibold text-foreground" {...props} />,
-          em: (props) => <em className="italic text-foreground/80" {...props} />,
+          strong: (props) => (
+            <strong className="font-semibold text-foreground" {...props} />
+          ),
+          em: (props) => (
+            <em className="italic text-foreground/80" {...props} />
+          ),
           blockquote: (props) => (
             <blockquote
               className="border-l-2 border-cyan-500/40 pl-3 text-muted-foreground/90 italic"
@@ -92,12 +129,25 @@ function Markdown({ text }: { text: string }) {
           hr: () => <hr className="border-border/30 my-3" />,
           table: (props) => (
             <div className="overflow-x-auto my-2">
-              <table className="w-full text-[12.5px] border-collapse" {...props} />
+              <table
+                className="w-full text-[12.5px] border-collapse"
+                {...props}
+              />
             </div>
           ),
           thead: (props) => <thead className="bg-card/40" {...props} />,
-          th: (props) => <th className="border border-border/40 px-2 py-1 text-left font-semibold" {...props} />,
-          td: (props) => <td className="border border-border/40 px-2 py-1 align-top" {...props} />,
+          th: (props) => (
+            <th
+              className="border border-border/40 px-2 py-1 text-left font-semibold"
+              {...props}
+            />
+          ),
+          td: (props) => (
+            <td
+              className="border border-border/40 px-2 py-1 align-top"
+              {...props}
+            />
+          ),
         }}
       >
         {text}
@@ -140,31 +190,44 @@ function getFamily(p: AiProvider): LlmFamily | null {
 }
 
 function getTier(p: AiProvider): LlmTier | null {
-  if (p.tier === "lite" || p.tier === "flash" || p.tier === "pro") return p.tier;
+  if (p.tier === "lite" || p.tier === "flash" || p.tier === "pro")
+    return p.tier;
   return null;
 }
 
 export default function AIPlayground() {
   // ── Providers from DB ────────────────────────────────────────────
-  const { llmProviders, searchProviders, isLoading: llmLoading } = useAiProviders();
+  const {
+    llmProviders,
+    searchProviders,
+    isLoading: llmLoading,
+  } = useAiProviders();
 
   // ── Composer + model state ────────────────────────────────────────────
   const [query, setQuery] = useState("");
   const [executedQuery, setExecutedQuery] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<AiProvider | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<AiProvider | null>(
+    null,
+  );
   const [useWebSearch, setUseWebSearch] = useState(true);
   const [searchProvider, setSearchProvider] = useState<string>("auto");
 
   // ── Run state ────────────────────────────────────────────────
   const [isExecuting, setIsExecuting] = useState(false);
-  const [step1State, setStep1State] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [step1State, setStep1State] = useState<
+    "idle" | "running" | "done" | "error"
+  >("idle");
   const [step1Results, setStep1Results] = useState<SearchResult[] | null>(null);
   const [step1Error, setStep1Error] = useState<string | null>(null);
 
-  const [step2State, setStep2State] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [step2State, setStep2State] = useState<
+    "idle" | "running" | "done" | "error"
+  >("idle");
   const [step2Answer, setStep2Answer] = useState<string | null>(null);
   const [step2Reasoning, setStep2Reasoning] = useState<string | null>(null);
-  const [step2Usage, setStep2Usage] = useState<{ totalTokens?: number } | null>(null);
+  const [step2Usage, setStep2Usage] = useState<{ totalTokens?: number } | null>(
+    null,
+  );
 
   const [isCotExpanded, setIsCotExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -244,16 +307,34 @@ export default function AIPlayground() {
         if (!searchRes.ok) {
           let detail = "";
           try {
-            const errBody = (await searchRes.json()) as { error?: string; detail?: unknown };
-            detail = errBody.error ?? (typeof errBody.detail === "string" ? errBody.detail : JSON.stringify(errBody.detail ?? ""));
-          } catch { /* not JSON */ }
-          throw new Error(detail ? `Web grounding failed (${searchRes.status}): ${detail}` : `Web grounding failed (HTTP ${searchRes.status})`);
+            const errBody = (await searchRes.json()) as {
+              error?: string;
+              detail?: unknown;
+            };
+            detail =
+              errBody.error ??
+              (typeof errBody.detail === "string"
+                ? errBody.detail
+                : JSON.stringify(errBody.detail ?? ""));
+          } catch {
+            /* not JSON */
+          }
+          throw new Error(
+            detail
+              ? `Web grounding failed (${searchRes.status}): ${detail}`
+              : `Web grounding failed (HTTP ${searchRes.status})`,
+          );
         }
 
-        const searchData = (await searchRes.json()) as { results?: SearchResult[]; providerUsed?: string };
+        const searchData = (await searchRes.json()) as {
+          results?: SearchResult[];
+          providerUsed?: string;
+        };
 
         if (searchData.providerUsed === "none") {
-          throw new Error("Web grounding failed: no search providers returned results.");
+          throw new Error(
+            "Web grounding failed: no search providers returned results.",
+          );
         }
 
         setStep1Results(searchData.results || []);
@@ -295,7 +376,8 @@ export default function AIPlayground() {
     }
   };
 
-  const showTrace = step1State !== "idle" || step2State !== "idle" || executedQuery;
+  const showTrace =
+    step1State !== "idle" || step2State !== "idle" || executedQuery;
 
   // Football-contextual suggestions. Live queries when web grounding is on,
   // analytical questions otherwise.
@@ -322,7 +404,10 @@ export default function AIPlayground() {
       title="AI Playground"
       edgeToEdge
       titleBadge={
-        <Badge variant="outline" className="ml-2 bg-cyan-500/10 text-cyan-400 border-cyan-500/20 text-[10px] rounded font-mono uppercase py-0.5 tracking-[0.08em]">
+        <Badge
+          variant="outline"
+          className="ml-2 bg-cyan-500/10 text-cyan-400 border-cyan-500/20 text-[10px] rounded font-mono uppercase py-0.5 tracking-[0.08em]"
+        >
           <Terminal className="size-3 mr-1 inline-block" />
           {selectedProvider?.label ?? (llmLoading ? "Loading…" : "No provider")}
         </Badge>
@@ -331,7 +416,12 @@ export default function AIPlayground() {
         latency !== null ? (
           <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-card/50 border border-border/40 text-[11px] font-mono text-muted-foreground">
             <Activity className="size-3 text-emerald-400" />
-            <span>{latency}ms{step2Usage?.totalTokens ? ` · ${step2Usage.totalTokens} tok` : ""}</span>
+            <span>
+              {latency}ms
+              {step2Usage?.totalTokens
+                ? ` · ${step2Usage.totalTokens} tok`
+                : ""}
+            </span>
           </div>
         ) : null
       }
@@ -343,9 +433,16 @@ export default function AIPlayground() {
               <div className="px-6 py-5 pb-56 w-full space-y-6">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Execution Trace</span>
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                      Execution Trace
+                    </span>
                     {latency !== null && (
-                      <span className="font-mono text-[11px] text-emerald-400">{latency}ms{step2Usage?.totalTokens ? ` · ${step2Usage.totalTokens} tokens` : ""}</span>
+                      <span className="font-mono text-[11px] text-emerald-400">
+                        {latency}ms
+                        {step2Usage?.totalTokens
+                          ? ` · ${step2Usage.totalTokens} tokens`
+                          : ""}
+                      </span>
                     )}
                   </div>
                   <div className="h-px bg-border/40 w-full" />
@@ -353,69 +450,101 @@ export default function AIPlayground() {
 
                 {executedQuery && (
                   <div className="space-y-1.5">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Query</span>
-                    <p className="text-[14px] text-foreground/90 leading-snug">{executedQuery}</p>
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                      Query
+                    </span>
+                    <p className="text-[14px] text-foreground/90 leading-snug">
+                      {executedQuery}
+                    </p>
                   </div>
                 )}
 
                 {useWebSearch && step1State !== "idle" && (
-                <div className="space-y-2.5">
-                  <div className="flex items-center gap-2">
-                    {step1State === "running" ? <Spinner className="size-3.5 text-cyan-400" />
-                      : step1State === "done" ? <CheckCircle2 className="size-4 text-emerald-400" />
-                        : <X className="size-4 text-red-400" />}
-                    <span className="text-[13px] font-semibold">Web Grounding</span>
-                    {step1Results && step1State === "done" && (
-                      <span className="font-mono text-[10px] text-muted-foreground/70">{step1Results.length} sources</span>
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      {step1State === "running" ? (
+                        <Spinner className="size-3.5 text-cyan-400" />
+                      ) : step1State === "done" ? (
+                        <CheckCircle2 className="size-4 text-emerald-400" />
+                      ) : (
+                        <X className="size-4 text-red-400" />
+                      )}
+                      <span className="text-[13px] font-semibold">
+                        Web Grounding
+                      </span>
+                      {step1Results && step1State === "done" && (
+                        <span className="font-mono text-[10px] text-muted-foreground/70">
+                          {step1Results.length} sources
+                        </span>
+                      )}
+                      {step1State === "error" && (
+                        <span className="font-mono text-[10px] text-red-400/80 uppercase tracking-[0.08em]">
+                          Failed
+                        </span>
+                      )}
+                    </div>
+
+                    {step1State === "error" && step1Error && (
+                      <div className="p-3 border border-red-500/30 bg-red-500/5 rounded text-[12px] text-red-300/90 leading-snug">
+                        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-red-400/80 mb-1">
+                          Grounding aborted
+                        </p>
+                        {step1Error}
+                      </div>
                     )}
-                    {step1State === "error" && <span className="font-mono text-[10px] text-red-400/80 uppercase tracking-[0.08em]">Failed</span>}
+
+                    {step1Results && step1Results.length > 0 && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 gap-y-0.5">
+                        {step1Results.map((r, i) => {
+                          const domain = (() => {
+                            try {
+                              return new URL(r.url).hostname.replace(
+                                /^www\./,
+                                "",
+                              );
+                            } catch {
+                              return r.url;
+                            }
+                          })();
+                          return (
+                            <a
+                              key={`${r.url}-${i}`}
+                              href={r.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={`${r.title}\n${r.url}\n\n${r.snippet}`}
+                              className="group flex items-baseline gap-2 py-1 px-1.5 -mx-1.5 rounded hover:bg-card/40 transition-colors min-w-0"
+                            >
+                              <span className="font-mono text-[10px] font-bold text-emerald-400/70 shrink-0 tabular-nums w-5">
+                                [{i + 1}]
+                              </span>
+                              <span className="text-[12px] text-foreground/85 group-hover:text-foreground truncate flex-1 min-w-0 leading-snug">
+                                {r.title || domain}
+                              </span>
+                              <span className="font-mono text-[10px] text-cyan-400/60 shrink-0 truncate max-w-[140px]">
+                                {domain}
+                              </span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-
-                  {step1State === "error" && step1Error && (
-                    <div className="p-3 border border-red-500/30 bg-red-500/5 rounded text-[12px] text-red-300/90 leading-snug">
-                      <p className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-red-400/80 mb-1">Grounding aborted</p>
-                      {step1Error}
-                    </div>
-                  )}
-
-                  {step1Results && step1Results.length > 0 && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 gap-y-0.5">
-                      {step1Results.map((r, i) => {
-                        const domain = (() => {
-                          try { return new URL(r.url).hostname.replace(/^www\./, ""); }
-                          catch { return r.url; }
-                        })();
-                        return (
-                          <a
-                            key={`${r.url}-${i}`}
-                            href={r.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={`${r.title}\n${r.url}\n\n${r.snippet}`}
-                            className="group flex items-baseline gap-2 py-1 px-1.5 -mx-1.5 rounded hover:bg-card/40 transition-colors min-w-0"
-                          >
-                            <span className="font-mono text-[10px] font-bold text-emerald-400/70 shrink-0 tabular-nums w-5">[{i + 1}]</span>
-                            <span className="text-[12px] text-foreground/85 group-hover:text-foreground truncate flex-1 min-w-0 leading-snug">
-                              {r.title || domain}
-                            </span>
-                            <span className="font-mono text-[10px] text-cyan-400/60 shrink-0 truncate max-w-[140px]">
-                              {domain}
-                            </span>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
 
                 {step2State !== "idle" && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
-                      {step2State === "running" ? <Spinner className="size-3.5 text-cyan-400" />
-                        : step2State === "done" ? <CheckCircle2 className="size-4 text-emerald-400" />
-                          : <X className="size-4 text-red-400" />}
-                      <span className="text-[13px] font-semibold">AI Synthesis</span>
+                      {step2State === "running" ? (
+                        <Spinner className="size-3.5 text-cyan-400" />
+                      ) : step2State === "done" ? (
+                        <CheckCircle2 className="size-4 text-emerald-400" />
+                      ) : (
+                        <X className="size-4 text-red-400" />
+                      )}
+                      <span className="text-[13px] font-semibold">
+                        AI Synthesis
+                      </span>
                       {step2State === "done" && step2Answer && (
                         <span className="font-mono text-[10px] text-muted-foreground/60 ml-auto">
                           {step2Answer.length.toLocaleString()} chars
@@ -439,7 +568,9 @@ export default function AIPlayground() {
                             Chain of Thought
                           </span>
                           <span className="font-mono text-[10px] text-muted-foreground/50 ml-auto tabular-nums">
-                            {step2Reasoning.split(/\n+/).filter(Boolean).length} lines · {step2Reasoning.length.toLocaleString()} chars
+                            {step2Reasoning.split(/\n+/).filter(Boolean).length}{" "}
+                            lines · {step2Reasoning.length.toLocaleString()}{" "}
+                            chars
                           </span>
                         </button>
                         {isCotExpanded && (
@@ -488,7 +619,11 @@ export default function AIPlayground() {
                             )}
                             title="Copy answer"
                           >
-                            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                            {copied ? (
+                              <Check className="size-3" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
                             {copied ? "Copied" : "Copy"}
                           </button>
                         </div>
@@ -506,9 +641,12 @@ export default function AIPlayground() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <p className="text-[15px] text-foreground/90">Ask anything about football and betting.</p>
+                  <p className="text-[15px] text-foreground/90">
+                    Ask anything about football and betting.
+                  </p>
                   <p className="font-mono text-[10px] text-muted-foreground/60 uppercase tracking-[0.08em]">
-                    {selectedProvider?.label ?? (llmLoading ? "Loading providers…" : "—")}
+                    {selectedProvider?.label ??
+                      (llmLoading ? "Loading providers…" : "—")}
                     {useWebSearch ? " · web grounding on" : " · no web search"}
                   </p>
                 </div>
@@ -531,23 +669,54 @@ export default function AIPlayground() {
 
           <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 pt-2 bg-gradient-to-t from-background via-background/95 to-background/0 pointer-events-none">
             <div className="w-full pointer-events-auto">
-              <div className={cn("group rounded-md border bg-card/60 backdrop-blur-sm transition-all", "border-border/60 shadow-lg shadow-black/20", "focus-within:border-cyan-500/60 focus-within:bg-card/80", "focus-within:shadow-[0_0_0_3px_rgba(34,211,238,0.08),0_8px_24px_-8px_rgba(0,0,0,0.4)]")}>
+              <div
+                className={cn(
+                  "group rounded-md border bg-card/60 backdrop-blur-sm transition-all",
+                  "border-border/60 shadow-lg shadow-black/20",
+                  "focus-within:border-cyan-500/60 focus-within:bg-card/80",
+                  "focus-within:shadow-[0_0_0_3px_rgba(34,211,238,0.08),0_8px_24px_-8px_rgba(0,0,0,0.4)]",
+                )}
+              >
                 <Textarea
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleExecute(); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleExecute();
+                    }
+                  }}
                   placeholder="Ask anything… (Shift+Enter for newline)"
                   rows={4}
-                  className={cn("w-full resize-none text-[14px] leading-relaxed", "px-4 pt-3.5 pb-2 min-h-[104px] max-h-[260px]", "border-0 bg-transparent dark:bg-transparent shadow-none rounded-md rounded-b-none", "focus-visible:ring-0 focus-visible:border-0 outline-none", "placeholder:text-muted-foreground/45")}
+                  className={cn(
+                    "w-full resize-none text-[14px] leading-relaxed",
+                    "px-4 pt-3.5 pb-2 min-h-[104px] max-h-[260px]",
+                    "border-0 bg-transparent dark:bg-transparent shadow-none rounded-md rounded-b-none",
+                    "focus-visible:ring-0 focus-visible:border-0 outline-none",
+                    "placeholder:text-muted-foreground/45",
+                  )}
                 />
 
                 <div className="flex items-center justify-between px-3 py-2 border-t border-border/30">
                   <div className="flex items-center gap-1.5">
-                    <button type="button" onClick={() => setUseWebSearch((v) => !v)} className={cn("px-2 h-6 rounded font-mono text-[9px] font-bold tracking-[0.08em] uppercase border flex items-center gap-1 transition-all", useWebSearch ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/15" : "bg-transparent border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border/60")} title="Toggle web grounding">
+                    <button
+                      type="button"
+                      onClick={() => setUseWebSearch((v) => !v)}
+                      className={cn(
+                        "px-2 h-6 rounded font-mono text-[9px] font-bold tracking-[0.08em] uppercase border flex items-center gap-1 transition-all",
+                        useWebSearch
+                          ? "bg-cyan-500/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/15"
+                          : "bg-transparent border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border/60",
+                      )}
+                      title="Toggle web grounding"
+                    >
                       <Globe className="size-3" />
                       Web {useWebSearch ? "On" : "Off"}
                     </button>
-                    <span className="px-2 h-6 rounded font-mono text-[9px] font-bold tracking-[0.08em] uppercase border bg-transparent border-border/40 text-muted-foreground/80 flex items-center gap-1" title="Active provider">
+                    <span
+                      className="px-2 h-6 rounded font-mono text-[9px] font-bold tracking-[0.08em] uppercase border bg-transparent border-border/40 text-muted-foreground/80 flex items-center gap-1"
+                      title="Active provider"
+                    >
                       {llmLoading && !selectedProvider ? (
                         <>
                           <Spinner className="size-2.5" />
@@ -555,13 +724,38 @@ export default function AIPlayground() {
                         </>
                       ) : (
                         <>
-                          <span className={cn("size-1.5 rounded-full", selectedProvider?.enabled ? "bg-cyan-400" : "bg-muted")} />
+                          <span
+                            className={cn(
+                              "size-1.5 rounded-full",
+                              selectedProvider?.enabled
+                                ? "bg-cyan-400"
+                                : "bg-muted",
+                            )}
+                          />
                           {selectedProvider?.label ?? "—"}
                         </>
                       )}
                     </span>
                   </div>
-                  <Button type="button" onClick={handleExecute} disabled={!query.trim() || isExecuting || providerDisabled || llmLoading || !selectedProvider} size="sm" className={cn("h-7 px-3.5 rounded font-mono text-[10px] font-bold tracking-[0.08em] uppercase", "bg-cyan-500 hover:bg-cyan-400 text-black", "shadow-[0_0_0_1px_rgba(34,211,238,0.4),0_4px_12px_-2px_rgba(34,211,238,0.3)]", "disabled:opacity-50 disabled:shadow-none disabled:bg-muted disabled:text-muted-foreground", "transition-all")}>
+                  <Button
+                    type="button"
+                    onClick={handleExecute}
+                    disabled={
+                      !query.trim() ||
+                      isExecuting ||
+                      providerDisabled ||
+                      llmLoading ||
+                      !selectedProvider
+                    }
+                    size="sm"
+                    className={cn(
+                      "h-7 px-3.5 rounded font-mono text-[10px] font-bold tracking-[0.08em] uppercase",
+                      "bg-cyan-500 hover:bg-cyan-400 text-black",
+                      "shadow-[0_0_0_1px_rgba(34,211,238,0.4),0_4px_12px_-2px_rgba(34,211,238,0.3)]",
+                      "disabled:opacity-50 disabled:shadow-none disabled:bg-muted disabled:text-muted-foreground",
+                      "transition-all",
+                    )}
+                  >
                     {isExecuting ? <Spinner className="size-3 mr-1.5" /> : null}
                     Run
                     {!isExecuting && <ArrowRight className="size-3 ml-1.5" />}
@@ -577,7 +771,9 @@ export default function AIPlayground() {
           <div className="p-4 space-y-5">
             {/* Step 1: LLM Provider */}
             <section className="space-y-2">
-              <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">LLM Provider</h3>
+              <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                LLM Provider
+              </h3>
               {llmLoading && llmProviders.length === 0 ? (
                 <div className="space-y-3">
                   {LLM_FAMILY_ORDER.map((family) => (
@@ -594,17 +790,23 @@ export default function AIPlayground() {
               ) : (
                 <div className="space-y-3">
                   {LLM_FAMILY_ORDER.map((family) => {
-                    const familyProviders = llmProviders.filter((p) => getFamily(p) === family && getTier(p) !== null);
+                    const familyProviders = llmProviders.filter(
+                      (p) => getFamily(p) === family && getTier(p) !== null,
+                    );
                     if (familyProviders.length === 0) return null;
                     const tiers = LLM_TIER_ORDER.filter((tier) =>
                       familyProviders.some((p) => getTier(p) === tier),
                     );
                     return (
                       <div key={family} className="space-y-1">
-                        <span className="font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-cyan-400/60">{FAMILY_LABELS[family]}</span>
+                        <span className="font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-cyan-400/60">
+                          {FAMILY_LABELS[family]}
+                        </span>
                         <div className="flex gap-1">
                           {tiers.map((tier) => {
-                            const provider = familyProviders.find((p) => getTier(p) === tier);
+                            const provider = familyProviders.find(
+                              (p) => getTier(p) === tier,
+                            );
                             if (!provider) return null;
                             return (
                               <button
@@ -617,9 +819,14 @@ export default function AIPlayground() {
                                   selectedProvider?.name === provider.name
                                     ? "bg-cyan-500/20 border-cyan-500/60 text-cyan-300"
                                     : "bg-transparent border-border/40 text-muted-foreground/70 hover:border-cyan-500/40 hover:text-foreground",
-                                  !provider.enabled && "opacity-40 cursor-not-allowed line-through",
+                                  !provider.enabled &&
+                                    "opacity-40 cursor-not-allowed line-through",
                                 )}
-                                title={provider.disabledReason ? `${TIER_LABELS[tier]} — ${provider.disabledReason}` : TIER_LABELS[tier]}
+                                title={
+                                  provider.disabledReason
+                                    ? `${TIER_LABELS[tier]} — ${provider.disabledReason}`
+                                    : TIER_LABELS[tier]
+                                }
                               >
                                 {TIER_LABELS[tier]}
                               </button>
@@ -638,7 +845,9 @@ export default function AIPlayground() {
             {/* Step 2: Grounding */}
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Web Grounding</h3>
+                <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                  Web Grounding
+                </h3>
                 <Switch
                   checked={useWebSearch}
                   onCheckedChange={setUseWebSearch}
@@ -648,8 +857,8 @@ export default function AIPlayground() {
                 />
               </div>
 
-              {useWebSearch && (
-                llmLoading && searchProviders.length === 0 ? (
+              {useWebSearch &&
+                (llmLoading && searchProviders.length === 0 ? (
                   <div className="space-y-1">
                     <Skeleton className="h-3 w-12 rounded-sm" />
                     <div className="space-y-1">
@@ -663,7 +872,9 @@ export default function AIPlayground() {
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    <span className="font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-cyan-400/60">Source</span>
+                    <span className="font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-cyan-400/60">
+                      Source
+                    </span>
                     <div className="space-y-1">
                       <button
                         type="button"
@@ -695,9 +906,12 @@ export default function AIPlayground() {
                                 searchProvider === sp.name
                                   ? "bg-cyan-500/20 border-cyan-500/60 text-cyan-300"
                                   : "bg-transparent border-border/40 text-muted-foreground/70 hover:border-cyan-500/40 hover:text-foreground",
-                                disabled && "opacity-40 cursor-not-allowed line-through",
+                                disabled &&
+                                  "opacity-40 cursor-not-allowed line-through",
                               )}
-                              title={reason ? `${sp.label} — ${reason}` : sp.label}
+                              title={
+                                reason ? `${sp.label} — ${reason}` : sp.label
+                              }
                             >
                               {sp.name}
                             </button>
@@ -709,51 +923,74 @@ export default function AIPlayground() {
                       if (searchProvider === "auto") {
                         return (
                           <p className="font-mono text-[9px] text-muted-foreground/60 leading-snug pt-0.5">
-                            Routes to Vertex first (curated 50-site football corpus), then Brave → Tavily on failure.
+                            Routes to Vertex first (curated 50-site football
+                            corpus), then Brave → Tavily on failure.
                           </p>
                         );
                       }
-                      const sp = searchProviders.find((p) => p.name === searchProvider);
+                      const sp = searchProviders.find(
+                        (p) => p.name === searchProvider,
+                      );
                       if (!sp) return null;
                       return (
                         <p className="font-mono text-[9px] text-muted-foreground/60 leading-snug pt-0.5">
                           {sp.tagline ?? sp.label}
-                          {sp.hasMonthlyLimit && sp.monthlyRemaining !== null && sp.monthlyLimit !== null && (
-                            <> · {sp.monthlyRemaining}/{sp.monthlyLimit} left this month</>
-                          )}
+                          {sp.hasMonthlyLimit &&
+                            sp.monthlyRemaining !== null &&
+                            sp.monthlyLimit !== null && (
+                              <>
+                                {" "}
+                                · {sp.monthlyRemaining}/{sp.monthlyLimit} left
+                                this month
+                              </>
+                            )}
                         </p>
                       );
                     })()}
 
-                    {(searchProvider === "vertex" || searchProvider === "auto") && (
+                    {(searchProvider === "vertex" ||
+                      searchProvider === "auto") && (
                       <div className="flex items-start gap-1.5 mt-1.5 px-2 py-1.5 rounded border border-amber-500/30 bg-amber-500/[0.04]">
                         <Info className="size-3 text-amber-400/90 shrink-0 mt-0.5" />
                         <p className="font-mono text-[9px] leading-snug text-amber-200/80">
-                          Vertex is scoped to a curated set of ~50 football/sports websites — great signal for matches, lineups, fixtures and odds, but won&apos;t find off-topic info. Switch to Brave or Tavily for the open web.
+                          Vertex is scoped to a curated set of ~50
+                          football/sports websites — great signal for matches,
+                          lineups, fixtures and odds, but won&apos;t find
+                          off-topic info. Switch to Brave or Tavily for the open
+                          web.
                         </p>
                       </div>
                     )}
                   </div>
-                )
-              )}
+                ))}
             </section>
 
             <div className="h-px bg-border/40" />
 
             {/* Telemetry */}
             <section className="space-y-2">
-              <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Telemetry</h3>
+              <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                Telemetry
+              </h3>
               <div className="space-y-1">
                 <div className="flex items-center justify-between h-6">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Status</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                    Status
+                  </span>
                   <div className="flex items-center gap-1.5">
                     <div className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="font-mono text-[11px] text-emerald-400">{isExecuting ? "EXECUTING" : "OPTIMAL"}</span>
+                    <span className="font-mono text-[11px] text-emerald-400">
+                      {isExecuting ? "EXECUTING" : "OPTIMAL"}
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between h-6">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Last</span>
-                  <span className="font-mono text-[11px] text-foreground">{latency !== null ? `${latency}ms` : "—"}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                    Last
+                  </span>
+                  <span className="font-mono text-[11px] text-foreground">
+                    {latency !== null ? `${latency}ms` : "—"}
+                  </span>
                 </div>
               </div>
             </section>

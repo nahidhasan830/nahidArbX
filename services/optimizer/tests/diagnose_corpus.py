@@ -165,7 +165,7 @@ def main() -> None:
     any_signal = any(r > 0.1 for _, r in correlations[:5])
     if not any_signal:
         print("\n⚠ NO feature has |r_pb| > 0.10 with the label.")
-        print("  This means no feature in the 25-dim vector can separate wins from losses")
+        print("  This means no feature in the 22-feature vector can separate wins from losses")
         print("  in the actionable (ev_pct > 0) corpus.")
         print()
         print("  Possible root causes:")
@@ -188,7 +188,7 @@ def main() -> None:
         top_signal = correlations[0]
         print(f"\n✓ Some signal detected. Top feature: {top_signal[0]} |r|={top_signal[1]:.4f}")
         print("  The pipeline should be able to learn something, but 487 samples may be")
-        print("  too few for 25 features + 50-trial HPO.")
+        print("  too few for 22 features + 50-trial HPO.")
 
 
 if __name__ == "__main__":

@@ -4,19 +4,13 @@ import {
   listByStage,
   type MatchPairRow,
 } from "@/lib/db/repositories/match-pairs";
-import {
-  getBetById,
-  listBets,
-} from "@/lib/db/repositories/bets";
+import { getBetById, listBets } from "@/lib/db/repositories/bets";
 import type { BetRow } from "@/lib/db/schema";
 import { getScoresByEventIds } from "@/lib/db/repositories/match-scores";
 import { settleBet } from "@/lib/settle/settle-bet";
 import type { MatchScore } from "@/lib/settle/types";
 import { normalizeOutcome, type ValueBetRow } from "@/lib/bets-history/types";
-import {
-  buildMatchQueries,
-  buildSettlementQueries,
-} from "@/lib/ai/grounding";
+import { buildMatchQueries, buildSettlementQueries } from "@/lib/ai/grounding";
 import type { EventInfo } from "@/lib/ai/search/types";
 
 const DEFAULT_SAMPLE_SIZE = 20;
@@ -140,13 +134,18 @@ async function buildEventMatchSamples(sampleSize: number, poolSize: number) {
   const rows = await listByStage("history", { limit: poolSize });
   const decided = rows
     .map((row) => ({ row, expected: expectedMatchVerdict(row.decision) }))
-    .filter((item): item is { row: MatchPairRow; expected: "SAME" | "DIFFERENT" } =>
-      item.expected !== null,
+    .filter(
+      (item): item is { row: MatchPairRow; expected: "SAME" | "DIFFERENT" } =>
+        item.expected !== null,
     )
     .filter((item) => item.expected === "SAME");
 
-  const human = shuffle(decided.filter((item) => item.row.decidedBy === "human"));
-  const other = shuffle(decided.filter((item) => item.row.decidedBy !== "human"));
+  const human = shuffle(
+    decided.filter((item) => item.row.decidedBy === "human"),
+  );
+  const other = shuffle(
+    decided.filter((item) => item.row.decidedBy !== "human"),
+  );
 
   return [...human, ...other].slice(0, sampleSize).map(({ row, expected }) => {
     const eventA = matchPairEventA(row);
@@ -172,7 +171,9 @@ async function buildEventMatchSamples(sampleSize: number, poolSize: number) {
 
 async function buildSettlementSamples(sampleSize: number, poolSize: number) {
   const { rows } = await listBets({ outcome: "settled", limit: poolSize });
-  const scores = await getScoresByEventIds([...new Set(rows.map((r) => r.eventId))]);
+  const scores = await getScoresByEventIds([
+    ...new Set(rows.map((r) => r.eventId)),
+  ]);
   const eligible: Array<{
     bet: BetRow;
     score: MatchScore;
@@ -197,7 +198,8 @@ async function buildSettlementSamples(sampleSize: number, poolSize: number) {
     if (!FT_GOAL_MARKETS.has(bet.marketType)) continue;
 
     const score = scores.get(bet.eventId);
-    if (!score || score.status === "ABD" || score.status === "POSTPONED") continue;
+    if (!score || score.status === "ABD" || score.status === "POSTPONED")
+      continue;
 
     const settled = settleBet(bet as ValueBetRow, score);
     if (settled.outcome === "pending") continue;
@@ -242,35 +244,34 @@ async function buildSettlementSamples(sampleSize: number, poolSize: number) {
     if (uniqueByEvent.length >= sampleSize) break;
   }
 
-  return uniqueByEvent
-    .map(({ bet, score, expectedOutcome, request }) => ({
-      id: bet.id,
-      eventId: bet.eventId,
-      match: {
-        homeTeam: bet.homeTeam,
-        awayTeam: bet.awayTeam,
-        competition: bet.competition,
-        startTime: bet.eventStartTime,
-      },
-      market: {
-        marketType: bet.marketType,
-        timeScope: bet.timeScope,
-        familyLine: bet.familyLine,
-        atomId: bet.atomId,
-        atomLabel: bet.atomLabel,
-      },
-      expectedOutcome,
-      actualOutcome: normalizeOutcome(bet.outcome),
-      actualScore: {
-        ftHome: score.ftHome,
-        ftAway: score.ftAway,
-        htHome: score.htHome,
-        htAway: score.htAway,
-        source: score.source,
-        confidence: score.confidence,
-      },
-      request,
-    }));
+  return uniqueByEvent.map(({ bet, score, expectedOutcome, request }) => ({
+    id: bet.id,
+    eventId: bet.eventId,
+    match: {
+      homeTeam: bet.homeTeam,
+      awayTeam: bet.awayTeam,
+      competition: bet.competition,
+      startTime: bet.eventStartTime,
+    },
+    market: {
+      marketType: bet.marketType,
+      timeScope: bet.timeScope,
+      familyLine: bet.familyLine,
+      atomId: bet.atomId,
+      atomLabel: bet.atomLabel,
+    },
+    expectedOutcome,
+    actualOutcome: normalizeOutcome(bet.outcome),
+    actualScore: {
+      ftHome: score.ftHome,
+      ftAway: score.ftAway,
+      htHome: score.htHome,
+      htAway: score.htAway,
+      source: score.source,
+      confidence: score.confidence,
+    },
+    request,
+  }));
 }
 
 function matchPairEventA(row: MatchPairRow): EventInfo {
@@ -293,7 +294,9 @@ function matchPairEventB(row: MatchPairRow): EventInfo {
   };
 }
 
-function expectedMatchVerdict(decision: string | null): "SAME" | "DIFFERENT" | null {
+function expectedMatchVerdict(
+  decision: string | null,
+): "SAME" | "DIFFERENT" | null {
   if (
     decision === "ai-merge" ||
     decision === "human-merge" ||

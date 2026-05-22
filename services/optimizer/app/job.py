@@ -4,7 +4,7 @@ Replaces the old Optuna sweep entry point. Runs as a Cloud Run Job:
   1. Load settled bets with ML features from Postgres
   2. Check cold-start threshold
   3. Train LightGBM via CPCV
-  4. Run deployment gate (Phase 7): check quality gates +
+  4. Run deployment gate: check quality gates +
      determine permission level
   5. If deployment gate approves:
      export as ONNX, upload to GCS, write ml_models row
@@ -40,7 +40,7 @@ def _count_placed_settled(session) -> int:
 def _fail_pending_models(reason: str) -> None:
     """Mark pending ml_models rows as failed so the UI doesn't stay stuck.
 
-    Phase 5: scoped to TRAINING_MODEL_ID env var when available, so we
+    Scoped to TRAINING_MODEL_ID when available so we
     only fail the specific model row for THIS training run. Without
     scoping, concurrent training runs could accidentally clobber each
     other's rows.
@@ -219,7 +219,7 @@ def _run_pipeline(settings, log, start_time: float) -> None:
         metrics.score_bucket_report.roi_monotonicity if metrics.score_bucket_report else 0.0,
     )
 
-    # ── Deployment gate (Phase 7) ──────────────────────────────────────
+    # ── Deployment gate ────────────────────────────────────────────────
     from .deployment_gate import evaluate_deployment_gate
     from .feature_names import FEATURE_COUNT, FEATURE_VERSION
 

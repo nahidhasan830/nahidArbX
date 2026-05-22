@@ -1,9 +1,8 @@
 """Model Deployment Gate — prevents bad or overfit models from reaching runtime.
 
-Phase 7 of the ML optimizer plan. Enforces strict quality requirements
-before a model can be deployed to production scoring. Assigns a runtime
-permission level based on the model's quality metrics and the amount of
-available training data.
+Enforces strict quality requirements before a model can be deployed to
+production scoring. Assigns a runtime permission level based on the
+model's quality metrics and the amount of available training data.
 
 Deployment requirements for first observe model:
   - At least MIN_VALID_EXAMPLES valid settled examples after feature normalization
@@ -13,9 +12,9 @@ Deployment requirements for first observe model:
   - Bucket ROI/CLV is directionally monotonic
   - No severe calibration failure
 
-Phase 5 changes:
-  - PBO removed from hard gates (single-trial PBO is always 0.0 and
-    meaningless — demoted to warning-only).
+Current behavior:
+  - PBO is removed from hard gates because single-trial PBO is
+    meaningless and remains warning-only.
 
 Runtime permission levels (escalation order):
   - observe: score and log only — no effect on placement
@@ -78,7 +77,7 @@ MIN_MODEL_VS_SIMPLE_LCB_DELTA = 0.0
 # Active permissions remain stricter below.
 MIN_DSR = 0.6
 
-# PBO threshold — Phase 5: demoted to warning-only because single-trial
+# PBO threshold — warning-only because single-trial
 # PBO is always 0.0 (meaningless until multiple real trials exist).
 # Kept as a constant for future use when multi-trial PBO is implemented.
 MAX_PBO = 0.6
@@ -248,7 +247,7 @@ def evaluate_deployment_gate(
             f"need at least {MIN_DSR}"
         )
 
-    # PBO check — Phase 5: demoted to warning-only. Single-trial PBO is
+    # PBO check — warning-only. Single-trial PBO is
     # always 0.0 by construction (pbo_score requires n_trials >= 2). Until
     # multi-trial PBO is implemented, this check would either always pass
     # (PBO=0.0) or reject meaningful models if PBO computation changes.

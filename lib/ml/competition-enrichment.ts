@@ -335,7 +335,7 @@ async function enrichWithGroundedFallback(
   });
 
   return fromParsed(name, extractJsonObject(result.answer), {
-    provider: "deepseek",  // Default provider for grounding
+    provider: "deepseek", // Default provider for grounding
     model: result.model,
     sources: result.sources.map((s) => ({
       title: s.title,

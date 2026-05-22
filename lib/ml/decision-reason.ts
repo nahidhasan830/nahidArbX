@@ -1,8 +1,9 @@
 import { FEATURE_NAMES } from "./feature-contract";
 
-const F = Object.fromEntries(
-  FEATURE_NAMES.map((n, i) => [n, i]),
-) as Record<string, number>;
+const F = Object.fromEntries(FEATURE_NAMES.map((n, i) => [n, i])) as Record<
+  string,
+  number
+>;
 
 const MODEL_EDGE_FULL_SCALE_PCT = 10;
 
@@ -96,7 +97,10 @@ export function classifyDecisionDriver(
   const steamSharp = features[F.steam_move_sharp] ?? 0;
   const tickCount = features[F.tick_count] ?? 0;
   const convergence = features[F.convergence_rate] ?? 0;
-  const edgeScaling = 0.5 + Math.min(modelEdgePct, MODEL_EDGE_FULL_SCALE_PCT) / MODEL_EDGE_FULL_SCALE_PCT;
+  const edgeScaling =
+    0.5 +
+    Math.min(modelEdgePct, MODEL_EDGE_FULL_SCALE_PCT) /
+      MODEL_EDGE_FULL_SCALE_PCT;
 
   let driver: DecisionDriver;
 
@@ -105,7 +109,8 @@ export function classifyDecisionDriver(
       const steamContrib = steamSharp > 0 ? 1.3 : 1;
       const persContrib = tickCount > 10 ? 1.2 : 1;
       const edgeContrib = edgeScaling;
-      if (steamContrib > persContrib && steamContrib > edgeContrib) driver = "steam";
+      if (steamContrib > persContrib && steamContrib > edgeContrib)
+        driver = "steam";
       else if (persContrib > edgeContrib) driver = "persistence";
       else if (modelEdgePct > 10) driver = "strong_edge";
       else driver = "moderate_edge";
@@ -146,26 +151,66 @@ export function buildDecisionReason(
   const tickCount = features[F.tick_count] ?? 0;
   const convergence = features[F.convergence_rate] ?? 0;
 
-  const edgeScaling = 0.5 + Math.min(modelEdgePct, MODEL_EDGE_FULL_SCALE_PCT) / MODEL_EDGE_FULL_SCALE_PCT;
-  const convergencePenalty = convergence < 0 ? Math.max(0.5, 1 + convergence) : 1;
+  const edgeScaling =
+    0.5 +
+    Math.min(modelEdgePct, MODEL_EDGE_FULL_SCALE_PCT) /
+      MODEL_EDGE_FULL_SCALE_PCT;
+  const convergencePenalty =
+    convergence < 0 ? Math.max(0.5, 1 + convergence) : 1;
   const persistenceBonus = tickCount > 10 ? 1.2 : 1;
   const steamBonus = steamSharp > 0 ? 1.3 : 1;
 
   const decision = classifyModelStance(multiplier);
-  const explanation = buildExplanation(decision, modelEdgePct, scoreVal, steamSharp, tickCount, convergence, features, multiplier);
-  const technical = buildTechnical(modelEdgePct, scoreVal, steamSharp, tickCount, convergence, edgeScaling, convergencePenalty, persistenceBonus, steamBonus, decision);
-  const multiplierChain = buildMultiplierChain(decision, edgeScaling, convergencePenalty, persistenceBonus, steamBonus);
+  const explanation = buildExplanation(
+    decision,
+    modelEdgePct,
+    scoreVal,
+    steamSharp,
+    tickCount,
+    convergence,
+    features,
+    multiplier,
+  );
+  const technical = buildTechnical(
+    modelEdgePct,
+    scoreVal,
+    steamSharp,
+    tickCount,
+    convergence,
+    edgeScaling,
+    convergencePenalty,
+    persistenceBonus,
+    steamBonus,
+    decision,
+  );
+  const multiplierChain = buildMultiplierChain(
+    decision,
+    edgeScaling,
+    convergencePenalty,
+    persistenceBonus,
+    steamBonus,
+  );
 
-  const similar = similarContext && similarContext.recentTotal >= 3
-    ? buildSimilarSection(similarContext, similarContext.decision)
-    : undefined;
+  const similar =
+    similarContext && similarContext.recentTotal >= 3
+      ? buildSimilarSection(similarContext, similarContext.decision)
+      : undefined;
 
-  return { decision, multiplier, explanation, technical, multiplierChain, similar };
+  return {
+    decision,
+    multiplier,
+    explanation,
+    technical,
+    multiplierChain,
+    similar,
+  };
 }
 
 // ── Decision classification ─────────────────────────────────────────────────
 
-function classifyModelStance(mult: number): "boost" | "shrink" | "skip" | "agree" {
+function classifyModelStance(
+  mult: number,
+): "boost" | "shrink" | "skip" | "agree" {
   if (mult < 0.1) return "skip";
   if (mult < 0.95) return "shrink";
   if (mult > 1.05) return "boost";
@@ -322,7 +367,8 @@ function buildTechnical(
     label: "Model Edge",
     value: pct(modelEdgePct),
     detail: "mlScore × odds − 1 → PnL per unit at offered price",
-    tone: modelEdgePct > 5 ? "positive" : modelEdgePct < 0 ? "negative" : "neutral",
+    tone:
+      modelEdgePct > 5 ? "positive" : modelEdgePct < 0 ? "negative" : "neutral",
   });
 
   // Score
@@ -331,7 +377,8 @@ function buildTechnical(
     label: "Score",
     value: `${scoreVal.toFixed(2)} (${confidence})`,
     detail: `Win probability estimate (${confidence.toLowerCase()} confidence range)`,
-    tone: scoreVal >= 0.6 ? "positive" : scoreVal <= 0.4 ? "negative" : "neutral",
+    tone:
+      scoreVal >= 0.6 ? "positive" : scoreVal <= 0.4 ? "negative" : "neutral",
   });
 
   if (decision === "skip") return items;
@@ -350,7 +397,8 @@ function buildTechnical(
     items.push({
       label: "Convergence",
       value: `${pct(convergence * 100)} (${convergencePenalty.toFixed(2)}× penalty)`,
-      detail: "Odds closing toward fair value → stake reduced to avoid fading edge",
+      detail:
+        "Odds closing toward fair value → stake reduced to avoid fading edge",
       tone: "negative",
     });
   } else {
@@ -367,7 +415,8 @@ function buildTechnical(
     items.push({
       label: "Persistence",
       value: `${tickCount} ticks (+20% bonus)`,
-      detail: "Bet persisted through >10 odds updates → signal is unlikely to be noise",
+      detail:
+        "Bet persisted through >10 odds updates → signal is unlikely to be noise",
       tone: "positive",
     });
   } else if (steamSharp === 0 && convergence >= 0) {
@@ -384,7 +433,8 @@ function buildTechnical(
     items.push({
       label: "Steam",
       value: "Sharp ✓ (+30% bonus)",
-      detail: "Pinnacle moved ≥3% in 60s in same direction → market validating the edge",
+      detail:
+        "Pinnacle moved ≥3% in 60s in same direction → market validating the edge",
       tone: "positive",
     });
   }
@@ -404,8 +454,10 @@ function buildMultiplierChain(
   if (decision === "skip") return "Edge ≤ 0% → skip (0×)";
 
   const factors: number[] = [1.0];
-  if (Math.abs(edgeScaling - 1) > 0.005) factors.push(parseFloat(edgeScaling.toFixed(2)));
-  if (Math.abs(convergencePenalty - 1) > 0.005) factors.push(parseFloat(convergencePenalty.toFixed(2)));
+  if (Math.abs(edgeScaling - 1) > 0.005)
+    factors.push(parseFloat(edgeScaling.toFixed(2)));
+  if (Math.abs(convergencePenalty - 1) > 0.005)
+    factors.push(parseFloat(convergencePenalty.toFixed(2)));
   if (persistenceBonus > 1.005) factors.push(1.2);
   if (steamBonus > 1.005) factors.push(1.3);
 

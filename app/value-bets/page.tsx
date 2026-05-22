@@ -125,7 +125,8 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
   const totalEvents = engine?.totalEvents ?? 0;
   const firstSyncDone = engine?.firstSyncComplete ?? false;
   // Show red if no matches after first sync (indicates data pipeline broken)
-  const matchedDegraded = firstSyncDone && totalEvents > 0 && matchedCount === 0;
+  const matchedDegraded =
+    firstSyncDone && totalEvents > 0 && matchedCount === 0;
 
   // While engine data hasn't arrived yet, show minimal "starting" state
   if (!connectionHealth) {
@@ -374,7 +375,9 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
                   <span
                     className={cn(
                       "text-[10px] tabular-nums",
-                      matchedDegraded ? "text-red-400" : "text-muted-foreground",
+                      matchedDegraded
+                        ? "text-red-400"
+                        : "text-muted-foreground",
                     )}
                   >
                     {matchedCount}/{totalEvents}
@@ -703,25 +706,33 @@ export default function AdminPage() {
   // This tells the spreadsheet empty state WHY there's no data.
   const degradedProviders = useMemo(() => {
     if (!engineStatus?.circuitBreakers || !engineHealth) return [];
-    const result: { id: string; label: string; reason: string; action: string }[] = [];
+    const result: {
+      id: string;
+      label: string;
+      reason: string;
+      action: string;
+    }[] = [];
     const cbMap: Record<string, string> = {
       "ninewickets-sportsbook": "9Wickets",
       "velki-sportsbook": "Velki",
-      "pinnacle": "Pinnacle",
-      "betconstruct": "BetConstruct",
+      pinnacle: "Pinnacle",
+      betconstruct: "BetConstruct",
     };
     for (const [id, label] of Object.entries(cbMap)) {
       const cb = engineStatus.circuitBreakers?.[id];
-      const provEntry = engineHealth[id] as { status?: string; error?: string | null } | undefined;
+      const provEntry = engineHealth[id] as
+        | { status?: string; error?: string | null }
+        | undefined;
       if (cb?.state === "open") {
         const errorMsg = provEntry?.error ?? "Too many consecutive failures";
         result.push({
           id,
           label,
           reason: errorMsg,
-          action: id.includes("ninewickets") || id.includes("velki")
-            ? "Check Bangladesh VPN/network — these providers require Bangladesh IP"
-            : "Check provider credentials and network connectivity",
+          action:
+            id.includes("ninewickets") || id.includes("velki")
+              ? "Check Bangladesh VPN/network — these providers require Bangladesh IP"
+              : "Check provider credentials and network connectivity",
         });
       } else if (provEntry?.status === "error" && provEntry.error) {
         result.push({
@@ -735,19 +746,16 @@ export default function AdminPage() {
     return result;
   }, [engineStatus, engineHealth]);
 
-  const resetCircuitBreaker = useCallback(
-    async (providerId: string) => {
-      await fetch("/api/health", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "resetCircuitBreaker",
-          provider: providerId,
-        }),
-      });
-    },
-    [],
-  );
+  const resetCircuitBreaker = useCallback(async (providerId: string) => {
+    await fetch("/api/health", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "resetCircuitBreaker",
+        provider: providerId,
+      }),
+    });
+  }, []);
 
   const error = queryError
     ? queryError instanceof Error

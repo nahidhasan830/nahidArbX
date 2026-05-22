@@ -101,8 +101,11 @@ export async function settleBatch(
   // Does the batch contain any corner-market bet? If so, ask the
   // waterfall to fetch corner stats. If not, skip the extra HTTP cost.
   const CORNER_MARKETS = new Set([
-    "CORNERS", "HOME_CORNERS_TOTAL", "AWAY_CORNERS_TOTAL",
-    "CORNERS_HANDICAP", "CORNERS_EUROPEAN_HANDICAP",
+    "CORNERS",
+    "HOME_CORNERS_TOTAL",
+    "AWAY_CORNERS_TOTAL",
+    "CORNERS_HANDICAP",
+    "CORNERS_EUROPEAN_HANDICAP",
   ]);
   const BOOKING_MARKETS = new Set(["BOOKINGS", "BOOKINGS_HANDICAP"]);
 

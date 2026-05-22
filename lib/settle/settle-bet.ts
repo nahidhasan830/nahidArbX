@@ -243,7 +243,11 @@ const missingLine = (
   reason: "unknown-atom",
 });
 
-const resolved = (outcome: Outcome, scope: ScopeScore, reasoning: string): SettleResult => ({
+const resolved = (
+  outcome: Outcome,
+  scope: ScopeScore,
+  reasoning: string,
+): SettleResult => ({
   outcome,
   scopeScore: fmt(scope),
   confidence: 1,
@@ -294,7 +298,10 @@ const settleHandicap = (
   const backedLine = backed === "home" ? line : -line;
   if (isQuarterLine(backedLine)) {
     const [a, b] = splitQuarterAhLine(backedLine);
-    return foldLegs(settleAhLeg(scope, backed, a), settleAhLeg(scope, backed, b));
+    return foldLegs(
+      settleAhLeg(scope, backed, a),
+      settleAhLeg(scope, backed, b),
+    );
   }
   const v = settleAhLeg(scope, backed, backedLine);
   return v === "won" ? "won" : v === "lost" ? "lost" : "void";
@@ -345,25 +352,43 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     if (!side) return unknownAtom("MATCH_RESULT", atomId, scope);
     const outcome = settleMatchResult(scope, side);
     const realSide: Side =
-      scope.home > scope.away ? "home" : scope.home < scope.away ? "away" : "draw";
-    return resolved(outcome, scope, `1X2 ${side} vs result ${realSide} @ ${fmt(scope)}.`);
+      scope.home > scope.away
+        ? "home"
+        : scope.home < scope.away
+          ? "away"
+          : "draw";
+    return resolved(
+      outcome,
+      scope,
+      `1X2 ${side} vs result ${realSide} @ ${fmt(scope)}.`,
+    );
   }
 
   // ── TOTAL_GOALS (OU) ──────────────────────────────────────────────────────
   if (row.marketType === "OVER_UNDER" || row.marketType === "TOTAL_GOALS") {
     const side = parseOverUnder(atomId);
-    if (!side || row.familyLine == null) return missingLine("OU", atomId, scope);
+    if (!side || row.familyLine == null)
+      return missingLine("OU", atomId, scope);
     const total = scope.home + scope.away;
     const outcome = settleOverUnder(total, row.familyLine, side);
-    return resolved(outcome, scope, `OU ${side} ${row.familyLine} on total ${total}.`);
+    return resolved(
+      outcome,
+      scope,
+      `OU ${side} ${row.familyLine} on total ${total}.`,
+    );
   }
 
   // ── ASIAN_HANDICAP ────────────────────────────────────────────────────────
   if (row.marketType === "ASIAN_HANDICAP") {
     const backed = parseAhBacked(atomId);
-    if (!backed || row.familyLine == null) return missingLine("AH", atomId, scope);
+    if (!backed || row.familyLine == null)
+      return missingLine("AH", atomId, scope);
     const outcome = settleHandicap(scope, backed, row.familyLine);
-    return resolved(outcome, scope, `AH ${backed} ${row.familyLine} on ${fmt(scope)}.`);
+    return resolved(
+      outcome,
+      scope,
+      `AH ${backed} ${row.familyLine} on ${fmt(scope)}.`,
+    );
   }
 
   // ── BTTS ──────────────────────────────────────────────────────────────────
@@ -372,7 +397,11 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     if (!pick) return unknownAtom("BTTS", atomId, scope);
     const both = scope.home > 0 && scope.away > 0;
     const won = pick === "yes" ? both : !both;
-    return resolved(won ? "won" : "lost", scope, `BTTS ${pick} on ${fmt(scope)}.`);
+    return resolved(
+      won ? "won" : "lost",
+      scope,
+      `BTTS ${pick} on ${fmt(scope)}.`,
+    );
   }
 
   // ── DNB (Draw No Bet) — AH +0 for backed leg ──────────────────────────────
@@ -415,7 +444,11 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
       (combo === "1x" && (realSide === "home" || realSide === "draw")) ||
       (combo === "12" && (realSide === "home" || realSide === "away")) ||
       (combo === "x2" && (realSide === "away" || realSide === "draw"));
-    return resolved(won ? "won" : "lost", scope, `DC ${combo} vs ${realSide} @ ${fmt(scope)}.`);
+    return resolved(
+      won ? "won" : "lost",
+      scope,
+      `DC ${combo} vs ${realSide} @ ${fmt(scope)}.`,
+    );
   }
 
   // ── EUROPEAN_HANDICAP ─────────────────────────────────────────────────────
@@ -460,7 +493,8 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
       );
     }
     const side = parseOverUnder(atomId);
-    if (!side || row.familyLine == null) return missingLine("corners", atomId, scope);
+    if (!side || row.familyLine == null)
+      return missingLine("corners", atomId, scope);
     const cornerTotal =
       row.marketType === "CORNERS"
         ? score.cornersHome + score.cornersAway
@@ -558,7 +592,8 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
       );
     }
     const side = parseOverUnder(atomId);
-    if (!side || row.familyLine == null) return missingLine("bookings", atomId, scope);
+    if (!side || row.familyLine == null)
+      return missingLine("bookings", atomId, scope);
     const bookingTotal = score.bookingsHome + score.bookingsAway;
     const outcome = settleOverUnder(bookingTotal, row.familyLine, side);
     const label = `BOOKINGS ${side} ${row.familyLine} on booking points ${score.bookingsHome}-${score.bookingsAway} (total ${bookingTotal})`;

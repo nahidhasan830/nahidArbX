@@ -1,13 +1,13 @@
 """Load training data for LightGBM from settled bets or ML training examples.
 
-Primary source: ml_training_examples table (Phase 4 — decoupled from bets).
+Primary source: ml_training_examples table (decoupled from bets).
 Fallback: bets table (legacy path — for repos that haven't populated
 training examples yet).
 
 Derives binary labels and CLV%, and returns a Polars DataFrame ready for
 CPCV splitting and LightGBM training.
 
-Phase 2 changes:
+Sample weights:
   - load_from_training_examples: trust stored sample_weight (no double PnL boost)
   - load_best_available: sort merged data chronologically
   - Coverage uses only labeled, current-version examples
@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from .feature_names import FEATURE_COUNT, FEATURE_NAMES, FEATURE_NAMES_HASH, FEATURE_VERSION
@@ -46,9 +47,13 @@ EXAMPLE_TYPE_PRECEDENCE = {
     "placed_settled": 4,
 }
 
-COMPETITION_TIER_FEATURE_INDEX = FEATURE_NAMES.index("competition_tier")
+SHARP_TRUE_PROB_FEATURE_INDEX = FEATURE_NAMES.index("sharp_true_prob")
 SOFT_ODDS_FEATURE_INDEX = FEATURE_NAMES.index("soft_odds")
 ADJUSTED_SOFT_ODDS_FEATURE_INDEX = FEATURE_NAMES.index("adjusted_soft_odds")
+COMPETITION_TIER_FEATURE_INDEX = FEATURE_NAMES.index("competition_tier")
+SHARP_TRUE_PROB_SQL_INDEX = SHARP_TRUE_PROB_FEATURE_INDEX + 1
+ADJUSTED_SOFT_ODDS_SQL_INDEX = ADJUSTED_SOFT_ODDS_FEATURE_INDEX + 1
+COMPETITION_TIER_SQL_INDEX = COMPETITION_TIER_FEATURE_INDEX + 1
 VALID_COMPETITION_TIERS = {1.0, 2.0, 3.0}
 
 
@@ -111,7 +116,7 @@ def load_training_data(session: Session) -> TrainingData:
             "version": FEATURE_VERSION,
             "feature_count": FEATURE_COUNT,
             "feature_hash": FEATURE_NAMES_HASH,
-            "competition_tier_sql_index": COMPETITION_TIER_FEATURE_INDEX + 1,
+            "competition_tier_sql_index": COMPETITION_TIER_SQL_INDEX,
             "valid_competition_tiers": list(VALID_COMPETITION_TIERS),
         },
     )
@@ -182,7 +187,17 @@ def load_training_data(session: Session) -> TrainingData:
     )
 
     # Derive per-sample weights from outcome type and PnL magnitude
-    sample_weights = _derive_sample_weights(valid_rows)
+    # Disable per-sample weights for the binary classifier.
+    #
+    # Per-sample weights derived from |unit_return| (winning-longshot bias)
+    # were empirically shown to invert the OOS rank order on this corpus:
+    # uncapped weights → AUC≈0.45, no weights → AUC≈0.69 with the same
+    # CPCV path. The mechanism: weighted classification up-weights the
+    # exception cases (longshot wins, favorite losses) until the model
+    # learns to predict the exceptions. `scale_pos_weight` is preserved
+    # below because it's a class-imbalance correction at the loss level,
+    # not a per-sample weight.
+    sample_weights = None
 
     # Compute conservative scale_pos_weight (n_neg / n_pos)
     n_pos = int(labels.sum())
@@ -202,7 +217,7 @@ def load_training_data(session: Session) -> TrainingData:
             detection_fair = 1.0 / true_prob
             clv_pct = (detection_fair / closing - 1.0) * 100.0
 
-        # Phase 2: compute unit return instead of using null pnl as zero
+        # Compute unit return from odds+outcome (avoids using null pnl as zero).
         unit_return = _compute_unit_return(
             r["outcome"],
             float(r.get("soft_odds") or 0),
@@ -296,12 +311,12 @@ def _empty_metadata() -> pl.DataFrame:
 
 
 def load_from_training_examples(session: Session) -> TrainingData | None:
-    """Load from the ml_training_examples table (Phase 4 preferred path).
+    """Load from the ml_training_examples table (preferred path).
 
     Returns None if the table doesn't exist or has no usable rows,
     so the caller can fall back to load_training_data().
 
-    Phase 2 changes:
+    Sample-weight discipline:
       - Trust stored sample_weight directly (no double PnL boost)
       - Compute unit return from odds+outcome for financial metrics
       - Only load labeled rows at current feature version
@@ -315,9 +330,9 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
               AND features IS NOT NULL
               AND feature_version = :version
               AND array_length(features, 1) = :feature_count
-              AND features[2] > 0
-              AND features[2] < 1
-              AND features[4] > 1.01
+              AND features[:sharp_prob_sql_index] > 0
+              AND features[:sharp_prob_sql_index] < 1
+              AND features[:adjusted_odds_sql_index] > 1.01
               AND features[:competition_tier_sql_index] = ANY(:valid_competition_tiers)
         """)
         count_result = session.execute(
@@ -325,15 +340,35 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
             {
                 "version": FEATURE_VERSION,
                 "feature_count": FEATURE_COUNT,
-                "competition_tier_sql_index": COMPETITION_TIER_FEATURE_INDEX + 1,
+                "sharp_prob_sql_index": SHARP_TRUE_PROB_SQL_INDEX,
+                "adjusted_odds_sql_index": ADJUSTED_SOFT_ODDS_SQL_INDEX,
+                "competition_tier_sql_index": COMPETITION_TIER_SQL_INDEX,
                 "valid_competition_tiers": list(VALID_COMPETITION_TIERS),
             },
         ).scalar()
         if not count_result or count_result == 0:
+            log.info(
+                "ml_training_examples has no labeled current-contract rows; "
+                "falling back to bets table"
+            )
             return None
-    except Exception:
-        # Table doesn't exist yet — fall back
-        return None
+    except ProgrammingError as exc:
+        if _is_missing_table_error(exc):
+            log.info(
+                "ml_training_examples table is missing; falling back to bets table"
+            )
+            session.rollback()
+            return None
+        session.rollback()
+        raise RuntimeError(
+            "ml_training_examples probe failed before fallback; "
+            "check bound parameters and SQL compatibility"
+        ) from exc
+    except Exception as exc:
+        session.rollback()
+        raise RuntimeError(
+            "ml_training_examples probe failed before fallback"
+        ) from exc
 
     stmt = text("""
         SELECT
@@ -365,9 +400,9 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
           AND m.features IS NOT NULL
           AND m.feature_version = :version
           AND array_length(m.features, 1) = :feature_count
-          AND m.features[2] > 0
-          AND m.features[2] < 1
-          AND m.features[4] > 1.01
+          AND m.features[:sharp_prob_sql_index] > 0
+          AND m.features[:sharp_prob_sql_index] < 1
+          AND m.features[:adjusted_odds_sql_index] > 1.01
           AND m.features[:competition_tier_sql_index] = ANY(:valid_competition_tiers)
         ORDER BY coalesce(m.settled_at, m.created_at) ASC
     """)
@@ -377,7 +412,9 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
         {
             "version": FEATURE_VERSION,
             "feature_count": FEATURE_COUNT,
-            "competition_tier_sql_index": COMPETITION_TIER_FEATURE_INDEX + 1,
+            "sharp_prob_sql_index": SHARP_TRUE_PROB_SQL_INDEX,
+            "adjusted_odds_sql_index": ADJUSTED_SOFT_ODDS_SQL_INDEX,
+            "competition_tier_sql_index": COMPETITION_TIER_SQL_INDEX,
             "valid_competition_tiers": list(VALID_COMPETITION_TIERS),
         },
     )
@@ -423,7 +460,7 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
             and _has_valid_feature_semantics(fv)
         ):
             raw_features.append(fv)
-            # Phase 2: Trust stored sample_weight directly — the TS writer
+            # Trust stored sample_weight directly — the TS writer
             # already applied PnL boost. Do NOT double-apply.
             raw_weights.append(float(row.get("sample_weight", 1.0)))
             valid_coerced.append(row)
@@ -447,8 +484,11 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
         dtype=np.int32,
     )
 
-    # Phase 2: Use stored weights directly — no double PnL boost
-    sample_weights = np.array(raw_weights, dtype=np.float64)
+    # Disable per-sample weights for the binary classifier.
+    # See `load_training_data` above for the empirical justification.
+    # `raw_weights` is intentionally unused here.
+    _ = raw_weights
+    sample_weights = None
 
     # Compute conservative scale_pos_weight
     n_pos = int(labels.sum())
@@ -466,7 +506,7 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
             or 0
         )
         commission_pct = float(r.get("soft_commission_pct") or 0)
-        # Phase 2: compute unit return from odds+outcome
+        # Compute unit return from odds+outcome.
         unit_return = _compute_unit_return(
             r.get("outcome", ""),
             soft_odds,
@@ -521,7 +561,7 @@ def load_best_available(session: Session) -> TrainingData:
     """Load training data from the best available source.
 
     Strategy:
-      1. Prefer ml_training_examples (Phase 4 — curated, canonicalized,
+      1. Prefer ml_training_examples (curated, canonicalized,
          one example per bet via _canonicalize_training_example_rows).
       2. Fall back to bets table only if training_examples is empty.
 
@@ -538,7 +578,7 @@ def load_best_available(session: Session) -> TrainingData:
         )
         return from_examples
 
-    # Fall back to bets table (pre-Phase 4 or empty training_examples)
+    # Fall back to bets table (legacy path or empty training_examples)
     bets_data = load_training_data(session)
     log.info("Falling back to bets table for training data (%d samples)", bets_data.n_samples)
     return bets_data
@@ -582,6 +622,18 @@ def _example_rank(row: dict[str, Any]) -> tuple[int, int, str]:
     return (precedence, has_settlement, recency)
 
 
+def _is_missing_table_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return (
+        "ml_training_examples" in message
+        and (
+            "does not exist" in message
+            or "undefinedtable" in message
+            or "no such table" in message
+        )
+    )
+
+
 def _feature_at(features: Any, index: int) -> Any:
     if features is None or len(features) <= index:
         return None
@@ -597,7 +649,7 @@ def _has_valid_feature_semantics(features: Any) -> bool:
         if not all(math.isfinite(v) for v in values):
             return False
         competition_tier = float(features[COMPETITION_TIER_FEATURE_INDEX])
-        sharp_prob = float(features[1])
+        sharp_prob = float(features[0])
         adjusted_odds = float(features[ADJUSTED_SOFT_ODDS_FEATURE_INDEX])
     except (TypeError, ValueError):
         return False
@@ -616,7 +668,7 @@ HALF_OUTCOME_WEIGHT = 0.5
 def _derive_sample_weights(rows: list[dict[str, Any]]) -> np.ndarray:
     """Derive per-sample weights from outcome type and unit return magnitude.
 
-    Weight formula (Phase 3 — fixed for EV alignment):
+    Weight formula (fixed for EV alignment):
       base = |unit_return| (economic impact)
       half_outcome_adjustment = 0.5 for half_won/half_lost
       final = base * half_outcome_adjustment, clipped to [0.1, 10.0]
@@ -672,8 +724,8 @@ def _compute_unit_return(
 ) -> float | None:
     """Compute normalized 1-unit return for a bet based on outcome and odds.
 
-    Phase 2: This is the canonical metric for model evaluation — it simulates
-    what would happen if we staked exactly 1 unit on this bet.
+    Canonical metric for model evaluation — it simulates what would happen
+    if we staked exactly 1 unit on this bet.
 
     Must match the TS `computeUnitReturn()` in lib/ml/outcomes.ts.
     """

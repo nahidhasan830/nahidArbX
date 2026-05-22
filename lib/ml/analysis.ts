@@ -1,4 +1,4 @@
-import { FEATURE_NAMES } from "./feature-contract";
+import { FEATURE_INDEX } from "./feature-contract";
 import type {
   AnalysisBucket,
   AnalysisResponse,
@@ -13,9 +13,7 @@ import type {
   TrackRecordSection,
 } from "./analysis-types";
 
-const F = Object.fromEntries(
-  FEATURE_NAMES.map((n, i) => [n, i]),
-) as Record<string, number>;
+const F = FEATURE_INDEX;
 
 interface AnalysisMetrics {
   modelEdgePct: number;
@@ -89,7 +87,11 @@ export function computeAnalysisMetrics(params: {
     odds > 1.01 && Number.isFinite(modelScore)
       ? (modelScore * odds - 1) * 100
       : -100;
-  const scannerEdge = params.features[F.ev_pct];
+  const sharpTrueProb = params.features[F.sharp_true_prob] ?? 0;
+  const scannerEdge =
+    odds > 1.01 && Number.isFinite(sharpTrueProb)
+      ? (sharpTrueProb * odds - 1) * 100
+      : null;
 
   return {
     modelEdgePct,
@@ -99,9 +101,7 @@ export function computeAnalysisMetrics(params: {
     impliedProbability,
     probabilityGap: modelProbability - impliedProbability,
     scannerEdgePct:
-      scannerEdge != null && Number.isFinite(scannerEdge)
-        ? scannerEdge
-        : null,
+      scannerEdge != null && Number.isFinite(scannerEdge) ? scannerEdge : null,
     tickCount: params.features[F.tick_count] ?? 0,
     convergenceRate: params.features[F.convergence_rate] ?? 0,
     steamSharp: params.features[F.steam_move_sharp] ?? 0,
@@ -186,8 +186,8 @@ export function buildTrackRecord(params: {
   modelEdgePct: number;
   similarBets: SimilarBetRow[];
 }): TrackRecordSection {
-  const graded = params.similarBets.filter((bet) =>
-    isWinOutcome(bet.outcome) || isLossOutcome(bet.outcome),
+  const graded = params.similarBets.filter(
+    (bet) => isWinOutcome(bet.outcome) || isLossOutcome(bet.outcome),
   );
   const wins = graded.filter((bet) => isWinOutcome(bet.outcome)).length;
   const losses = graded.filter((bet) => isLossOutcome(bet.outcome)).length;
@@ -529,7 +529,10 @@ function buildTrackNote(params: {
   return "This track record is a context check, not the sizing rule. The current edge and signals drive the model call.";
 }
 
-function buildSignalSentence(signals: AnalysisSignal[], tickCount: number): string {
+function buildSignalSentence(
+  signals: AnalysisSignal[],
+  tickCount: number,
+): string {
   const parts: string[] = [];
   if (signals.includes("persistence")) {
     parts.push(`price persisted for ${round0(tickCount)} ticks`);
@@ -567,7 +570,10 @@ function bucketLabel(bucket: AnalysisBucket, decision: ModelStance): string {
   return labels[bucket];
 }
 
-function getOdds(features: number[], fallbackOdds?: number | string | null): number {
+function getOdds(
+  features: number[],
+  fallbackOdds?: number | string | null,
+): number {
   const adjustedSoftOdds = features[F.adjusted_soft_odds] ?? 0;
   const softOdds = features[F.soft_odds] ?? 0;
   const fallback = Number(fallbackOdds ?? 0);

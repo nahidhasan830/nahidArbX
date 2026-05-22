@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { format, parseISO } from "date-fns";
 import {
   X,
   UserPlus,
@@ -13,7 +14,6 @@ import {
   LogOut,
   Clock,
   MapPin,
-
   Search,
   ChevronRight,
   Info,
@@ -24,7 +24,6 @@ import {
   LogIn,
   Zap,
   Copy,
-
   AlertTriangle,
   Send,
 } from "lucide-react";
@@ -85,22 +84,11 @@ interface UserManagementModalProps {
 // ============================================
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return format(parseISO(dateStr), "MMM d, yyyy");
 }
 
 function formatDateTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return format(parseISO(dateStr), "MMM d HH:mm");
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -1000,7 +988,7 @@ function ActivityTab({ userId }: { userId: string }) {
     setLogs([]);
     setOffset(0);
     fetchLogs(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   // Filter logs based on selected filter

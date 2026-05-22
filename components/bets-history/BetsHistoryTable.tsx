@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
+import { format, parseISO } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import {
   ExternalLink,
@@ -49,7 +50,7 @@ import { FeatureInspectorDialog } from "./FeatureInspectorDialog";
 import { OutcomeStatusTooltipContent } from "./OutcomeStatusTooltip";
 import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
-import { canResettle, prettySettledBy } from "@/lib/bets-history/resettle";
+import { prettySettledBy } from "@/lib/bets-history/resettle";
 import type {
   Outcome,
   ValueBetRow,
@@ -850,7 +851,7 @@ export function BetsHistoryTable({
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                {new Date(r.settledAt).toLocaleString()}
+                {format(parseISO(r.settledAt), "MMM d, yyyy HH:mm:ss")}
               </TooltipContent>
             </Tooltip>
           );
@@ -869,7 +870,6 @@ export function BetsHistoryTable({
           const r = row.original;
           const running = rerunningIds?.has(r.id) ?? false;
           const deleting = deletingIds?.has(r.id) ?? false;
-          const gate = canResettle(r);
           const googleUrl = buildGoogleAiModeUrl(r);
           const hasFeatures =
             Array.isArray(r.mlFeatures) && r.mlFeatures.length > 0;
@@ -935,7 +935,10 @@ export function BetsHistoryTable({
                         onSelectDefault: () =>
                           onRerunRow(r.id, { kind: "default" }),
                         onSelectAi: (engine, model) =>
-                          onRerunRow(r.id, { kind: engine, model } as RerunChoice),
+                          onRerunRow(r.id, {
+                            kind: engine,
+                            model,
+                          } as RerunChoice),
                       }}
                     />
 

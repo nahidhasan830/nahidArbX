@@ -1,239 +1,239 @@
 - generic [active] [ref=e1]:
-  - generic [ref=e2]:
-    - generic [ref=e5]:
-      - link "NahidArbX" [ref=e7] [cursor=pointer]:
-        - /url: /dashboard
-        - img [ref=e9]
-        - generic [ref=e12]: NahidArbX
-      - generic [ref=e13]:
-        - generic [ref=e14]:
-          - generic [ref=e15]: Main
-          - list [ref=e18]:
-            - listitem [ref=e19]:
-              - link "Dashboard" [ref=e20] [cursor=pointer]:
+    - generic [ref=e2]:
+        - generic [ref=e5]:
+            - link "NahidArbX" [ref=e7] [cursor=pointer]:
                 - /url: /dashboard
-                - img [ref=e21]
-                - generic [ref=e26]: Dashboard
-            - listitem [ref=e27]:
-              - link "Value Bets" [ref=e28] [cursor=pointer]:
-                - /url: /value-bets
-                - img [ref=e29]
-                - generic [ref=e32]: Value Bets
-            - listitem [ref=e33]:
-              - link "Bets" [ref=e34] [cursor=pointer]:
-                - /url: /bets
-                - img [ref=e35]
-                - generic [ref=e39]: Bets
-        - generic [ref=e40]:
-          - generic [ref=e41]: Lab
-          - list [ref=e44]:
-            - listitem [ref=e223]:
-              - link "Matcher Lab" [ref=e224] [cursor=pointer]:
-                - /url: /matcher-lab
-                - img [ref=e225]
-                - generic [ref=e233]: Matcher Lab
-            - listitem [ref=e45]:
-              - link "ML Optimizer" [ref=e46] [cursor=pointer]:
-                - /url: /lab/ml
-                - img [ref=e47]
-                - generic [ref=e50]: ML Optimizer
-            - listitem [ref=e51]:
-              - link "AI Engine" [ref=e52] [cursor=pointer]:
-                - /url: /ai-engine
-                - img [ref=e53]
-                - generic [ref=e56]: AI Engine
-                - img [ref=e57]
-            - listitem [ref=e59]:
-              - link "AI Playground" [ref=e60] [cursor=pointer]:
-                - /url: /ai-playground
-                - img [ref=e61]
-                - generic [ref=e63]: AI Playground
-        - generic [ref=e64]:
-          - generic [ref=e65]: Logs
-          - list [ref=e68]:
-            - listitem [ref=e69]:
-              - link "Auto Placer" [ref=e70] [cursor=pointer]:
-                - /url: /logs/auto-placer
-                - img [ref=e71]
-                - generic [ref=e74]: Auto Placer
-            - listitem [ref=e75]:
-              - link "AI Activity" [ref=e76] [cursor=pointer]:
-                - /url: /logs/ai-activity
-                - img [ref=e77]
-                - generic [ref=e80]: AI Activity
-        - generic [ref=e81]:
-          - generic [ref=e82]: Control
-          - list [ref=e85]:
-            - listitem [ref=e86]:
-              - link "Telegram" [ref=e87] [cursor=pointer]:
-                - /url: /telegram
-                - img [ref=e88]
-                - generic [ref=e90]: Telegram
-      - generic [ref=e92]:
-        - button "Search… ⌘K" [ref=e93] [cursor=pointer]:
-          - img [ref=e94]
-          - generic [ref=e97]: Search…
-          - generic [ref=e98]: ⌘K
-        - button "Dev User dev@local" [ref=e234]:
-          - img [ref=e236]
-          - generic [ref=e239]:
-            - generic [ref=e240]: Dev User
-            - generic [ref=e241]: dev@local
-          - img [ref=e242]
-        - generic "Last checked just now" [ref=e245]:
-          - generic [ref=e102]: Systems online
-          - generic [ref=e246]: just now
-    - main [ref=e103]:
-      - generic [ref=e106]:
-        - button "Toggle Sidebar" [ref=e107]:
-          - img
-          - generic [ref=e108]: Toggle Sidebar
-        - navigation "breadcrumb" [ref=e109]:
-          - list [ref=e110]:
-            - listitem [ref=e111]:
-              - link "AI Engine" [disabled] [ref=e112]
-        - generic [ref=e113]:
-          - img [ref=e115]
-          - text: online
-        - button [ref=e118]:
-          - img
-      - generic [ref=e121]:
-        - generic [ref=e122]:
-          - generic [ref=e248]:
-            - img [ref=e251]
-            - generic [ref=e254]:
-              - generic [ref=e255]:
-                - img [ref=e257]
-                - generic [ref=e260]: Total Searches
-              - generic [ref=e261]:
-                - generic [ref=e262]: 1,762
-                - generic [ref=e263]: ↑
-              - generic [ref=e264]: all time
-          - generic [ref=e265]:
-            - img [ref=e268]
-            - generic [ref=e269]:
-              - generic [ref=e270]:
-                - img [ref=e272]
-                - generic [ref=e273]: Providers
-              - generic [ref=e274]:
-                - generic [ref=e275]: 3/3
-                - generic [ref=e276]: ↑
-              - generic [ref=e277]: healthy
-          - generic [ref=e278]:
-            - img [ref=e281]
-            - generic [ref=e289]:
-              - generic [ref=e290]:
-                - img [ref=e292]
-                - generic [ref=e300]: LLM Engines
-              - generic [ref=e301]:
-                - generic [ref=e302]: 1/2
-                - generic [ref=e303]: ↑
-              - generic [ref=e304]: active
-          - generic [ref=e305]:
-            - img [ref=e308]
-            - generic [ref=e310]:
-              - generic [ref=e311]:
-                - img [ref=e313]
-                - generic [ref=e315]: Status
-              - generic [ref=e316]:
-                - generic [ref=e317]: Online
-                - generic [ref=e318]: ↑
-              - generic [ref=e319]: just now
-        - generic [ref=e147]:
-          - generic [ref=e149]:
-            - img [ref=e151]
-            - text: LLM Engine Controls
-          - generic [ref=e155]:
-            - generic [ref=e322]:
-              - generic [ref=e323]:
-                - generic [ref=e324]:
-                  - img [ref=e326]
-                  - generic [ref=e329]:
-                    - text: DeepSeek
-                    - generic [ref=e330]:
-                      - generic [ref=e331]: Flash
-                      - generic [ref=e332]: Pro
-                - switch [checked] [ref=e335]
-              - generic [ref=e337]:
-                - generic [ref=e338]: Requests
-                - generic [ref=e339]: "0"
-              - generic [ref=e341]:
-                - img [ref=e344]
-                - generic [ref=e350]: ONLINE
-            - generic [ref=e353]:
-              - generic [ref=e354]:
-                - generic [ref=e355]:
-                  - img [ref=e357]
-                  - generic [ref=e361]:
-                    - text: Gemini
-                    - generic [ref=e362]:
-                      - generic [ref=e363]: Flash-Lite
-                      - generic [ref=e364]: Flash
-                      - generic [ref=e365]: Pro
-                - switch [ref=e368]
-              - generic [ref=e370]:
-                - generic [ref=e371]: Requests
-                - generic [ref=e372]: "0"
-              - generic [ref=e374]:
-                - img [ref=e377]
-                - generic [ref=e382]: OFFLINE
-        - generic [ref=e172]:
-          - generic [ref=e174]:
-            - img [ref=e176]
-            - text: Search Providers
-          - generic [ref=e180]:
-            - generic [ref=e386]:
-              - generic [ref=e387]:
-                - generic [ref=e388]:
-                  - img [ref=e390]
-                  - generic [ref=e393]:
-                    - generic [ref=e394]: Google Vertex
-                    - generic [ref=e395]: Cloud enterprise search
-                - switch [checked] [ref=e397]
-              - generic [ref=e399]:
-                - generic [ref=e400]: Requests
-                - generic [ref=e401]: 0 used
-              - generic [ref=e403]:
-                - generic [ref=e405]:
-                  - img [ref=e408]
-                  - generic [ref=e414]: ONLINE
-                - generic [ref=e415]: never used
-            - generic [ref=e419]:
-              - generic [ref=e420]:
-                - generic [ref=e421]:
-                  - img [ref=e423]
-                  - generic [ref=e426]:
-                    - generic [ref=e427]: Brave Search
-                    - generic [ref=e428]: API search (~1k/mo)
-                - switch [checked] [ref=e430]
-              - generic [ref=e432]:
-                - generic [ref=e433]: Requests
-                - generic [ref=e434]: 762/1,000
-              - generic [ref=e437]:
-                - generic [ref=e439]:
-                  - img [ref=e442]
-                  - generic [ref=e448]: ONLINE
-                - generic [ref=e449]: never used
-            - generic [ref=e453]:
-              - generic [ref=e454]:
-                - generic [ref=e455]:
-                  - img [ref=e457]
-                  - generic [ref=e461]:
-                    - generic [ref=e462]: Tavily
-                    - generic [ref=e463]: AI-grounded search
-                - switch [checked] [ref=e465]
-              - generic [ref=e467]:
-                - generic [ref=e468]: Requests
-                - generic [ref=e469]: 1,000/1,000
-              - generic [ref=e472]:
-                - generic [ref=e474]:
-                  - img [ref=e477]
-                  - generic [ref=e483]: ONLINE
-                - generic [ref=e484]: never used
-    - generic [ref=e211]:
-      - heading "Command Palette" [level=2] [ref=e212]
-      - paragraph [ref=e213]: Search for a command to run...
-  - region "Notifications alt+T"
-  - button "Open Next.js Dev Tools" [ref=e219] [cursor=pointer]:
-    - img [ref=e220]
-  - alert [ref=e485]
+                - img [ref=e9]
+                - generic [ref=e12]: NahidArbX
+            - generic [ref=e13]:
+                - generic [ref=e14]:
+                    - generic [ref=e15]: Main
+                    - list [ref=e18]:
+                        - listitem [ref=e19]:
+                            - link "Dashboard" [ref=e20] [cursor=pointer]:
+                                - /url: /dashboard
+                                - img [ref=e21]
+                                - generic [ref=e26]: Dashboard
+                        - listitem [ref=e27]:
+                            - link "Value Bets" [ref=e28] [cursor=pointer]:
+                                - /url: /value-bets
+                                - img [ref=e29]
+                                - generic [ref=e32]: Value Bets
+                        - listitem [ref=e33]:
+                            - link "Bets" [ref=e34] [cursor=pointer]:
+                                - /url: /bets
+                                - img [ref=e35]
+                                - generic [ref=e39]: Bets
+                - generic [ref=e40]:
+                    - generic [ref=e41]: Lab
+                    - list [ref=e44]:
+                        - listitem [ref=e223]:
+                            - link "Matcher Lab" [ref=e224] [cursor=pointer]:
+                                - /url: /matcher-lab
+                                - img [ref=e225]
+                                - generic [ref=e233]: Matcher Lab
+                        - listitem [ref=e45]:
+                            - link "ML Optimizer" [ref=e46] [cursor=pointer]:
+                                - /url: /lab/ml
+                                - img [ref=e47]
+                                - generic [ref=e50]: ML Optimizer
+                        - listitem [ref=e51]:
+                            - link "AI Engine" [ref=e52] [cursor=pointer]:
+                                - /url: /ai-engine
+                                - img [ref=e53]
+                                - generic [ref=e56]: AI Engine
+                                - img [ref=e57]
+                        - listitem [ref=e59]:
+                            - link "AI Playground" [ref=e60] [cursor=pointer]:
+                                - /url: /ai-playground
+                                - img [ref=e61]
+                                - generic [ref=e63]: AI Playground
+                - generic [ref=e64]:
+                    - generic [ref=e65]: Logs
+                    - list [ref=e68]:
+                        - listitem [ref=e69]:
+                            - link "Auto Placer" [ref=e70] [cursor=pointer]:
+                                - /url: /logs/auto-placer
+                                - img [ref=e71]
+                                - generic [ref=e74]: Auto Placer
+                        - listitem [ref=e75]:
+                            - link "AI Activity" [ref=e76] [cursor=pointer]:
+                                - /url: /logs/ai-activity
+                                - img [ref=e77]
+                                - generic [ref=e80]: AI Activity
+                - generic [ref=e81]:
+                    - generic [ref=e82]: Control
+                    - list [ref=e85]:
+                        - listitem [ref=e86]:
+                            - link "Telegram" [ref=e87] [cursor=pointer]:
+                                - /url: /telegram
+                                - img [ref=e88]
+                                - generic [ref=e90]: Telegram
+            - generic [ref=e92]:
+                - button "Search… ⌘K" [ref=e93] [cursor=pointer]:
+                    - img [ref=e94]
+                    - generic [ref=e97]: Search…
+                    - generic [ref=e98]: ⌘K
+                - button "Dev User dev@local" [ref=e234]:
+                    - img [ref=e236]
+                    - generic [ref=e239]:
+                        - generic [ref=e240]: Dev User
+                        - generic [ref=e241]: dev@local
+                    - img [ref=e242]
+                - generic "Last checked just now" [ref=e245]:
+                    - generic [ref=e102]: Systems online
+                    - generic [ref=e246]: just now
+        - main [ref=e103]:
+            - generic [ref=e106]:
+                - button "Toggle Sidebar" [ref=e107]:
+                    - img
+                    - generic [ref=e108]: Toggle Sidebar
+                - navigation "breadcrumb" [ref=e109]:
+                    - list [ref=e110]:
+                        - listitem [ref=e111]:
+                            - link "AI Engine" [disabled] [ref=e112]
+                - generic [ref=e113]:
+                    - img [ref=e115]
+                    - text: online
+                - button [ref=e118]:
+                    - img
+            - generic [ref=e121]:
+                - generic [ref=e122]:
+                    - generic [ref=e248]:
+                        - img [ref=e251]
+                        - generic [ref=e254]:
+                            - generic [ref=e255]:
+                                - img [ref=e257]
+                                - generic [ref=e260]: Total Searches
+                            - generic [ref=e261]:
+                                - generic [ref=e262]: 1,762
+                                - generic [ref=e263]: ↑
+                            - generic [ref=e264]: all time
+                    - generic [ref=e265]:
+                        - img [ref=e268]
+                        - generic [ref=e269]:
+                            - generic [ref=e270]:
+                                - img [ref=e272]
+                                - generic [ref=e273]: Providers
+                            - generic [ref=e274]:
+                                - generic [ref=e275]: 3/3
+                                - generic [ref=e276]: ↑
+                            - generic [ref=e277]: healthy
+                    - generic [ref=e278]:
+                        - img [ref=e281]
+                        - generic [ref=e289]:
+                            - generic [ref=e290]:
+                                - img [ref=e292]
+                                - generic [ref=e300]: LLM Engines
+                            - generic [ref=e301]:
+                                - generic [ref=e302]: 1/2
+                                - generic [ref=e303]: ↑
+                            - generic [ref=e304]: active
+                    - generic [ref=e305]:
+                        - img [ref=e308]
+                        - generic [ref=e310]:
+                            - generic [ref=e311]:
+                                - img [ref=e313]
+                                - generic [ref=e315]: Status
+                            - generic [ref=e316]:
+                                - generic [ref=e317]: Online
+                                - generic [ref=e318]: ↑
+                            - generic [ref=e319]: just now
+                - generic [ref=e147]:
+                    - generic [ref=e149]:
+                        - img [ref=e151]
+                        - text: LLM Engine Controls
+                    - generic [ref=e155]:
+                        - generic [ref=e322]:
+                            - generic [ref=e323]:
+                                - generic [ref=e324]:
+                                    - img [ref=e326]
+                                    - generic [ref=e329]:
+                                        - text: DeepSeek
+                                        - generic [ref=e330]:
+                                            - generic [ref=e331]: Flash
+                                            - generic [ref=e332]: Pro
+                                - switch [checked] [ref=e335]
+                            - generic [ref=e337]:
+                                - generic [ref=e338]: Requests
+                                - generic [ref=e339]: "0"
+                            - generic [ref=e341]:
+                                - img [ref=e344]
+                                - generic [ref=e350]: ONLINE
+                        - generic [ref=e353]:
+                            - generic [ref=e354]:
+                                - generic [ref=e355]:
+                                    - img [ref=e357]
+                                    - generic [ref=e361]:
+                                        - text: Gemini
+                                        - generic [ref=e362]:
+                                            - generic [ref=e363]: Flash-Lite
+                                            - generic [ref=e364]: Flash
+                                            - generic [ref=e365]: Pro
+                                - switch [ref=e368]
+                            - generic [ref=e370]:
+                                - generic [ref=e371]: Requests
+                                - generic [ref=e372]: "0"
+                            - generic [ref=e374]:
+                                - img [ref=e377]
+                                - generic [ref=e382]: OFFLINE
+                - generic [ref=e172]:
+                    - generic [ref=e174]:
+                        - img [ref=e176]
+                        - text: Search Providers
+                    - generic [ref=e180]:
+                        - generic [ref=e386]:
+                            - generic [ref=e387]:
+                                - generic [ref=e388]:
+                                    - img [ref=e390]
+                                    - generic [ref=e393]:
+                                        - generic [ref=e394]: Google Vertex
+                                        - generic [ref=e395]: Cloud enterprise search
+                                - switch [checked] [ref=e397]
+                            - generic [ref=e399]:
+                                - generic [ref=e400]: Requests
+                                - generic [ref=e401]: 0 used
+                            - generic [ref=e403]:
+                                - generic [ref=e405]:
+                                    - img [ref=e408]
+                                    - generic [ref=e414]: ONLINE
+                                - generic [ref=e415]: never used
+                        - generic [ref=e419]:
+                            - generic [ref=e420]:
+                                - generic [ref=e421]:
+                                    - img [ref=e423]
+                                    - generic [ref=e426]:
+                                        - generic [ref=e427]: Brave Search
+                                        - generic [ref=e428]: API search (~1k/mo)
+                                - switch [checked] [ref=e430]
+                            - generic [ref=e432]:
+                                - generic [ref=e433]: Requests
+                                - generic [ref=e434]: 762/1,000
+                            - generic [ref=e437]:
+                                - generic [ref=e439]:
+                                    - img [ref=e442]
+                                    - generic [ref=e448]: ONLINE
+                                - generic [ref=e449]: never used
+                        - generic [ref=e453]:
+                            - generic [ref=e454]:
+                                - generic [ref=e455]:
+                                    - img [ref=e457]
+                                    - generic [ref=e461]:
+                                        - generic [ref=e462]: Tavily
+                                        - generic [ref=e463]: AI-grounded search
+                                - switch [checked] [ref=e465]
+                            - generic [ref=e467]:
+                                - generic [ref=e468]: Requests
+                                - generic [ref=e469]: 1,000/1,000
+                            - generic [ref=e472]:
+                                - generic [ref=e474]:
+                                    - img [ref=e477]
+                                    - generic [ref=e483]: ONLINE
+                                - generic [ref=e484]: never used
+        - generic [ref=e211]:
+            - heading "Command Palette" [level=2] [ref=e212]
+            - paragraph [ref=e213]: Search for a command to run...
+    - region "Notifications alt+T"
+    - button "Open Next.js Dev Tools" [ref=e219] [cursor=pointer]:
+        - img [ref=e220]
+    - alert [ref=e485]

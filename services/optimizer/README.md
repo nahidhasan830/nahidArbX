@@ -68,16 +68,16 @@ bash services/optimizer/redeploy.sh
 
 ## Key parameters
 
-| Parameter            | Value | Where                                        |
-| -------------------- | ----- | -------------------------------------------- |
-| Feature count        | 25    | `app/feature_names.py`, `lib/ml/feature-contract.ts` |
-| Feature version      | 2     | Same files                                   |
-| Cold start threshold | 200   | `app/config.py`, `lib/shared/constants.ts`   |
-| Retrain growth step  | 200   | `lib/shared/constants.ts`                    |
-| CPCV groups          | 10    | `app/cpcv.py`                                |
-| CPCV test size       | 2     | `app/cpcv.py`                                |
-| AUC-ROC gate         | 0.55  | `app/deployment_gate.py`                     |
-| DSR gate             | 0.60  | `app/deployment_gate.py`                     |
+| Parameter            | Value | Where                                                |
+| -------------------- | ----- | ---------------------------------------------------- |
+| Feature count        | 22    | `app/feature_names.py`, `lib/ml/feature-contract.ts` |
+| Feature version      | 1     | Same files                                           |
+| Cold start threshold | 200   | `app/config.py`, `lib/shared/constants.ts`           |
+| Retrain growth step  | 200   | `lib/shared/constants.ts`                            |
+| CPCV groups          | 10    | `app/cpcv.py`                                        |
+| CPCV test size       | 2     | `app/cpcv.py`                                        |
+| AUC-ROC gate         | 0.55  | `app/deployment_gate.py`                             |
+| DSR gate             | 0.60  | `app/deployment_gate.py`                             |
 
 ## Module map
 

@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import { useMemo } from "react";
+import { format, parseISO } from "date-fns";
 
 export interface PnlPoint {
   date: string; // YYYY-MM-DD
@@ -46,10 +47,7 @@ export function PnlChart({
     () =>
       data.map((p) => ({
         ...p,
-        label: new Date(p.date).toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-        }),
+        label: format(parseISO(p.date), "MMM d"),
       })),
     [data],
   );

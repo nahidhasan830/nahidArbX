@@ -57,7 +57,10 @@ export function EvRangeFilter({
 }: EvRangeFilterProps) {
   const isActive = min != null || max != null;
 
-  const value: [number, number] = [toSlider(min, EV_MIN), toSlider(max, EV_MAX)];
+  const value: [number, number] = [
+    toSlider(min, EV_MIN),
+    toSlider(max, EV_MAX),
+  ];
 
   const handleCommit = useCallback(
     ([lo, hi]: number[]) => {

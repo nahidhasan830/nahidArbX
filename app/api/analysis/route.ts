@@ -67,10 +67,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const multiplier = computeRawStakeMultiplier(
-    Number(bet.mlScore),
-    features,
-  );
+  const multiplier = computeRawStakeMultiplier(Number(bet.mlScore), features);
   const currentMetrics = computeAnalysisMetrics({
     mlScore: Number(bet.mlScore),
     features,
@@ -155,10 +152,7 @@ async function loadSimilarBets(params: {
     const features = row.mlFeatures ?? [];
     if (row.mlScore == null || features.length === 0) continue;
 
-    const multiplier = computeRawStakeMultiplier(
-      Number(row.mlScore),
-      features,
-    );
+    const multiplier = computeRawStakeMultiplier(Number(row.mlScore), features);
     const decision = classifyModelStance(multiplier);
     if (decision !== params.decision) continue;
 

@@ -66,16 +66,15 @@ export function AiDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-auto">
-          {loading && (
-            loadingSkeleton ?? (
+          {loading &&
+            (loadingSkeleton ?? (
               <div className="space-y-2 p-1">
                 <Skeleton className="h-6 w-3/4" />
                 <Skeleton className="h-16 w-full" />
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
               </div>
-            )
-          )}
+            ))}
 
           {!loading && error && (
             <Alert>

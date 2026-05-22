@@ -1,5 +1,7 @@
 /** System prompts and JSON schemas for search-grounded sports AI workflows. */
 
+import { format, isValid, parseISO } from "date-fns";
+
 const GENERAL_SPORTS_GROUNDING_RULES = `GENERAL ACCURACY RULES:
 - Treat dates and kickoff times as hard evidence. Prefer exact same date; be suspicious when search evidence is from a different season or tournament round.
 - Use the provided web evidence first. Do not invent facts that are not supported by the evidence.
@@ -122,8 +124,20 @@ Never output confidence=0 unless you have literally zero information.
 Respond with ONLY a JSON object containing "decision", "confidence", and "reasoning". Keep reasoning to one short sentence citing the decisive evidence.`;
 
 export function entityMatchPrompt(
-  eventA: { homeTeam: string; awayTeam: string; competition: string; startTime: string; provider?: string },
-  eventB: { homeTeam: string; awayTeam: string; competition: string; startTime: string; provider?: string },
+  eventA: {
+    homeTeam: string;
+    awayTeam: string;
+    competition: string;
+    startTime: string;
+    provider?: string;
+  },
+  eventB: {
+    homeTeam: string;
+    awayTeam: string;
+    competition: string;
+    startTime: string;
+    provider?: string;
+  },
 ): string {
   return `Are these the same real-world match?
 
@@ -176,8 +190,20 @@ Respond with ONLY a JSON array. Each element has "pair", "decision", "confidence
 export function entityMatchBatchPrompt(
   pairs: Array<{
     index: number;
-    eventA: { homeTeam: string; awayTeam: string; competition: string; startTime: string; provider?: string };
-    eventB: { homeTeam: string; awayTeam: string; competition: string; startTime: string; provider?: string };
+    eventA: {
+      homeTeam: string;
+      awayTeam: string;
+      competition: string;
+      startTime: string;
+      provider?: string;
+    };
+    eventB: {
+      homeTeam: string;
+      awayTeam: string;
+      competition: string;
+      startTime: string;
+      provider?: string;
+    };
   }>,
 ): string {
   const lines = pairs.map(
@@ -221,24 +247,6 @@ Never output confidence=0 unless you found absolutely nothing.
 
 Respond with ONLY a JSON object containing "answer", "confidence", and "reasoning".`;
 
-const formatTz = (d: Date, tz: string) => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(d);
-  const val = (type: string) => parts.find(p => p.type === type)!.value;
-  return {
-    date: `${val("year")}-${val("month")}-${val("day")}`,
-    time: `${val("hour")}:${val("minute")}`,
-  };
-};
-
 export function settlementPrompt(
   homeTeam: string,
   awayTeam: string,
@@ -246,36 +254,16 @@ export function settlementPrompt(
   date: string,
   question: string,
 ): string {
-  const now = new Date();
-  const utcToday = now.toISOString().slice(0, 10);
-  const bstTodayParts = formatTz(now, "Asia/Dhaka");
-  const bstToday = bstTodayParts.date;
-
-  const todayClause = utcToday === bstToday
-    ? `${utcToday} (UTC/Dhaka)`
-    : `UTC: ${utcToday} / Dhaka: ${bstToday}`;
-
-  let utcMatchDate = date;
-  let bstMatchDate = date;
-  let matchTimeStr = "";
+  const todayClause = format(new Date(), "yyyy-MM-dd");
+  let matchDateClause = date;
   try {
-    const d = new Date(date);
-    if (!isNaN(d.getTime())) {
-      const utc = formatTz(d, "UTC");
-      const bst = formatTz(d, "Asia/Dhaka");
-      utcMatchDate = utc.date;
-      bstMatchDate = bst.date;
-      matchTimeStr = ` (Kickoff: ${utc.time} UTC / ${bst.time} Dhaka time)`;
-    }
+    const d = parseISO(date);
+    if (isValid(d)) matchDateClause = format(d, "yyyy-MM-dd HH:mm");
   } catch {}
-
-  const matchDateClause = utcMatchDate === bstMatchDate
-    ? utcMatchDate
-    : `UTC: ${utcMatchDate} / Dhaka: ${bstMatchDate}`;
 
   return `Match: ${homeTeam} vs ${awayTeam}
 Competition: ${competition}
-Date: ${matchDateClause}${matchTimeStr}
+Date: ${matchDateClause}
 Today: ${todayClause}
 
 Question: ${question}
@@ -313,18 +301,15 @@ RESPONSE FORMAT (strict JSON, no other text):
 }`;
 
 export function buildGenericSystem(now: Date = new Date()): string {
-  const today = now.toLocaleDateString("en-GB", {
-    timeZone: "Asia/Dhaka",
-    weekday: "long",
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-  });
+  const today = format(now, "EEEE, dd MMMM yyyy");
   return GENERIC_SYSTEM_TEMPLATE.replace("{{TODAY}}", today);
 }
 
 /** @deprecated Kept for backward compatibility — use buildGenericSystem() instead. */
-export const GENERIC_SYSTEM = GENERIC_SYSTEM_TEMPLATE.replace("{{TODAY}}", "(date not provided)");
+export const GENERIC_SYSTEM = GENERIC_SYSTEM_TEMPLATE.replace(
+  "{{TODAY}}",
+  "(date not provided)",
+);
 
 export function genericQueryPrompt(question: string, context?: string): string {
   let prompt = `Question: ${question}`;
@@ -339,30 +324,10 @@ export function genericQueryPrompt(question: string, context?: string): string {
 
 function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    const utcStr = d.toLocaleString("en-GB", {
-      timeZone: "UTC",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    const bstStr = d.toLocaleString("en-GB", {
-      timeZone: "Asia/Dhaka",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    if (utcStr === bstStr) {
-      return `${utcStr} UTC`;
-    }
-    return `${utcStr} UTC / ${bstStr} Dhaka`;
+    const d = parseISO(iso);
+    if (isValid(d)) return format(d, "dd MMM yyyy HH:mm");
   } catch {
-    return iso;
+    // Fall through.
   }
+  return iso;
 }

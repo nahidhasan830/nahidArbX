@@ -72,7 +72,7 @@ function execPython(url: string): Promise<string> {
       "python3",
       ["-c", PYTHON_FETCH_SCRIPT, url],
       {
-        timeout: 25_000,  // 25s hard kill
+        timeout: 25_000, // 25s hard kill
         maxBuffer: 20 * 1024 * 1024, // 20MB — scheduled-events + inverse can be very large
         env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
       },

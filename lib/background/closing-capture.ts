@@ -62,7 +62,7 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
       softProvider: bets.softProvider,
       softOdds: bets.softOdds,
       softCommissionPct: bets.softCommissionPct,
-      odds: bets.odds,         // placed odds (null if not placed)
+      odds: bets.odds, // placed odds (null if not placed)
       placedAt: bets.placedAt, // non-null if placed
     })
     .from(bets)
@@ -115,9 +115,7 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
           Number(row.softOdds),
           commission,
         );
-        clvPct = Number(
-          ((adjSoftOdds / closingSharp - 1) * 100).toFixed(2),
-        );
+        clvPct = Number(((adjSoftOdds / closingSharp - 1) * 100).toFixed(2));
       }
     }
 

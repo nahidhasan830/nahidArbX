@@ -10,7 +10,7 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - `npx vitest run` — Vitest (`tests/unit/`)
 - `npm run test:settle` — Node runner for `lib/settle/*.test.ts`
 - `npm run db:generate` then `npm run db:migrate` — Drizzle (snake_case casing)
-- UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used instead — prefer API/curl over Playwright.**
+- UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used instead — prefer API/curl over Playwright.\*\*
 
 ## Architecture & Data
 
@@ -20,6 +20,7 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - **`singleton()`** (`lib/util/singleton.ts`) for HMR-safe state. Module-level `let` breaks under Turbopack.
 - **`bets` is the only settlement table.** `value_bets`/`placed_bets` are dropped legacy.
 - **Settlement pipeline is shared** — auto/manual/re-settle all use `settleBatch`/`applySettlementOutcomes`.
+- **Current-contract corpus accounting is shared** — `lib/ml/training-sample-accounting.ts` feeds `/api/ml/pipeline`, `/api/ml/training-data`, and `/lab/ml`. Keep raw settled/current-contract/win/loss collection counts separate from trainer-readiness counts.
 - **Bet IDs are deterministic:** `${eventId}|${familyId}|${atomId}` (not UUIDs).
 - **`better-sqlite3` is auth-only.** App DB is Postgres via Drizzle (snake_case casing).
 - **`lib/shared/constants.ts`** = single source for magic numbers (not `lib/config.ts`).
@@ -42,6 +43,8 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - **Tooltips on every control.** `<Tooltip>`/`<TooltipTrigger>`/`<TooltipContent>` — never plain `title=""`.
 
 ## Workflow & Infrastructure
+
+- **ML rebuild source of truth:** `ML_REBUILD_PLAN.md`.
 
 - **Solo-developer — no branches.** Few commits, no branch politics.
 - **Dev machine:** MacBook Pro 14″ (Nov 2024), Apple M4 Pro, 24 GB unified memory. Supports local Gemma 4 26B (MoE) via Ollama.

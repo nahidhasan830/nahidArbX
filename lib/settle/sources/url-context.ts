@@ -15,6 +15,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import type { SettleEvent } from "../waterfall";
 import type { MatchScore } from "../types";
 import { logger } from "../../shared/logger";
+import { format, isValid, parseISO } from "date-fns";
 
 const LITE_MODEL =
   process.env.GEMINI_LITE_MODEL || "gemini-3.1-flash-lite-preview";
@@ -68,36 +69,18 @@ const RESPONSE_SCHEMA = {
   required: ["status", "confidence"],
 };
 
-const formatTz = (d: Date, tz: string) => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  const parts = formatter.formatToParts(d);
-  const val = (type: string) => parts.find(p => p.type === type)!.value;
-  return {
-    date: `${val("year")}-${val("month")}-${val("day")}`,
-    time: `${val("hour")}:${val("minute")}`,
-  };
-};
-
 const buildPrompt = (evt: SettleEvent): string => {
-  const kickoff = new Date(evt.startTime);
-  const utc = formatTz(kickoff, "UTC");
-  const bst = formatTz(kickoff, "Asia/Dhaka");
-
-  const dateClause = utc.date === bst.date
-    ? utc.date
-    : `${utc.date} (Dhaka local date: ${bst.date})`;
+  const kickoff = parseISO(evt.startTime);
+  const kickoffClause = isValid(kickoff)
+    ? format(kickoff, "yyyy-MM-dd HH:mm")
+    : evt.startTime;
+  const dateClause = isValid(kickoff)
+    ? format(kickoff, "yyyy-MM-dd")
+    : evt.startTime.slice(0, 10);
 
   return `Match: ${evt.homeTeam} vs ${evt.awayTeam}
 Competition: ${evt.competition ?? "unknown"}
-Kickoff: ${utc.time} UTC / ${bst.time} Dhaka time
+Kickoff: ${kickoffClause}
 Date: ${dateClause}
 
 Use googleSearch to find the FT (Full Time) and HT (Half Time) score for this specific fixture.

@@ -177,7 +177,9 @@ function parseScore(text: string | undefined): ParsedScore | null {
     const ftHome = Number.parseInt(ftSpecific[1], 10);
     const ftAway = Number.parseInt(ftSpecific[2], 10);
     if (ftHome > 30 || ftAway > 30) return null;
-    const htMatch = text.match(/(?:HT|half[-\s]*time)[:\s]*(\d+)\s*[-–—:]\s*(\d+)/i);
+    const htMatch = text.match(
+      /(?:HT|half[-\s]*time)[:\s]*(\d+)\s*[-–—:]\s*(\d+)/i,
+    );
     return {
       ftHome,
       ftAway,
@@ -214,7 +216,9 @@ function parseScore(text: string | undefined): ParsedScore | null {
   }
   if (!ft) return null;
 
-  const htMatch = text.match(/(?:HT|half[-\s]*time)[:\s]*(\d+)\s*[-–—:]\s*(\d+)/i);
+  const htMatch = text.match(
+    /(?:HT|half[-\s]*time)[:\s]*(\d+)\s*[-–—:]\s*(\d+)/i,
+  );
   return {
     ftHome: ft.home,
     ftAway: ft.away,
@@ -229,8 +233,12 @@ function compact(value: string, max = 42): string {
 }
 
 function printTable(results: TestResult[]) {
-  console.log("| # | Request | Expected | Actual | Response | AI Score | AI Outcome | Rating | Conf | Model | Src |");
-  console.log("|---|---------|----------|--------|----------|----------|------------|--------|------|-------|-----|");
+  console.log(
+    "| # | Request | Expected | Actual | Response | AI Score | AI Outcome | Rating | Conf | Model | Src |",
+  );
+  console.log(
+    "|---|---------|----------|--------|----------|----------|------------|--------|------|-------|-----|",
+  );
   for (const r of results) {
     console.log(
       `| ${r.idx} | ${compact(r.request)} | ${r.expectedOutcome} | ${r.actualScore} | ${compact(r.response)} | ${r.aiScore} | ${r.aiOutcome} | ${r.rating} | ${r.confidence} | ${compact(r.model, 22)} | ${r.sources} |`,
@@ -256,7 +264,9 @@ describe("Bet Settlement AI Accuracy (HTTP e2e)", () => {
       120_000,
     );
     samples = data.samples;
-    console.log(`[settlement-accuracy.e2e] Loaded ${samples.length} HTTP samples`);
+    console.log(
+      `[settlement-accuracy.e2e] Loaded ${samples.length} HTTP samples`,
+    );
   }, 150_000);
 
   it(
@@ -282,11 +292,12 @@ describe("Bet Settlement AI Accuracy (HTTP e2e)", () => {
         let sources = 0;
 
         try {
-          const { status, body } = await postJsonWithRetry<SettlementAiResponse>(
-            sample.request.endpoint,
-            sample.request.body,
-            LLM_TIMEOUT_MS,
-          );
+          const { status, body } =
+            await postJsonWithRetry<SettlementAiResponse>(
+              sample.request.endpoint,
+              sample.request.body,
+              LLM_TIMEOUT_MS,
+            );
 
           if (status !== 200 || body.answer == null) {
             errors++;
@@ -320,13 +331,15 @@ describe("Bet Settlement AI Accuracy (HTTP e2e)", () => {
               if (outcomeRes.status !== 200 || !outcomeRes.body.outcome) {
                 errors++;
                 rating = "error";
-                aiOutcome = outcomeRes.body.error ?? `HTTP ${outcomeRes.status}`;
+                aiOutcome =
+                  outcomeRes.body.error ?? `HTTP ${outcomeRes.status}`;
               } else {
                 aiOutcome = outcomeRes.body.outcome;
                 const exactScore =
                   parsed.ftHome === sample.actualScore.ftHome &&
                   parsed.ftAway === sample.actualScore.ftAway;
-                const outcomeMatch = outcomeRes.body.outcome === sample.expectedOutcome;
+                const outcomeMatch =
+                  outcomeRes.body.outcome === sample.expectedOutcome;
 
                 if (exactScore) exactScores++;
                 if (outcomeMatch) correctOutcomes++;
@@ -375,8 +388,12 @@ describe("Bet Settlement AI Accuracy (HTTP e2e)", () => {
       console.log("\nBET SETTLEMENT AI ACCURACY RESULTS (DeepSeek Flash)");
       console.log(`Total: ${samples.length}`);
       console.log(`Resolved: ${resolved} (${resolutionRate.toFixed(1)}%)`);
-      console.log(`Exact score: ${exactScores}/${resolved} (${scoreAccuracy.toFixed(1)}%)`);
-      console.log(`Outcome correct: ${correctOutcomes}/${resolved} (${outcomeAccuracy.toFixed(1)}%)`);
+      console.log(
+        `Exact score: ${exactScores}/${resolved} (${scoreAccuracy.toFixed(1)}%)`,
+      );
+      console.log(
+        `Outcome correct: ${correctOutcomes}/${resolved} (${outcomeAccuracy.toFixed(1)}%)`,
+      );
       console.log(`Wrong outcomes: ${wrongOutcomes}`);
       console.log(`Unresolved: ${unresolved}`);
       console.log(`Errors: ${errors}`);

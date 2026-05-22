@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FEATURE_COUNT, FEATURE_INDEX } from "@/lib/ml/feature-contract";
 
 function makeFeatures(): number[] {
-  const f = new Array(25).fill(0);
-  f[0] = 4;
-  f[2] = 2.15;
-  f[3] = 2.15;
-  f[5] = 5;
-  f[17] = 0;
+  const f = new Array(FEATURE_COUNT).fill(0);
+  f[FEATURE_INDEX.sharp_true_prob] = 0.5;
+  f[FEATURE_INDEX.soft_odds] = 2.15;
+  f[FEATURE_INDEX.adjusted_soft_odds] = 2.15;
+  f[FEATURE_INDEX.tick_count] = 5;
+  f[FEATURE_INDEX.market_type_encoded] = 0;
   return f;
 }
 
@@ -22,9 +23,8 @@ describe("ML staker learned edge threshold", () => {
       getPolicyEdgeThresholdPct: () => 10,
     }));
 
-    const { computeKellyMultiplier, computeModelEdgePct } = await import(
-      "@/lib/ml/staker"
-    );
+    const { computeKellyMultiplier, computeModelEdgePct } =
+      await import("@/lib/ml/staker");
     const features = makeFeatures();
 
     expect(computeModelEdgePct(0.5, features)).toBeCloseTo(7.5, 6);

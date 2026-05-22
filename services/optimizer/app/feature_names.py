@@ -39,7 +39,7 @@ FEATURE_NAMES: list[str] = [
 ]
 
 FEATURE_COUNT = 22
-FEATURE_VERSION = 3
+FEATURE_VERSION = 1
 FEATURE_NAMES_HASH = hashlib.sha256(",".join(FEATURE_NAMES).encode("utf-8")).hexdigest()
 
 assert len(FEATURE_NAMES) == FEATURE_COUNT, (

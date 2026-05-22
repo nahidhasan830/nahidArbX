@@ -92,4 +92,3 @@ export function buildConnectionHealth(): Record<string, unknown> {
 
   return health;
 }
-

@@ -248,9 +248,12 @@ export function BetsHistorySpreadsheet() {
   // Fire 2 batches concurrently to cut wall-clock ~in half.
   const AI_BATCH_CONCURRENCY = 2;
 
-  const runAiSettle = async (ids: string[], reqOpts?: {
-    bypassCache?: boolean;
-  }) => {
+  const runAiSettle = async (
+    ids: string[],
+    reqOpts?: {
+      bypassCache?: boolean;
+    },
+  ) => {
     if (ids.length === 0) {
       toast.error("⚠️ No rows to settle");
       return;
@@ -295,7 +298,10 @@ export function BetsHistorySpreadsheet() {
         const chunk = chunks[my];
         try {
           // All settlement paths use the free waterfall — no paid AI.
-          const data = await aiLabelBets(chunk, reqOpts ?? { bypassCache: true });
+          const data = await aiLabelBets(
+            chunk,
+            reqOpts ?? { bypassCache: true },
+          );
           if (data.telemetry) {
             summary.tier0 += data.telemetry.tier0_hits;
             summary.tier1 += data.telemetry.tier1_hits;
@@ -459,10 +465,7 @@ export function BetsHistorySpreadsheet() {
    * so the source can actually change). Errors from the API surface as
    * an error row the dialog already knows how to render.
    */
-  const handleRerunProposal = async (
-    id: string,
-    choice: RerunChoice,
-  ) => {
+  const handleRerunProposal = async (id: string, choice: RerunChoice) => {
     setRerunningIds((cur) => {
       const next = new Set(cur);
       next.add(id);

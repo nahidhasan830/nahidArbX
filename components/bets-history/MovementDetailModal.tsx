@@ -27,6 +27,7 @@ import {
   CATEGORY_COLORS,
   CATEGORY_TEXT_COLORS,
   formatFeatureValue,
+  type FeatureCategory,
 } from "@/lib/ml/feature-catalog";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ export interface MovementDetailModalProps {
   eventLabel: string;
   /** E.g. "Match Result · Home Win" */
   marketLabel: string;
-  /** Optional 25-dim ML feature vector for inline inspection. */
+  /** Optional ML feature vector for inline inspection. */
   features?: number[] | null;
   /** Optional ML metadata — shown as a compact info strip when provided. */
   mlMeta?: {
@@ -338,7 +339,7 @@ function ModalInner({
   const featureGroups = hasFeatures
     ? (() => {
         const grouped = new Map<
-          string,
+          FeatureCategory,
           { meta: (typeof FEATURE_CATALOG)[number]; value: number }[]
         >();
         for (let i = 0; i < FEATURE_CATALOG.length; i++) {
@@ -350,20 +351,18 @@ function ModalInner({
       })()
     : null;
 
-  const CAT_ACCENT: Record<string, string> = {
+  const CAT_ACCENT: Record<FeatureCategory, string> = {
     Value: "from-emerald-500/5 to-transparent border-emerald-500/20",
     Odds: "from-cyan-500/5 to-transparent border-cyan-500/20",
     Movement: "from-violet-500/5 to-transparent border-violet-500/20",
     Market: "from-amber-500/5 to-transparent border-amber-500/20",
-    Staking: "from-rose-500/5 to-transparent border-rose-500/20",
   };
 
-  const CAT_GLOW: Record<string, string> = {
+  const CAT_GLOW: Record<FeatureCategory, string> = {
     Value: "hover:shadow-[0_0_20px_rgba(16,185,129,0.08)]",
     Odds: "hover:shadow-[0_0_20px_rgba(6,182,212,0.08)]",
     Movement: "hover:shadow-[0_0_20px_rgba(139,92,246,0.08)]",
     Market: "hover:shadow-[0_0_20px_rgba(245,158,11,0.08)]",
-    Staking: "hover:shadow-[0_0_20px_rgba(244,63,94,0.08)]",
   };
 
   return (
@@ -434,33 +433,42 @@ function ModalInner({
                   {(mlMeta.kellyRaw * 100).toFixed(2)}%
                 </span>
               )}
-              {mlMeta.mlMultiplier != null && (() => {
-                const m = mlMeta.mlMultiplier!;
-                const decision =
-                  m < 0.1 ? "Skip" : m < 0.95 ? "Shrink" : m > 1.05 ? "Boost" : "Agree";
-                const icon =
-                  m < 0.1 ? "✕" : m < 0.95 ? "↓" : m > 1.05 ? "↑" : "≈";
-                const cls =
-                  m < 0.1
-                    ? "border-red-500/30 bg-red-500/10 text-red-400"
-                    : m < 0.95
-                      ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-                      : m > 1.05
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                        : "border-white/[0.08] bg-white/[0.04] text-white/50";
-                return (
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium",
-                      cls,
-                    )}
-                  >
-                    <span>{icon}</span>
-                    <span>{decision}</span>
-                    <span className="font-mono tabular-nums">×{m.toFixed(3)}</span>
-                  </span>
-                );
-              })()}
+              {mlMeta.mlMultiplier != null &&
+                (() => {
+                  const m = mlMeta.mlMultiplier!;
+                  const decision =
+                    m < 0.1
+                      ? "Skip"
+                      : m < 0.95
+                        ? "Shrink"
+                        : m > 1.05
+                          ? "Boost"
+                          : "Agree";
+                  const icon =
+                    m < 0.1 ? "✕" : m < 0.95 ? "↓" : m > 1.05 ? "↑" : "≈";
+                  const cls =
+                    m < 0.1
+                      ? "border-red-500/30 bg-red-500/10 text-red-400"
+                      : m < 0.95
+                        ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
+                        : m > 1.05
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                          : "border-white/[0.08] bg-white/[0.04] text-white/50";
+                  return (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium",
+                        cls,
+                      )}
+                    >
+                      <span>{icon}</span>
+                      <span>{decision}</span>
+                      <span className="font-mono tabular-nums">
+                        ×{m.toFixed(3)}
+                      </span>
+                    </span>
+                  );
+                })()}
               {mlMeta.evPct != null && (
                 <span
                   className={cn(
@@ -640,15 +648,13 @@ function ModalInner({
                   <span
                     className={cn(
                       "size-1.5 rounded-full shrink-0 ring-4 ring-black/20",
-                      CATEGORY_COLORS[cat as keyof typeof CATEGORY_COLORS],
+                      CATEGORY_COLORS[cat],
                     )}
                   />
                   <span
                     className={cn(
                       "text-[10px] font-bold uppercase tracking-widest",
-                      CATEGORY_TEXT_COLORS[
-                        cat as keyof typeof CATEGORY_TEXT_COLORS
-                      ],
+                      CATEGORY_TEXT_COLORS[cat],
                       "opacity-80",
                     )}
                   >

@@ -46,12 +46,16 @@ export interface UseAiProvidersReturn {
   isToggling: (name: string) => boolean;
 }
 
-export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvidersReturn {
+export function useAiProviders(
+  options: UseAiProvidersOptions = {},
+): UseAiProvidersReturn {
   const { pollMs = 5000, enabled = true } = options;
 
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const providersRef = useRef(providers);
-  useEffect(() => { providersRef.current = providers; }, [providers]);
+  useEffect(() => {
+    providersRef.current = providers;
+  }, [providers]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +63,9 @@ export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvid
   const [toggleBusy, setToggleBusy] = useState<Set<string>>(() => new Set());
   const toggleBusyRef = useRef(toggleBusy);
   // Keep ref in sync so fetchProviders can read it without stale closure
-  useEffect(() => { toggleBusyRef.current = toggleBusy; }, [toggleBusy]);
+  useEffect(() => {
+    toggleBusyRef.current = toggleBusy;
+  }, [toggleBusy]);
 
   const loadRef = useRef(false);
 
@@ -67,7 +73,7 @@ export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvid
     try {
       const res = await fetch("/api/ai-providers", {
         cache: "no-store",
-        signal
+        signal,
       });
 
       if (!res.ok) {
@@ -76,18 +82,27 @@ export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvid
 
       const data: AiProvider[] = await res.json();
       // Fixed sort order: Vertex → Brave → Tavily for search providers, then alphabetical for LLMs
-      const SEARCH_ORDER: Record<string, number> = { vertex: 0, brave: 1, tavily: 2 };
+      const SEARCH_ORDER: Record<string, number> = {
+        vertex: 0,
+        brave: 1,
+        tavily: 2,
+      };
       const getOrder = (name: string) => SEARCH_ORDER[name] ?? 99;
       data.sort((a, b) => getOrder(a.name) - getOrder(b.name));
       // Don't overwrite providers that are currently being toggled
       // (optimistic update is already showing the new state)
       const busy = toggleBusyRef.current;
       const merged = data.map((p) => {
-        const uiName = p.name.startsWith("deepseek") ? "deepseek" :
-                       p.name.startsWith("gemini") ? "gemini" : p.name;
+        const uiName = p.name.startsWith("deepseek")
+          ? "deepseek"
+          : p.name.startsWith("gemini")
+            ? "gemini"
+            : p.name;
         if (busy.has(uiName)) {
           // Preserve optimistic state for this provider
-          const existing = providersRef.current.find(ep => ep.name === p.name);
+          const existing = providersRef.current.find(
+            (ep) => ep.name === p.name,
+          );
           return existing ?? p;
         }
         return p;
@@ -112,57 +127,66 @@ export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvid
     loadRef.current = false;
   }, [fetchProviders]);
 
-  const toggleProvider = useCallback(async (name: string, newEnabled: boolean) => {
-    // Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
-    // Note: search providers (brave, vertex, tavily) pass through as-is
-    const nameMap: Record<string, string> = {
-      deepseek: "deepseek-flash",
-      gemini: "gemini-lite",
-    };
-    const dbName = nameMap[name] ?? name;
+  const toggleProvider = useCallback(
+    async (name: string, newEnabled: boolean) => {
+      // Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
+      // Note: search providers (brave, vertex, tavily) pass through as-is
+      const nameMap: Record<string, string> = {
+        deepseek: "deepseek-flash",
+        gemini: "gemini-lite",
+      };
+      const dbName = nameMap[name] ?? name;
 
-    // Optimistic update - update BOTH the UI name and DB name versions
-    setProviders(prev => {
-      const updated = prev.map(p =>
-        p.name === name || p.name === dbName ? { ...p, enabled: newEnabled } : p
-      );
-      return updated;
-    });
-
-    setToggleBusy(prev => new Set(prev).add(name));
-
-    try {
-      const res = await fetch("/api/ai-engine-config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: dbName,
-          enabled: newEnabled,
-          reason: "manual"
-        }),
+      // Optimistic update - update BOTH the UI name and DB name versions
+      setProviders((prev) => {
+        const updated = prev.map((p) =>
+          p.name === name || p.name === dbName
+            ? { ...p, enabled: newEnabled }
+            : p,
+        );
+        return updated;
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      setToggleBusy((prev) => new Set(prev).add(name));
+
+      try {
+        const res = await fetch("/api/ai-engine-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: dbName,
+            enabled: newEnabled,
+            reason: "manual",
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        // Don't call fetchProviders() here — it races with the polling
+        // interval. Optimistic update already flipped the UI, and the
+        // 3s poll will confirm the actual DB state shortly.
+      } catch (err) {
+        // Revert on error
+        setProviders((prev) =>
+          prev.map((p) =>
+            p.name === name || p.name === dbName
+              ? { ...p, enabled: !newEnabled }
+              : p,
+          ),
+        );
+        setError(err instanceof Error ? err.message : "Toggle failed");
+      } finally {
+        setToggleBusy((prev) => {
+          const next = new Set(prev);
+          next.delete(name);
+          return next;
+        });
       }
-
-      // Don't call fetchProviders() here — it races with the polling
-      // interval. Optimistic update already flipped the UI, and the
-      // 3s poll will confirm the actual DB state shortly.
-    } catch (err) {
-      // Revert on error
-      setProviders(prev => prev.map(p =>
-        p.name === name || p.name === dbName ? { ...p, enabled: !newEnabled } : p
-      ));
-      setError(err instanceof Error ? err.message : "Toggle failed");
-    } finally {
-      setToggleBusy(prev => {
-        const next = new Set(prev);
-        next.delete(name);
-        return next;
-      });
-    }
-  }, [fetchProviders]);
+    },
+    [fetchProviders],
+  );
 
   // Initial load
   useEffect(() => {
@@ -180,8 +204,8 @@ export function useAiProviders(options: UseAiProvidersOptions = {}): UseAiProvid
   }, [enabled, load, pollMs]);
 
   // Derived data
-  const searchProviders = providers.filter(p => p.engineType === "search");
-  const llmProviders = providers.filter(p => p.engineType === "llm");
+  const searchProviders = providers.filter((p) => p.engineType === "search");
+  const llmProviders = providers.filter((p) => p.engineType === "llm");
 
   return {
     providers,

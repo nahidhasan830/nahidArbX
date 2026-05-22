@@ -143,7 +143,9 @@ describe("verify-ai: ai-search routing", () => {
 
   it("ai-search returns SAME decision", async () => {
     mockGetById.mockResolvedValueOnce(makePair());
-    mockMatchSingle.mockResolvedValueOnce(makeVerdict({ decision: "SAME", confidence: 0.98 }));
+    mockMatchSingle.mockResolvedValueOnce(
+      makeVerdict({ decision: "SAME", confidence: 0.98 }),
+    );
 
     const res = await POST(jsonBody({ id: "pair-001", engine: "ai-search" }));
     expect(res.status).toBe(200);
@@ -153,12 +155,16 @@ describe("verify-ai: ai-search routing", () => {
   });
 
   it("ai-search returns NOT_SAME decision", async () => {
-    mockGetById.mockResolvedValueOnce(makePair({
-      eventBHomeTeam: "Manchester United",
-      eventBAwayTeam: "Liverpool",
-      eventBCompetition: "FA Cup",
-    }));
-    mockMatchSingle.mockResolvedValueOnce(makeVerdict({ decision: "NOT_SAME", confidence: 0.99 }));
+    mockGetById.mockResolvedValueOnce(
+      makePair({
+        eventBHomeTeam: "Manchester United",
+        eventBAwayTeam: "Liverpool",
+        eventBCompetition: "FA Cup",
+      }),
+    );
+    mockMatchSingle.mockResolvedValueOnce(
+      makeVerdict({ decision: "NOT_SAME", confidence: 0.99 }),
+    );
 
     const res = await POST(jsonBody({ id: "pair-001", engine: "ai-search" }));
     expect(res.status).toBe(200);
@@ -168,7 +174,9 @@ describe("verify-ai: ai-search routing", () => {
 
   it("ai-search returns UNCERTAIN decision", async () => {
     mockGetById.mockResolvedValueOnce(makePair());
-    mockMatchSingle.mockResolvedValueOnce(makeVerdict({ decision: "UNCERTAIN", confidence: 0.55 }));
+    mockMatchSingle.mockResolvedValueOnce(
+      makeVerdict({ decision: "UNCERTAIN", confidence: 0.55 }),
+    );
 
     const res = await POST(jsonBody({ id: "pair-001", engine: "ai-search" }));
     expect(res.status).toBe(200);
@@ -219,7 +227,9 @@ describe("verify-ai: DeepSeek-only routing", () => {
   it("rejects gemini explicitly", async () => {
     mockGetById.mockResolvedValueOnce(makePair());
 
-    const res = await POST(jsonBody({ id: "pair-001", engine: "gemini", model: "pro" }));
+    const res = await POST(
+      jsonBody({ id: "pair-001", engine: "gemini", model: "pro" }),
+    );
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toBe("Event matching uses DeepSeek Flash only");
