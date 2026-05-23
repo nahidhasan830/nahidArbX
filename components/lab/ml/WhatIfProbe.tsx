@@ -6,11 +6,15 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { formatMarketType, getMarketOptions } from "@/lib/formatting/labels";
+import { formatPermissionLevel } from "@/lib/lab/ml/display";
 import type { PipelineData } from "./types";
 
 interface Props {
@@ -44,6 +48,22 @@ interface ProbeResult {
  */
 export function WhatIfProbe({ data }: Props) {
   const allowedMarkets = data.paperEvaluation.simpleRule.marketTypes;
+  const allowedMarketSet = useMemo(
+    () => new Set(allowedMarkets),
+    [allowedMarkets],
+  );
+  const marketOptions = useMemo(() => {
+    const options = getMarketOptions();
+    const known = new Set(options.map((o) => o.value));
+    const unknownAllowed = allowedMarkets
+      .filter((m) => !known.has(m))
+      .map((m) => ({ value: m, label: formatMarketType(m) }));
+    return [...options, ...unknownAllowed].sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }, [allowedMarkets]);
+  const allowedOptions = marketOptions.filter((o) => allowedMarketSet.has(o.value));
+  const otherOptions = marketOptions.filter((o) => !allowedMarketSet.has(o.value));
   const minEv = data.paperEvaluation.simpleRule.minEvPct;
   const policyEdge = data.paperEvaluation.mlModelEdgeThresholdPct;
   const permission = data.deploymentGate.permissionLevel;
@@ -59,12 +79,12 @@ export function WhatIfProbe({ data }: Props) {
     const safeEv = Number.isFinite(evPct) ? evPct : 0;
     const safeEdge = Number.isFinite(modelEdge) ? modelEdge : 0;
 
-    const simplePass =
-      safeEv >= minEv && (allowedMarkets as readonly string[]).includes(market);
+    const marketAllowed = allowedMarketSet.has(market);
+    const simplePass = safeEv >= minEv && marketAllowed;
     const modelEdgePass = safeEdge > policyEdge;
 
     let combined: ProbeResult["combinedVerdict"];
-    if (!simplePass && !(allowedMarkets as readonly string[]).includes(market)) {
+    if (!simplePass && !marketAllowed) {
       combined = "skip-wrong-market";
     } else if (!simplePass) {
       combined = "skip-low-ev";
@@ -112,7 +132,7 @@ export function WhatIfProbe({ data }: Props) {
               : "Bet skipped because model EV does not clear the threshold.";
           break;
         default:
-          stakingLabel = permission;
+          stakingLabel = formatPermissionLevel(permission);
           stakingMult = null;
       }
     }
@@ -130,14 +150,14 @@ export function WhatIfProbe({ data }: Props) {
     market,
     minEv,
     policyEdge,
-    allowedMarkets,
+    allowedMarketSet,
     permission,
     modelLoaded,
   ]);
 
   return (
-    <section className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-      <header className="border-b border-border/40 px-5 py-4">
+    <section className="w-full rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm">
+      <header className="border-b border-border/40 px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight text-foreground">
           What-If Probe
         </h2>
@@ -147,24 +167,37 @@ export function WhatIfProbe({ data }: Props) {
         </p>
       </header>
 
-      <div className="grid gap-6 p-5 lg:grid-cols-[280px_1fr]">
+      <div className="grid gap-4 p-4 xl:grid-cols-[320px_1fr]">
         <div className="grid gap-3">
           <Field
             label="Market"
-            hint="Auto-place only fires on these markets."
+            hint={`${allowedMarkets.length} markets are currently allowed by the simple EV rule.`}
           >
             <Select value={market} onValueChange={setMarket}>
-              <SelectTrigger className="h-8 text-[13px]">
-                <SelectValue />
+              <SelectTrigger className="h-8 w-full text-[13px]">
+                <SelectValue>
+                  {formatMarketType(market)}
+                </SelectValue>
               </SelectTrigger>
-              <SelectContent>
-                {[
-                  ...new Set([...allowedMarkets, market, "OTHER_MARKET"]),
-                ].map((m) => (
-                  <SelectItem key={m} value={m} className="text-[13px]">
-                    {m}
-                  </SelectItem>
-                ))}
+              <SelectContent className="max-h-[420px] min-w-[280px]">
+                {allowedOptions.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>Simple-rule markets</SelectLabel>
+                    {allowedOptions.map((m) => (
+                      <SelectItem key={m.value} value={m.value} className="text-[13px]">
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                <SelectGroup>
+                  <SelectLabel>All other markets</SelectLabel>
+                  {otherOptions.map((m) => (
+                    <SelectItem key={m.value} value={m.value} className="text-[13px]">
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
           </Field>
@@ -231,7 +264,7 @@ export function WhatIfProbe({ data }: Props) {
                 {result.staking.multiplier ?? "—"}
               </p>
             </div>
-            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            <p className="mt-1 text-[13px] leading-snug text-muted-foreground">
               {result.staking.explanation}
             </p>
           </div>
@@ -256,7 +289,7 @@ function Field({
         {label}
       </span>
       {children}
-      <span className="text-[12px] leading-relaxed text-muted-foreground/80">
+      <span className="text-[12px] leading-snug text-muted-foreground/80">
         {hint}
       </span>
     </label>
@@ -298,7 +331,7 @@ function Verdict({
       {icon}
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-foreground">{title}</p>
-        <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">
+        <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">
           {neutral ? failText : ok ? okText : failText}
         </p>
       </div>
@@ -320,7 +353,7 @@ function CombinedVerdict({ result }: { result: ProbeResult }) {
   return (
     <div
       className={cn(
-        "flex items-center justify-between rounded-md border px-4 py-3",
+        "flex items-center justify-between gap-3 rounded-md border px-4 py-2.5",
         ok
           ? "border-emerald-500/30 bg-emerald-500/10"
           : "border-amber-500/30 bg-amber-500/10",

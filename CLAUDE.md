@@ -80,13 +80,11 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 - **All external data validated with Zod.**
 - **Current-contract corpus accounting lives in `lib/ml/training-sample-accounting.ts`.** `/api/ml/pipeline`, `/api/ml/training-data`, and `/lab/ml` must reuse that shared source and keep raw settled/current-contract/win/loss progress separate from stricter trainer-readiness counts.
 
-### Settlement & AI
+### Settlement
 
-- **No automatic AI.** Settlement is deterministic Tier 0/1/2 only (cache → live feed → ESPN/SofaScore). The kill-switch was removed because there's no automatic AI to switch off.
-- **Only paid Gemini surface is operator-triggered:** `/bets` "AI settle" dropdown → `aiLabelBets(ids, { forceAi: true, aiModel })` → Tier 3 `url_context`. Cost-guarded by `AI_MAX_PER_REQUEST_USD` (default $2).
-- **The automatic scheduler MUST never set `forceAi: true`.** No code path from `scheduler.ts` → `auto-settler.ts` → `settle-batch.ts` → `waterfall.ts` opts in to AI.
-- **URLs for `url_context` must be short scoreboard pages** (SofaScore, FlashScore). Wikipedia/indexes blow the context window.
-- **Every paid Gemini call needs error classification.** Spend-cap errors must short-circuit (`UrlContextBatchAbort`).
+- **No automated settlement AI.** Settlement uses source-only tiers: cache → ESPN/API-Football/SofaScore. Unresolved rows stay pending for manual review.
+- **Manual Google AI Mode is only a human verification link.** It must not feed backend settlement or auto-apply outcomes.
+- **Manual re-settle bypasses cache.** Operator-triggered `/api/bets-history/settle` calls default to `bypassCache: true`; the automatic scheduler calls `settleBatch` directly and keeps Tier 0 enabled.
 - **Prefer deterministic settlement.** `settleBet(row, score)` handles 80%+ of markets with zero AI.
 - **Telegram notifications only for placed bets** — if `placedAt` is null, settle silently.
 - **Auto-place stakes snap to 100 BDT multiples** (`AUTO_PLACE_STAKE_BUCKET`), min 200 BDT.

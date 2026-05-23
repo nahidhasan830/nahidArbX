@@ -159,6 +159,7 @@ export class BraveSearchProvider {
         title: item.title || "",
         url: item.url || "",
         snippet: item.description || "",
+        content: item.description || "",
         source: "brave",
       });
     }

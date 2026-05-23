@@ -2,8 +2,7 @@
  * Tier 2c — SofaScore unofficial API (curl_cffi TLS impersonation).
  *
  * Covers essentially every global football league with both HT and FT
- * scores cleanly. Used as the last free tier before the AI kill switch
- * — ESPN + API-Football run first because they're ToS-safe.
+ * scores cleanly. ESPN + API-Football run first because they're ToS-safe.
  *
  * Transport: Python curl_cffi subprocess (see ./sofascore-browser.ts).
  * SofaScore blocks all non-browser TLS fingerprints via Cloudflare, but
@@ -26,7 +25,6 @@ import { logger } from "../../shared/logger";
 import { applyTeamAlias, learnTeamAlias } from "../aliases";
 import { singleton } from "../../util/singleton";
 import { fetchViaBrowser } from "./sofascore-browser";
-import { verifySettlementMatch, AI_MAYBE_FLOOR } from "./ai-match";
 import {
   addDays,
   differenceInCalendarDays,
@@ -375,33 +373,13 @@ export async function fetchSofaScoreScores(
         ),
       );
       const combined = (homeSim + awaySim) / 2;
-      if (combined < AI_MAYBE_FLOOR) continue; // Too different even for AI
+      if (combined < MATCH_SCORE_THRESHOLD) continue;
 
       if (!best || combined > best.score)
         best = { event: theirs, score: combined };
     }
 
     if (!best) continue;
-
-    // If the best match is below the deterministic threshold, ask AI
-    if (best.score < MATCH_SCORE_THRESHOLD) {
-      const aiResult = await verifySettlementMatch({
-        ourHomeTeam: ours.homeTeam,
-        ourAwayTeam: ours.awayTeam,
-        ourCompetition: ours.competition,
-        ourStartTime: ours.startTime,
-        theirHomeTeam: best.event.homeTeam.name,
-        theirAwayTeam: best.event.awayTeam.name,
-        theirStartTime: new Date(
-          best.event.startTimestamp * 1000,
-        ).toISOString(),
-        fuzzySimilarity: best.score,
-        sourceProvider: "sofascore",
-      });
-
-      if (!aiResult?.confirmed) continue;
-      best.score = Math.max(best.score, 0.85);
-    }
 
     const status = mapStatus(best.event.status);
     if (!status) continue;

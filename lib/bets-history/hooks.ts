@@ -9,7 +9,6 @@ import {
 } from "@tanstack/react-query";
 import {
   aiAnalyzeBets,
-  aiLabelBets,
   aiProposeRules,
   betsHistoryRule,
   bulkMarkOutcomes,
@@ -17,6 +16,7 @@ import {
   fetchBetsStats,
   listValueBets,
   markOutcome,
+  settleBets,
   type BulkUpdate,
   type ListFilters,
   type ModelTier,
@@ -109,9 +109,9 @@ export const useBulkMarkOutcomes = () => {
   });
 };
 
-export const useAiLabel = () =>
+export const useSettleBets = () =>
   useMutation({
-    mutationFn: ({ ids }: { ids: string[] }) => aiLabelBets(ids),
+    mutationFn: ({ ids }: { ids: string[] }) => settleBets(ids),
   });
 
 export const useAiAnalyze = () =>

@@ -179,6 +179,8 @@ export type PairProcessingStatus =
   | "embedding"
   | "scoring"
   | "ai-searching"
+  | "ai-same"
+  | "ai-different"
   | "merged"
   | "rejected"
   | "escalated"

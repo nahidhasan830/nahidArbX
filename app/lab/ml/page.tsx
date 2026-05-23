@@ -16,7 +16,12 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
@@ -127,55 +132,20 @@ export default function MLLabPage() {
 
   return (
     <TooltipProvider delayDuration={150}>
-      <AppShell title="ML Optimizer" edgeToEdge>
+      <AppShell
+        title="ML Optimizer"
+        edgeToEdge
+        actions={
+          <HeaderActions
+            isFetching={isFetching}
+            refreshIntervalSec={refreshIntervalSec}
+            onRefresh={() => void refetch()}
+          />
+        }
+      >
         <div className="flex flex-1 flex-col bg-background overflow-hidden text-foreground">
           <div className="flex-1 overflow-y-auto">
-            <div className="w-full px-4 py-6 space-y-5 xl:px-6 2xl:px-8">
-              {/* Page header */}
-              <header className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h1 className="text-xl font-semibold tracking-tight">
-                    ML Optimizer
-                  </h1>
-                  <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                    Live view of the training and inference pipeline.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground",
-                      isFetching && "text-cyan-400",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "size-1.5 rounded-full bg-emerald-400",
-                        isFetching && "bg-cyan-400 animate-pulse",
-                      )}
-                    />
-                    {isFetching
-                      ? "Refreshing…"
-                      : `Auto-refresh ${refreshIntervalSec}s`}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void refetch()}
-                    disabled={isFetching}
-                    className="h-7 text-xs"
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "mr-1.5 size-3",
-                        isFetching && "animate-spin",
-                      )}
-                    />
-                    Refresh
-                  </Button>
-                </div>
-              </header>
-
+            <div className="w-full px-4 py-4 space-y-4 xl:px-6 2xl:px-8">
               {/* Hero state — always visible, scan-first */}
               <MLHeroBanner
                 data={data}
@@ -221,7 +191,7 @@ export default function MLLabPage() {
 
                 <TabsContent
                   value="pipeline"
-                  className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]"
+                  className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]"
                 >
                   <PipelineLadder data={data} rungs={rungs} />
                   <ActivityFeed data={data} />
@@ -229,7 +199,7 @@ export default function MLLabPage() {
 
                 <TabsContent
                   value="models"
-                  className="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+                  className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
                 >
                   <ModelTimeMachine data={data} />
                   <RejectedModelsCard data={data} />
@@ -242,9 +212,7 @@ export default function MLLabPage() {
                 </TabsContent>
 
                 <TabsContent value="probe">
-                  <div className="mx-auto w-full max-w-4xl">
-                    <WhatIfProbe data={data} />
-                  </div>
+                  <WhatIfProbe data={data} />
                 </TabsContent>
               </Tabs>
             </div>
@@ -253,5 +221,52 @@ export default function MLLabPage() {
       </AppShell>
       <Toaster richColors closeButton position="bottom-right" />
     </TooltipProvider>
+  );
+}
+
+function HeaderActions({
+  isFetching,
+  refreshIntervalSec,
+  onRefresh,
+}: {
+  isFetching: boolean;
+  refreshIntervalSec: number;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={cn(
+          "hidden items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground sm:inline-flex",
+          isFetching && "text-cyan-400",
+        )}
+      >
+        <span
+          className={cn(
+            "size-1.5 rounded-full bg-emerald-400",
+            isFetching && "bg-cyan-400 animate-pulse",
+          )}
+        />
+        {isFetching ? "Refreshing..." : `Auto-refresh ${refreshIntervalSec}s`}
+      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={isFetching}
+            className="h-7 text-xs"
+            aria-label="Refresh ML pipeline"
+          >
+            <RefreshCw
+              className={cn("mr-1.5 size-3", isFetching && "animate-spin")}
+            />
+            Refresh
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Refresh ML pipeline data</TooltipContent>
+      </Tooltip>
+    </div>
   );
 }

@@ -118,7 +118,7 @@ async function main() {
     console.log(`  Applied:       ${r.applied} (DB rows written)`);
     console.log(`  Still pending: ${r.stillPending}`);
     console.log(
-      `  Tier hits:     T0=${r.telemetry.tier0_hits} T1=${r.telemetry.tier1_hits} T2=${r.telemetry.tier2_hits} T3=${r.telemetry.tier3_hits}`,
+      `  Tier hits:     T0=${r.telemetry.tier0_hits} T1=${r.telemetry.tier1_hits} T2=${r.telemetry.tier2_hits}`,
     );
     console.log(`  Duration:      ${r.telemetry.durationMs}ms`);
 

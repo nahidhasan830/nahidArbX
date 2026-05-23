@@ -5,7 +5,8 @@
  * Replaces local ONNX scoring with managed LightGBM model deployment.
  *
  * Configuration:
- *   VERTEX_PREDICTION_ENDPOINT — endpoint resource name or URL
+ *   VERTEX_PREDICTION_ENDPOINT — optional endpoint id, resource name, or URL
+ *   ml_models.vertex_endpoint_name — fallback written by the trainer
  *   GCP_PROJECT_ID, GCP_REGION — already configured
  *
  * ⚠ PROCESS ISOLATION: This module must NEVER be imported by Next.js
@@ -14,7 +15,13 @@
 
 import { singleton } from "@/lib/util/singleton";
 import { logger } from "@/lib/shared/logger";
-import { predictBatch, healthCheck } from "./vertex-prediction-client";
+import { FEATURE_COUNT } from "./feature-contract";
+import {
+  getVertexPredictionEndpoint,
+  healthCheck,
+  predictBatch,
+  setVertexPredictionEndpoint,
+} from "./vertex-prediction-client";
 
 // ============================================
 // State — singleton for HMR safety
@@ -34,6 +41,8 @@ interface ScorerState {
   totalInferenceMs: number;
   /** Number of predictBatch round-trips (used to derive avg latency). */
   totalInferenceCalls: number;
+  /** Current Vertex AI Prediction endpoint resource or URL. */
+  vertexEndpoint: string | null;
 }
 
 const state = singleton(
@@ -47,6 +56,7 @@ const state = singleton(
     lastInferenceMs: 0,
     totalInferenceMs: 0,
     totalInferenceCalls: 0,
+    vertexEndpoint: null,
   }),
 );
 
@@ -57,22 +67,26 @@ const MODEL_WATCH_INTERVAL_MS = 60_000;
 // ============================================
 
 export function isModelLoaded(): boolean {
-  // Vertex AI endpoint is always "loaded" if configured
-  return !!process.env.VERTEX_PREDICTION_ENDPOINT;
+  // Vertex AI endpoint is always "loaded" once configured or discovered.
+  return !!getVertexPredictionEndpoint();
 }
 
 export async function ensureModel(): Promise<boolean> {
-  if (state.loadAttempted) return state.modelVersion !== null;
+  if (state.loadAttempted) return isModelLoaded();
   state.loadAttempted = true;
 
-  const endpointConfigured = !!process.env.VERTEX_PREDICTION_ENDPOINT;
+  const endpoint = await refreshDeployedModelState(true);
+  const endpointConfigured = !!endpoint;
   if (!endpointConfigured) {
     logger.info(
       "MLScorer",
-      "VERTEX_PREDICTION_ENDPOINT not configured — scoring returns null (fail-open).",
+      "No Vertex prediction endpoint configured or deployed — scoring returns null (fail-open).",
     );
   } else {
-    logger.info("MLScorer", "Vertex AI Prediction endpoint configured");
+    logger.info(
+      "MLScorer",
+      `Vertex AI Prediction endpoint configured: ${endpoint}`,
+    );
     // Health check the endpoint
     const healthy = await healthCheck();
     if (healthy) {
@@ -85,8 +99,6 @@ export async function ensureModel(): Promise<boolean> {
     }
   }
 
-  const { refreshPermissionLevel } = await import("./deployment-gate");
-  await refreshPermissionLevel(true);
   startModelWatcher();
   return endpointConfigured;
 }
@@ -134,7 +146,8 @@ export function getScorerStatus() {
     modelLoaded: isModelLoaded(),
     modelVersion: state.modelVersion,
     cloudOnly: true,
-    vertexEndpoint: process.env.VERTEX_PREDICTION_ENDPOINT || null,
+    featureCount: FEATURE_COUNT,
+    vertexEndpoint: getVertexPredictionEndpoint(),
     totalScoringAttempts: state.totalScoringAttempts,
     totalScored: state.totalScored,
     lastInferenceMs: state.lastInferenceMs,
@@ -151,31 +164,52 @@ function startModelWatcher(): void {
 
   state.watcherTimer = setInterval(async () => {
     try {
-      const { refreshPermissionLevel } = await import("./deployment-gate");
-      await refreshPermissionLevel();
-
-      const { db } = await import("@/lib/db/client");
-      const { mlModels } = await import("@/lib/db/schema");
-      const { eq, desc } = await import("drizzle-orm");
-
-      const [deployed] = await db
-        .select({ version: mlModels.version })
-        .from(mlModels)
-        .where(eq(mlModels.status, "deployed"))
-        .orderBy(desc(mlModels.deployedAt))
-        .limit(1);
-
-      if (deployed && deployed.version !== state.modelVersion) {
-        state.modelVersion = deployed.version;
-        logger.info(
-          "MLScorer",
-          `New deployed model v${deployed.version} detected`,
-        );
-      }
+      await refreshDeployedModelState();
     } catch (err) {
       logger.warn("MLScorer", `Watcher tick failed: ${(err as Error).message}`);
     }
   }, MODEL_WATCH_INTERVAL_MS);
+}
+
+async function refreshDeployedModelState(force = false): Promise<string | null> {
+  const { refreshPermissionLevel } = await import("./deployment-gate");
+  await refreshPermissionLevel(force);
+
+  const { db } = await import("@/lib/db/client");
+  const { mlModels } = await import("@/lib/db/schema");
+  const { eq, desc } = await import("drizzle-orm");
+
+  const [deployed] = await db
+    .select({
+      version: mlModels.version,
+      vertexEndpointName: mlModels.vertexEndpointName,
+    })
+    .from(mlModels)
+    .where(eq(mlModels.status, "deployed"))
+    .orderBy(desc(mlModels.deployedAt))
+    .limit(1);
+
+  const previousVersion = state.modelVersion;
+  const previousEndpoint = state.vertexEndpoint;
+  const nextEndpoint = deployed?.vertexEndpointName ?? null;
+
+  state.modelVersion = deployed?.version ?? null;
+  setVertexPredictionEndpoint(nextEndpoint);
+  state.vertexEndpoint = getVertexPredictionEndpoint();
+
+  if (
+    deployed &&
+    (force ||
+      deployed.version !== previousVersion ||
+      state.vertexEndpoint !== previousEndpoint)
+  ) {
+    logger.info(
+      "MLScorer",
+      `Loaded deployed model v${deployed.version}: vertexEndpoint=${state.vertexEndpoint ?? "missing"}`,
+    );
+  }
+
+  return getVertexPredictionEndpoint();
 }
 
 export function stopModelWatcher(): void {

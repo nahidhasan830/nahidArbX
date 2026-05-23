@@ -253,9 +253,9 @@ registerCommand({
 registerCommand({
   name: "spend",
   usage: "/spend",
-  description: "Settlement-pipeline AI spend this month + tier-hit breakdown.",
+  description: "Settlement-pipeline fallback usage this month + tier-hit breakdown.",
   explanation:
-    "Aggregates settlement_runs since the 1st of this month so you can see if Gemini cost is creeping up. Shows total estimated USD spend, tier-1 (free), tier-2 (free), tier-3 (paid url_context), and tier-4 (batched Gemini) hit counts. The April 2026 incident burned $35+ when one wrong URL blew the cap — this command exists to catch that earlier.",
+    "Aggregates settlement_runs since the 1st of this month so you can inspect fallback usage and any legacy estimated spend. Current settlement is deterministic/free; non-zero estimated spend should only come from old rows.",
   group: "read",
   async handler({ reply }) {
     const start = startOfMonth(new Date());
@@ -267,8 +267,6 @@ registerCommand({
           COALESCE(SUM(tier0_hits), 0)::int AS t0,
           COALESCE(SUM(tier1_hits), 0)::int AS t1,
           COALESCE(SUM(tier2_hits), 0)::int AS t2,
-          COALESCE(SUM(tier3_hits), 0)::int AS t3,
-          COALESCE(SUM(tier4_hits), 0)::int AS t4,
           COUNT(*)::int AS ticks
         FROM settlement_runs
         WHERE started_at >= ${startIso}::timestamptz
@@ -278,23 +276,19 @@ registerCommand({
         t0?: number;
         t1?: number;
         t2?: number;
-        t3?: number;
-        t4?: number;
         ticks?: number;
       };
       const spend = Number(row.spend ?? 0);
       const lines = [
-        header("💵", `Settlement spend (since ${startIso.slice(0, 10)})`),
+        header("💵", `Settlement source usage (since ${startIso.slice(0, 10)})`),
         "",
         `• ${b("Total")}: ${signedMoney(-spend, "USD").replace("−", "")}  <i>(estimate)</i>`,
         `• Ticks: ${num(row.ticks ?? 0)}`,
         "",
-        b("Tier hits (free → paid)"),
+        b("Tier hits"),
         `• T0 cache: ${num(row.t0 ?? 0)}`,
         `• T1 live feed: ${num(row.t1 ?? 0)}`,
-        `• T2 free APIs: ${num(row.t2 ?? 0)}`,
-        `• T3 url_context: ${num(row.t3 ?? 0)}  <i>paid</i>`,
-        `• T4 Gemini batch: ${num(row.t4 ?? 0)}  <i>paid</i>`,
+        `• T2 source APIs: ${num(row.t2 ?? 0)}`,
       ];
       await reply(lines.join("\n"));
     } catch (err) {

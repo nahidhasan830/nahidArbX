@@ -141,6 +141,28 @@ describe("verify-ai: ai-search routing", () => {
     );
   });
 
+  it("returns parse diagnostics from ai-search", async () => {
+    mockGetById.mockResolvedValueOnce(makePair());
+    mockMatchSingle.mockResolvedValueOnce(
+      makeVerdict({
+        diagnostics: {
+          parseStatus: "recovered",
+          finishReason: "length",
+          warning: "Recovered fields from a truncated AI JSON response.",
+        },
+      }),
+    );
+
+    const res = await POST(jsonBody({ id: "pair-001", engine: "ai-search" }));
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.result.diagnostics).toEqual({
+      parseStatus: "recovered",
+      finishReason: "length",
+      warning: "Recovered fields from a truncated AI JSON response.",
+    });
+  });
+
   it("ai-search returns SAME decision", async () => {
     mockGetById.mockResolvedValueOnce(makePair());
     mockMatchSingle.mockResolvedValueOnce(

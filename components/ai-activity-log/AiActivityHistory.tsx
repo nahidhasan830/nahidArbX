@@ -3,7 +3,7 @@
 /**
  * AiActivityHistory — main component for the /logs/ai-activity page.
  *
- * Displays ALL AI operations from the `ai_activity_log` table —
+ * Displays ALL AI operations from the unified `ai_logs` table —
  * settlement, grounding, entity matching, analysis, and proposals.
  * Enables diagnosing AI spend, latency, and failure patterns.
  */
@@ -23,8 +23,8 @@ import {
 import { useAiActivityPrefs } from "@/lib/ai-activity-log/use-ai-activity-prefs";
 import { AiActivityToolbar, type AiActivityFilters } from "./AiActivityToolbar";
 import { AiActivityLogTable } from "./AiActivityTable";
-import type { AiActivityLogRow } from "@/lib/db/schema";
-import type { AiActivityLogStats } from "@/lib/db/repositories/ai-activity-log";
+import type { AiLogRow } from "@/lib/db/schema";
+import type { AiLogStats } from "@/lib/db/repositories/ai-logs";
 
 // ── Constants ──
 
@@ -35,7 +35,7 @@ const REFRESH_INTERVAL_MS = 15_000;
 
 async function fetchLog(
   filters: AiActivityFilters & { limit: number; offset: number },
-): Promise<{ rows: AiActivityLogRow[]; total: number }> {
+): Promise<{ rows: AiLogRow[]; total: number }> {
   const params = new URLSearchParams();
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
@@ -44,6 +44,8 @@ async function fetchLog(
     params.set("statuses", filters.statuses.join(","));
   if (filters.triggers?.length)
     params.set("triggers", filters.triggers.join(","));
+  if (filters.endpoints?.length)
+    params.set("endpoints", filters.endpoints.join(","));
   if (filters.search) params.set("search", filters.search);
   params.set("limit", String(filters.limit));
   params.set("offset", String(filters.offset));
@@ -52,9 +54,7 @@ async function fetchLog(
   return res.json();
 }
 
-async function fetchLogStats(
-  filters: AiActivityFilters,
-): Promise<AiActivityLogStats> {
+async function fetchLogStats(filters: AiActivityFilters): Promise<AiLogStats> {
   const params = new URLSearchParams();
   params.set("aggregate", "true");
   if (filters.from) params.set("from", filters.from);
@@ -64,6 +64,8 @@ async function fetchLogStats(
     params.set("statuses", filters.statuses.join(","));
   if (filters.triggers?.length)
     params.set("triggers", filters.triggers.join(","));
+  if (filters.endpoints?.length)
+    params.set("endpoints", filters.endpoints.join(","));
   if (filters.search) params.set("search", filters.search);
   const res = await fetch(`/api/ai-activity-log?${params.toString()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -134,6 +136,7 @@ export function AiActivityHistory() {
         systems: f.systems,
         statuses: f.statuses,
         triggers: f.triggers,
+        endpoints: f.endpoints,
         search: f.search,
       });
     },
@@ -154,6 +157,7 @@ export function AiActivityHistory() {
     systems: rawFilters.systems,
     statuses: rawFilters.statuses,
     triggers: rawFilters.triggers,
+    endpoints: rawFilters.endpoints,
     search: rawFilters.search,
   };
 

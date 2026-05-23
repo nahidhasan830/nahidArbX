@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/ui/data-table";
+import { MarketDisplay } from "@/components/ui/market-display";
 import { derive } from "@/lib/bets-history/derive";
 import { useBetsList } from "@/lib/bets-history/hooks";
 import type { ValueBetRow } from "@/lib/bets-history/types";
@@ -71,12 +72,14 @@ export function ProviderBetsDialog({
         id: "market",
         header: "Market / Selection",
         cell: ({ row }) => (
-          <div className="text-[12px]">
-            <span className="text-muted-foreground">
-              {row.original.marketType}
-            </span>{" "}
-            {row.original.atomLabel}
-          </div>
+          <MarketDisplay
+            marketType={row.original.marketType}
+            timeScope={row.original.timeScope}
+            familyLine={row.original.familyLine}
+            selection={row.original.atomLabel}
+            className="max-w-[220px] justify-start text-[12px]"
+            textClassName="text-muted-foreground"
+          />
         ),
       },
       {

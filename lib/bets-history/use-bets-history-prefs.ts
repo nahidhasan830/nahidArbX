@@ -10,8 +10,7 @@ export type SortKey =
   | "evPctMax"
   | "kellyFraction"
   | "tickCount"
-  | "eventStartTime"
-  | "mlScore";
+  | "eventStartTime";
 export type SortDir = "asc" | "desc" | "none";
 
 export type BetsHistoryPrefs = {
@@ -38,6 +37,13 @@ const SYSTEM_DEFAULTS: BetsHistoryDefaults = {
 };
 
 const PAGE_SIZE = 100;
+const SORT_KEYS = new Set<SortKey>([
+  "firstSeenAt",
+  "evPctMax",
+  "kellyFraction",
+  "tickCount",
+  "eventStartTime",
+]);
 
 const STORAGE_KEY_PREFS = "bets-history:prefs:v3";
 const STORAGE_KEY_DEFAULTS = "bets-history:defaults:v3";
@@ -132,12 +138,28 @@ const sortEqual = (
   b: { key: SortKey; dir: SortDir },
 ): boolean => a.key === b.key && a.dir === b.dir;
 
+const sanitizeSort = (
+  sort: BetsHistoryPrefs["sort"] | null | undefined,
+): BetsHistoryPrefs["sort"] => {
+  if (sort && SORT_KEYS.has(sort.key)) return sort;
+  return SYSTEM_DEFAULTS.sort;
+};
+
 export function useBetsHistoryPrefs() {
   const [savedDefaults, setSavedDefaults] =
     useLocalStorage<BetsHistoryDefaults | null>(STORAGE_KEY_DEFAULTS, null);
 
   // Active defaults = user-saved defaults if present, otherwise system.
-  const activeDefaults: BetsHistoryDefaults = savedDefaults ?? SYSTEM_DEFAULTS;
+  const activeDefaults: BetsHistoryDefaults = useMemo(
+    () =>
+      savedDefaults
+        ? {
+            ...savedDefaults,
+            sort: sanitizeSort(savedDefaults.sort),
+          }
+        : SYSTEM_DEFAULTS,
+    [savedDefaults],
+  );
 
   const [prefs, setPrefsRaw] = useLocalStorage<BetsHistoryPrefs>(
     STORAGE_KEY_PREFS,
@@ -147,10 +169,18 @@ export function useBetsHistoryPrefs() {
         activeDefaults.capturedPreset,
         activeDefaults.kickoffPreset,
       ),
-      sort: activeDefaults.sort,
+      sort: sanitizeSort(activeDefaults.sort),
       capturedPreset: activeDefaults.capturedPreset ?? "all",
       kickoffPreset: activeDefaults.kickoffPreset ?? "all",
     },
+  );
+
+  const safePrefs: BetsHistoryPrefs = useMemo(
+    () => ({
+      ...prefs,
+      sort: sanitizeSort(prefs.sort),
+    }),
+    [prefs],
   );
 
   const setFilters = useCallback(
@@ -205,7 +235,7 @@ export function useBetsHistoryPrefs() {
         activeDefaults.capturedPreset,
         activeDefaults.kickoffPreset,
       ),
-      sort: activeDefaults.sort,
+      sort: sanitizeSort(activeDefaults.sort),
       capturedPreset: activeDefaults.capturedPreset ?? "all",
       kickoffPreset: activeDefaults.kickoffPreset ?? "all",
     }));
@@ -215,19 +245,19 @@ export function useBetsHistoryPrefs() {
   const saveCurrentAsDefault = useCallback(() => {
     setSavedDefaults({
       filters: sanitizeFilters(
-        prefs.filters,
-        prefs.capturedPreset,
-        prefs.kickoffPreset,
+        safePrefs.filters,
+        safePrefs.capturedPreset,
+        safePrefs.kickoffPreset,
       ),
-      sort: prefs.sort,
-      capturedPreset: prefs.capturedPreset,
-      kickoffPreset: prefs.kickoffPreset,
+      sort: safePrefs.sort,
+      capturedPreset: safePrefs.capturedPreset,
+      kickoffPreset: safePrefs.kickoffPreset,
     });
   }, [
-    prefs.filters,
-    prefs.sort,
-    prefs.capturedPreset,
-    prefs.kickoffPreset,
+    safePrefs.filters,
+    safePrefs.sort,
+    safePrefs.capturedPreset,
+    safePrefs.kickoffPreset,
     setSavedDefaults,
   ]);
 
@@ -238,17 +268,17 @@ export function useBetsHistoryPrefs() {
 
   const isAtDefaults = useMemo(
     () =>
-      filtersEqual(prefs.filters, activeDefaults.filters) &&
-      sortEqual(prefs.sort, activeDefaults.sort) &&
-      (prefs.capturedPreset ?? "all") ===
+      filtersEqual(safePrefs.filters, activeDefaults.filters) &&
+      sortEqual(safePrefs.sort, activeDefaults.sort) &&
+      (safePrefs.capturedPreset ?? "all") ===
         (activeDefaults.capturedPreset ?? "all") &&
-      (prefs.kickoffPreset ?? "all") ===
+      (safePrefs.kickoffPreset ?? "all") ===
         (activeDefaults.kickoffPreset ?? "all"),
     [
-      prefs.filters,
-      prefs.sort,
-      prefs.capturedPreset,
-      prefs.kickoffPreset,
+      safePrefs.filters,
+      safePrefs.sort,
+      safePrefs.capturedPreset,
+      safePrefs.kickoffPreset,
       activeDefaults,
     ],
   );
@@ -256,12 +286,12 @@ export function useBetsHistoryPrefs() {
   const hasSavedDefaults = savedDefaults !== null;
 
   return {
-    filters: prefs.filters,
+    filters: safePrefs.filters,
     setFilters,
-    sort: prefs.sort,
+    sort: safePrefs.sort,
     setSort,
-    capturedPreset: prefs.capturedPreset ?? "all",
-    kickoffPreset: prefs.kickoffPreset ?? "all",
+    capturedPreset: safePrefs.capturedPreset ?? "all",
+    kickoffPreset: safePrefs.kickoffPreset ?? "all",
     setCapturedPreset,
     setKickoffPreset,
 

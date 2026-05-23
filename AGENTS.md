@@ -27,11 +27,11 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - **Single `.env` file** at repo root. No `.env.local`/`.env.example`.
 - **Middleware uses `jose`** (Edge Runtime), not `jsonwebtoken`.
 
-## Settlement & AI
+## Settlement
 
-- **No automatic AI.** Settlement is deterministic Tier 0/1/2 only.
-- **Only paid Gemini path:** `/bets` "AI settle" → `aiLabelBets(ids, { forceAi: true, aiModel })`. Cost ceiling: `AI_MAX_PER_REQUEST_USD` ($2).
-- **Automatic scheduler MUST never set `forceAi: true`.** See CLAUDE.md §Settlement & AI.
+- **No automated settlement AI.** Settlement uses source-only tiers: cache → ESPN/API-Football/SofaScore. Unresolved rows stay pending for manual review.
+- **Manual Google AI Mode is only a human verification link.** It must not feed backend settlement or auto-apply outcomes.
+- **Manual re-settle bypasses cache.** `/api/bets-history/settle` defaults to `bypassCache: true`; the automatic scheduler calls `settleBatch` directly and keeps Tier 0 enabled.
 - **Telegram notifications only for placed bets** — null `placedAt` → settle silently.
 - **Auto-place stakes:** multiples of 100 BDT (`AUTO_PLACE_STAKE_BUCKET`), min 200 BDT.
 

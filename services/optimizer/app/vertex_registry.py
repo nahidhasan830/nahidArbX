@@ -6,7 +6,8 @@ them to Prediction endpoints. Replaces ONNX export + blob storage.
 Architecture:
   1. Export LightGBM model to ONNX (Vertex AI supports ONNX format)
   2. Upload ONNX to GCS bucket (Vertex AI model artifact storage)
-  3. Register model in Vertex AI Model Registry
+  3. Register model in Vertex AI Model Registry with the optimizer image as a
+     custom ONNX prediction container
   4. Deploy to Prediction endpoint (or update existing endpoint)
   5. Write ml_models row with Vertex AI resource names
 
@@ -32,29 +33,33 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+DEFAULT_SERVING_IMAGE = (
+    "asia-south1-docker.pkg.dev/nahidarbx-6e73/optimizer/nahidarbx-optimizer:latest"
+)
+
 
 def get_model_bucket() -> str:
     """Get GCS bucket for Vertex AI model artifacts."""
-    bucket = os.getenv("VERTEX_MODEL_BUCKET")
+    bucket = os.getenv("VERTEX_MODEL_BUCKET") or os.getenv("ML_MODEL_BUCKET")
     if not bucket:
-        raise ValueError("VERTEX_MODEL_BUCKET not configured")
+        raise ValueError("VERTEX_MODEL_BUCKET or ML_MODEL_BUCKET not configured")
     # Strip gs:// prefix if present
     return bucket.replace("gs://", "")
 
 
 def get_project_id() -> str:
     """Get GCP project ID."""
-    project = os.getenv("GCP_PROJECT_ID")
+    project = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
     if not project:
-        raise ValueError("GCP_PROJECT_ID not configured")
+        raise ValueError("GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT not configured")
     return project
 
 
 def get_region() -> str:
     """Get GCP region."""
-    region = os.getenv("GCP_REGION")
+    region = os.getenv("GCP_REGION") or os.getenv("GOOGLE_CLOUD_REGION")
     if not region:
-        raise ValueError("GCP_REGION not configured")
+        raise ValueError("GCP_REGION or GOOGLE_CLOUD_REGION not configured")
     return region
 
 
@@ -80,6 +85,11 @@ def upload_model_to_gcs(
     return gcs_uri
 
 
+def get_serving_image() -> str:
+    """Image used by Vertex AI to serve ONNX predictions."""
+    return os.getenv("VERTEX_SERVING_IMAGE") or DEFAULT_SERVING_IMAGE
+
+
 def register_model_in_vertex(
     gcs_uri: str,
     version: int,
@@ -96,13 +106,16 @@ def register_model_in_vertex(
 
     display_name = f"nahidarbx-lightgbm-v{version}"
 
-    # Create model with ONNX artifact
+    # Create model with ONNX artifact. Vertex starts the same optimizer image
+    # with a different command so it behaves as an HTTP prediction container.
     model = aiplatform.Model.upload(
         display_name=display_name,
         artifact_uri=os.path.dirname(gcs_uri),  # Directory containing model.onnx
-        serving_container_image_uri=(
-            f"{region}-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"
-        ),
+        serving_container_image_uri=get_serving_image(),
+        serving_container_command=["python", "-m", "app.vertex_server"],
+        serving_container_predict_route="/predict",
+        serving_container_health_route="/health",
+        serving_container_ports=[8080],
         labels={
             "version": str(version),
             "framework": "lightgbm",
@@ -111,6 +124,37 @@ def register_model_in_vertex(
         },
     )
 
+    log.info(f"Registered model: {model.resource_name}")
+    return model.resource_name
+
+
+def register_onnx_in_vertex(
+    gcs_uri: str,
+    version: int,
+) -> str:
+    """Register an ONNX artifact without training metrics.
+
+    Used by operational repair scripts when a DB row already has a stored
+    ONNX blob but the original training job failed before Vertex deployment.
+    """
+    project = get_project_id()
+    region = get_region()
+
+    aiplatform.init(project=project, location=region)
+    model = aiplatform.Model.upload(
+        display_name=f"nahidarbx-lightgbm-v{version}",
+        artifact_uri=os.path.dirname(gcs_uri),
+        serving_container_image_uri=get_serving_image(),
+        serving_container_command=["python", "-m", "app.vertex_server"],
+        serving_container_predict_route="/predict",
+        serving_container_health_route="/health",
+        serving_container_ports=[8080],
+        labels={
+            "version": str(version),
+            "framework": "lightgbm",
+            "app": "nahidarbx",
+        },
+    )
     log.info(f"Registered model: {model.resource_name}")
     return model.resource_name
 
@@ -135,7 +179,7 @@ def deploy_to_endpoint(
 
     if endpoint_id:
         # Deploy to existing endpoint
-        endpoint = aiplatform.Endpoint(endpoint_id)
+        endpoint = aiplatform.Endpoint(_normalize_endpoint_name(endpoint_id))
         log.info(f"Deploying to existing endpoint: {endpoint.resource_name}")
     else:
         # Create new endpoint
@@ -162,6 +206,18 @@ def deploy_to_endpoint(
     return endpoint.resource_name
 
 
+def _normalize_endpoint_name(endpoint: str) -> str:
+    """Accept endpoint id, endpoints/{id}, or full resource name."""
+    endpoint = endpoint.strip()
+    if endpoint.startswith("projects/"):
+        return endpoint
+    if endpoint.startswith("endpoints/"):
+        endpoint = endpoint.removeprefix("endpoints/")
+    return (
+        f"projects/{get_project_id()}/locations/{get_region()}/endpoints/{endpoint}"
+    )
+
+
 def export_and_register_vertex(
     model: lgb.LGBMClassifier,
     metrics: TrainingMetrics,
@@ -185,4 +241,15 @@ def export_and_register_vertex(
     # Deploy to endpoint
     endpoint_resource_name = deploy_to_endpoint(model_resource_name, version)
 
+    return model_resource_name, endpoint_resource_name
+
+
+def deploy_onnx_path_to_vertex(
+    onnx_path: str,
+    version: int,
+) -> tuple[str, str]:
+    """Upload, register, and deploy an already exported ONNX model."""
+    gcs_uri = upload_model_to_gcs(onnx_path, version)
+    model_resource_name = register_onnx_in_vertex(gcs_uri, version)
+    endpoint_resource_name = deploy_to_endpoint(model_resource_name, version)
     return model_resource_name, endpoint_resource_name

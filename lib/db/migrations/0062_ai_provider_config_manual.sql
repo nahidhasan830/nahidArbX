@@ -31,7 +31,7 @@ VALUES
     ('gemini-lite', false, 'gemini-3.1-flash-lite', 'lite', 'Gemini Flash-Lite', 'Cheapest', 'llm', null, 0, 0),
     ('gemini-flash', false, 'gemini-3-flash', 'flash', 'Gemini Flash', 'Balanced', 'llm', null, 0, 0),
     ('gemini-pro', false, 'gemini-3.1-pro', 'pro', 'Gemini Pro', 'Expert', 'llm', null, 0, 0),
-    ('vertex', true, 'vertex-ai-search', 'flash', 'Vertex AI Search', "Google's enterprise", 'search', 1000, 0, 0),
+    ('vertex', true, 'vertex-ai-search', 'flash', 'Vertex AI Search', "Google's enterprise", 'search', null, 0, 0),
     ('brave', true, 'brave-search-api', 'flash', 'Brave Search', 'Privacy-first', 'search', 1000, 0, 762),
     ('tavily', true, 'tavily-api', 'flash', 'Tavily', 'AI-focused', 'search', 1000, 0, 1000)
 ON CONFLICT (name) DO NOTHING;

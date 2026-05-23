@@ -18,6 +18,10 @@ import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import { mapSportsbookToAtom } from "../mappings/ninewickets-sportsbook";
 import { setMarketLimits } from "../market-limits-store";
 import {
+  selectPreferredGeniusEntries,
+  type GeniusEntryCandidate,
+} from "./genius-market-dedupe";
+import {
   callWithSessionRetry,
   SessionExpiredError,
 } from "../../betting/ninewickets/client";
@@ -205,8 +209,9 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     ctx: FetchContext,
   ): NormalizedOddsEntry[] {
     const data = rawData as SportsbookRawData;
-    const entries: NormalizedOddsEntry[] = [];
+    const candidates: GeniusEntryCandidate[] = [];
     const timestamp = Date.now();
+    let order = 0;
 
     for (const market of data.markets) {
       const selections = market.geniusSportsSelection;
@@ -265,27 +270,32 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
       if (hasCollision) continue;
 
       for (const entry of marketEntries) {
-        entries.push(entry);
-        // Piggyback: record the containing market's stake limits keyed
-        // by (provider, event, atom). The UI uses this directly — no
-        // second call to the book.
-        if (typeof market.min === "number" && typeof market.max === "number") {
-          setMarketLimits(
-            this.providerId,
-            ctx.normalizedEventId,
-            entry.atom_id,
-            {
-              minBet: market.min,
-              maxBet: market.max,
-              marketId: market.id,
-              timestamp,
-            },
-          );
-        }
+        candidates.push({ entry, market, order: order++ });
       }
     }
 
-    return entries;
+    const preferred = selectPreferredGeniusEntries(candidates);
+
+    for (const { entry, market } of preferred) {
+      // Piggyback: record the containing market's stake limits keyed
+      // by (provider, event, atom). The UI uses this directly — no
+      // second call to the book.
+      if (typeof market.min === "number" && typeof market.max === "number") {
+        setMarketLimits(
+          this.providerId,
+          ctx.normalizedEventId,
+          entry.atom_id,
+          {
+            minBet: market.min,
+            maxBet: market.max,
+            marketId: String(market.id),
+            timestamp,
+          },
+        );
+      }
+    }
+
+    return preferred.map(({ entry }) => entry);
   }
 }
 

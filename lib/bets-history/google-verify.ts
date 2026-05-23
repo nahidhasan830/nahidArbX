@@ -1,9 +1,3 @@
-/**
- * Backtest-specific wrapper around the shared Google AI Mode link
- * builder. Kept for backward compatibility with existing call sites
- * (BetsHistoryTable, AiSettleDialog). New code should import
- * `buildBetGradeUrl` from `lib/shared/google-ai-link` directly.
- */
 import { buildBetGradeUrl } from "@/lib/shared/google-ai-link";
 import type { ValueBetRow } from "./types";
 

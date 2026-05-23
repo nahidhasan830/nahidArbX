@@ -102,14 +102,6 @@ export function prettySettledBy(source: string | null): string {
       return "BetConstruct";
     case "football-data":
       return "football-data";
-    case "ai-search-hf":
-      return "HF+Search";
-    case "ai-search-groq":
-      return "Groq+Search";
-    case "url-context":
-    case "gemini-batch":
-    case "legacy-ai":
-      return "AI (legacy)";
     default:
       return source;
   }

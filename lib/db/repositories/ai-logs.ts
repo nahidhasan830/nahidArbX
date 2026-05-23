@@ -2,8 +2,7 @@
  * Repository for the unified ai_logs table.
  *
  * Write path: fire-and-forget logging from all AI operations:
- * - ai-search proxy (grounding, entity-match, settlement)
- * - Settlement (Gemini Tier 3)
+ * - ai-search proxy (grounding, entity-match)
  * - Entity matching (ML models)
  * - Analysis (Propose rules)
  *
@@ -17,21 +16,13 @@ import { logger } from "@/lib/shared/logger";
 
 export type AiLogInput = Omit<NewAiLogRow, "id" | "createdAt">;
 
-const MAX_JSON_SIZE = 16384; // 16KB limit for request/response payloads
-
 /**
- * Truncate JSON to max size, preserving valid JSON structure.
+ * Keep the exact JSON payload that was sent to or returned from the provider.
+ * AI-log inspection relies on seeing the full prompt/evidence chain.
  */
-function truncateJson(obj: unknown): object | null {
+function toJsonPayload(obj: unknown): unknown {
   if (obj === null || obj === undefined) return null;
-  try {
-    const str = JSON.stringify(obj);
-    if (str.length <= MAX_JSON_SIZE) return obj as object;
-    // Parse back to ensure valid JSON after truncation
-    return JSON.parse(str.slice(0, MAX_JSON_SIZE - 1) + "}");
-  } catch {
-    return null;
-  }
+  return obj;
 }
 
 /**
@@ -41,8 +32,8 @@ export async function recordAiLog(input: AiLogInput): Promise<void> {
   try {
     await db.insert(aiLogs).values({
       ...input,
-      requestBody: truncateJson(input.requestBody),
-      responseBody: truncateJson(input.responseBody),
+      requestBody: toJsonPayload(input.requestBody),
+      responseBody: toJsonPayload(input.responseBody),
     });
   } catch (err) {
     logger.error("AiLog", `Failed to record: ${(err as Error).message}`);
@@ -80,7 +71,14 @@ const buildFilterClauses = (filters: AiLogFilters) => {
   if (filters.search) {
     const q = `%${filters.search}%`;
     clauses.push(
-      sql`(COALESCE(${aiLogs.summary}, '') ILIKE ${q} OR COALESCE(${aiLogs.error}, '') ILIKE ${q} OR COALESCE(${aiLogs.model}, '') ILIKE ${q})`,
+      sql`(
+        COALESCE(${aiLogs.summary}, '') ILIKE ${q}
+        OR COALESCE(${aiLogs.error}, '') ILIKE ${q}
+        OR COALESCE(${aiLogs.model}, '') ILIKE ${q}
+        OR COALESCE(${aiLogs.query}, '') ILIKE ${q}
+        OR COALESCE(${aiLogs.endpoint}, '') ILIKE ${q}
+        OR COALESCE(${aiLogs.providerUsed}, '') ILIKE ${q}
+      )`,
     );
   }
   return clauses;

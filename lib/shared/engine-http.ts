@@ -496,8 +496,8 @@ export function registerEngineRoutes() {
       return jsonResponse(res, {
         modelLoaded: false,
         modelVersion: null,
-        modelPath: null,
         featureCount: 0,
+        vertexEndpoint: null,
         totalScoringAttempts: 0,
         totalScored: 0,
         avgInferenceMs: 0,

@@ -64,19 +64,6 @@ export type MarketType =
 
 export type TimeScope = "FT" | "1H" | "2H";
 
-export type AiLabelSource = {
-  url: string;
-  title: string;
-};
-
-export type AiLabelProposal = {
-  id: string;
-  proposedOutcome: Outcome;
-  confidence: number;
-  sources: AiLabelSource[];
-  reasoning: string;
-};
-
 export type ValueBetRow = {
   id: string;
   eventId: string;

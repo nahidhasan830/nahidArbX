@@ -134,8 +134,6 @@ export interface BetPlacedEvent {
   /** Line for handicap/total markets (e.g. "-1.25", "2.5"). Optional. */
   familyLine?: string | null;
   ticketId?: string;
-  /** Pre-built Google AI Mode grade URL, rendered as a tap-through link. */
-  gradeUrl?: string;
   /** Deep-link back to this bet in the app dashboard. */
   dashboardUrl?: string;
   /** Remaining provider balance after placement. */
@@ -189,8 +187,6 @@ export interface BetSettledEvent {
   timeScope?: string | null;
   /** Line for handicap/total markets. Optional. */
   familyLine?: string | null;
-  /** Pre-built Google AI Mode grade URL, rendered as a tap-through link. */
-  gradeUrl?: string;
   /** Deep-link back to this bet in the app dashboard. */
   dashboardUrl?: string;
   /** Remaining provider balance after settlement payout. */

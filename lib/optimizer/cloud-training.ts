@@ -6,8 +6,9 @@
  * training pipeline:
  *
  *   1. Guard against duplicate `training` rows in `ml_models`.
- *   2. Resolve next version + insert a `version=0 status=training` placeholder.
- *   3. Reconcile missing settled examples + read current accounting.
+ *   2. Reconcile missing settled examples + read current accounting.
+ *   3. Resolve next version + insert a `version=0 status=training` placeholder
+ *      fingerprinted with the current trainer sample count.
  *   4. Resolve a git short-SHA for image tagging + audit.
  *   5. Spawn `scripts/cloud-train.sh` detached, with stdout/stderr piped
  *      into the progress writer.
@@ -91,7 +92,22 @@ export async function triggerCloudTraining(
     };
   }
 
-  // ── 2. Resolve next version + insert placeholder ─────────────────────
+  // ── 2. Reconcile + read current accounting ───────────────────────────
+  //
+  // The scheduler's repeat guard compares terminal row `trainingSamples`
+  // against the current trainer sample count. Stamp the placeholder before
+  // spawning Cloud Build so infrastructure/export failures still carry the
+  // input fingerprint and cannot retrigger the same failed run every tick.
+  const { reconcileMissingSettledExamples } = await import(
+    "@/lib/ml/training-example-writer"
+  );
+  const { getCurrentCorpusAccounting } = await import(
+    "@/lib/ml/training-sample-accounting"
+  );
+  await reconcileMissingSettledExamples(500);
+  const accounting = await getCurrentCorpusAccounting(db);
+
+  // ── 3. Resolve next version + insert placeholder ─────────────────────
   const [{ maxVersion }] = await db
     .select({
       maxVersion: sql<number>`COALESCE(MAX(${mlModels.version}), 0)::int`,
@@ -111,7 +127,7 @@ export async function triggerCloudTraining(
       version: 0,
       status: "training",
       modelType: "lightgbm",
-      trainingSamples: 0,
+      trainingSamples: accounting.trainerExpectedSamples,
       featureCount: ML_FEATURE_COUNT,
       featureVersion: ML_FEATURE_VERSION,
       featureNamesHash: FEATURE_NAMES_HASH,
@@ -132,16 +148,6 @@ export async function triggerCloudTraining(
     "Cloud Build queued",
     TRAINING_ESTIMATE_MS,
   );
-
-  // ── 3. Reconcile + read current accounting (used in notification) ────
-  const { reconcileMissingSettledExamples } = await import(
-    "@/lib/ml/training-example-writer"
-  );
-  const { getCurrentCorpusAccounting } = await import(
-    "@/lib/ml/training-sample-accounting"
-  );
-  await reconcileMissingSettledExamples(500);
-  const accounting = await getCurrentCorpusAccounting(db);
 
   // ── 4. Resolve git SHA ───────────────────────────────────────────────
   const repoRoot = process.cwd();
@@ -221,6 +227,7 @@ export async function triggerCloudTraining(
           .update(m)
           .set({
             status: "failed",
+            trainingSamples: accounting.trainerExpectedSamples,
             rejectionReasons: [
               `Cloud Build + Run pipeline failed (exit code ${code})`,
             ],

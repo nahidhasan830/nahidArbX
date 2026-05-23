@@ -19,6 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatPermissionLevel } from "@/lib/lab/ml/display";
 import { cn } from "@/lib/utils";
 import type { EvaluatedRung } from "@/lib/lab/ml/rungs";
 import type { PipelineData } from "./types";
@@ -115,7 +116,7 @@ function DeployedModelCard({ data }: { data: PipelineData }) {
         label="Deployed Model"
         statusText="Deployed"
         primary={`v${deployed.version}`}
-        secondary={`${deployed.permissionLevel ?? "observe"} permission · ${deployed.trainingSamples.toLocaleString()} samples`}
+        secondary={`${formatPermissionLevel(deployed.permissionLevel)} · ${deployed.trainingSamples.toLocaleString()} samples`}
         tone="good"
         sparkline={spark.length >= 2 ? spark : undefined}
         sparklineLabel={`Training samples across ${spark.length} models`}
@@ -421,7 +422,7 @@ function KpiCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-xl border bg-card/60 p-4 backdrop-blur-sm transition-all hover:bg-card/80 hover:shadow-md",
+        "flex flex-col rounded-lg border bg-card/60 p-3 backdrop-blur-sm transition-all hover:bg-card/80 hover:shadow-md",
         TONE_BORDER[tone],
       )}
     >
@@ -429,7 +430,7 @@ function KpiCard({
       <div className="flex items-center gap-2">
         <div
           className={cn(
-            "flex size-7 items-center justify-center rounded-lg",
+            "flex size-6 items-center justify-center rounded-md",
             TONE_ICON[tone],
           )}
         >
@@ -449,10 +450,10 @@ function KpiCard({
       </div>
 
       {/* Primary value + sparkline */}
-      <div className="mt-3 flex items-end justify-between gap-2">
+      <div className="mt-2 flex items-end justify-between gap-2">
         <p
           className={cn(
-            "font-mono text-2xl font-semibold tabular-nums leading-none",
+            "font-mono text-xl font-semibold tabular-nums leading-none",
             TONE_PRIMARY[tone],
           )}
         >
@@ -464,8 +465,8 @@ function KpiCard({
               <span className="shrink-0 cursor-help" aria-label={sparklineLabel}>
                 <Sparkline
                   data={sparkline}
-                  width={68}
-                  height={22}
+                  width={62}
+                  height={18}
                   color={SPARKLINE_COLOR[tone]}
                 />
               </span>
@@ -479,24 +480,24 @@ function KpiCard({
 
       {/* Trend chip */}
       {trend && (
-        <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
           <TrendIcon className="size-3" />
           <span className="font-mono tabular-nums">{trend.label}</span>
           {meta && <span className="ml-auto text-muted-foreground/80">{meta}</span>}
         </div>
       )}
       {!trend && meta && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground/80">{meta}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground/80">{meta}</p>
       )}
 
       {/* Secondary description */}
-      <div className="mt-2 text-[12px] leading-relaxed text-muted-foreground line-clamp-2 min-h-[2.6em]">
+      <div className="mt-1.5 text-[12px] leading-snug text-muted-foreground line-clamp-2 min-h-[2.25em]">
         {secondary}
       </div>
 
       {/* Progress (if any) */}
       {progress && (
-        <div className="mt-3 space-y-1">
+        <div className="mt-2 space-y-1">
           <Progress value={progress.value} className="h-1.5" />
           <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
             {progress.label}

@@ -16,6 +16,7 @@ import { LoadingButton } from "@/components/ui/loading-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MarketDisplay } from "@/components/ui/market-display";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getProviderShortName } from "@/lib/providers/registry";
@@ -424,6 +425,8 @@ export function PlaceBetPanel({
         result={result}
         providerShort={providerShort}
         marketLabel={marketLabel}
+        marketType={placementContext.marketType}
+        timeScope={placementContext.timeScope}
         outcomeLabel={outcomeLabel}
         onDismiss={() => setResult(null)}
         onClose={onClose}
@@ -1062,6 +1065,8 @@ function SuccessPanel({
   result,
   providerShort,
   marketLabel,
+  marketType,
+  timeScope,
   outcomeLabel,
   onDismiss,
   onClose,
@@ -1075,6 +1080,8 @@ function SuccessPanel({
   };
   providerShort: string;
   marketLabel?: string;
+  marketType?: string;
+  timeScope?: string;
   outcomeLabel?: string;
   onDismiss: () => void;
   onClose?: () => void;
@@ -1197,12 +1204,22 @@ function SuccessPanel({
               {headline}
             </div>
             {outcomeLabel && (
-              <div className="text-[11px] text-muted-foreground truncate">
-                {marketLabel ? `${marketLabel} → ` : ""}
-                <span className="font-semibold text-foreground">
+              <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                {marketLabel && (
+                  <>
+                    <MarketDisplay
+                      marketLabel={marketLabel}
+                      marketType={marketType}
+                      timeScope={timeScope}
+                      className="max-w-[220px] justify-start"
+                    />
+                    <span className="shrink-0">→</span>
+                  </>
+                )}
+                <span className="truncate font-semibold text-foreground">
                   {outcomeLabel}
-                </span>{" "}
-                @ {providerShort}
+                </span>
+                <span className="shrink-0">@ {providerShort}</span>
               </div>
             )}
             {!isPlaced && !isTimeout && (

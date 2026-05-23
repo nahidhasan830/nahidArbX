@@ -43,8 +43,8 @@ VALUES
     ('gemini-lite', false, 'gemini-3.1-flash-lite', 'lite', 'Gemini Flash-Lite', 'Cheapest', 'llm', null),
     ('gemini-flash', false, 'gemini-3-flash', 'flash', 'Gemini Flash', 'Balanced', 'llm', null),
     ('gemini-pro', false, 'gemini-3.1-pro', 'pro', 'Gemini Pro', 'Expert', 'llm', null),
-    -- Search providers (monthly limits)
-    ('vertex', true, 'vertex-ai-search', 'flash', 'Vertex AI Search', "Google's enterprise", 'search', 1000),
+    -- Search providers. Vertex is unlimited in this deployment.
+    ('vertex', true, 'vertex-ai-search', 'flash', 'Vertex AI Search', "Google's enterprise", 'search', null),
     ('brave', true, 'brave-search-api', 'flash', 'Brave Search', 'Privacy-first', 'search', 1000),
     ('tavily', true, 'tavily-api', 'flash', 'Tavily', 'AI-focused', 'search', 1000)
 ON CONFLICT (name) DO NOTHING;

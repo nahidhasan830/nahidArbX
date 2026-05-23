@@ -305,6 +305,7 @@ export async function queryGeniusSportsOdds(
   version: number,
   marketIds: string[],
   selectionTsList: number[],
+  isDynamicUpdate = false,
 ): Promise<VelkiGeniusSportsEvent> {
   const body = new URLSearchParams({
     eventId: exchangeEventId,
@@ -312,7 +313,7 @@ export async function queryGeniusSportsOdds(
     version: String(version),
     marketIds: marketIds.join(",") + ",",
     selectionTsList: selectionTsList.join(",") + ",",
-    isDynamicUpdate: "1",
+    isDynamicUpdate: isDynamicUpdate ? "1" : "0",
   });
   const raw = await postJson<VelkiGeniusSportsEvent>(
     "/exchange/member/playerService/queryGeniusSportsEvent",

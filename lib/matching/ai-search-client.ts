@@ -3,7 +3,7 @@
  *
  * Previously called the Python FastAPI gateway at `AI_SEARCH_URL`. Now calls
  * the in-process grounding engine directly for entity match, batch match,
- * and settlement verification.
+ * and grounded entity matching.
  *
  * Failure mode: every call returns `null` on error. Callers treat `null` as
  * "service unavailable → fall through to human_review".
@@ -42,6 +42,11 @@ export interface AiSearchMatchVerdict {
   sources: AiSearchSourceCitation[];
   searchQueriesUsed: string[];
   model: string;
+  diagnostics?: {
+    parseStatus: "valid" | "recovered" | "invalid";
+    finishReason?: string;
+    warning?: string;
+  };
 }
 
 export interface AiSearchPairVerdict {
@@ -49,6 +54,11 @@ export interface AiSearchPairVerdict {
   decision: "SAME" | "DIFFERENT" | "UNCERTAIN";
   confidence: number; // 0-100
   reasoning: string;
+  diagnostics?: {
+    parseStatus: "valid" | "recovered" | "invalid";
+    finishReason?: string;
+    warning?: string;
+  };
 }
 
 export interface AiSearchBatchResult {
@@ -109,6 +119,7 @@ export async function matchSingle(
         decision: result.decision,
         confidence: result.confidence,
         sourcesCount: result.sources?.length ?? 0,
+        diagnostics: result.diagnostics ?? null,
       },
     }).catch(() => {});
 
@@ -119,6 +130,7 @@ export async function matchSingle(
       sources: toSnakeCitations(result.sources),
       searchQueriesUsed: result.searchQueriesUsed,
       model: result.model,
+      diagnostics: result.diagnostics,
     };
   } catch (err) {
     const durationMs = Date.now() - t0;
@@ -191,6 +203,7 @@ export async function matchBatch(
           decision: v.decision,
           confidence: v.confidence,
           reasoning: v.reasoning,
+          diagnostics: v.diagnostics,
         })),
         sources: toSnakeCitations(result.sources),
         searchQueriesUsed: result.searchQueriesUsed,
@@ -238,6 +251,7 @@ export async function matchBatch(
           decision: v.decision,
           confidence: v.confidence,
           reasoning: v.reasoning,
+          diagnostics: v.diagnostics,
         });
       }
       allSources.push(...toSnakeCitations(result.sources));
@@ -290,75 +304,6 @@ export async function matchBatch(
     searchQueriesUsed: [...new Set(allQueries)],
     model,
   };
-}
-
-// ─── Settlement score lookup ──────────────────────────────────────
-
-export interface AiSettlementVerdict {
-  answer: string;
-  confidence: number; // 0-100
-  reasoning: string;
-  sources: AiSearchSourceCitation[];
-  model: string;
-}
-
-/**
- * Ask the AI Search engine to look up the final score of a match
- * by searching the web and reasoning about the result (DeepSeek + Vertex/Brave).
- */
-export async function verifySettlement(
-  event: AiSearchEventInfo,
-  question: string,
-): Promise<AiSettlementVerdict | null> {
-  const t0 = Date.now();
-  const label = `${event.home_team} v ${event.away_team}`;
-
-  try {
-    const engine = getGroundingEngine();
-    const result = await engine.verifySettlement(toEventInfo(event), question);
-
-    const durationMs = Date.now() - t0;
-    recordAiActivity({
-      system: "settlement-score-lookup",
-      trigger: "waterfall",
-      status: "success",
-      model: result.model,
-      itemCount: 1,
-      durationMs,
-      costUsd: null,
-      summary: `AI Search settlement: "${result.answer}" ${result.confidence}% — ${label}`,
-      error: null,
-      metadata: {
-        answer: result.answer,
-        confidence: result.confidence,
-        sourcesCount: result.sources?.length ?? 0,
-      },
-    }).catch(() => {});
-
-    return {
-      answer: result.answer,
-      confidence: result.confidence,
-      reasoning: result.reasoning,
-      sources: toSnakeCitations(result.sources),
-      model: result.model,
-    };
-  } catch (err) {
-    const durationMs = Date.now() - t0;
-    logger.warn(tag, `verifySettlement failed: ${(err as Error).message}`);
-    recordAiActivity({
-      system: "settlement-score-lookup",
-      trigger: "waterfall",
-      status: "error",
-      model: "deepseek-v4-flash",
-      itemCount: 1,
-      durationMs,
-      costUsd: null,
-      summary: `AI Search settlement unreachable — ${label}`,
-      error: (err as Error).message,
-      metadata: null,
-    }).catch(() => {});
-    return null;
-  }
 }
 
 /**

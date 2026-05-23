@@ -7,7 +7,6 @@
  */
 import "dotenv/config";
 import { notify } from "../lib/notifier";
-import { buildBetGradeUrl } from "../lib/shared/google-ai-link";
 
 const kickoff = new Date(Date.now() + 2 * 3600_000 + 15 * 60_000).toISOString();
 const placedAt = new Date(Date.now() - 3 * 3600_000).toISOString();
@@ -23,7 +22,6 @@ const demo = {
   atomLabel: "Home",
 };
 
-const gradeUrl = buildBetGradeUrl(demo);
 const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
 const dashboardUrl = appUrl
   ? `${appUrl}/dashboard`
@@ -52,7 +50,6 @@ async function main() {
     kellyStake: 250,
     kellyFraction: 0.25,
     ticketId: "DEMO-0001",
-    gradeUrl,
     dashboardUrl,
   });
   console.log("✓ placed sent");
@@ -87,7 +84,6 @@ async function main() {
       htHome: 1,
       htAway: 0,
     },
-    gradeUrl,
     dashboardUrl,
   });
   console.log("✓ settled (won) sent");
@@ -122,7 +118,6 @@ async function main() {
       htHome: 0,
       htAway: 0,
     },
-    gradeUrl,
     dashboardUrl,
   });
   console.log("✓ settled (lost AH) sent");

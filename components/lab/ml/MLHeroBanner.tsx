@@ -85,24 +85,24 @@ export function MLHeroBanner({ data, rungs, onJumpToFailingGate }: Props) {
       role="status"
       aria-live="polite"
       className={cn(
-        "rounded-2xl border backdrop-blur-sm transition-shadow",
+        "rounded-lg border backdrop-blur-sm transition-shadow",
         styles.container,
         styles.glow,
       )}
     >
-      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5 lg:p-6">
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4">
         {/* Icon */}
         <div
           className={cn(
-            "flex size-12 shrink-0 items-center justify-center rounded-xl",
+            "flex size-10 shrink-0 items-center justify-center rounded-lg",
             styles.iconBg,
           )}
         >
-          <Icon className={cn("size-6", styles.iconText, iconAnimate)} aria-hidden />
+          <Icon className={cn("size-5", styles.iconText, iconAnimate)} aria-hidden />
         </div>
 
         {/* Content */}
-        <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
@@ -118,7 +118,7 @@ export function MLHeroBanner({ data, rungs, onJumpToFailingGate }: Props) {
               </span>
             )}
           </div>
-          <p className="text-[15px] font-medium leading-relaxed text-foreground sm:text-base">
+          <p className="text-sm font-medium leading-snug text-foreground sm:text-[15px]">
             {headline}
           </p>
         </div>

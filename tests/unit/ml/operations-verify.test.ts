@@ -45,6 +45,10 @@ function parsePythonFeatureNames(): {
   return { names, count, version, hash };
 }
 
+function readRepoFile(path: string): string {
+  return readFileSync(resolve(process.cwd(), path), "utf8");
+}
+
 describe("ML operations verification", () => {
   describe("Feature contract alignment", () => {
     it("TS FEATURE_NAMES has exactly 22 unique entries", () => {
@@ -140,12 +144,49 @@ describe("ML operations verification", () => {
     });
 
     it("feature_names.py includes hash computation", () => {
-      const pySource = readFileSync(
-        resolve(process.cwd(), "services/optimizer/app/feature_names.py"),
-        "utf8",
-      );
+      const pySource = readRepoFile("services/optimizer/app/feature_names.py");
       expect(pySource).toContain("FEATURE_NAMES_HASH");
       expect(pySource).toContain("hashlib.sha256");
+    });
+
+    it("Cloud Run Job deploy exports Vertex runtime config required by registry", () => {
+      const cloudbuildSource = readRepoFile("cloudbuild.yaml");
+      const registrySource = readRepoFile(
+        "services/optimizer/app/vertex_registry.py",
+      );
+
+      for (const envName of [
+        "GCP_PROJECT_ID",
+        "GOOGLE_CLOUD_PROJECT",
+        "GCP_REGION",
+        "VERTEX_MODEL_BUCKET",
+        "VERTEX_SERVING_IMAGE",
+      ]) {
+        expect(cloudbuildSource).toContain(envName);
+      }
+      expect(registrySource).toContain('os.getenv("GCP_PROJECT_ID")');
+      expect(registrySource).toContain('os.getenv("GOOGLE_CLOUD_PROJECT")');
+      expect(registrySource).toContain('os.getenv("GCP_REGION")');
+    });
+
+    it("cloud training placeholders are fingerprinted with trainer sample count", () => {
+      const triggerSource = readRepoFile("lib/optimizer/cloud-training.ts");
+      const jobSource = readRepoFile("services/optimizer/app/job.py");
+
+      expect(triggerSource).toContain(
+        "getCurrentCorpusAccounting(db)",
+      );
+      expect(triggerSource).toContain(
+        "trainingSamples: accounting.trainerExpectedSamples",
+      );
+      expect(triggerSource.indexOf("getCurrentCorpusAccounting(db)")).toBeLessThan(
+        triggerSource.indexOf("db.insert(mlModels).values"),
+      );
+      expect(jobSource).toContain("def _set_training_sample_count");
+      expect(jobSource).toContain("training_samples = :n_samples");
+      expect(jobSource).toContain(
+        "_set_training_sample_count(os.environ.get(\"TRAINING_MODEL_ID\"), data.n_samples)",
+      );
     });
   });
 });

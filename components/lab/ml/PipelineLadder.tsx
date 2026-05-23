@@ -45,8 +45,8 @@ export function PipelineLadder({ data, rungs }: Props) {
   const total = evaluated.length;
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-      <header className="flex items-center justify-between border-b border-border/40 px-5 py-4">
+    <div className="rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm">
+      <header className="flex items-center justify-between border-b border-border/40 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
             Pipeline Ladder

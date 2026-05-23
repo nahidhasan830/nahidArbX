@@ -22,16 +22,15 @@ export type SettlementRunInput = Omit<
 };
 
 /**
- * Per-tier cost rates used by the recorder to stamp an estimated cost
- * onto each row. Kept in-sync with scripts/test-settlement.ts's cost
- * model so historical rows stay comparable.
+ * Settlement is source-only, so current runs have no variable AI cost.
+ * Historical rows may still contain tier3/tier4 hits from old migrations.
  */
 const TIER_COST_USD = {
   tier0: 0,
   tier1: 0,
   tier2: 0,
-  tier3: 0.0015,
-  tier4: 0.0283,
+  tier3: 0,
+  tier4: 0,
 } as const;
 
 export const estimateRunCost = (

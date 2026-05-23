@@ -53,7 +53,6 @@ export interface PendingConfirmation {
   betfairEventId: number | null;
   timeScope: string | null;
   familyLine: string | null;
-  gradeUrl?: string;
   dashboardUrl?: string;
 
   ticketIdHint: string | null;
@@ -372,7 +371,6 @@ async function finaliseConfirmed(
         attempt.balanceAtSubmit != null
           ? attempt.balanceAtSubmit - authoritativeStake
           : undefined,
-      gradeUrl: attempt.gradeUrl,
       dashboardUrl: attempt.dashboardUrl,
     });
   } catch (err) {

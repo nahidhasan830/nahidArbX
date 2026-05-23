@@ -9,7 +9,6 @@
  * POST /api/ai-search/search         -> raw web search
  * POST /api/ai-search/entity-match   -> single-pair entity matching
  * POST /api/ai-search/grounded-query -> search-grounded Q&A
- * POST /api/ai-search/verify-settlement -> match result verification
  * POST /api/ai-search/providers/{name}/toggle -> enable/disable provider
  */
 
@@ -25,15 +24,9 @@ const ENDPOINT_SYSTEM: Record<string, string> = {
   search: "grounding",
   "grounded-query": "grounding",
   "entity-match": "entity-match",
-  "verify-settlement": "settlement",
 };
 
-const LOGGED_ENDPOINTS = new Set([
-  "search",
-  "entity-match",
-  "grounded-query",
-  "verify-settlement",
-]);
+const LOGGED_ENDPOINTS = new Set(["search", "entity-match", "grounded-query"]);
 
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 
@@ -180,12 +173,7 @@ export async function POST(
   const { path } = await params;
   const subPath = path.join("/");
 
-  const directAllowed = [
-    "search",
-    "entity-match",
-    "grounded-query",
-    "verify-settlement",
-  ];
+  const directAllowed = ["search", "entity-match", "grounded-query"];
   const isProviderToggle = /^providers\/[^/]+\/toggle$/.test(subPath);
   if (!directAllowed.includes(subPath) && !isProviderToggle) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -267,28 +255,6 @@ export async function POST(
         sources: result.sources,
         model: result.model,
         providerUsed: llmProvider,
-      });
-    }
-
-    // Settlement verification
-    if (subPath === "verify-settlement") {
-      const event: EventInfo = {
-        homeTeam: body.event?.home_team || "",
-        awayTeam: body.event?.away_team || "",
-        competition: body.event?.competition || "",
-        startTime: body.event?.start_time || "",
-        provider: body.event?.provider,
-      };
-      const result = await getGroundingEngine().verifySettlement(
-        event,
-        body.question || "",
-      );
-      return logAndRespond(subPath, body, startMs, {
-        answer: result.answer,
-        confidence: result.confidence,
-        reasoning: result.reasoning,
-        sources: result.sources,
-        model: result.model,
       });
     }
 

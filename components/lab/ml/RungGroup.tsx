@@ -42,7 +42,7 @@ export function RungGroup({ category, rungs, data }: Props) {
 
   return (
     <section className="border-t border-border/60 first:border-t-0">
-      <header className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+      <header className="flex items-start justify-between gap-3 px-4 pt-4 pb-2.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold tracking-tight text-foreground">

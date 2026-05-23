@@ -46,6 +46,7 @@ async function queryNwOdds(
   version: number,
   marketIds: string[],
   selectionTsList: number[],
+  isDynamicUpdate = false,
 ) {
   const body = new URLSearchParams({
     apiSiteType: "5",
@@ -53,7 +54,7 @@ async function queryNwOdds(
     version: String(version),
     marketIds: marketIds.join(",") + ",",
     selectionTsList: selectionTsList.join(",") + ",",
-    isDynamicUpdate: "1", // Fetch deltas only
+    isDynamicUpdate: isDynamicUpdate ? "1" : "0",
   });
   const res = await fetch(NW_ENDPOINT, {
     method: "POST",
@@ -254,6 +255,7 @@ export class GeniusSportsSyncService {
       version: number,
       markets: string[],
       tsList: number[],
+      isDynamicUpdate?: boolean,
     ) => Promise<OddsResult>,
   ) {
     const adapter = getAtomsAdapter(providerId);
@@ -351,6 +353,7 @@ export class GeniusSportsSyncService {
           state.version,
           state.marketIds,
           state.selectionTsList,
+          false,
         );
 
         if (!state.isRunning) break;

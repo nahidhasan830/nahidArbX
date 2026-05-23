@@ -15,12 +15,70 @@ describe("NineWickets Team Totals", () => {
 
     expect(
       mapNinewicketsSportsbookToAtom(
-        "Second Half FC Tokyo Team Total Goals Over/Under +1.5",
+        "Half-time FC Tokyo Team Total Goals Over/Under +1.5",
         "Under",
         "Kashiwa",
         "FC Tokyo",
         0,
       ),
-    ).toBe("2h_away_under_1_5");
+    ).toBe("1h_away_under_1_5");
+  });
+});
+
+describe("NineWickets Sportsbook Total Goals", () => {
+  it("maps live total goals with spaced Over / Under names", () => {
+    expect(
+      mapNinewicketsSportsbookToAtom(
+        "Total Goals Over / Under 2.50",
+        "Over",
+        "Dinamo Zagreb",
+        "Lokomotiva Zagreb",
+        2.5,
+      ),
+    ).toBe("ft_total_over_2_5");
+
+    expect(
+      mapNinewicketsSportsbookToAtom(
+        "Total Goals Over / Under 3.50",
+        "Under",
+        "Dinamo Zagreb",
+        "Lokomotiva Zagreb",
+        3.5,
+      ),
+    ).toBe("ft_total_under_3_5");
+  });
+
+  it("maps compact FT Over/Under names from upcoming Genius markets", () => {
+    expect(
+      mapNinewicketsSportsbookToAtom(
+        "Over/Under +2.5",
+        "Over",
+        "El-Ittihad",
+        "Ismaily",
+        2.5,
+      ),
+    ).toBe("ft_total_over_2_5");
+
+    expect(
+      mapNinewicketsSportsbookToAtom(
+        "Over/Under +3",
+        "Under",
+        "El-Ittihad",
+        "Ismaily",
+        3,
+      ),
+    ).toBe("ft_total_under_3");
+  });
+
+  it("maps compact second-half Over/Under total names", () => {
+    expect(
+      mapNinewicketsSportsbookToAtom(
+        "Second Half Total Goals Over/Under +1.5",
+        "Over",
+        "El-Ittihad",
+        "Ismaily",
+        1.5,
+      ),
+    ).toBe("2h_total_over_1_5");
   });
 });

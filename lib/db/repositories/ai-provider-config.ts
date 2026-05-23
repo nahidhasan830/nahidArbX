@@ -126,7 +126,8 @@ const DEFAULT_PROVIDERS: Array<{
     engineType: "llm",
     monthlyLimit: null,
   },
-  // Search providers with monthly limits
+  // Search providers. Vertex is unlimited for this deployment; API-metered
+  // providers keep monthly limits.
   {
     name: "vertex",
     enabled: true,
@@ -135,7 +136,7 @@ const DEFAULT_PROVIDERS: Array<{
     label: "Vertex AI Search",
     tagline: "Google's enterprise search",
     engineType: "search",
-    monthlyLimit: 1000,
+    monthlyLimit: null,
   },
   {
     name: "brave",
@@ -166,7 +167,7 @@ const DEFAULT_PROVIDERS: Array<{
  */
 export async function getAllProviders(): Promise<AiProvider[]> {
   const rows = await db.select().from(aiProviderConfig);
-  return rows.map(mapRowToProvider);
+  return rows.map(mapRowToProvider).sort(compareProviders);
 }
 
 /**
@@ -177,7 +178,7 @@ export async function getLLMProviders(): Promise<AiProvider[]> {
     .select()
     .from(aiProviderConfig)
     .where(sql`${aiProviderConfig.engineType} = 'llm'`);
-  return rows.map(mapRowToProvider);
+  return rows.map(mapRowToProvider).sort(compareProviders);
 }
 
 /**
@@ -188,7 +189,7 @@ export async function getSearchProviders(): Promise<AiProvider[]> {
     .select()
     .from(aiProviderConfig)
     .where(sql`${aiProviderConfig.engineType} = 'search'`);
-  return rows.map(mapRowToProvider);
+  return rows.map(mapRowToProvider).sort(compareProviders);
 }
 
 /**
@@ -305,7 +306,7 @@ export async function getQuota(provider: string): Promise<{
   if (rows.length === 0) return null;
 
   const row = rows[0];
-  const monthlyLimit = row.monthlyLimit;
+  const monthlyLimit = effectiveMonthlyLimit(row.name, row.monthlyLimit);
   const hasMonthlyLimit = monthlyLimit !== null;
   const monthlyRemaining = hasMonthlyLimit
     ? Math.max(0, monthlyLimit - row.monthlyUsageCount)
@@ -314,7 +315,7 @@ export async function getQuota(provider: string): Promise<{
   return {
     totalUsageCount: row.totalUsageCount,
     monthlyUsageCount: row.monthlyUsageCount,
-    monthlyLimit: row.monthlyLimit,
+    monthlyLimit,
     monthlyRemaining,
     isExhausted: hasMonthlyLimit && row.monthlyUsageCount >= monthlyLimit,
     hasMonthlyLimit,
@@ -336,6 +337,8 @@ export async function hasQuota(provider: string): Promise<boolean> {
 
   const r = rows[0];
   if (!r.enabled) return false;
+
+  if (isUnlimitedProvider(r.name)) return true;
 
   // Check monthly limit
   if (r.monthlyLimit !== null && r.monthlyUsageCount >= r.monthlyLimit) {
@@ -421,7 +424,7 @@ export async function getAllQuotas(): Promise<AiProvider[]> {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function mapRowToProvider(row: AiProviderRow): AiProvider {
-  const monthlyLimit = row.monthlyLimit;
+  const monthlyLimit = effectiveMonthlyLimit(row.name, row.monthlyLimit);
   const hasMonthlyLimit = monthlyLimit !== null;
   const monthlyRemaining = hasMonthlyLimit
     ? Math.max(0, monthlyLimit - row.monthlyUsageCount)
@@ -438,10 +441,35 @@ function mapRowToProvider(row: AiProviderRow): AiProvider {
     engineType: (row.engineType as EngineType) ?? "llm",
     totalUsageCount: row.totalUsageCount,
     monthlyUsageCount: row.monthlyUsageCount,
-    monthlyLimit: row.monthlyLimit,
+    monthlyLimit,
     monthlyRemaining,
     isExhausted: hasMonthlyLimit && row.monthlyUsageCount >= monthlyLimit,
     hasMonthlyLimit,
     lastResetAt: row.lastResetAt,
   };
+}
+
+function isUnlimitedProvider(name: string): boolean {
+  return name === "vertex";
+}
+
+function effectiveMonthlyLimit(
+  name: string,
+  monthlyLimit: number | null,
+): number | null {
+  return isUnlimitedProvider(name) ? null : monthlyLimit;
+}
+
+function compareProviders(a: AiProvider, b: AiProvider): number {
+  const order: Record<string, number> = {
+    vertex: 0,
+    brave: 1,
+    tavily: 2,
+    "deepseek-flash": 10,
+    "deepseek-pro": 11,
+    "gemini-lite": 20,
+    "gemini-flash": 21,
+    "gemini-pro": 22,
+  };
+  return (order[a.name] ?? 99) - (order[b.name] ?? 99);
 }

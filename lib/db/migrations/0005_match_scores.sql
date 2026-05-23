@@ -1,6 +1,6 @@
 -- Settlement-waterfall Tier 0: permanent score cache keyed on normalized eventId.
 -- Populated opportunistically by the cheapest source that resolves a final
--- score (live feeds → free APIs → url_context → batched Gemini). Scores are
+-- score (live feeds → free score APIs). Scores are
 -- immutable once status='FT', so this table is effectively write-once per
 -- event — re-settlement hits it first for $0.
 CREATE TABLE IF NOT EXISTS "match_scores" (

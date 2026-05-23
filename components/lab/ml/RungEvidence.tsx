@@ -9,6 +9,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  formatRungInputLabel,
+  formatRungInputValue,
+} from "@/lib/lab/ml/display";
 import type { PipelineData } from "./types";
 import type { RungDefinition } from "@/lib/lab/ml/rungs";
 import { RungActions } from "./RungActions";
@@ -39,7 +43,7 @@ export function RungEvidence({ definition, data }: Props) {
   const hasActions = visibleActions.length > 0;
 
   return (
-    <div className="border-t border-border/40 bg-muted/15 px-5 py-5 grid gap-5">
+    <div className="border-t border-border/40 bg-muted/15 px-4 py-4 grid gap-4">
       <Section label="Why this matters">
         <p className="text-sm leading-relaxed text-foreground/90">{why}</p>
       </Section>
@@ -50,13 +54,13 @@ export function RungEvidence({ definition, data }: Props) {
             {inputs.map((input) => (
               <div
                 key={input.label}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/80 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-background/80 px-3 py-1.5"
               >
                 <span className="text-[12px] text-muted-foreground truncate">
-                  {input.label}
+                  {formatRungInputLabel(input.label)}
                 </span>
                 <span className="font-mono text-[12px] tabular-nums text-foreground text-right truncate">
-                  {input.value}
+                  {formatRungInputValue(input.label, input.value)}
                 </span>
               </div>
             ))}
@@ -114,12 +118,12 @@ function DeveloperDetails({
   const [open, setOpen] = useState(false);
 
   return (
-    <section className="rounded-lg border border-border/50 bg-background/40">
+    <section className="rounded-md border border-border/50 bg-background/40">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <span className="flex items-center gap-2 text-[12px] font-medium text-muted-foreground">
           <Code2 className="size-3.5" />

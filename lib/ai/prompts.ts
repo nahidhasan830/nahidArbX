@@ -50,22 +50,6 @@ export const ENTITY_MATCH_BATCH_SCHEMA = {
   },
 } as const;
 
-export const SETTLEMENT_SCHEMA = {
-  type: "object",
-  properties: {
-    answer: {
-      type: "string",
-      maxLength: 500,
-    },
-    confidence: {
-      type: "integer",
-      minimum: 0,
-      maximum: 100,
-    },
-  },
-  required: ["answer", "confidence"],
-} as const;
-
 export const GENERIC_QUERY_SCHEMA = {
   type: "object",
   properties: {
@@ -121,7 +105,8 @@ CONFIDENCE CALIBRATION (you MUST use these ranges):
 - 0-39: Very unsure, guessing.
 Never output confidence=0 unless you have literally zero information.
 
-Respond with ONLY a JSON object containing "decision", "confidence", and "reasoning". Keep reasoning to one short sentence citing the decisive evidence.`;
+Respond with ONLY a complete JSON object. Use exactly these keys: "decision", "confidence", "reasoning".
+Keep reasoning under 18 words. Do not include markdown, citations, or extra keys.`;
 
 export function entityMatchPrompt(
   eventA: {
@@ -185,7 +170,9 @@ CONFIDENCE CALIBRATION (you MUST use these ranges):
 - 0-39: Very unsure, guessing.
 Never output confidence=0 unless you have literally zero information.
 
-Respond with ONLY a JSON array. Each element has "pair", "decision", "confidence", and "reasoning". Keep each reasoning value short.`;
+Respond with ONLY a complete JSON object: {"verdicts":[...]}.
+Each verdict has "pair", "decision", "confidence", and "reasoning".
+Use the 1-based Pair number shown in the prompt. Keep each reasoning under 12 words.`;
 
 export function entityMatchBatchPrompt(
   pairs: Array<{
@@ -211,68 +198,6 @@ export function entityMatchBatchPrompt(
       `Pair ${p.index}: "${p.eventA.homeTeam} vs ${p.eventA.awayTeam}" (${p.eventA.competition}, ${formatTime(p.eventA.startTime)}, ${p.eventA.provider || "?"}) ↔ "${p.eventB.homeTeam} vs ${p.eventB.awayTeam}" (${p.eventB.competition}, ${formatTime(p.eventB.startTime)}, ${p.eventB.provider || "?"})`,
   );
   return `Determine which of these event pairs are the same real-world match:\n\n${lines.join("\n")}`;
-}
-
-// ── Settlement verification ──────────────────────────────────────────
-
-export const SETTLEMENT_SYSTEM = `You are a sports data analyst verifying football match results for bet settlement. Accuracy is critical — incorrect scores cost money.
-
-You have search results from the web. Use them to find official match scores, statistics, and results.
-
-${GENERAL_SPORTS_GROUNDING_RULES}
-
-CRITICAL RULES — read carefully:
-1. FULL-TIME (FT) score = goals at the end of 90 minutes + stoppage time. EXCLUDE extra time and penalties. If a match went to extra time or penalties, report the 90-minute score as FT.
-2. If the match was abandoned, postponed, or cancelled, report "ABANDONED" or "POSTPONED" instead of a score.
-3. Only report verified scores from reputable sources. Priority order: official league/FA websites, ESPN, BBC Sport, FlashScore, SofaScore, Livescore. Avoid fan forums, social media, and unverified blogs.
-4. If sources conflict, prefer the most official source (league/FA website). Note the discrepancy if major sources disagree.
-5. For cup matches that went to extra time: the FT score is the 90-minute score. The final result after ET/penalties is NOT the FT score for settlement purposes.
-6. If you cannot find ANY reliable information about this match, say "UNKNOWN". However, if you have partial information (e.g., you know one team won but not the exact score, or you know it was a draw), provide your best estimate with appropriately lowered confidence. Do NOT say UNKNOWN if you have any useful information.
-7. Always cite the source title or site name in the reasoning field.
-8. Verify that the source date matches the requested match date. Do not use a head-to-head page, future fixture preview, aggregate score, or table standing as the final score.
-9. For two-leg ties, report the single-match 90-minute score only, not the aggregate.
-10. If the source reports penalties, write the 90-minute FT score in answer and mention penalties only in reasoning.
-11. Never leave "answer" blank. Return a score, "UNKNOWN", "ABANDONED", or "POSTPONED".
-
-SCORE FORMAT:
-- Report the score as "HOME-AWAY" (e.g., "2-1" means home team scored 2, away team scored 1).
-- If providing half-time score, prefix with "HT:" (e.g., "HT: 1-0, FT: 2-1").
-
-CONFIDENCE CALIBRATION (you MUST use these ranges):
-- 90-100: Answer verified from multiple reputable sources with no conflicts.
-- 70-89: Answer from one reliable official source.
-- 40-69: Partial information, some uncertainty, or minor source conflicts.
-- 0-39: Very unsure, single weak source, or conflicting information.
-Never output confidence=0 unless you found absolutely nothing.
-
-Respond with ONLY a JSON object containing "answer", "confidence", and "reasoning".`;
-
-export function settlementPrompt(
-  homeTeam: string,
-  awayTeam: string,
-  competition: string,
-  date: string,
-  question: string,
-): string {
-  const todayClause = format(new Date(), "yyyy-MM-dd");
-  let matchDateClause = date;
-  try {
-    const d = parseISO(date);
-    if (isValid(d)) matchDateClause = format(d, "yyyy-MM-dd HH:mm");
-  } catch {}
-
-  return `Match: ${homeTeam} vs ${awayTeam}
-Competition: ${competition}
-Date: ${matchDateClause}
-Today: ${todayClause}
-
-Question: ${question}
-
-IMPORTANT: This is for bet settlement. The FULL-TIME score must be the 90-minute score (excluding extra time and penalties). If the match went to extra time or penalties, report the 90-minute score as the FT result.
-If the match date is before or equal to Today, treat it as a historical match and look for a final result. Do not reject it as a future fixture.
-If snippets from reputable score sites contain the final score, use that score and cite the source in reasoning.
-
-Search for the official match result and answer the question with high precision.`;
 }
 
 // ── Generic grounded query ───────────────────────────────────────────

@@ -12,6 +12,13 @@ import {
 
 const tag = "SearchRouter";
 
+type SearchQuality = {
+  strong: boolean;
+  resultCount: number;
+  contentChars: number;
+  reason: string;
+};
+
 interface Provider {
   name: string;
   search(query: string, maxResults: number): Promise<SearchResult[]>;
@@ -79,9 +86,26 @@ export class SearchRouter {
   ): Promise<{ results: SearchResult[]; provider: string }> {
     await this._ensureInit();
     const available = this._getAvailable(preferredProviders);
+    const attempts: Array<{
+      provider: string;
+      resultCount: number;
+      contentChars: number;
+      strong: boolean;
+      reason: string;
+    }> = [];
+    const successfulResults: SearchResult[] = [];
+    let best:
+      | { results: SearchResult[]; provider: string; quality: SearchQuality }
+      | null = null;
 
     for (const p of available) {
       try {
+        let quality: SearchQuality = {
+          strong: false,
+          resultCount: 0,
+          contentChars: 0,
+          reason: "not-run",
+        };
         const results = await logAiActivity(
           {
             system: "search",
@@ -89,15 +113,59 @@ export class SearchRouter {
             endpoint: "search",
             query: query.slice(0, 200),
             itemCount: 1,
-            response: { resultCount: maxResults },
+            request: { query, maxResults, preferredProviders },
+            response: (found: unknown) => {
+              const results = Array.isArray(found)
+                ? (found as SearchResult[])
+                : [];
+              return {
+                resultCount: results.length,
+                quality: scoreSearchQuality(results, maxResults),
+                results: results.slice(0, maxResults).map((r) => ({
+                  title: r.title,
+                  url: r.url,
+                  snippet: r.snippet,
+                  content: r.content ?? r.snippet,
+                  source: r.source,
+                  score: r.score ?? null,
+                })),
+              };
+            },
+            metadata: { provider: p.name },
           },
-          async () => await p.search(query, maxResults),
+          async () => {
+            const found = await p.search(query, maxResults);
+            quality = scoreSearchQuality(found, maxResults);
+            return found;
+          },
         );
+        attempts.push({ provider: p.name, ...quality });
+        successfulResults.push(...results);
         logger.info(
           tag,
           `Search via ${p.name}: ${results.length} results for "${query.slice(0, 80)}"`,
         );
-        return { results, provider: p.name };
+
+        if (!best || quality.contentChars > best.quality.contentChars) {
+          best = { results, provider: p.name, quality };
+        }
+
+        if (quality.strong) {
+          const provider =
+            attempts.length > 1
+              ? attempts.map((a) => a.provider).join("+")
+              : p.name;
+          const merged =
+            attempts.length > 1
+              ? dedupeSearchResults(successfulResults)
+              : results;
+          return { results: merged.slice(0, maxResults), provider };
+        }
+
+        logger.info(
+          tag,
+          `Search via ${p.name} was weak (${quality.reason}) — trying fallback`,
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         const isQueryError = err instanceof Error && "isQueryError" in err;
@@ -108,6 +176,14 @@ export class SearchRouter {
           p.markUnhealthy(msg);
         }
       }
+    }
+
+    if (best && best.results.length > 0) {
+      logger.warn(
+        tag,
+        `All search providers were weak; using best result from ${best.provider} (${best.quality.reason})`,
+      );
+      return { results: best.results, provider: best.provider };
     }
 
     logger.error(
@@ -206,6 +282,39 @@ export class SearchRouter {
 
     return candidates.filter((p) => p.healthy && p.hasQuota() && p.enabled);
   }
+}
+
+function scoreSearchQuality(
+  results: SearchResult[],
+  requestedResults: number,
+): SearchQuality {
+  const resultCount = results.length;
+  const contentChars = results.reduce(
+    (sum, r) => sum + (r.content || r.snippet || "").trim().length,
+    0,
+  );
+  const enoughResults = resultCount >= Math.min(3, requestedResults);
+  const enoughText = contentChars >= 300;
+  const strong = enoughResults && enoughText;
+  const reason = strong
+    ? "enough-results-and-text"
+    : !enoughResults
+      ? "too-few-results"
+      : "too-little-text";
+
+  return { strong, resultCount, contentChars, reason };
+}
+
+function dedupeSearchResults(results: SearchResult[]): SearchResult[] {
+  const seen = new Set<string>();
+  const deduped: SearchResult[] = [];
+  for (const r of results) {
+    const key = (r.url || `${r.source}:${r.title}`).replace(/\/$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(r);
+  }
+  return deduped;
 }
 
 let _instance: SearchRouter | null = null;

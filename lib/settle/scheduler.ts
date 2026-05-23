@@ -17,8 +17,8 @@
  *   - Pause (in-memory)   — timer keeps firing; ticks skipped until resumed.
  *   - Stop / Start        — tears down / rebuilds the timer entirely.
  *
- * Settlement is fully free — Tier 0/1/2 (structured APIs) plus Tier 2d
- * (HF+Search for niche leagues). No paid AI is in the pipeline.
+ * Settlement is source-only: cache plus structured/free score sources.
+ * Unresolved rows remain pending for manual review.
  */
 
 import { runAutoSettle, type AutoSettleResult } from "./auto-settler";

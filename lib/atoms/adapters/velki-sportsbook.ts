@@ -30,6 +30,10 @@ import {
   type VelkiSportsbookMarket,
 } from "../../betting/velki/events-client";
 import { logger } from "../../shared/logger";
+import {
+  selectPreferredGeniusEntries,
+  type GeniusEntryCandidate,
+} from "./genius-market-dedupe";
 
 const PROVIDER: ProviderKey = "velki-sportsbook";
 
@@ -92,8 +96,9 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
     ctx: FetchContext,
   ): NormalizedOddsEntry[] {
     const data = rawData as VelkiSportsbookRawData;
-    const entries: NormalizedOddsEntry[] = [];
+    const candidates: GeniusEntryCandidate[] = [];
     const timestamp = Date.now();
+    let order = 0;
 
     for (const market of data.markets) {
       const selections = market.geniusSportsSelection;
@@ -151,25 +156,30 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
       if (hasCollision) continue;
 
       for (const entry of marketEntries) {
-        entries.push(entry);
-        // Stash min/max stake limits keyed by atom — placement modal
-        // reads these directly without a second round-trip.
-        if (typeof market.min === "number" && typeof market.max === "number") {
-          setMarketLimits(
-            this.providerId,
-            ctx.normalizedEventId,
-            entry.atom_id,
-            {
-              minBet: market.min,
-              maxBet: market.max,
-              marketId: market.id,
-              timestamp,
-            },
-          );
-        }
+        candidates.push({ entry, market, order: order++ });
       }
     }
 
-    return entries;
+    const preferred = selectPreferredGeniusEntries(candidates);
+
+    for (const { entry, market } of preferred) {
+      // Stash min/max stake limits keyed by atom — placement modal
+      // reads these directly without a second round-trip.
+      if (typeof market.min === "number" && typeof market.max === "number") {
+        setMarketLimits(
+          this.providerId,
+          ctx.normalizedEventId,
+          entry.atom_id,
+          {
+            minBet: market.min,
+            maxBet: market.max,
+            marketId: String(market.id),
+            timestamp,
+          },
+        );
+      }
+    }
+
+    return preferred.map(({ entry }) => entry);
   }
 }

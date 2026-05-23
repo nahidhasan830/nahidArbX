@@ -2,6 +2,7 @@
 
 import { format } from "date-fns";
 import { AlertCircle, ScrollText } from "lucide-react";
+import { formatModelStatus } from "@/lib/lab/ml/display";
 import { cn } from "@/lib/utils";
 import type { PipelineData } from "./types";
 
@@ -20,8 +21,8 @@ export function RejectedModelsCard({ data }: Props) {
   const rejected = (data.rejectedModels ?? []).slice(0, 8);
 
   return (
-    <section className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-      <header className="flex items-center justify-between gap-3 border-b border-border/40 px-5 py-4">
+    <section className="rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm">
+      <header className="flex items-center justify-between gap-3 border-b border-border/40 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
             Rejected Candidates
@@ -66,7 +67,7 @@ function RejectedRow({
     : "—";
 
   return (
-    <li className="grid grid-cols-[auto_1fr_auto] items-start gap-3 px-5 py-3">
+    <li className="grid grid-cols-[auto_1fr_auto] items-start gap-3 px-4 py-2.5">
       <span
         className={cn(
           "mt-1 inline-flex size-6 items-center justify-center rounded-md",
@@ -81,7 +82,7 @@ function RejectedRow({
             v{model.version}
           </p>
           <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wider text-amber-400">
-            {model.status}
+            {formatModelStatus(model.status)}
           </span>
           {model.trainingSamples > 0 && (
             <span className="font-mono text-[11px] text-muted-foreground">
@@ -115,7 +116,7 @@ function EmptyState({
   body: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
+    <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
       <div className="flex size-10 items-center justify-center rounded-full bg-muted/40">
         {icon}
       </div>

@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Badge } from "@/components/ui/badge";
+import { MarketDisplay } from "@/components/ui/market-display";
 import { Copy, X } from "lucide-react";
 import { Feature } from "@/components/auth/AuthProvider";
 import { getProviderColorClasses as getProviderBadgeClasses } from "@/lib/providers/registry";
@@ -119,6 +120,7 @@ export interface SpreadsheetRowProps {
     atomId: string;
     familyId: string;
     marketType: string;
+    timeScope: string;
     details: ValueBetDetails;
     eventId: string;
     providerEventIds: Record<string, string>;
@@ -140,7 +142,9 @@ export interface SpreadsheetRowProps {
       valueBetDetails?: SpreadsheetRow["valueBetDetails"];
       startTime?: string;
       marketType?: string;
+      timeScope?: string;
       line?: number;
+      selection?: string;
       providerCount?: number;
     },
   ) => void;
@@ -281,9 +285,13 @@ export function SpreadsheetRow({
       {isVisible("market") && (
         <td className="px-2 text-center text-foreground overflow-hidden">
           {row.isFirstAtomInFamily ? (
-            <span className="truncate block" title={row.marketLabel}>
-              {row.marketLabel}
-            </span>
+            <MarketDisplay
+              marketLabel={row.marketLabel}
+              marketType={row.marketType}
+              timeScope={row.timeScope}
+              familyLine={row.line}
+              className="max-w-full"
+            />
           ) : null}
         </td>
       )}
@@ -313,6 +321,7 @@ export function SpreadsheetRow({
                     atomId: row.atomId,
                     familyId: row.familyId,
                     marketType: row.marketType,
+                    timeScope: row.timeScope,
                     details: row.valueBetDetails!,
                     eventId: row.eventId,
                     providerEventIds,
@@ -445,6 +454,7 @@ export function SpreadsheetRow({
                   atomId: row.atomId,
                   familyId: row.familyId,
                   marketType: row.marketType,
+                  timeScope: row.timeScope,
                   details,
                   eventId: row.eventId,
                   providerEventIds,
@@ -475,7 +485,9 @@ export function SpreadsheetRow({
                         valueBetDetails: row.valueBetDetails,
                         startTime: row.startTime,
                         marketType: row.marketType,
+                        timeScope: row.timeScope,
                         line: row.line,
+                        selection: row.outcomeLabel,
                         providerCount: row.providerCount,
                       })
                   : undefined
@@ -489,7 +501,9 @@ export function SpreadsheetRow({
                         valueBetDetails: row.valueBetDetails,
                         startTime: row.startTime,
                         marketType: row.marketType,
+                        timeScope: row.timeScope,
                         line: row.line,
+                        selection: row.outcomeLabel,
                         providerCount: row.providerCount,
                       })
                   : undefined

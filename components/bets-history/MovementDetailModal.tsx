@@ -13,6 +13,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { MarketDisplay, inferMarketScope } from "@/components/ui/market-display";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Sparkles } from "lucide-react";
@@ -40,6 +41,10 @@ export interface MovementDetailModalProps {
   eventLabel: string;
   /** E.g. "Match Result · Home Win" */
   marketLabel: string;
+  marketType?: string | null;
+  timeScope?: string | null;
+  familyLine?: number | string | null;
+  selection?: string | null;
   /** Optional ML feature vector for inline inspection. */
   features?: number[] | null;
   /** Optional ML metadata — shown as a compact info strip when provided. */
@@ -73,6 +78,10 @@ export function MovementDetailModal({
   data,
   eventLabel,
   marketLabel,
+  marketType,
+  timeScope,
+  familyLine,
+  selection,
   features,
   mlMeta,
 }: MovementDetailModalProps) {
@@ -115,6 +124,10 @@ export function MovementDetailModal({
           sharpProviderId={sharpProviderId}
           eventLabel={eventLabel}
           marketLabel={marketLabel}
+          marketType={marketType}
+          timeScope={timeScope}
+          familyLine={familyLine}
+          selection={selection}
           features={hasFeatures ? features : undefined}
           mlMeta={mlMeta}
         />
@@ -130,6 +143,10 @@ function ModalInner({
   sharpProviderId,
   eventLabel,
   marketLabel,
+  marketType,
+  timeScope,
+  familyLine,
+  selection,
   features,
   mlMeta,
 }: {
@@ -137,6 +154,10 @@ function ModalInner({
   sharpProviderId: string;
   eventLabel: string;
   marketLabel: string;
+  marketType?: string | null;
+  timeScope?: string | null;
+  familyLine?: number | string | null;
+  selection?: string | null;
   features?: number[];
   mlMeta?: MovementDetailModalProps["mlMeta"];
 }) {
@@ -400,7 +421,14 @@ function ModalInner({
               </DialogTitle>
               <DialogDescription className="text-xs text-white/40 flex items-center gap-2.5">
                 <span className="hidden sm:inline-block text-white/20">•</span>
-                <span>{marketLabel}</span>
+                <MarketDisplay
+                  marketLabel={marketLabel}
+                  marketType={marketType}
+                  timeScope={timeScope ?? inferMarketScope(marketLabel)}
+                  familyLine={familyLine}
+                  selection={selection}
+                  className="max-w-[360px] justify-start"
+                />
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/[0.08] px-2 py-0.5 text-[10px] font-mono tabular-nums text-white/60 shadow-inner">
                   <span className="size-1.5 rounded-full bg-emerald-400/80 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse" />
                   {sharpData.totalTicks} ticks

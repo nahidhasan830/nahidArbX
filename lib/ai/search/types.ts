@@ -2,6 +2,8 @@ export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
+  /** Full provider-returned text when available; falls back to snippet. */
+  content?: string;
   source: string;
   score?: number;
 }
@@ -34,6 +36,12 @@ export interface SourceCitation {
 
 export type MatchDecision = "SAME" | "DIFFERENT" | "UNCERTAIN";
 
+export interface AiParseDiagnostics {
+  parseStatus: "valid" | "recovered" | "invalid";
+  finishReason?: string;
+  warning?: string;
+}
+
 export interface MatchVerdict {
   decision: MatchDecision;
   confidence: number;
@@ -41,6 +49,7 @@ export interface MatchVerdict {
   sources: SourceCitation[];
   searchQueriesUsed: string[];
   model: string;
+  diagnostics?: AiParseDiagnostics;
 }
 
 export interface PairVerdict {
@@ -48,20 +57,13 @@ export interface PairVerdict {
   decision: MatchDecision;
   confidence: number;
   reasoning: string;
+  diagnostics?: AiParseDiagnostics;
 }
 
 export interface BatchMatchVerdict {
   verdicts: PairVerdict[];
   sources: SourceCitation[];
   searchQueriesUsed: string[];
-  model: string;
-}
-
-export interface SettlementVerdict {
-  answer: string;
-  confidence: number;
-  reasoning: string;
-  sources: SourceCitation[];
   model: string;
 }
 

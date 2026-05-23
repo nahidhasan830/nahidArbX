@@ -65,6 +65,8 @@ function makePassingData(): PipelineData {
     inference: {
       modelLoaded: true,
       modelVersion: 1,
+      vertexEndpoint:
+        "projects/nahidarbx-6e73/locations/asia-south1/endpoints/123456789",
       totalScoringAttempts: 200,
       totalScored: 200,
       avgInferenceMs: 42,
@@ -184,6 +186,15 @@ function makePassingData(): PipelineData {
         version: 1,
         status: "deployed",
         trainingSamples: 4821,
+        featureCount: 22,
+        featureVersion: 1,
+        featureNamesHash: "d918944abcdef012",
+        modelArtifactPath:
+          "projects/nahidarbx-6e73/locations/asia-south1/models/123",
+        vertexModelName:
+          "projects/nahidarbx-6e73/locations/asia-south1/models/123",
+        vertexEndpointName:
+          "projects/nahidarbx-6e73/locations/asia-south1/endpoints/123456789",
         oosAucRoc: 0.65,
         deflatedSharpe: 0.7,
         pbo: 0,
@@ -353,6 +364,12 @@ describe("ML pipeline ladder rungs", () => {
           version: 0,
           status: "failed",
           trainingSamples: 0,
+          featureCount: 22,
+          featureVersion: 1,
+          featureNamesHash: "d918944abcdef012",
+          modelArtifactPath: null,
+          vertexModelName: null,
+          vertexEndpointName: null,
           oosAucRoc: null,
           deflatedSharpe: null,
           pbo: null,

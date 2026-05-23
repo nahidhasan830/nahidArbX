@@ -2,7 +2,6 @@ import { type SearchResult } from "../types";
 import { logger } from "@/lib/shared/logger";
 import {
   getProviderByName,
-  hasQuota as dbHasQuota,
   incrementUsage,
 } from "@/lib/db/repositories/ai-provider-config";
 
@@ -25,8 +24,6 @@ export class VertexSearchProvider {
   private _lastError: string | null = null;
   private _lastUsedAt: Date | null = null;
   private _sessionRequests = 0;
-  private _serverRemaining: number | null = null;
-  private _serverLimit: number | null = null;
 
   get healthy() {
     return this._healthy;
@@ -47,10 +44,6 @@ export class VertexSearchProvider {
       const provider = await getProviderByName(this.name);
       if (provider) {
         this._enabled = provider.enabled;
-        if (provider.hasMonthlyLimit) {
-          this._serverLimit = provider.monthlyLimit;
-          this._serverRemaining = provider.monthlyRemaining;
-        }
       }
     } catch {
       // Best-effort
@@ -66,40 +59,24 @@ export class VertexSearchProvider {
   }
 
   hasQuota(): boolean {
-    if (this._serverRemaining !== null) return this._serverRemaining > 0;
     return this._enabled;
   }
 
   async checkQuotaAndIncrement(): Promise<boolean> {
-    const has = await dbHasQuota(this.name);
-    if (!has) {
-      this.disable();
-      return false;
-    }
-
     const result = await incrementUsage(this.name);
-    if (!result) {
-      this.disable();
-      return false;
-    }
-
-    this._sessionRequests = result.monthlyUsageCount;
+    if (result) this._sessionRequests = result.monthlyUsageCount;
     return true;
   }
 
   getStats() {
-    const limit = this._serverLimit ?? 1000;
-    const remaining =
-      this._serverRemaining ?? Math.max(0, limit - this._sessionRequests);
     return {
       name: this.name,
       healthy: this._healthy,
       enabled: this._enabled,
       requestsUsed: this._sessionRequests,
-      quotaLimit: this._serverLimit ?? limit,
-      quotaRemaining: remaining,
-      quotaSource:
-        this._serverRemaining !== null ? ("db" as const) : ("none" as const),
+      quotaLimit: null,
+      quotaRemaining: null,
+      quotaSource: "none" as const,
       lastError: this._lastError,
       lastUsedAt: this._lastUsedAt?.toISOString() ?? null,
     };
@@ -113,9 +90,8 @@ export class VertexSearchProvider {
       );
     }
 
-    // Check and increment quota
     if (!(await this.checkQuotaAndIncrement())) {
-      throw new Error("Vertex Search quota exhausted");
+      throw new Error("Vertex Search disabled");
     }
 
     const servingConfig = `projects/${config.projectId}/locations/${config.location}/collections/default_collection/engines/${config.engineId}/servingConfigs/default_search`;
@@ -174,6 +150,7 @@ export class VertexSearchProvider {
         title: doc.title || "",
         url: doc.link || "",
         snippet: doc.snippets?.[0]?.snippet || "",
+        content: doc.snippets?.[0]?.snippet || "",
         source: "vertex",
       });
     }

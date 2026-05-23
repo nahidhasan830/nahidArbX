@@ -92,7 +92,7 @@ export function Rung({ definition, verdict, data }: Props) {
         aria-label={`Gate ${definition.number}: ${definition.title} — ${STATUS_LABEL[verdict.status]}`}
         className={cn(
           "w-full text-left transition-colors hover:bg-muted/30 focus-visible:bg-muted/30 focus-visible:outline-none",
-          "grid grid-cols-[auto_auto_auto_1fr_auto_auto] items-center gap-x-3 px-5 py-3 sm:gap-x-4",
+          "grid grid-cols-[auto_auto_auto_1fr_auto_auto] items-center gap-x-3 px-4 py-2.5 sm:gap-x-4",
         )}
       >
         <Tooltip>
@@ -125,12 +125,12 @@ export function Rung({ definition, verdict, data }: Props) {
             {definition.title}
           </h3>
           {verdict.secondary && (
-            <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
+            <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">
               {verdict.secondary}
             </p>
           )}
           {verdict.action && (
-            <p className="mt-1 text-[12.5px] leading-relaxed text-foreground/85">
+            <p className="mt-1 text-[12.5px] leading-snug text-foreground/85">
               <span className="text-muted-foreground">→ </span>
               {verdict.action}
             </p>

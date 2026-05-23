@@ -10,6 +10,7 @@
 import { useMemo, useState, useRef } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MarketScopeBadge } from "@/components/ui/market-display";
 import { TriggerBadge } from "./TriggerBadge";
 import {
   Popover,
@@ -335,12 +336,7 @@ function MarketCheckboxItem({
       {badges.length > 0 && (
         <span className="flex items-center gap-0.5 shrink-0">
           {badges.map((b) => (
-            <span
-              key={b}
-              className="inline-flex items-center rounded px-1 py-px text-[9px] font-medium tabular-nums bg-muted text-muted-foreground"
-            >
-              {b}
-            </span>
+            <MarketScopeBadge key={b} scope={b} withTooltip={false} />
           ))}
         </span>
       )}

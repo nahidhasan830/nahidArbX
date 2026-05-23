@@ -194,6 +194,7 @@ type SelectedValueBet = {
   atomId: string;
   familyId: string;
   marketType: string;
+  timeScope: string;
   details: ValueBetDetails;
   eventId: string;
   providerEventIds: Record<string, string>;
@@ -227,6 +228,10 @@ export function ValueBetSpreadsheet({
     data: Record<string, OddsMovementData>;
     eventLabel: string;
     marketLabel: string;
+    marketType?: string;
+    timeScope?: string;
+    familyLine?: number;
+    selection?: string;
     features: number[] | null;
   } | null>(null);
 
@@ -239,7 +244,9 @@ export function ValueBetSpreadsheet({
         valueBetDetails?: SpreadsheetRowData["valueBetDetails"];
         startTime?: string;
         marketType?: string;
+        timeScope?: string;
         line?: number;
+        selection?: string;
         providerCount?: number;
       },
     ) => {
@@ -365,6 +372,10 @@ export function ValueBetSpreadsheet({
         data,
         eventLabel: context.eventLabel,
         marketLabel: context.marketLabel,
+        marketType: context.marketType,
+        timeScope: context.timeScope,
+        familyLine: context.line,
+        selection: context.selection,
         features,
       });
     },
@@ -660,6 +671,7 @@ export function ValueBetSpreadsheet({
                 details: detailsChanged ? nextDetails : prev.details,
                 outcomeLabel: matchingRow.outcomeLabel,
                 marketLabel: matchingRow.marketLabel,
+                timeScope: matchingRow.timeScope,
                 atomOdds: detailsChanged ? matchingRow.odds : prev.atomOdds,
                 providerEventIds: nextProviderEventIds ?? prev.providerEventIds,
                 liveScore: nextLiveScore,
@@ -1069,6 +1081,7 @@ export function ValueBetSpreadsheet({
                 homeTeam: homeTeam ?? selectedValueBet.eventLabel,
                 awayTeam: awayTeam ?? "",
                 marketType: selectedValueBet.marketType,
+                timeScope: selectedValueBet.timeScope,
                 eventStartTime: selectedValueBet.startTime,
                 competition: selectedValueBet.competition,
               }}
@@ -1084,6 +1097,10 @@ export function ValueBetSpreadsheet({
         data={movementModal?.data ?? null}
         eventLabel={movementModal?.eventLabel ?? ""}
         marketLabel={movementModal?.marketLabel ?? ""}
+        marketType={movementModal?.marketType}
+        timeScope={movementModal?.timeScope}
+        familyLine={movementModal?.familyLine}
+        selection={movementModal?.selection}
         features={movementModal?.features}
       />
     </>

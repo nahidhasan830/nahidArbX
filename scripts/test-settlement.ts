@@ -4,7 +4,7 @@
  * Pulls a diverse sample of unsettled bets from the DB, runs them through
  * the waterfall (inlined here to avoid lib/db/client.ts's top-level await
  * that tsx's CJS transform can't handle) and reports tier hits, timing,
- * cost model, and outcome distribution.
+ * and outcome distribution.
  *
  * READ-ONLY by default. The DB only gets writes for freshly discovered
  * scores (via saveScoreIfAbsent) so subsequent runs hit Tier 0 for free.
@@ -14,15 +14,11 @@ import { Pool } from "pg";
 import { settleBet } from "../lib/settle/settle-bet";
 import { fetchEspnScores } from "../lib/settle/sources/espn";
 import { fetchSofaScoreScores } from "../lib/settle/sources/sofascore";
-import { fetchUrlContextScoresDetailed } from "../lib/settle/sources/url-context";
 import type { ValueBetRow } from "../lib/bets-history/types";
 import type { SettleEvent } from "../lib/settle/waterfall";
 import type { MatchScore } from "../lib/settle/types";
 
 const SAMPLE_SIZE = Number(process.argv[2] ?? 100);
-const URL_CONTEXT_CONCURRENCY = Number(
-  process.env.URL_CONTEXT_CONCURRENCY ?? 3,
-);
 
 // ── Pool ────────────────────────────────────────────────────────────────────
 
@@ -210,49 +206,7 @@ async function persistScore(pool: Pool, s: MatchScore): Promise<void> {
   );
 }
 
-// ── Cost model ──────────────────────────────────────────────────────────────
-
-const INPUT_COST_PER_M = 0.25;
-const OUTPUT_COST_PER_M = 1.5;
-const SEARCH_COST_PER_K = 14;
-
-const TIER_ESTIMATES = {
-  tier0: { input: 0, output: 0, searches: 0, note: "DB cache — $0" },
-  tier1: { input: 0, output: 0, searches: 0, note: "Live feed — $0" },
-  tier2: { input: 0, output: 0, searches: 0, note: "football-data — $0" },
-  tier3: {
-    input: 6000,
-    output: 30,
-    searches: 0,
-    note: "url_context on Flash-Lite",
-  },
-  tier4: {
-    input: 400,
-    output: 120,
-    searches: 2,
-    note: "grounded search on Flash-Lite",
-  },
-} as const;
-
-type TierKey = keyof typeof TIER_ESTIMATES;
-
-const costPerCall = (tier: TierKey): number => {
-  const t = TIER_ESTIMATES[tier];
-  return (
-    (t.input * INPUT_COST_PER_M) / 1_000_000 +
-    (t.output * OUTPUT_COST_PER_M) / 1_000_000 +
-    (t.searches * SEARCH_COST_PER_K) / 1000
-  );
-};
-
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-const fmtUsd = (n: number): string => {
-  if (n === 0) return "$0";
-  if (n < 0.001) return `$${(n * 1000).toFixed(3)}m`;
-  if (n < 1) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
-};
 
 const bar = (n: number, max: number, width = 24): string => {
   const filled = max > 0 ? Math.round((n / max) * width) : 0;
@@ -320,9 +274,9 @@ async function main(): Promise<void> {
     );
   }
 
-  const tierHits = { t0: 0, t1: 0, t2: 0, t3: 0, unresolved: 0 };
+  const tierHits = { t0: 0, t1: 0, t2: 0, unresolved: 0 };
   const scores = new Map<string, MatchScore>();
-  const perTierMs = { t0: 0, t2: 0, t3: 0 };
+  const perTierMs = { t0: 0, t2: 0 };
 
   const needsCornersSample = bets.some(
     (b) =>
@@ -429,33 +383,6 @@ async function main(): Promise<void> {
   }
   perTierMs.t2 = Date.now() - t2Start;
 
-  // Tier 3: url_context. The adapter itself aborts the batch on
-  // spend-cap / quota-exhausted errors so a single bad response can't
-  // burn the monthly budget.
-  const missingAfterT2 = events.filter((e) => !scores.has(e.eventId));
-  const t3Start = Date.now();
-  let t3Aborted: "spend-cap" | "quota-exhausted" | null = null;
-  if (missingAfterT2.length > 0 && process.env.GEMINI_API_KEY) {
-    const outcome = await fetchUrlContextScoresDetailed(
-      missingAfterT2,
-      URL_CONTEXT_CONCURRENCY,
-    );
-    for (const [id, s] of outcome.scores) {
-      if (s.confidence >= 0.7) {
-        scores.set(id, s);
-        tierHits.t3++;
-        await persistScore(pool, s);
-      }
-    }
-    t3Aborted = outcome.aborted;
-  }
-  perTierMs.t3 = Date.now() - t3Start;
-  if (t3Aborted) {
-    console.log(
-      `\n  ⚠ Tier 3 batch aborted: ${t3Aborted}. Check API key spend cap.`,
-    );
-  }
-
   tierHits.unresolved = events.length - scores.size;
 
   console.log("\nTier hits (events resolved):");
@@ -465,7 +392,6 @@ async function main(): Promise<void> {
     ["T1 live feed (skipped)   ", 0],
     ["T2a ESPN                 ", tierHitsEspn.count],
     ["T2b SofaScore            ", tierHitsSofa.count],
-    ["T3 url_context (AI)      ", tierHits.t3],
     ["unresolved               ", tierHits.unresolved],
   ] as const) {
     console.log(
@@ -537,52 +463,12 @@ async function main(): Promise<void> {
     for (const e of pendingExamples) console.log(`  • ${e}`);
   }
 
-  // Cost
-  const perEventCost =
-    tierHits.t0 * costPerCall("tier0") +
-    tierHits.t2 * costPerCall("tier2") +
-    tierHits.t3 * costPerCall("tier3");
-  const worstCaseCost =
-    perEventCost + tierHits.unresolved * costPerCall("tier4");
-  const costPerBet = perEventCost / bets.length;
-  const worstPerBet = worstCaseCost / bets.length;
-  const perK = costPerBet * 1000;
-  const worstPerK = worstPerBet * 1000;
-
-  console.log("\n── Per-call cost estimates ──");
-  for (const t of ["tier0", "tier1", "tier2", "tier3", "tier4"] as TierKey[]) {
-    console.log(
-      `  ${t}:  ${fmtUsd(costPerCall(t))}   ${TIER_ESTIMATES[t].note}`,
-    );
-  }
-
-  console.log("\n── Cost model (this sample) ──");
-  console.log(`  Actual cost now:           ${fmtUsd(perEventCost)}`);
-  console.log(`  Worst-case (unresolved→T4): ${fmtUsd(worstCaseCost)}`);
-  console.log(`  Per-bet now:               ${fmtUsd(costPerBet)}`);
-  console.log(`  Per-bet worst-case:        ${fmtUsd(worstPerBet)}`);
-
-  console.log("\n── Extrapolation (constant tier mix) ──");
-  console.log(
-    `  Per  1,000 bets:      ${fmtUsd(perK)}  (worst ${fmtUsd(worstPerK)})`,
-  );
-  console.log(
-    `  Per  3,000 bets/day:  ${fmtUsd(perK * 3)}  (worst ${fmtUsd(worstPerK * 3)})`,
-  );
-  console.log(
-    `  Per 90,000 bets/mo:   ${fmtUsd(perK * 90)}  (worst ${fmtUsd(worstPerK * 90)})`,
-  );
-
   console.log("\n── Timing ──");
   console.log(`  Sampling:   ${sampleMs}ms`);
   console.log(`  Tier 0:     ${perTierMs.t0}ms`);
   console.log(`  Tier 2:     ${perTierMs.t2}ms`);
-  console.log(
-    `  Tier 3:     ${perTierMs.t3}ms (${tierHits.t3 > 0 ? (perTierMs.t3 / tierHits.t3).toFixed(0) : "-"}ms/event)`,
-  );
   console.log(`  Settle:     ${settleMs}ms`);
-  const total_ms =
-    sampleMs + perTierMs.t0 + perTierMs.t2 + perTierMs.t3 + settleMs;
+  const total_ms = sampleMs + perTierMs.t0 + perTierMs.t2 + settleMs;
   console.log(
     `  Total:      ${total_ms}ms (${(total_ms / bets.length).toFixed(1)}ms/bet)`,
   );

@@ -48,8 +48,6 @@ import {
 import { SettlementStatusChip } from "./SettlementMonitor";
 import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
 import type { ListFilters } from "@/lib/bets-history/api-client";
-import { type RerunChoice } from "./AiSettleDialog";
-import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
 import { useBettingSettings } from "@/hooks/use-betting-settings";
 import { cn } from "@/lib/utils";
 import { OddsRangeDropdown } from "@/components/filters/OddsRangeDropdown";
@@ -137,7 +135,7 @@ const OUTCOME_TABS: {
     id: "needsReview",
     label: "Needs review",
     title:
-      "Bets the settlement pipeline tried to settle but couldn't — outcome still pending after at least one tick. These need a human to verify on Google AI Mode.",
+      "Bets the settlement pipeline tried to settle but couldn't — outcome still pending after at least one tick.",
   },
   {
     id: "pending",
@@ -658,7 +656,7 @@ type Props = {
   onClearSelection: () => void;
   onSelectAllLoaded: () => void;
 
-  onBulkSettle: (choice: RerunChoice) => void;
+  onBulkSettle: () => void;
   settleRunning: boolean;
   /**
    * Subset of selected ids that pass the "match is over" gate. Used to
@@ -789,14 +787,9 @@ export function BetsHistoryToolbar({
       "sofascore",
       "espn",
       "api-football",
-      "ai-search-deepseek",
-      "ai-search-hf",
-      "ai-search-groq",
       "pinnacle-ws",
       "betconstruct",
       "football-data",
-      "url-context",
-      "gemini-batch",
       "manual",
     ].forEach((s) => seen.add(s));
     return Array.from(seen).sort();
@@ -1403,40 +1396,27 @@ export function BetsHistoryToolbar({
             selected
           </span>
 
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                className={cn(BTN_BASE, "bg-primary text-primary-foreground")}
-                disabled={settleRunning}
-              >
-                {settleRunning ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Gavel className="size-3.5" />
-                )}
-                Settle
-                {resettleEligibleCount !== selectedCount && (
-                  <TriggerBadge active={resettleEligibleCount > 0}>
-                    {resettleEligibleCount}/{selectedCount}
-                  </TriggerBadge>
-                )}
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[200px] p-1">
-              <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-                Settle with
-              </DropdownMenuLabel>
-              <AiModelMenuItems
-                callbacks={{
-                  onSelectDefault: () => onBulkSettle({ kind: "default" }),
-                  onSelectAi: (engine, model) =>
-                    onBulkSettle({ kind: engine, model } as RerunChoice),
-                }}
-              />
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <Button
+              size="sm"
+              className={cn(
+                BTN_BASE,
+                "bg-primary text-primary-foreground hover:bg-primary/90",
+              )}
+              disabled={settleRunning}
+              onClick={onBulkSettle}
+          >
+            {settleRunning ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Gavel className="size-3.5" />
+            )}
+            Settle
+            {resettleEligibleCount !== selectedCount && (
+              <span className="inline-flex items-center justify-center rounded-full h-4 min-w-[34px] px-1.5 text-[10px] font-semibold tabular-nums bg-primary-foreground text-primary border border-primary-foreground/50">
+                {resettleEligibleCount}/{selectedCount}
+              </span>
+            )}
+          </Button>
 
           <Separator />
 

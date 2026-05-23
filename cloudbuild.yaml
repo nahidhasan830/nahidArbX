@@ -69,6 +69,7 @@ steps:
   #    Env / secrets:
   #    - DATABASE_URL via Secret Manager.
   #    - CLOUD_SQL_INSTANCE via env, attached for connector access.
+  #    - GCP_PROJECT_ID / GCP_REGION for Vertex AI model registration.
   #    - OPTIMIZER_PARALLEL=1 turns on the Semaphore/gather loop.
   #    - OPTIMIZER_MAX_CONCURRENCY=6 matches the 6 vCPU ceiling.
   #    - OPTIMIZER_SHARED_SECRET is gone — Jobs have no HTTP surface.
@@ -96,7 +97,7 @@ steps:
       - --parallelism=1
       - --tasks=1
       - --set-cloudsql-instances=${_CLOUD_SQL_INSTANCE}
-      - --set-env-vars=CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE},LOG_LEVEL=INFO,OPTIMIZER_PARALLEL=1,OPTIMIZER_MAX_CONCURRENCY=6
+      - --set-env-vars=CLOUD_SQL_INSTANCE=${_CLOUD_SQL_INSTANCE},GCP_PROJECT_ID=${PROJECT_ID},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GCP_REGION=${_REGION},LOG_LEVEL=INFO,OPTIMIZER_PARALLEL=1,OPTIMIZER_MAX_CONCURRENCY=6,VERTEX_MODEL_BUCKET=gs://nahidarbx-ml-models,ML_MODEL_BUCKET=nahidarbx-ml-models,VERTEX_SERVING_IMAGE=${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPOSITORY}/${_IMAGE_NAME}:${SHORT_SHA}
       - --set-secrets=DATABASE_URL=DATABASE_URL:latest
 
   # 4. Delete the legacy Cloud Run Service. Idempotent: --quiet on a

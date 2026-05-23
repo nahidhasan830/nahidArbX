@@ -27,7 +27,6 @@ import {
   lookupCompetitionSlug,
   normalizeCompetition,
 } from "../aliases";
-import { verifySettlementMatch, AI_MAYBE_FLOOR } from "./ai-match";
 import { addDays, format } from "date-fns";
 
 const BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer";
@@ -549,7 +548,7 @@ export async function fetchEspnScores(
           teamSimilarity(ours.awayTeam, away.team.abbreviation),
         );
         const combined = (homeSim + awaySim) / 2;
-        if (combined < AI_MAYBE_FLOOR) continue; // Too different even for AI
+        if (combined < MATCH_SCORE_THRESHOLD) continue;
 
         if (!best || combined > best.score) {
           best = { event: theirs, score: combined };
@@ -557,31 +556,6 @@ export async function fetchEspnScores(
       }
 
       if (!best) continue;
-
-      // If the best match is below the deterministic threshold, ask AI
-      // to verify. This is the bridge between Matcher Lab AI and settlement.
-      if (best.score < MATCH_SCORE_THRESHOLD) {
-        const comp = best.event.competitions?.[0];
-        const home = comp?.competitors.find((c) => c.homeAway === "home");
-        const away = comp?.competitors.find((c) => c.homeAway === "away");
-        if (!home || !away) continue;
-
-        const aiResult = await verifySettlementMatch({
-          ourHomeTeam: ours.homeTeam,
-          ourAwayTeam: ours.awayTeam,
-          ourCompetition: ours.competition,
-          ourStartTime: ours.startTime,
-          theirHomeTeam: home.team.displayName,
-          theirAwayTeam: away.team.displayName,
-          theirStartTime: best.event.date,
-          fuzzySimilarity: best.score,
-          sourceProvider: "espn",
-        });
-
-        if (!aiResult?.confirmed) continue; // AI rejected or unavailable
-        // AI confirmed — bump the effective score for confidence calc
-        best.score = Math.max(best.score, 0.85);
-      }
       const confidence = 0.6 + best.score * 0.35;
       const score = eventToScore(best.event, ours.eventId, confidence);
       if (score) {

@@ -209,7 +209,7 @@ export type NewAutoPlacerLogRow = typeof autoPlacerLog.$inferInsert;
  * Settled match scores — permanent cache keyed by normalized eventId.
  *
  * Populated by the settlement waterfall from the cheapest available source
- * that can resolve the final score (live feeds → free APIs → HF+Search).
+ * that can resolve the final score (cache/live feeds/free score APIs).
  * Scores are effectively immutable once status='FT', so this doubles as a
  * long-term archive: every re-settlement hits this table first at tier 0
  * and costs $0.
@@ -243,7 +243,7 @@ export const matchScores = pgTable(
      */
     bookingsHome: integer(),
     bookingsAway: integer(),
-    source: text().notNull(), // 'pinnacle-ws' | 'betconstruct' | 'espn' | 'api-football' | 'sofascore' | 'ai-search-deepseek' | 'manual'
+    source: text().notNull(), // 'pinnacle-ws' | 'betconstruct' | 'espn' | 'api-football' | 'sofascore' | 'manual'
     confidence: numeric({ precision: 3, scale: 2, mode: "number" }).notNull(),
     sourceUrl: text(),
     fetchedAt: tsNow(),
@@ -278,11 +278,11 @@ export const settlementRuns = pgTable(
     tier3Hits: integer().notNull().default(0),
     tier4Hits: integer().notNull().default(0),
     unresolvedEvents: integer().notNull().default(0),
-    /** "spend-cap" | "quota-exhausted" | null — surface when Tier 3 short-circuited. */
+    /** Optional reason when a deeper settlement fallback short-circuited. */
     abortedReason: text(),
     /** Free-form error message when the whole tick blew up. */
     error: text(),
-    /** Cost estimate (USD) for this tick's paid-tier calls. */
+    /** Legacy cost estimate (USD); current settlement runs should be zero. */
     estimatedCostUsd: numeric({ precision: 8, scale: 5, mode: "number" }),
   },
   (t) => [index("settlement_runs_started_idx").on(t.startedAt.desc())],
@@ -805,7 +805,7 @@ export const aiSearchLogs = pgTable(
   {
     id: bigserial({ mode: "number" }).primaryKey(),
     createdAt: tsNow(),
-    /** Technical endpoint: 'search' | 'entity-match' | 'grounded-query' | 'verify-settlement' */
+    /** Technical endpoint: 'search' | 'entity-match' | 'grounded-query' */
     endpoint: text().notNull(),
     /** Human-readable caller: 'Playground' | 'Auto Matcher' | 'Auto Settler' | 'Manual' */
     service: text().notNull().default("Manual"),
@@ -831,8 +831,8 @@ export type NewAiSearchLogRow = typeof aiSearchLogs.$inferInsert;
 
 /**
  * Unified AI activity log — append-only audit trail for every AI
- * operation across all subsystems: settlement (Gemini Tier 3),
- * grounding lab (HuggingFace/Groq), entity matching, and analysis.
+ * operation across all subsystems: grounding lab, entity matching, and
+ * analysis.
  *
  * Gives the operator a single "AI Activity" page to inspect spend,
  * latency, outcomes, and error patterns without jumping between
@@ -975,7 +975,7 @@ export type NewMlTrainingExampleRow = typeof mlTrainingExamples.$inferInsert;
  * - monthlyUsageCount: resets on 1st of each month (auto via scheduler)
  * - monthlyLimit: allowed requests per month (null = unlimited)
  *
- * Providers with limits: brave=1000, tavily=1000, vertex=1000
+ * Providers with limits: brave=1000, tavily=1000. Vertex is unlimited.
  * When quota exhausted and engineType='search', auto-disables provider.
  */
 export const aiProviderConfig = pgTable("ai_provider_config", {

@@ -30,7 +30,6 @@ import {
 } from "@/lib/db/repositories/bets";
 import { notify } from "@/lib/notifier";
 import { logger } from "@/lib/shared/logger";
-import { buildBetGradeUrl } from "@/lib/shared/google-ai-link";
 import { getMarketLimits as getCachedMarketLimits } from "@/lib/atoms/market-limits-store";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { computeStake, deriveEdge } from "./sizing";
@@ -663,16 +662,6 @@ async function placeBetForValueBetImpl(
           valueBet.familyLine !== null && valueBet.familyLine !== undefined
             ? String(valueBet.familyLine)
             : null,
-        gradeUrl: buildBetGradeUrl({
-          homeTeam: valueBet.homeTeam,
-          awayTeam: valueBet.awayTeam,
-          competition: valueBet.competition,
-          eventStartTime: valueBet.eventStartTime,
-          marketType: valueBet.marketType,
-          timeScope: valueBet.timeScope,
-          familyLine: valueBet.familyLine,
-          atomLabel: valueBet.atomLabel,
-        }),
         dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
         ticketIdHint: attempt.ticketId ?? null,
         balanceAtSubmit: accountInfo.balance,
@@ -787,16 +776,6 @@ async function placeBetForValueBetImpl(
             : null,
         ticketId: row.providerTicketId ?? undefined,
         balance: accountInfo.balance - Number(row.stake),
-        gradeUrl: buildBetGradeUrl({
-          homeTeam: valueBet.homeTeam,
-          awayTeam: valueBet.awayTeam,
-          competition: valueBet.competition,
-          eventStartTime: valueBet.eventStartTime,
-          marketType: valueBet.marketType,
-          timeScope: valueBet.timeScope,
-          familyLine: valueBet.familyLine,
-          atomLabel: valueBet.atomLabel,
-        }),
         dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
       });
     }

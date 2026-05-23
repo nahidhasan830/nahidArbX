@@ -37,7 +37,7 @@ def _count_placed_settled(session) -> int:
     return int(result.scalar() or 0)
 
 
-def _fail_pending_models(reason: str) -> None:
+def _fail_pending_models(reason: str, training_samples: int | None = None) -> None:
     """Mark pending ml_models rows as failed so the UI doesn't stay stuck.
 
     Scoped to TRAINING_MODEL_ID when available so we
@@ -59,6 +59,7 @@ def _fail_pending_models(reason: str) -> None:
             session.execute(sqla_text("""
                 UPDATE ml_models
                 SET status = 'failed',
+                    training_samples = COALESCE(:training_samples, training_samples),
                     rejection_reasons = CAST(:reasons AS jsonb),
                     training_completed_at = now(),
                     training_stage = 'failed',
@@ -70,6 +71,7 @@ def _fail_pending_models(reason: str) -> None:
             """), {
                 "reasons": reasons_json,
                 "reason": reason,
+                "training_samples": training_samples,
                 "model_id": training_model_id,
             })
         else:
@@ -77,6 +79,7 @@ def _fail_pending_models(reason: str) -> None:
             session.execute(sqla_text("""
                 UPDATE ml_models
                 SET status = 'failed',
+                    training_samples = COALESCE(:training_samples, training_samples),
                     rejection_reasons = CAST(:reasons AS jsonb),
                     training_completed_at = now(),
                     training_stage = 'failed',
@@ -84,7 +87,11 @@ def _fail_pending_models(reason: str) -> None:
                     last_heartbeat_at = now(),
                     estimated_time_remaining_ms = 0
                 WHERE status = 'training'
-            """), {"reasons": reasons_json, "reason": reason})
+            """), {
+                "reasons": reasons_json,
+                "reason": reason,
+                "training_samples": training_samples,
+            })
         session.commit()
     except Exception as e:
         logging.getLogger("ml.job").warning("Failed to update ml_models: %s", e)
@@ -104,6 +111,36 @@ def _set_training_stage(
         write_progress(session, model_id, stage, message, estimated_ms)
     except Exception as e:
         logging.getLogger("ml.job").warning("Failed to write progress: %s", e)
+        session.rollback()
+    finally:
+        session.close()
+
+
+def _set_training_sample_count(model_id: str | None, n_samples: int) -> None:
+    """Persist the loaded corpus size on the placeholder row."""
+    if not model_id:
+        return
+
+    session = open_session()
+    try:
+        from sqlalchemy import text as sqla_text
+
+        session.execute(sqla_text("""
+            UPDATE ml_models
+            SET training_samples = :n_samples,
+                last_heartbeat_at = now()
+            WHERE id = :model_id
+              AND status = 'training'
+        """), {
+            "model_id": model_id,
+            "n_samples": n_samples,
+        })
+        session.commit()
+    except Exception as e:
+        logging.getLogger("ml.job").warning(
+            "Failed to write training sample count: %s",
+            e,
+        )
         session.rollback()
     finally:
         session.close()
@@ -163,6 +200,22 @@ def _run_pipeline(settings, log, start_time: float) -> None:
             "(trigger may be outdated)"
         )
 
+    # ── Deployment configuration preflight ─────────────────────────────
+    # Approved models are exported to Vertex AI. Validate the static Vertex
+    # config before expensive training so a Cloud Run env regression fails
+    # fast and leaves a clear terminal reason.
+    from .vertex_registry import get_model_bucket, get_project_id, get_region
+
+    project_id = get_project_id()
+    region = get_region()
+    bucket = get_model_bucket()
+    log.info(
+        "Vertex config OK: project=%s region=%s bucket=%s",
+        project_id,
+        region,
+        bucket,
+    )
+
     # ── Load training data ─────────────────────────────────────────────
     from .loader import load_best_available
 
@@ -178,7 +231,8 @@ def _run_pipeline(settings, log, start_time: float) -> None:
             data.n_samples, settings.ml_cold_start_threshold,
         )
         _fail_pending_models(
-            f"Cold start: {data.n_samples} samples, need {settings.ml_cold_start_threshold}"
+            f"Cold start: {data.n_samples} samples, need {settings.ml_cold_start_threshold}",
+            training_samples=data.n_samples,
         )
         sys.exit(0)
 
@@ -193,6 +247,7 @@ def _run_pipeline(settings, log, start_time: float) -> None:
         f"Loading dataset: {data.n_samples} samples, {data.features.shape[1]} features",
         5_000,
     )
+    _set_training_sample_count(os.environ.get("TRAINING_MODEL_ID"), data.n_samples)
 
     # ── Train ──────────────────────────────────────────────────────────
     from .trainer import train

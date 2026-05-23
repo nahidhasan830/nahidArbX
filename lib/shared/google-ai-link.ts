@@ -1,15 +1,9 @@
 /**
- * Build a Google AI Mode search URL for grading a specific bet.
+ * Build a Google AI Mode search URL for manual bet verification.
  *
- * Uses `udm=50` (AI Mode) + `aep=1` so the grounded answer renders
- * directly. The generated prompt includes the match, market, and
- * scoring rules so the model returns a deterministic one-of-N outcome
- * label at the end — used by the settlement tier 4 learner, the /value
- * bets modal, Telegram notifications, etc.
- *
- * This is the single source of truth for the grade URL across the app.
- * Callers pass a neutral descriptor so the util stays decoupled from
- * DB schemas, notification types, or UI components.
+ * This is intentionally UI-only: operators can open the URL in a browser
+ * and compare the answer themselves. The app never consumes this answer
+ * programmatically and never applies settlement from it.
  */
 
 import { format, isValid, parseISO } from "date-fns";
@@ -22,7 +16,7 @@ export interface BetGradeDescriptor {
   eventStartTime: string | Date;
   /** Normalized family market type, e.g. "OVER_UNDER", "MATCH_ODDS". */
   marketType: string;
-  /** Market scope — "FT" (default) / "1H" / "2H". */
+  /** Market scope: "FT" / "1H" / "2H". */
   timeScope?: "FT" | "1H" | "2H" | string;
   /** Line value for handicap / total markets, if any. */
   familyLine?: number | null;
@@ -47,15 +41,14 @@ export function buildBetGradeUrl(bet: BetGradeDescriptor): string {
     : String(bet.eventStartTime);
 
   const query = [
-    `Grade bet for match: ${bet.homeTeam} vs ${bet.awayTeam} ${bet.competition ? `(${bet.competition})` : ""} on ${dateTimeClause}.`,
-    `Bet: ${bet.marketType} (${scopeLabel(bet.timeScope)}), Line: ${bet.familyLine ?? "N/A"}, Pick: ${bet.atomLabel}.`,
-    `Rules:`,
-    `- Over/Under: Total goals > Line = OVER wins, < Line = UNDER. Exact hits (e.g. 3.0) = VOID.`,
-    `- Quarter lines (e.g. 2.25): Split stake (HALF_WON / HALF_LOST).`,
-    `Task:`,
-    `1. Find FT score.`,
-    `2. Explain step-by-step calculation.`,
-    `3. End with a line containing EXACTLY ONE of: WON, HALF_WON, LOST, HALF_LOST, VOID, PENDING.`,
+    `${bet.homeTeam} vs ${bet.awayTeam}${bet.competition ? ` ${bet.competition}` : ""} ${dateTimeClause}`,
+    `Kickoff: ${dateTimeClause}.`,
+    `Bet: ${bet.marketType}, ${scopeLabel(bet.timeScope)}, line ${bet.familyLine ?? "N/A"}, pick ${bet.atomLabel}.`,
+    `Task: verify the official match status and relevant score first, then calculate the bet result.`,
+    `Use full-time score for full time bets, first-half score for first half bets, and second-half score for second half bets.`,
+    `Rules: MATCH_RESULT wins only when the picked home/draw/away result matches the score; totals compare goals to the line; handicap markets apply the line to the picked side; exact whole-line pushes are VOID; quarter lines can be HALF_WON or HALF_LOST.`,
+    `If the match is not final or the score cannot be verified, return PENDING.`,
+    `Output order: Score/status, Calculation, then a final line exactly as "Result: WON|HALF_WON|LOST|HALF_LOST|VOID|PENDING".`,
   ].join("\n");
 
   const params = new URLSearchParams({

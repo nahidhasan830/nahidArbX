@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "NAHIDARBX_ENGINE=1 next dev",
     "engine": "NAHIDARBX_ENGINE=1 tsx engine.ts",
-    "dev:all": "rm -rf /tmp/nahidarbx-boot && NAHIDARBX_UNIFIED_BOOT=1 npm run engine & sleep 2 && NAHIDARBX_UNIFIED_BOOT=1 npm run dev",
+    "dev:all": "node scripts/dev-all.mjs",
     "engine:stop": "pkill -f 'tsx engine.ts' || echo 'No engine running'",
     "build": "next build",
     "start": "next start",

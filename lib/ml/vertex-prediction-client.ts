@@ -5,7 +5,8 @@
  * Replaces the local ONNX scorer with cloud-managed inference.
  *
  * Configuration (via .env):
- *   VERTEX_PREDICTION_ENDPOINT — full endpoint resource name or URL
+ *   VERTEX_PREDICTION_ENDPOINT — optional endpoint id, full resource name, or URL
+ *   ml_models.vertex_endpoint_name — fallback written by the trainer
  *   GCP_PROJECT_ID — GCP project ID (already configured)
  *   GCP_REGION — GCP region (already configured)
  *
@@ -46,8 +47,45 @@ function getAuth(): GoogleAuth {
   return _auth;
 }
 
+let endpointOverride: string | null = null;
+
+function cleanEndpoint(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Runtime fallback populated from ml_models.vertex_endpoint_name.
+ * VERTEX_PREDICTION_ENDPOINT still wins when it is explicitly configured.
+ */
+export function setVertexPredictionEndpoint(endpoint: string | null): void {
+  endpointOverride = cleanEndpoint(endpoint);
+}
+
+export function getVertexPredictionEndpoint(): string | null {
+  return cleanEndpoint(process.env.VERTEX_PREDICTION_ENDPOINT) ?? endpointOverride;
+}
+
+function toEndpointResourceName(endpoint: string): string | null {
+  const fullResource = endpoint.match(
+    /^projects\/([^/]+)\/locations\/([^/]+)\/endpoints\/([^/]+)$/,
+  );
+  if (fullResource) return endpoint;
+
+  const endpointId = endpoint.startsWith("endpoints/")
+    ? endpoint.slice("endpoints/".length)
+    : endpoint;
+  if (endpointId.includes("/")) return null;
+
+  const project = cleanEndpoint(process.env.GCP_PROJECT_ID);
+  const region = cleanEndpoint(process.env.GCP_REGION);
+  if (!project || !region) return null;
+
+  return `projects/${project}/locations/${region}/endpoints/${endpointId}`;
+}
+
 function getEndpointUrl(): string | null {
-  const endpoint = process.env.VERTEX_PREDICTION_ENDPOINT;
+  const endpoint = getVertexPredictionEndpoint();
   if (!endpoint) return null;
 
   // If it's already a full URL, use it
@@ -56,19 +94,20 @@ function getEndpointUrl(): string | null {
   // If it's a resource name, convert to REST API URL
   // projects/{project}/locations/{region}/endpoints/{endpoint-id}
   // → https://{region}-aiplatform.googleapis.com/v1/{resource}:predict
-  const match = endpoint.match(
-    /projects\/([^/]+)\/locations\/([^/]+)\/endpoints\/([^/]+)/,
+  const resourceName = toEndpointResourceName(endpoint);
+  const match = resourceName?.match(
+    /^projects\/([^/]+)\/locations\/([^/]+)\/endpoints\/([^/]+)$/,
   );
   if (!match) {
     logger.warn(
       tag,
-      `Invalid VERTEX_PREDICTION_ENDPOINT format: ${endpoint}. Expected projects/{project}/locations/{region}/endpoints/{id}`,
+      `Invalid Vertex prediction endpoint format: ${endpoint}. Expected URL, projects/{project}/locations/{region}/endpoints/{id}, or endpoint id with GCP_PROJECT_ID/GCP_REGION`,
     );
     return null;
   }
 
   const [, , region] = match;
-  return `https://${region}-aiplatform.googleapis.com/v1/${endpoint}:predict`;
+  return `https://${region}-aiplatform.googleapis.com/v1/${resourceName}:predict`;
 }
 
 async function getAccessToken(): Promise<string | null> {
@@ -95,7 +134,7 @@ export async function predictBatch(
   if (!url) {
     logger.warn(
       tag,
-      "VERTEX_PREDICTION_ENDPOINT not configured — returning null scores",
+      "Vertex prediction endpoint not configured — returning null scores",
     );
     return featureArrays.map(() => null);
   }

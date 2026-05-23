@@ -67,13 +67,13 @@ export type Outcome =
   | "void";
 
 /**
- * Result shape returned by `POST /api/bets-history/ai-label` (the settlement
- * waterfall). Each proposal reports the tier that resolved the match and
- * the source it came from ("espn", "sofascore", "pinnacle-ws" …). "pure"
- * means the deterministic settler produced an outcome; "unresolved" means
- * no tier could provide a score — those rows fall back to manual verify.
+ * Result shape returned by `POST /api/bets-history/settle` (the settlement
+ * waterfall). Each proposal reports the source that resolved the match
+ * ("espn", "sofascore", "api-football" …). "pure" means deterministic
+ * settlement produced an outcome; "unresolved" means no source provided
+ * a usable score.
  */
-export type AiLabelResult = {
+export type SettlementProposal = {
   id: string;
   proposedOutcome: Outcome;
   confidence: number;
@@ -84,7 +84,7 @@ export type AiLabelResult = {
   source: string | null;
 };
 
-export type AiLabelError = { id: string; error: string };
+export type SettlementProposalError = { id: string; error: string };
 
 export type SettlementTelemetry = {
   total: number;
@@ -100,8 +100,8 @@ export type SettlementTelemetry = {
   unresolvedEvents: number;
 };
 
-export type AiLabelResponse = {
-  proposals: Array<AiLabelResult | AiLabelError>;
+export type SettlementResponse = {
+  proposals: Array<SettlementProposal | SettlementProposalError>;
   attempted: number;
   missing: string[];
   telemetry?: SettlementTelemetry;
@@ -245,28 +245,26 @@ export const bulkMarkOutcomes = async (
 export type ModelTier = "lite" | "flash" | "pro";
 
 /**
- * Trigger the settlement waterfall for a set of bet IDs. The pipeline
- * is fully free — Tier 0 (cache) → Tier 1 (live) → Tier 2a (ESPN) →
- * Tier 2b (API-Football) → Tier 2c (SofaScore) → Tier 2d (HF+Search).
+ * Trigger operator settlement for a set of bet IDs.
+ * The server defaults this endpoint to `bypassCache: true`, so manual
+ * settlement/re-settlement verifies against fresh source data unless a
+ * caller explicitly opts back into Tier 0.
  */
-/**
- * Trigger settlement for a set of bet IDs.
- *   - default                       → full free waterfall
- *   - `{ bypassCache: true }`       → re-run waterfall ignoring cached scores
- */
-export const aiLabelBets = async (
+export const settleBets = async (
   ids: string[],
   opts?: {
     bypassCache?: boolean;
   },
-): Promise<AiLabelResponse> => {
-  const res = await fetch(`/api/bets-history/ai-label`, {
+): Promise<SettlementResponse> => {
+  const res = await fetch(`/api/bets-history/settle`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ids,
-      bypassCache: opts?.bypassCache === true,
+      ...(opts?.bypassCache === undefined
+        ? {}
+        : { bypassCache: opts.bypassCache }),
     }),
   });
   return unwrap(res);

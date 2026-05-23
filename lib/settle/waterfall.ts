@@ -7,11 +7,6 @@
  *   Tier 2a free sports APIs: ESPN scoreboard             — free, unlimited
  *   Tier 2b free sports APIs: API-Football                — free, 100 req/day
  *   Tier 2c SofaScore (unofficial, best-effort)           — free, CF-blocked
- *   Tier 2d AI Search (DeepSeek Flash + web search grounding)
- *           The niche-league catch-all. Searches FlashScore, Google
- *           Sports, news sites via Vertex/Brave, then DeepSeek Flash
- *           extracts the score. Covers Brazil Serie C, regional
- *           cups, youth tournaments — anything on the open web.
  *
  * Tier 0 is read-only; tiers 2+ upsert their discoveries back into
  * match_scores so subsequent settlement requests are instantly free.
@@ -34,9 +29,7 @@ import {
   getApiFootballQuota,
 } from "./sources/api-football";
 import { fetchSofaScoreScores } from "./sources/sofascore";
-import { fetchAiSearchScores } from "./sources/ai-search-scores";
 import { getBrowserSessionStats } from "./sources/sofascore-browser";
-import { checkHealth as checkAiSearchHealth } from "@/lib/matching/ai-search-client";
 import { logger } from "../shared/logger";
 
 /**
@@ -366,30 +359,6 @@ export async function resolveScores(
     }
   }
 
-  // ── Tier 2d: AI Search — DeepSeek Flash + web search grounding ─────────
-  //
-  // The niche-league catch-all. ESPN covers ~85% of global football,
-  // API-Football another ~10%, SofaScore nearly 100% — but CF-blocking
-  // often prevents access. For the remaining events, DeepSeek+Search
-  // looks up the score on FlashScore, Google Sports, or news sites.
-  const t2dCandidates = stillMissingEvents();
-  if (t2dCandidates.length > 0) {
-    try {
-      const t2d = await fetchAiSearchScores(t2dCandidates);
-      for (const [id, s] of t2d) {
-        if (!accept(s)) continue;
-        scores.set(id, s);
-        telemetry.tier2_hits++;
-        await persist(s, "T2d-ai-search");
-      }
-    } catch (err) {
-      logger.warn(
-        "Waterfall",
-        `Tier 2d (AI Search) failed: ${(err as Error).message}`,
-      );
-    }
-  }
-
   // ── Stat enrichment passes ────────────────────────────────────────────────
   //
   // Each stat type uses the same ESPN → API-Football → SofaScore cascade.
@@ -487,18 +456,6 @@ export async function resolveScores(
     telemetry.sourceIssues.push(
       `SofaScore browser session is not active. It will auto-start on next settlement tick.`,
     );
-  }
-
-  // AI Search health
-  try {
-    const aiHealth = await checkAiSearchHealth();
-    if (!aiHealth || !aiHealth.ok) {
-      telemetry.sourceIssues.push(
-        `AI Search service is not reachable — Tier 2d (HF+Search) will be skipped.`,
-      );
-    }
-  } catch {
-    // Non-fatal — don't block telemetry
   }
 
   telemetry.unresolved = eventIds.length - scores.size;

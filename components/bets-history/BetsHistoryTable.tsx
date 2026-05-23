@@ -2,14 +2,7 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { format, parseISO } from "date-fns";
-import { useQuery } from "@tanstack/react-query";
-import {
-  ExternalLink,
-  Loader2,
-  Microscope,
-  MoreVertical,
-  Trash2,
-} from "lucide-react";
+import { Loader2, MoreVertical, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -34,6 +27,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
+  MarketDisplay,
+  formatScopedMarketText,
+} from "@/components/ui/market-display";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -43,10 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DataTable } from "@/components/ui/data-table";
 import { OddsMovementTooltipContent } from "@/components/spreadsheet/OddsMovementTooltip";
-import { type RerunChoice } from "./AiSettleDialog";
-import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
 import { MovementDetailModal } from "./MovementDetailModal";
-import { FeatureInspectorDialog } from "./FeatureInspectorDialog";
 import { OutcomeStatusTooltipContent } from "./OutcomeStatusTooltip";
 import { derive } from "@/lib/bets-history/derive";
 import { buildGoogleAiModeUrl } from "@/lib/bets-history/google-verify";
@@ -61,7 +55,7 @@ import {
   getProviderTextInline,
 } from "@/lib/providers/registry";
 import { cn } from "@/lib/utils";
-import { formatMarketType, formatAtomLabel } from "@/lib/formatting/labels";
+import { formatAtomLabel } from "@/lib/formatting/labels";
 import { fmtDateTime, fmtSeen } from "@/lib/formatting/helpers";
 
 /** Runtime type guard for a single provider's movement snapshot. */
@@ -95,11 +89,10 @@ type SortKey =
   | "evPctMax"
   | "kellyFraction"
   | "tickCount"
-  | "eventStartTime"
-  | "mlScore";
+  | "eventStartTime";
 type SortDir = "asc" | "desc" | "none";
 
-const PERSISTENCE_KEY = "bets-history-table:layout:v3";
+const PERSISTENCE_KEY = "bets-history-table:layout:v4";
 
 const OUTCOME_PILL: Record<Outcome, string> = {
   pending: "bg-muted text-muted-foreground border border-border",
@@ -130,7 +123,7 @@ export type BacktestTableProps = {
   onMarkOutcome: (id: string, outcome: Outcome) => void;
   onDeleteBet: (id: string) => void;
   deletingIds?: Set<string>;
-  onRerunRow: (id: string, choice: RerunChoice) => void;
+  onRerunRow: (id: string) => void;
   rerunningIds?: Set<string>;
   sortKey: SortKey;
   sortDir: SortDir;
@@ -234,25 +227,6 @@ export function BetsHistoryTable({
   const [editingOutcomeId, setEditingOutcomeId] = useState<string | null>(null);
   const [movementRow, setMovementRow] = useState<Decorated | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Decorated | null>(null);
-  const [featureInspectRow, setFeatureInspectRow] = useState<Decorated | null>(
-    null,
-  );
-
-  // Fetch current ML permission level for FeatureInspectorDialog context
-  const { data: mlGate } = useQuery<{ permissionLevel: string }>({
-    queryKey: ["ml", "permission-level"],
-    queryFn: async () => {
-      const res = await fetch("/api/ml/pipeline", { cache: "no-store" });
-      if (!res.ok) return { permissionLevel: "observe" };
-      const data = await res.json();
-      return {
-        permissionLevel: data?.deploymentGate?.permissionLevel ?? "observe",
-      };
-    },
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-  });
-  const permissionLevel = mlGate?.permissionLevel ?? null;
 
   const openMovement = useCallback((row: Decorated) => {
     setMovementRow(row);
@@ -294,8 +268,6 @@ export function BetsHistoryTable({
           return row._kellyFraction;
         case "tickCount":
           return row.tickCount;
-        case "mlScore":
-          return row.mlScore ?? -1;
       }
     };
     copy.sort((a, b) => {
@@ -423,15 +395,12 @@ export function BetsHistoryTable({
         cell: ({ row }) => {
           const r = row.original;
           return (
-            <>
-              <span className="text-muted-foreground text-[10px] mr-1">
-                [{r.timeScope}]
-              </span>
-              <span>
-                {formatMarketType(r.marketType)}
-                {r.familyLine != null && ` ${r.familyLine}`}
-              </span>
-            </>
+            <MarketDisplay
+              marketType={r.marketType}
+              timeScope={r.timeScope}
+              familyLine={r.familyLine}
+              className="max-w-full text-[11px]"
+            />
           );
         },
         meta: { align: "center", initialSize: 150 },
@@ -655,43 +624,6 @@ export function BetsHistoryTable({
         meta: { align: "center", initialSize: 85 },
       },
       {
-        id: "mlScore",
-        header: () => (
-          <SortableHeader
-            label="ML"
-            hint={`ML confidence score (0–1). Probability the bet is profitable, predicted by the LightGBM model.\n\n≥ 0.6 = high confidence, 0.4–0.6 = neutral, < 0.4 = low. Empty when no model was loaded at detection time.`}
-            sortKey="mlScore"
-            activeKey={sortKey}
-            activeDir={sortDir}
-            onSortChange={onSortChange}
-            align="center"
-          />
-        ),
-        accessorKey: "mlScore",
-        cell: ({ row }) => {
-          const s = row.original.mlScore;
-          if (s == null)
-            return <span className="text-muted-foreground/40">—</span>;
-          const color =
-            s >= 0.6
-              ? "text-emerald-400"
-              : s >= 0.4
-                ? "text-amber-400"
-                : "text-red-400";
-          return (
-            <span
-              className={cn(
-                "font-mono text-[10px] tabular-nums font-medium",
-                color,
-              )}
-            >
-              {s.toFixed(3)}
-            </span>
-          );
-        },
-        meta: { align: "center", initialSize: 60 },
-      },
-      {
         id: "tickCount",
         header: () => (
           <SortableHeader
@@ -809,7 +741,7 @@ export function BetsHistoryTable({
         header: () => (
           <StaticHeader
             label="Settled by"
-            hint="Which source settled this bet — cache, ESPN, API-Football, SofaScore, or HF+Search for niche leagues."
+            hint="Which source settled this bet — cache, ESPN, API-Football, SofaScore, or manual review."
           />
         ),
         cell: ({ row }) => {
@@ -863,43 +795,16 @@ export function BetsHistoryTable({
         header: () => (
           <StaticHeader
             label="Actions"
-            hint="Row actions: settle, verify, inspect ML features, delete."
+            hint="Row actions: settle, verify, delete."
           />
         ),
         cell: ({ row }) => {
           const r = row.original;
           const running = rerunningIds?.has(r.id) ?? false;
           const deleting = deletingIds?.has(r.id) ?? false;
-          const googleUrl = buildGoogleAiModeUrl(r);
-          const hasFeatures =
-            Array.isArray(r.mlFeatures) && r.mlFeatures.length > 0;
 
           return (
             <div className="flex items-center justify-center gap-0">
-              {/* ML inspect — always visible for quick access */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={!hasFeatures}
-                    onClick={() => hasFeatures && setFeatureInspectRow(r)}
-                    className={cn(
-                      "inline-flex items-center justify-center size-6 rounded-md transition-colors",
-                      hasFeatures
-                        ? "hover:bg-violet-500/10 hover:text-violet-400 text-muted-foreground"
-                        : "text-muted-foreground/20 cursor-not-allowed",
-                    )}
-                  >
-                    <Microscope className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {hasFeatures
-                    ? "Inspect ML features"
-                    : "No features extracted"}
-                </TooltipContent>
-              </Tooltip>
-
               {/* Spinner replaces the ⋮ when an async action is in flight */}
               {running || deleting ? (
                 <div className="inline-flex items-center justify-center size-6">
@@ -928,32 +833,30 @@ export function BetsHistoryTable({
                   <DropdownMenuContent align="end" className="w-[190px] p-1">
                     {/* ── Settle ── */}
                     <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
-                      Settle
+                      Settlement
                     </DropdownMenuLabel>
-                    <AiModelMenuItems
-                      callbacks={{
-                        onSelectDefault: () =>
-                          onRerunRow(r.id, { kind: "default" }),
-                        onSelectAi: (engine, model) =>
-                          onRerunRow(r.id, {
-                            kind: engine,
-                            model,
-                          } as RerunChoice),
-                      }}
-                    />
-
-                    <DropdownMenuSeparator className="my-1" />
-
-                    {/* ── Verify ── */}
+                    <DropdownMenuItem
+                      onSelect={() => onRerunRow(r.id)}
+                      className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
+                    >
+                      <RefreshCw className="size-3.5 shrink-0 text-sky-400" />
+                      <span className="text-[11px] font-medium">
+                        Recheck result
+                      </span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() =>
-                        window.open(googleUrl, "_blank", "noreferrer")
+                        window.open(
+                          buildGoogleAiModeUrl(r),
+                          "_blank",
+                          "noopener,noreferrer",
+                        )
                       }
                       className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
                     >
-                      <ExternalLink className="size-3.5 shrink-0 text-sky-400" />
+                      <Search className="size-3.5 shrink-0 text-amber-400" />
                       <span className="text-[11px] font-medium">
-                        Verify on Google
+                        Verify settlement
                       </span>
                     </DropdownMenuItem>
 
@@ -1007,7 +910,11 @@ export function BetsHistoryTable({
     ? `${movementRow.homeTeam} vs ${movementRow.awayTeam}`
     : "";
   const movementMarketLabel = movementRow
-    ? `[${movementRow.timeScope}] ${formatMarketType(movementRow.marketType)}${movementRow.familyLine != null ? ` ${movementRow.familyLine}` : ""} · ${formatAtomLabel(movementRow.atomLabel)}`
+    ? `${movementRow.timeScope} · ${formatScopedMarketText({
+        marketType: movementRow.marketType,
+        familyLine: movementRow.familyLine,
+        selection: movementRow.atomLabel,
+      })}`
     : "";
 
   return (
@@ -1034,34 +941,6 @@ export function BetsHistoryTable({
         )}
         renderFooter={renderFooter}
       />
-      {/* Feature Inspector */}
-      <FeatureInspectorDialog
-        open={featureInspectRow !== null}
-        onOpenChange={(open) => {
-          if (!open) setFeatureInspectRow(null);
-        }}
-        features={featureInspectRow?.mlFeatures}
-        mlScore={featureInspectRow?.mlScore}
-        mlStakeFraction={featureInspectRow?.mlStakeFraction}
-        featureVersion={featureInspectRow?.mlFeatureVersion}
-        featureCount={featureInspectRow?.mlFeatureCount}
-        eventLabel={
-          featureInspectRow
-            ? `${featureInspectRow.homeTeam} vs ${featureInspectRow.awayTeam}`
-            : undefined
-        }
-        marketLabel={
-          featureInspectRow
-            ? `[${featureInspectRow.timeScope}] ${formatMarketType(featureInspectRow.marketType)}${featureInspectRow.familyLine != null ? ` ${featureInspectRow.familyLine}` : ""} · ${formatAtomLabel(featureInspectRow.atomLabel)}`
-            : undefined
-        }
-        permissionLevel={permissionLevel}
-        scoreAffectedPlacement={
-          featureInspectRow?.mlStakeFraction != null &&
-          permissionLevel != null &&
-          permissionLevel !== "observe"
-        }
-      />
 
       <MovementDetailModal
         open={movementRow !== null}
@@ -1069,6 +948,10 @@ export function BetsHistoryTable({
         data={movementData}
         eventLabel={movementEventLabel}
         marketLabel={movementMarketLabel}
+        marketType={movementRow?.marketType}
+        timeScope={movementRow?.timeScope}
+        familyLine={movementRow?.familyLine}
+        selection={movementRow?.atomLabel}
         features={movementRow?.mlFeatures}
       />
 
@@ -1086,7 +969,8 @@ export function BetsHistoryTable({
               Delete Bet
             </DialogTitle>
             <DialogDescription>
-              This will permanently remove the bet and all associated ML data.
+              This will permanently remove the bet and its associated history
+              data.
               This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
@@ -1102,11 +986,13 @@ export function BetsHistoryTable({
               )}
               <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
                 <div className="text-muted-foreground">Market</div>
-                <div>
-                  [{deleteTarget.timeScope}]{" "}
-                  {formatMarketType(deleteTarget.marketType)}
-                  {deleteTarget.familyLine != null &&
-                    ` ${deleteTarget.familyLine}`}
+                <div className="min-w-0">
+                  <MarketDisplay
+                    marketType={deleteTarget.marketType}
+                    timeScope={deleteTarget.timeScope}
+                    familyLine={deleteTarget.familyLine}
+                    className="max-w-full justify-start text-sm"
+                  />
                 </div>
 
                 <div className="text-muted-foreground">Selection</div>

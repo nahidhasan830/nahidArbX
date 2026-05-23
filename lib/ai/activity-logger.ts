@@ -42,13 +42,24 @@ export interface AiActivityOptions {
   query?: string;
   itemCount?: number;
   costUsd?: string | number;
-  response?: unknown;
+  request?: unknown;
+  response?: unknown | ((result: unknown) => unknown);
+  metadata?: unknown;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function toLogValue<T>(value: T | undefined, fallback: T): T {
   return value !== undefined ? value : fallback;
+}
+
+function resolvePayload<T>(
+  payload: unknown | ((result: T) => unknown),
+  result: T,
+): unknown {
+  return typeof payload === "function"
+    ? (payload as (result: T) => unknown)(result)
+    : payload;
 }
 
 // ── Core functions ─────────────────────────────────────────────
@@ -72,7 +83,9 @@ export async function withAiActivity<T>(
     query,
     itemCount,
     costUsd,
+    request,
     response,
+    metadata,
   } = options;
 
   // 1. Check quota before call
@@ -103,9 +116,10 @@ export async function withAiActivity<T>(
       query: query ?? null,
       summary: `${provider} ${endpoint} succeeded`,
       error: null,
-      requestBody: null,
-      responseBody: response ?? null,
-      metadata: null,
+      requestBody: request ?? null,
+      responseBody:
+        response !== undefined ? resolvePayload(response, result) : null,
+      metadata: metadata ?? null,
     });
 
     return result;
@@ -127,9 +141,9 @@ export async function withAiActivity<T>(
       query: query ?? null,
       summary: `${provider} ${endpoint} failed`,
       error,
-      requestBody: null,
+      requestBody: request ?? null,
       responseBody: null,
-      metadata: null,
+      metadata: metadata ?? null,
     });
 
     // Re-throw so caller knows it failed
@@ -155,7 +169,9 @@ export async function logAiActivity<T>(
     query,
     itemCount,
     costUsd,
+    request,
     response,
+    metadata,
   } = options;
 
   try {
@@ -175,9 +191,10 @@ export async function logAiActivity<T>(
       query: query ?? null,
       summary: `${provider} ${endpoint} succeeded`,
       error: null,
-      requestBody: null,
-      responseBody: response ?? null,
-      metadata: null,
+      requestBody: request ?? null,
+      responseBody:
+        response !== undefined ? resolvePayload(response, result) : null,
+      metadata: metadata ?? null,
     });
 
     return result;
@@ -198,9 +215,9 @@ export async function logAiActivity<T>(
       query: query ?? null,
       summary: `${provider} ${endpoint} failed`,
       error,
-      requestBody: null,
+      requestBody: request ?? null,
       responseBody: null,
-      metadata: null,
+      metadata: metadata ?? null,
     });
 
     throw err;

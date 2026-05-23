@@ -8,11 +8,9 @@ import {
 import { settleBatch } from "@/lib/settle/settle-batch";
 
 /**
- * Settlement endpoint. Wraps the waterfall (`settleBatch`) — runs the
- * full free waterfall: Tier 0 (cache) → Tier 1 (live) → Tier 2a (ESPN)
- * → Tier 2b (API-Football) → Tier 2c (SofaScore) → Tier 2d (Groq+Search).
- *
- * No paid AI tiers. All resolution is free.
+ * Operator settlement endpoint. Wraps the source-only waterfall
+ * (`settleBatch`). Operator-triggered runs bypass Tier 0 by default so
+ * manual re-settle verifies against freshly resolved source data.
  *
  * Bets that remain pending after the waterfall are returned as-is so
  * the UI can surface them for manual verification.
@@ -23,12 +21,11 @@ const BodySchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(MAX_IDS),
   /**
    * Skip the DB cache so the waterfall re-resolves scores even when a
-   * stale entry exists. "Re-run default pipeline" in the UI sends this.
+   * stale entry exists. Defaults true because this endpoint is only used
+   * for operator-triggered settlement/re-settlement; the scheduler calls
+   * settleBatch directly and keeps cache enabled.
    */
-  bypassCache: z.boolean().default(false),
-  // Legacy fields — accepted but ignored (Gemini removed from pipeline).
-  forceAi: z.boolean().default(false),
-  aiModel: z.enum(["lite", "flash", "pro"]).optional(),
+  bypassCache: z.boolean().default(true),
 });
 
 export async function POST(request: NextRequest) {
@@ -45,7 +42,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await settleBatch(parsed.data.ids, {
-      bypassCache: parsed.data.bypassCache || parsed.data.forceAi,
+      bypassCache: parsed.data.bypassCache,
     });
     return apiSuccess({
       proposals: result.proposals,

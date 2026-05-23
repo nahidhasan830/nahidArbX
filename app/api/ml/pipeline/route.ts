@@ -52,8 +52,8 @@ interface DeploymentGateStatus {
 interface ScorerStatus {
   modelLoaded: boolean;
   modelVersion: number | null;
-  modelPath: string | null;
   featureCount: number;
+  vertexEndpoint: string | null;
   totalScored: number;
   totalScoringAttempts: number;
   avgInferenceMs: number;
@@ -278,6 +278,9 @@ export async function GET() {
           calibrationError: mlModels.calibrationError,
           permissionLevel: mlModels.permissionLevel,
           rejectionReasons: mlModels.rejectionReasons,
+          modelArtifactPath: mlModels.modelArtifactPath,
+          vertexModelName: mlModels.vertexModelName,
+          vertexEndpointName: mlModels.vertexEndpointName,
           deployedAt: mlModels.deployedAt,
           retiredAt: mlModels.retiredAt,
           notifiedAt: mlModels.notifiedAt,
@@ -749,8 +752,8 @@ export async function GET() {
     let inference: ScorerStatus = {
       modelLoaded: false,
       modelVersion: null,
-      modelPath: null,
       featureCount: 0,
+      vertexEndpoint: deployed?.vertexEndpointName ?? null,
       totalScored: 0,
       totalScoringAttempts: 0,
       avgInferenceMs: 0,
@@ -762,6 +765,8 @@ export async function GET() {
       inference = {
         ...inference,
         ...scorerFields,
+        vertexEndpoint:
+          scorerFields.vertexEndpoint ?? deployed?.vertexEndpointName ?? null,
       };
       deploymentGate = gate ?? null;
     } else {
@@ -862,6 +867,12 @@ export async function GET() {
           version: m.version,
           status: m.status,
           trainingSamples: m.trainingSamples,
+          featureCount: m.featureCount,
+          featureVersion: m.featureVersion,
+          featureNamesHash: m.featureNamesHash,
+          modelArtifactPath: m.modelArtifactPath,
+          vertexModelName: m.vertexModelName,
+          vertexEndpointName: m.vertexEndpointName,
           oosAucRoc: m.oosAucRoc != null ? Number(m.oosAucRoc) : null,
           deflatedSharpe:
             m.deflatedSharpe != null ? Number(m.deflatedSharpe) : null,

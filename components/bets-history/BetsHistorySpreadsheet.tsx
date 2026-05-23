@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { BetsHistoryToolbar } from "./BetsHistoryToolbar";
 import { BetsHistoryTable } from "./BetsHistoryTable";
-import { AiSettleDialog, type RerunChoice } from "./AiSettleDialog";
+import { SettlementReviewDialog } from "./SettlementReviewDialog";
 import { SettlementMonitor } from "./SettlementMonitor";
 import {
   REFRESH_INTERVAL_MS,
@@ -16,11 +16,11 @@ import {
   useDeleteBet,
   useMarkOutcome,
 } from "@/lib/bets-history/hooks";
-import { aiLabelBets } from "@/lib/bets-history/api-client";
+import { settleBets } from "@/lib/bets-history/api-client";
 import { useBetsHistoryPrefs } from "@/lib/bets-history/use-bets-history-prefs";
 import { canResettle } from "@/lib/bets-history/resettle";
 import { resolvePreset } from "@/lib/bets-history/date-presets";
-import type { AiLabelResponse } from "@/lib/bets-history/api-client";
+import type { SettlementResponse } from "@/lib/bets-history/api-client";
 import type { ListFilters } from "@/lib/bets-history/api-client";
 import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
 
@@ -44,20 +44,15 @@ export function BetsHistorySpreadsheet() {
   const searchParams = useSearchParams();
   const { key: sortKey, dir: sortDir } = sort;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [, setAiSettlingIds] = useState<Set<string>>(new Set());
-  // Separate from aiSettlingIds so the re-settle spinner doesn't overlap
-  // with the AI-settle spinner on the same row.
   const [resettlingIds, setResettlingIds] = useState<Set<string>>(new Set());
-  const [resettleRunning, setResettleRunning] = useState(false);
 
   const [settleOpen, setSettleOpen] = useState(false);
   const [settleCandidates, setSettleCandidates] = useState<ValueBetRow[]>([]);
-  const [settleResponse, setSettleResponse] = useState<AiLabelResponse | null>(
-    null,
-  );
+  const [settleResponse, setSettleResponse] =
+    useState<SettlementResponse | null>(null);
   // Ids currently being re-run individually via the per-row dropdown. Kept
-  // separate from aiSettlingIds (which tracks the initial bulk run) so the
-  // UI can show a spinner only on the specific row a user triggered.
+  // separate from bulk progress so the UI can show a spinner only on the
+  // specific row a user triggered.
   const [rerunningIds, setRerunningIds] = useState<Set<string>>(new Set());
 
   const [settlementMonitorOpen, setSettlementMonitorOpen] = useState(false);
@@ -128,10 +123,10 @@ export function BetsHistorySpreadsheet() {
   const deleteMutation = useDeleteBet();
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
-  // AI-settle orchestration — batches server calls transparently so users can
+  // Settlement orchestration — batches server calls transparently so users can
   // select any number of rows without hitting the server's per-call cap.
-  const [aiSettleRunning, setAiSettleRunning] = useState(false);
-  const [aiSettleProgress, setAiSettleProgress] = useState<{
+  const [settlementRunning, setSettlementRunning] = useState(false);
+  const [settlementProgress, setSettlementProgress] = useState<{
     done: number;
     total: number;
   } | null>(null);
@@ -244,11 +239,11 @@ export function BetsHistorySpreadsheet() {
   };
 
   // Server caps at 50 per call; batch client-side so N rows always works.
-  const AI_BATCH_SIZE = 50;
+  const SETTLEMENT_BATCH_SIZE = 50;
   // Fire 2 batches concurrently to cut wall-clock ~in half.
-  const AI_BATCH_CONCURRENCY = 2;
+  const SETTLEMENT_BATCH_CONCURRENCY = 2;
 
-  const runAiSettle = async (
+  const runSettlement = async (
     ids: string[],
     reqOpts?: {
       bypassCache?: boolean;
@@ -264,14 +259,13 @@ export function BetsHistorySpreadsheet() {
     setSettleCandidates(candidates);
     setSettleResponse({ proposals: [], attempted: 0, missing: [] });
     setSettleOpen(true);
-    setAiSettlingIds(new Set(ids));
 
     const chunks: string[][] = [];
-    for (let i = 0; i < ids.length; i += AI_BATCH_SIZE) {
-      chunks.push(ids.slice(i, i + AI_BATCH_SIZE));
+    for (let i = 0; i < ids.length; i += SETTLEMENT_BATCH_SIZE) {
+      chunks.push(ids.slice(i, i + SETTLEMENT_BATCH_SIZE));
     }
-    setAiSettleRunning(true);
-    setAiSettleProgress({ done: 0, total: chunks.length });
+    setSettlementRunning(true);
+    setSettlementProgress({ done: 0, total: chunks.length });
 
     let anyErr: Error | null = null;
 
@@ -285,11 +279,10 @@ export function BetsHistorySpreadsheet() {
       tier0: 0,
       tier1: 0,
       tier2: 0,
-      tier3: 0,
       durationMs: 0,
     };
 
-    // Worker-pool style: at most AI_BATCH_CONCURRENCY in flight; results
+    // Worker-pool style: at most SETTLEMENT_BATCH_CONCURRENCY in flight; results
     // stream into settleResponse as each batch returns.
     let nextIndex = 0;
     const runOne = async (): Promise<void> => {
@@ -297,8 +290,7 @@ export function BetsHistorySpreadsheet() {
         const my = nextIndex++;
         const chunk = chunks[my];
         try {
-          // All settlement paths use the free waterfall — no paid AI.
-          const data = await aiLabelBets(
+          const data = await settleBets(
             chunk,
             reqOpts ?? { bypassCache: true },
           );
@@ -306,7 +298,6 @@ export function BetsHistorySpreadsheet() {
             summary.tier0 += data.telemetry.tier0_hits;
             summary.tier1 += data.telemetry.tier1_hits;
             summary.tier2 += data.telemetry.tier2_hits;
-            summary.tier3 += data.telemetry.tier3_hits;
             summary.unresolved += data.telemetry.unresolved;
             summary.durationMs += data.telemetry.durationMs;
           }
@@ -343,33 +334,30 @@ export function BetsHistorySpreadsheet() {
               : null,
           );
         } finally {
-          setAiSettleProgress((p) => (p ? { ...p, done: p.done + 1 } : null));
+          setSettlementProgress((p) =>
+            p ? { ...p, done: p.done + 1 } : null,
+          );
         }
       }
     };
 
     const workers = Array.from(
-      { length: Math.min(AI_BATCH_CONCURRENCY, chunks.length) },
+      { length: Math.min(SETTLEMENT_BATCH_CONCURRENCY, chunks.length) },
       () => runOne(),
     );
     await Promise.all(workers);
 
-    setAiSettleRunning(false);
-    setAiSettlingIds(new Set());
+    setSettlementRunning(false);
 
     if (anyErr) {
       const err = anyErr as Error;
       toast.error("❌ Settlement failed", { description: err.message });
     } else {
-      // Rich toast: concise title + breakdown on line 2. Mentions AI
-      // only when it actually contributed; otherwise it's the free
-      // waterfall doing the work.
       const word = ids.length === 1 ? "bet" : "bets";
       const pieces: string[] = [];
       if (summary.tier0 > 0) pieces.push(`cache ${summary.tier0}`);
       if (summary.tier1 > 0) pieces.push(`live feed ${summary.tier1}`);
-      if (summary.tier2 > 0) pieces.push(`free APIs ${summary.tier2}`);
-      if (summary.tier3 > 0) pieces.push(`AI ${summary.tier3}`);
+      if (summary.tier2 > 0) pieces.push(`source APIs ${summary.tier2}`);
       if (summary.unresolved > 0)
         pieces.push(`unresolved ${summary.unresolved}`);
       const seconds = (summary.durationMs / 1000).toFixed(1);
@@ -385,7 +373,7 @@ export function BetsHistorySpreadsheet() {
     }
   };
 
-  const handleTableRerun = async (id: string, choice: RerunChoice) => {
+  const handleTableRerun = async (id: string) => {
     const row = rows.find((r) => r.id === id);
     if (!row) return;
     const gate = canResettle(row);
@@ -397,12 +385,10 @@ export function BetsHistorySpreadsheet() {
     setSettleResponse({ proposals: [], attempted: 0, missing: [] });
     setSettleOpen(true);
     setResettlingIds(new Set([id]));
-    setAiSettleRunning(true);
-    setAiSettleProgress({ done: 0, total: 1 });
+    setSettlementRunning(true);
+    setSettlementProgress({ done: 0, total: 1 });
     try {
-      // All choices route through the free waterfall — no paid AI.
-      void choice;
-      const data = await aiLabelBets([id], { bypassCache: true });
+      const data = await settleBets([id], { bypassCache: true });
       setSettleResponse(data);
     } catch (err) {
       toast.error(`❌ Settlement failed: ${(err as Error).message}`);
@@ -413,8 +399,8 @@ export function BetsHistorySpreadsheet() {
       });
     } finally {
       setResettlingIds(new Set());
-      setAiSettleRunning(false);
-      setAiSettleProgress({ done: 1, total: 1 });
+      setSettlementRunning(false);
+      setSettlementProgress({ done: 1, total: 1 });
     }
   };
 
@@ -429,15 +415,7 @@ export function BetsHistorySpreadsheet() {
     }
     return n;
   }, [selectedIds, rows]);
-  /**
-   * Unified bulk settle: routes based on the RerunChoice the user picked
-   * from the toolbar dropdown. All options run the full waterfall with
-   * cache bypass so scores are freshly resolved.
-   */
-  const handleBulkSettle = async (choice: RerunChoice) => {
-    // All settlement paths now go through the review dialog so the user
-    // can inspect proposals, override outcomes, and see telemetry before
-    // applying.
+  const handleBulkSettle = async () => {
     const eligible: ValueBetRow[] = [];
     for (const id of selectedIds) {
       const row = rows.find((r) => r.id === id);
@@ -451,30 +429,23 @@ export function BetsHistorySpreadsheet() {
     }
 
     const ids = eligible.map((r) => r.id);
-
-    // Both "default" and "ai-search" choices bypass cache to get fresh
-    // scores. The waterfall now includes DeepSeek+Search as Tier 2d
-    // automatically — no need for a separate forceAi flag.
-    void choice; // used for future engine selection
-    runAiSettle(ids, { bypassCache: true });
+    runSettlement(ids, { bypassCache: true });
   };
 
   /**
    * Re-run a single proposal and splice the fresh result back into
-   * `settleResponse`. Re-fires the full free waterfall (bypassing Tier 0
+   * `settleResponse`. Re-fires the full source waterfall (bypassing Tier 0
    * so the source can actually change). Errors from the API surface as
    * an error row the dialog already knows how to render.
    */
-  const handleRerunProposal = async (id: string, choice: RerunChoice) => {
+  const handleRerunProposal = async (id: string) => {
     setRerunningIds((cur) => {
       const next = new Set(cur);
       next.add(id);
       return next;
     });
     try {
-      // All choices route through the free waterfall — no paid AI.
-      void choice;
-      const data = await aiLabelBets([id], { bypassCache: true });
+      const data = await settleBets([id], { bypassCache: true });
       const fresh = data.proposals.find((p) => p.id === id);
       if (!fresh) {
         toast.error(`❌ Re-run returned no proposal for ${id}`);
@@ -487,15 +458,11 @@ export function BetsHistorySpreadsheet() {
           proposals: prev.proposals.map((p) => (p.id === id ? fresh : p)),
         };
       });
-      const pathLabel =
-        choice.kind === "default"
-          ? "default pipeline"
-          : `DeepSeek · ${choice.model}`;
       if ("error" in fresh) {
         toast.error(`❌ Re-run failed: ${fresh.error}`);
       } else {
         toast.success(
-          `♻️ Re-ran via ${pathLabel} → ${fresh.proposedOutcome}${
+          `♻️ Re-ran source waterfall → ${fresh.proposedOutcome}${
             fresh.score ? ` (${fresh.score})` : ""
           }`,
         );
@@ -511,7 +478,7 @@ export function BetsHistorySpreadsheet() {
     }
   };
 
-  const handleApplyAiProposals = async (
+  const handleApplySettlementProposals = async (
     updates: { id: string; outcome: Outcome; source: string | null }[],
   ) => {
     if (updates.length === 0) return;
@@ -588,7 +555,7 @@ export function BetsHistorySpreadsheet() {
           onClearSelection={clearSelection}
           onSelectAllLoaded={selectAllLoaded}
           onBulkSettle={handleBulkSettle}
-          settleRunning={aiSettleRunning || resettleRunning}
+          settleRunning={settlementRunning}
           resettleEligibleCount={resettleEligibleCount}
           onBulkMark={handleBulkMark}
           bulkMarkRunning={bulkMarkMutation.isPending}
@@ -627,22 +594,22 @@ export function BetsHistorySpreadsheet() {
         />
       </Card>
 
-      <AiSettleDialog
+      <SettlementReviewDialog
         open={settleOpen}
         onOpenChange={(o) => {
           setSettleOpen(o);
           if (!o) {
             setSettleResponse(null);
             setSettleCandidates([]);
-            setAiSettleProgress(null);
+            setSettlementProgress(null);
             setRerunningIds(new Set());
           }
         }}
         candidateRows={settleCandidates}
         response={settleResponse}
-        loading={aiSettleRunning}
-        progress={aiSettleProgress}
-        onApply={handleApplyAiProposals}
+        loading={settlementRunning}
+        progress={settlementProgress}
+        onApply={handleApplySettlementProposals}
         applying={bulkMarkMutation.isPending}
         rerunningIds={rerunningIds}
         onRerun={handleRerunProposal}

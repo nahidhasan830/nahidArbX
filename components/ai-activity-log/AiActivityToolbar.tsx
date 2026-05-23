@@ -37,31 +37,11 @@ import {
   type DatePresetKey,
 } from "@/lib/bets-history/date-presets";
 import { cn } from "@/lib/utils";
-import type { AiActivityLogStats } from "@/lib/db/repositories/ai-activity-log";
+import type { AiLogStats } from "@/lib/db/repositories/ai-logs";
 
 // ── Status tabs ──
 
 type StatusFilter = "all" | "success" | "error" | "partial";
-
-const STATUS_TAB_COLORS: Record<StatusFilter, { active: string; dot: string }> =
-  {
-    all: {
-      active: "bg-zinc-800 text-zinc-100 border-zinc-600",
-      dot: "bg-zinc-400",
-    },
-    success: {
-      active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-      dot: "bg-emerald-400",
-    },
-    error: {
-      active: "bg-red-500/15 text-red-300 border-red-500/30",
-      dot: "bg-red-400",
-    },
-    partial: {
-      active: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-      dot: "bg-amber-400",
-    },
-  };
 
 const STATUS_TABS: { id: StatusFilter; label: string; title: string }[] = [
   { id: "all", label: "All", title: "Every AI operation" },
@@ -77,6 +57,8 @@ const STATUS_TABS: { id: StatusFilter; label: string; title: string }[] = [
 // ── System filter options ──
 
 const SYSTEM_OPTIONS: { value: string; label: string }[] = [
+  { value: "search", label: "Search" },
+  { value: "llm", label: "LLM" },
   { value: "settlement", label: "Settlement" },
   { value: "grounding", label: "Grounding" },
   { value: "entity-match", label: "Entity Match" },
@@ -88,9 +70,44 @@ const SYSTEM_OPTIONS: { value: string; label: string }[] = [
 
 const TRIGGER_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
+  { value: "auto", label: "Auto" },
+  { value: "scheduler", label: "Scheduler" },
   { value: "auto-scheduler", label: "Auto Scheduler" },
   { value: "playground", label: "Playground" },
   { value: "batch", label: "Batch" },
+];
+
+const TRACE_PRESETS: {
+  id: "all" | "search" | "llm" | "entity";
+  label: string;
+  description: string;
+  systems?: string[];
+  endpoints?: string[];
+}[] = [
+  {
+    id: "all",
+    label: "All",
+    description: "Every AI operation in time order.",
+  },
+  {
+    id: "search",
+    label: "Evidence",
+    description: "Only web searches and returned sources.",
+    systems: ["search"],
+  },
+  {
+    id: "llm",
+    label: "Decisions",
+    description: "Only model prompts and JSON verdicts.",
+    systems: ["llm"],
+  },
+  {
+    id: "entity",
+    label: "Matcher Trace",
+    description: "Search and DeepSeek calls for entity matching.",
+    systems: ["search", "llm"],
+    endpoints: ["search", "entity-match"],
+  },
 ];
 
 // ── Date preset helpers ──
@@ -150,10 +167,6 @@ function getCompactPresetLabel(key: DatePresetKey) {
 const CTRL_H = "h-7";
 const BTN_BASE = cn(CTRL_H, "px-2 text-[11px] gap-1.5 font-normal");
 
-function ToolbarSep() {
-  return <div className="w-px h-5 bg-border shrink-0" />;
-}
-
 // ── Date preset panel ──
 
 function PresetGrid({
@@ -205,6 +218,7 @@ export type AiActivityFilters = {
   systems?: string[];
   statuses?: string[];
   triggers?: string[];
+  endpoints?: string[];
   search?: string;
 };
 
@@ -217,7 +231,7 @@ type Props = {
   onDatePresetChange: (preset: DatePresetKey) => void;
   totalCount: number;
   filteredCount: number;
-  stats: AiActivityLogStats | null;
+  stats: AiLogStats | null;
   statsLoading?: boolean;
   loading?: boolean;
 };
@@ -279,17 +293,17 @@ export function AiActivityToolbar({
     };
   }, []);
 
-  // ── Active status ──
-  const activeStatus: StatusFilter = (() => {
-    const s = filters.statuses;
-    if (!s || s.length === 0) return "all";
-    if (s.length === 1) return s[0] as StatusFilter;
-    return "all";
-  })();
-
-  const handleStatusChange = (id: StatusFilter) => {
-    if (id === "all") update({ statuses: undefined });
-    else update({ statuses: [id] });
+  // ── Status filter ──
+  const selectedStatuses = filters.statuses ?? [];
+  const toggleStatus = (status: StatusFilter) => {
+    if (status === "all") {
+      update({ statuses: undefined });
+      return;
+    }
+    const current = new Set(selectedStatuses);
+    if (current.has(status)) current.delete(status);
+    else current.add(status);
+    update({ statuses: current.size > 0 ? Array.from(current) : undefined });
   };
 
   // ── System filter ──
@@ -310,66 +324,79 @@ export function AiActivityToolbar({
     update({ triggers: current.size > 0 ? Array.from(current) : undefined });
   };
 
+  const activeTracePreset =
+    TRACE_PRESETS.find((preset) => {
+      const systems = filters.systems ?? [];
+      const endpoints = filters.endpoints ?? [];
+      const presetSystems = preset.systems ?? [];
+      const presetEndpoints = preset.endpoints ?? [];
+      return (
+        systems.length === presetSystems.length &&
+        endpoints.length === presetEndpoints.length &&
+        presetSystems.every((s) => systems.includes(s)) &&
+        presetEndpoints.every((e) => endpoints.includes(e))
+      );
+    })?.id ?? "all";
+
+  const applyTracePreset = (presetId: (typeof TRACE_PRESETS)[number]["id"]) => {
+    const preset = TRACE_PRESETS.find((p) => p.id === presetId);
+    update({
+      systems: preset?.systems,
+      endpoints: preset?.endpoints,
+    });
+  };
+
+  const activeFilterCount =
+    selectedStatuses.length + selectedSystems.length + selectedTriggers.length;
+  const clearFilters = () => {
+    onFiltersChange({
+      systems: undefined,
+      statuses: undefined,
+      triggers: undefined,
+      endpoints: undefined,
+      search: undefined,
+    });
+    setLocalSearch("");
+  };
+
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex flex-col gap-0 border-b border-border">
-        {/* ── Row 1: Status tabs ── */}
-        <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 overflow-x-auto">
-          {STATUS_TABS.map((tab) => {
-            const active = activeStatus === tab.id;
-            const colors = STATUS_TAB_COLORS[tab.id];
-            const count =
-              stats && tab.id !== "all"
-                ? stats[
-                    tab.id as keyof Pick<
-                      AiActivityLogStats,
-                      "success" | "error" | "partial"
-                    >
-                  ]
-                : null;
-            return (
-              <Tooltip key={tab.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => handleStatusChange(tab.id)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-all duration-150 whitespace-nowrap shrink-0",
-                      active
-                        ? colors.active
-                        : "border-transparent text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
-                    )}
-                  >
-                    <span
+      <div className="flex flex-col gap-0 border-b border-border bg-background/95">
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <div className="inline-flex h-8 shrink-0 items-center rounded-md border border-border/70 bg-muted/20 p-0.5">
+            {TRACE_PRESETS.map((preset) => {
+              const active = activeTracePreset === preset.id;
+              return (
+                <Tooltip key={preset.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => applyTracePreset(preset.id)}
                       className={cn(
-                        "size-1.5 rounded-full shrink-0",
-                        active ? colors.dot : "bg-muted-foreground/30",
+                        "inline-flex h-6 shrink-0 items-center rounded px-2 text-[11px] font-medium transition-colors",
+                        active
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
                       )}
-                    />
-                    {tab.label}
-                    {count != null && count > 0 && (
-                      <span className="text-[9px] opacity-60 tabular-nums">
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{tab.title}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+                    >
+                      {preset.label}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {preset.description}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
 
-        {/* ── Row 2: Filters ── */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 flex-wrap">
-          {/* Search */}
-          <div className="relative shrink-0">
+          <div className="relative min-w-[220px] flex-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground/50" />
             <Input
               value={localSearch}
               onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Search summary / model / error…"
-              className={cn(CTRL_H, "pl-7 pr-7 w-[280px] text-[11px]")}
+              placeholder="Search query, model, provider"
+              className={cn(CTRL_H, "w-full pl-7 pr-7 text-[11px]")}
             />
             {localSearch && (
               <button
@@ -382,9 +409,6 @@ export function AiActivityToolbar({
             )}
           </div>
 
-          <ToolbarSep />
-
-          {/* Date range */}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className={BTN_BASE}>
@@ -401,24 +425,39 @@ export function AiActivityToolbar({
             </PopoverContent>
           </Popover>
 
-          <ToolbarSep />
-
-          {/* System filter */}
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className={BTN_BASE}>
-                System
-                <TriggerBadge active={selectedSystems.length > 0}>
-                  {selectedSystems.length > 0 ? selectedSystems.length : "All"}
+                Filters
+                <TriggerBadge active={activeFilterCount > 0}>
+                  {activeFilterCount > 0 ? activeFilterCount : "All"}
                 </TriggerBadge>
                 <ChevronDown className="size-3 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel className="text-[10px]">
-                Filter by System
+                Status
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              {STATUS_TABS.map((opt) => (
+                <DropdownMenuCheckboxItem
+                  key={opt.id}
+                  checked={
+                    opt.id === "all"
+                      ? selectedStatuses.length === 0
+                      : selectedStatuses.includes(opt.id)
+                  }
+                  onCheckedChange={() => toggleStatus(opt.id)}
+                  className="text-[11px]"
+                >
+                  {opt.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px]">
+                System
+              </DropdownMenuLabel>
               {SYSTEM_OPTIONS.map((opt) => (
                 <DropdownMenuCheckboxItem
                   key={opt.value}
@@ -429,38 +468,10 @@ export function AiActivityToolbar({
                   {opt.label}
                 </DropdownMenuCheckboxItem>
               ))}
-              {selectedSystems.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => update({ systems: undefined })}
-                    className="text-[11px] text-muted-foreground"
-                  >
-                    Clear systems
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Trigger filter */}
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className={BTN_BASE}>
-                Trigger
-                <TriggerBadge active={selectedTriggers.length > 0}>
-                  {selectedTriggers.length > 0
-                    ? selectedTriggers.length
-                    : "All"}
-                </TriggerBadge>
-                <ChevronDown className="size-3 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuLabel className="text-[10px]">
-                Filter by Trigger
-              </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuLabel className="text-[10px]">
+                Trigger
+              </DropdownMenuLabel>
               {TRIGGER_OPTIONS.map((opt) => (
                 <DropdownMenuCheckboxItem
                   key={opt.value}
@@ -471,23 +482,41 @@ export function AiActivityToolbar({
                   {opt.label}
                 </DropdownMenuCheckboxItem>
               ))}
-              {selectedTriggers.length > 0 && (
+              {activeFilterCount > 0 && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => update({ triggers: undefined })}
+                    onClick={() =>
+                      update({
+                        systems: undefined,
+                        statuses: undefined,
+                        triggers: undefined,
+                        endpoints: undefined,
+                      })
+                    }
                     className="text-[11px] text-muted-foreground"
                   >
-                    Clear triggers
+                    Clear filters
                   </DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {(activeFilterCount > 0 || localSearch) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(BTN_BASE, "text-muted-foreground")}
+              onClick={clearFilters}
+            >
+              <X className="size-3" />
+              Clear
+            </Button>
+          )}
         </div>
 
-        {/* ── Row 3: Summary stats strip ── */}
-        <div className="flex items-center gap-3 px-3 py-1.5 bg-muted/30 border-t border-border text-[11px] text-muted-foreground overflow-x-auto">
+        <div className="flex items-center gap-2 border-t border-border/60 bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
           {statsLoading ? (
             <span className="inline-flex items-center gap-1.5">
               <Loader2 className="size-3 animate-spin" />
@@ -501,7 +530,7 @@ export function AiActivityToolbar({
                 </span>{" "}
                 operations
               </span>
-              <span className="text-border">&middot;</span>
+              <span className="text-border">/</span>
               <span className="shrink-0">
                 <span className="text-emerald-400 font-medium tabular-nums">
                   {stats.success}
@@ -510,7 +539,7 @@ export function AiActivityToolbar({
               </span>
               {stats.error > 0 && (
                 <>
-                  <span className="text-border">&middot;</span>
+                  <span className="text-border">/</span>
                   <span className="shrink-0">
                     <span className="text-red-400 font-medium tabular-nums">
                       {stats.error}
@@ -521,7 +550,7 @@ export function AiActivityToolbar({
               )}
               {stats.partial > 0 && (
                 <>
-                  <span className="text-border">&middot;</span>
+                  <span className="text-border">/</span>
                   <span className="shrink-0">
                     <span className="text-amber-400 font-medium tabular-nums">
                       {stats.partial}
@@ -532,7 +561,7 @@ export function AiActivityToolbar({
               )}
               {stats.totalCostUsd > 0 && (
                 <>
-                  <span className="text-border">&middot;</span>
+                  <span className="text-border">/</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="shrink-0 cursor-help">
@@ -550,7 +579,7 @@ export function AiActivityToolbar({
               )}
               {stats.avgDurationMs > 0 && (
                 <>
-                  <span className="text-border">&middot;</span>
+                  <span className="text-border">/</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="shrink-0 cursor-help">
@@ -568,7 +597,7 @@ export function AiActivityToolbar({
               )}
               {stats.total > 0 && (
                 <>
-                  <span className="text-border">&middot;</span>
+                  <span className="text-border">/</span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span className="shrink-0 cursor-help">

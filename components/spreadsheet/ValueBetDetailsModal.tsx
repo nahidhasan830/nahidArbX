@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 import { Badge } from "@/components/ui/badge";
+import { MarketDisplay } from "@/components/ui/market-display";
 import { Copy, Clock, ArrowRight, TrendingUp, Settings2 } from "lucide-react";
 import {
   Popover,
@@ -124,6 +125,7 @@ export interface PlacementContext {
   homeTeam: string;
   awayTeam: string;
   marketType: string;
+  timeScope?: string;
   eventStartTime: string;
   competition?: string | null;
 }
@@ -729,9 +731,13 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
             {/* Left: Market + Outcome */}
             <div className="flex items-center gap-2 min-w-0">
               <TrendingUp className="size-4 text-cyan-500 shrink-0" />
-              <span className="text-sm text-muted-foreground truncate">
-                {marketLabel}
-              </span>
+              <MarketDisplay
+                marketLabel={marketLabel}
+                marketType={placementContext?.marketType}
+                timeScope={placementContext?.timeScope}
+                className="max-w-[260px] justify-start text-sm"
+                textClassName="text-muted-foreground"
+              />
               <ArrowRight className="size-3 shrink-0" />
               <Badge className="bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300 font-medium shrink-0">
                 {outcomeLabel}

@@ -9,6 +9,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  formatModelStatus,
+  formatPermissionLevel,
+} from "@/lib/lab/ml/display";
 import { cn } from "@/lib/utils";
 import type { PipelineData } from "./types";
 
@@ -32,14 +41,14 @@ const METRICS: MetricRow[] = [
   {
     label: "Status",
     hint: "Lifecycle row state.",
-    pick: (m) => m.status,
+    pick: (m) => formatModelStatus(m.status),
     direction: "neutral",
     numeric: () => null,
   },
   {
     label: "Permission",
     hint: "Runtime permission the deployment gate granted.",
-    pick: (m) => m.permissionLevel ?? "—",
+    pick: (m) => formatPermissionLevel(m.permissionLevel),
     direction: "neutral",
     numeric: () => null,
   },
@@ -49,6 +58,20 @@ const METRICS: MetricRow[] = [
     pick: (m) => m.trainingSamples.toLocaleString(),
     direction: "higher",
     numeric: (m) => m.trainingSamples,
+  },
+  {
+    label: "Vertex endpoint",
+    hint: "Vertex AI Prediction endpoint used by the engine for this model.",
+    pick: (m) => formatVertexResource(m.vertexEndpointName, "endpoints"),
+    direction: "neutral",
+    numeric: () => null,
+  },
+  {
+    label: "Vertex model",
+    hint: "Vertex AI Model Registry resource created by the trainer.",
+    pick: (m) => formatVertexResource(m.vertexModelName, "models"),
+    direction: "neutral",
+    numeric: () => null,
   },
   {
     label: "AUC",
@@ -115,8 +138,8 @@ export function ModelTimeMachine({ data }: Props) {
 
   if (history.length === 0) {
     return (
-      <section className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-        <header className="border-b border-border/40 px-5 py-4">
+      <section className="rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm">
+        <header className="border-b border-border/40 px-4 py-3">
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
             Model Time Machine
           </h2>
@@ -124,7 +147,7 @@ export function ModelTimeMachine({ data }: Props) {
             Compare any two trained model versions side by side.
           </p>
         </header>
-        <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
+        <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
           <div className="flex size-10 items-center justify-center rounded-full bg-muted/40">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -157,8 +180,8 @@ export function ModelTimeMachine({ data }: Props) {
   const right = history.find((m) => String(m.version) === b) ?? null;
 
   return (
-    <section className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border/40 px-5 py-4">
+    <section className="rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border/40 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold tracking-tight text-foreground">
             Model Time Machine
@@ -184,15 +207,15 @@ export function ModelTimeMachine({ data }: Props) {
         </div>
       </header>
 
-      <div className="grid grid-cols-[160px_1fr_1fr] divide-x divide-border/40">
+      <div className="grid grid-cols-[150px_1fr_1fr] divide-x divide-border/40">
         <div className="contents">
-          <div className="border-b border-border/40 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="border-b border-border/40 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
             Metric
           </div>
-          <div className="border-b border-border/40 px-4 py-2 text-sm font-medium text-foreground">
+          <div className="border-b border-border/40 px-3 py-2 text-sm font-medium text-foreground">
             {left ? `v${left.version}` : "—"}
           </div>
-          <div className="border-b border-border/40 px-4 py-2 text-sm font-medium text-foreground">
+          <div className="border-b border-border/40 px-3 py-2 text-sm font-medium text-foreground">
             {right ? `v${right.version}` : "—"}
           </div>
         </div>
@@ -223,16 +246,17 @@ export function ModelTimeMachine({ data }: Props) {
 
           return (
             <div className="contents" key={metric.label}>
-              <div
-                className="border-b border-border/40 px-4 py-2 text-[12px]"
-                title={metric.hint}
-              >
-                <span className="font-medium text-foreground">
-                  {metric.label}
-                </span>
-                <span className="ml-1 text-muted-foreground">
-                  · {metric.hint.split(".")[0]}
-                </span>
+              <div className="border-b border-border/40 px-3 py-1.5 text-[12px]">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help font-medium text-foreground underline decoration-dotted underline-offset-2">
+                      {metric.label}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[260px]">
+                    {metric.hint}
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <MetricCell value={leftValue} better={leftBetter} />
               <MetricCell value={rightValue} better={rightBetter} />
@@ -268,7 +292,9 @@ function VersionPicker({
           {versions.map((v) => (
             <SelectItem key={v.value} value={v.value} className="text-[12px]">
               {v.label}
-              <span className="ml-2 text-muted-foreground">{v.status}</span>
+              <span className="ml-2 text-muted-foreground">
+                {formatModelStatus(v.status)}
+              </span>
             </SelectItem>
           ))}
         </SelectContent>
@@ -281,13 +307,24 @@ function MetricCell({ value, better }: { value: string; better: boolean }) {
   return (
     <div
       className={cn(
-        "border-b border-border/40 px-4 py-2 font-mono text-[12px] tabular-nums text-foreground",
+        "break-all border-b border-border/40 px-3 py-1.5 font-mono text-[12px] tabular-nums text-foreground",
         better && "text-emerald-300",
       )}
     >
       {value}
     </div>
   );
+}
+
+function formatVertexResource(
+  value: string | null | undefined,
+  resource: "endpoints" | "models",
+): string {
+  if (!value) return "—";
+  const marker = `/${resource}/`;
+  const index = value.lastIndexOf(marker);
+  if (index === -1) return value;
+  return `${resource}/${value.slice(index + marker.length)}`;
 }
 
 function RejectionReasons({
@@ -307,7 +344,7 @@ function RejectionReasons({
   if (reasons.length === 0) return null;
 
   return (
-    <div className="border-t border-border/40 px-5 py-4 space-y-3">
+    <div className="border-t border-border/40 px-4 py-3 space-y-3">
       {reasons.map((r) => (
         <div key={r.label}>
           <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-rose-300">

@@ -4,8 +4,7 @@
  * outcomes back to the DB in one bulk update.
  *
  * Bets the waterfall can't resolve (outcome still 'pending') are left
- * untouched for the next tick — on the assumption that a later tier
- * (slower source, batched AI, human intervention) will resolve them.
+ * untouched for the next tick or manual review.
  */
 
 import { listBets, recordSettleAttempts } from "../db/repositories/bets";
@@ -252,9 +251,7 @@ export async function runAutoSettle(
       `still-pending ${result.stillPending}. ` +
       `Tier hits: T0=${batchResult.telemetry.tier0_hits} ` +
       `T1=${batchResult.telemetry.tier1_hits} ` +
-      `T2=${batchResult.telemetry.tier2_hits} ` +
-      `T3=${batchResult.telemetry.tier3_hits} ` +
-      `T4=${batchResult.telemetry.tier4_hits}. ` +
+      `T2=${batchResult.telemetry.tier2_hits}. ` +
       `Duration ${batchResult.telemetry.durationMs}ms.`,
   );
   await persistRun(

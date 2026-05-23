@@ -1,4 +1,5 @@
 import type { PipelineData } from "@/components/lab/ml/types";
+import { formatPermissionLevel } from "./display";
 
 /**
  * Activity feed events derived from PipelineData. We intentionally avoid
@@ -37,7 +38,9 @@ export function synthesizeActivity(data: PipelineData): ActivityEvent[] {
         at: m.deployedAt,
         kind: "model_deployed",
         title: `v${m.version} deployed`,
-        detail: m.permissionLevel ? `permission: ${m.permissionLevel}` : undefined,
+        detail: m.permissionLevel
+          ? `Permission: ${formatPermissionLevel(m.permissionLevel)}`
+          : undefined,
       });
     }
     if (m.status === "rejected" && m.createdAt) {

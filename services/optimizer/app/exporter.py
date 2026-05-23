@@ -397,26 +397,21 @@ def export_and_upload(
         onnx_size_kb = len(onnx_bytes) / 1024
         log.info("ONNX model v%d: %.1f KB", version, onnx_size_kb)
 
-        # Vertex AI registration (primary deployment path)
+        # Vertex AI registration (primary deployment path). Once a candidate
+        # passes the deployment gate, it must be deployed to Vertex before we
+        # write status='deployed'; otherwise the runtime scorer has no endpoint.
         vertex_model_name = None
         vertex_endpoint_name = None
-        try:
-            from .vertex_registry import export_and_register_vertex
+        from .vertex_registry import export_and_register_vertex
 
-            vertex_model_name, vertex_endpoint_name = export_and_register_vertex(
-                model, metrics, version, onnx_path
-            )
-            log.info(
-                "Vertex AI registration complete: model=%s, endpoint=%s",
-                vertex_model_name,
-                vertex_endpoint_name,
-            )
-        except Exception as e:
-            log.warning(
-                "Vertex AI registration failed (non-fatal): %s. "
-                "Model will be stored in DB only.",
-                e,
-            )
+        vertex_model_name, vertex_endpoint_name = export_and_register_vertex(
+            model, metrics, version, onnx_path
+        )
+        log.info(
+            "Vertex AI registration complete: model=%s, endpoint=%s",
+            vertex_model_name,
+            vertex_endpoint_name,
+        )
 
         # Optional GCS upload (best-effort, not required)
         gcs_uri = upload_to_gcs(onnx_path, version)

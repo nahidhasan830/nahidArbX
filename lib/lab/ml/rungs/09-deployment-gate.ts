@@ -1,4 +1,5 @@
 import type { RungDefinition } from "./types";
+import { formatPermissionLevel } from "../display";
 
 export const rung09DeploymentGate: RungDefinition = {
   id: "deployment_gate",
@@ -20,7 +21,7 @@ export const rung09DeploymentGate: RungDefinition = {
       const level = deployed.permissionLevel ?? "observe";
       return {
         status: "pass",
-        primary: `v${deployed.version} @ ${level}`,
+        primary: `v${deployed.version} @ ${formatPermissionLevel(level)}`,
         secondary: `deployed on ${deployed.trainingSamples.toLocaleString()} samples.`,
       };
     }

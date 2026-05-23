@@ -15,9 +15,9 @@ export const rung10InferenceReachable: RungDefinition = {
         primary: "endpoint missing",
         secondary: inf.error
           ? `engine reports: ${inf.error}.`
-          : "no `VERTEX_PREDICTION_ENDPOINT` is configured.",
+          : "no Vertex Prediction endpoint is configured or stored on the deployed model.",
         action:
-          "Set `VERTEX_PREDICTION_ENDPOINT` in `.env`, restart the engine, and re-check.",
+          "Set `VERTEX_PREDICTION_ENDPOINT` in `.env` or deploy a model with `ml_models.vertex_endpoint_name`, restart the engine, and re-check.",
       };
     }
 
@@ -55,6 +55,10 @@ export const rung10InferenceReachable: RungDefinition = {
     {
       label: "modelVersion",
       value: d.inference.modelVersion == null ? "null" : `v${d.inference.modelVersion}`,
+    },
+    {
+      label: "vertexEndpoint",
+      value: d.inference.vertexEndpoint ?? "null",
     },
     {
       label: "totalScoringAttempts",

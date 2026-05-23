@@ -30,7 +30,6 @@ import {
   lookupCompetitionSlug,
   normalizeCompetition,
 } from "../aliases";
-import { verifySettlementMatch, AI_MAYBE_FLOOR } from "./ai-match";
 import { addDays, format } from "date-fns";
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -573,7 +572,7 @@ export async function fetchApiFootballScores(
       const homeSim = teamSimilarity(ours.homeTeam, theirs.teams.home.name);
       const awaySim = teamSimilarity(ours.awayTeam, theirs.teams.away.name);
       const combined = (homeSim + awaySim) / 2;
-      if (combined < AI_MAYBE_FLOOR) continue; // Too different even for AI
+      if (combined < MATCH_SCORE_THRESHOLD) continue;
 
       if (!best || combined > best.score) {
         best = { fixture: theirs, score: combined };
@@ -581,24 +580,6 @@ export async function fetchApiFootballScores(
     }
 
     if (!best) continue;
-
-    // If the best match is below the deterministic threshold, ask AI
-    if (best.score < MATCH_SCORE_THRESHOLD) {
-      const aiResult = await verifySettlementMatch({
-        ourHomeTeam: ours.homeTeam,
-        ourAwayTeam: ours.awayTeam,
-        ourCompetition: ours.competition,
-        ourStartTime: ours.startTime,
-        theirHomeTeam: best.fixture.teams.home.name,
-        theirAwayTeam: best.fixture.teams.away.name,
-        theirStartTime: best.fixture.fixture.date,
-        fuzzySimilarity: best.score,
-        sourceProvider: "api-football",
-      });
-
-      if (!aiResult?.confirmed) continue;
-      best.score = Math.max(best.score, 0.85);
-    }
 
     const status = mapStatus(best.fixture.fixture.status.short);
     if (!status) continue;

@@ -19,12 +19,15 @@ import {
 } from "@/components/ui/tooltip";
 import { DataTable } from "@/components/ui/data-table";
 import {
+  MarketDisplay,
+  inferMarketScopeFromBetId,
+} from "@/components/ui/market-display";
+import {
   getProviderShortName,
   getProviderTextInline,
 } from "@/lib/providers/registry";
 import { cn } from "@/lib/utils";
 import { fmtDateTime, fmtSeen, fmtMoney } from "@/lib/formatting/helpers";
-import { formatMarketType } from "@/lib/formatting/labels";
 import type { AutoPlacerLogRow } from "@/lib/db/schema";
 
 const PERSISTENCE_KEY = "auto-placer-log-table:layout:v1";
@@ -275,7 +278,13 @@ export function AutoPlacerLogTable({
         cell: ({ row }) => {
           const m = row.original.marketType;
           if (!m) return <span className="text-muted-foreground/40">—</span>;
-          return <span className="text-[11px]">{formatMarketType(m)}</span>;
+          return (
+            <MarketDisplay
+              marketType={m}
+              timeScope={inferMarketScopeFromBetId(row.original.betId)}
+              className="max-w-full text-[11px]"
+            />
+          );
         },
         meta: {
           hint: "Market type.",

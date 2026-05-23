@@ -17,6 +17,7 @@ type PersistedFilters = {
   systems?: string[];
   statuses?: string[];
   triggers?: string[];
+  endpoints?: string[];
   search?: string;
 };
 

@@ -4,6 +4,7 @@
  */
 
 import { getProviderShortName } from "@/lib/providers/registry";
+import { formatMarketType } from "@/lib/formatting/labels";
 
 const LABELS: Record<string, string> = {
   min_ev_pct: "Min EV %",
@@ -30,6 +31,8 @@ function renderValue(key: string, value: unknown): string {
   if (Array.isArray(value)) {
     if (key === "soft_providers")
       return value.map((p) => getProviderShortName(String(p))).join(", ");
+    if (key === "market_types")
+      return value.map((m) => formatMarketType(String(m))).join(", ");
     return value.join(", ");
   }
   return String(value);

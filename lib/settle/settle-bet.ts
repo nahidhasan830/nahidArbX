@@ -5,8 +5,8 @@
  * The waterfall only needs to answer "what was the score?" — this function
  * handles "did this bet win?" via pure logic.
  *
- * Returns `null` for markets we don't yet settle deterministically; callers
- * should fall through to the AI tier for those rows rather than guessing.
+ * Returns pending for markets we don't yet settle deterministically; callers
+ * leave those rows for manual review rather than guessing.
  */
 
 import type { ValueBetRow } from "@/lib/bets-history/types";
@@ -635,6 +635,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
 
   // Unsupported (yet): odd/even, clean-sheet, win-to-nil, to-score.
   return unsupported(
-    `Market ${row.marketType} not yet settled deterministically — falling through to AI tier.`,
+    `Market ${row.marketType} not yet settled deterministically — manual review required.`,
   );
 }

@@ -122,10 +122,10 @@ export class TavilySearchProvider {
       body: JSON.stringify({
         api_key: this._apiKey,
         query,
-        search_depth: "basic",
+        search_depth: "advanced",
         max_results: maxResults,
         include_answer: false,
-        include_raw_content: false,
+        include_raw_content: true,
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -135,7 +135,12 @@ export class TavilySearchProvider {
     }
 
     const data = (await res.json()) as {
-      results?: Array<{ title?: string; url?: string; content?: string }>;
+      results?: Array<{
+        title?: string;
+        url?: string;
+        content?: string;
+        raw_content?: string;
+      }>;
     };
 
     this._lastUsedAt = new Date();
@@ -150,6 +155,7 @@ export class TavilySearchProvider {
         title: item.title || "",
         url: item.url || "",
         snippet: item.content || "",
+        content: item.raw_content || item.content || "",
         source: "tavily",
       });
     }

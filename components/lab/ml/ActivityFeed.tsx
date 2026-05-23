@@ -30,8 +30,8 @@ export function ActivityFeed({ data }: Props) {
   const events = synthesizeActivity(data);
 
   return (
-    <aside className="rounded-xl border border-border/60 bg-card/60 backdrop-blur-sm">
-      <header className="border-b border-border/40 px-5 py-4">
+    <aside className="rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm">
+      <header className="border-b border-border/40 px-4 py-3">
         <h2 className="text-sm font-semibold tracking-tight text-foreground">
           Activity
         </h2>
@@ -40,7 +40,7 @@ export function ActivityFeed({ data }: Props) {
         </p>
       </header>
       {events.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
+        <div className="flex flex-col items-center gap-3 px-4 py-8 text-center">
           <div className="flex size-10 items-center justify-center rounded-full bg-muted/40">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -85,7 +85,7 @@ function ActivityRow({ event }: { event: ActivityEvent }) {
   })();
 
   return (
-    <li className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-3 px-5 py-3">
+    <li className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-3 px-4 py-2.5">
       <span
         className={cn("mt-[6px] size-1.5 rounded-full", KIND_DOT[event.kind])}
         aria-hidden

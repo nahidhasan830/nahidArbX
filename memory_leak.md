@@ -171,6 +171,62 @@ This document consolidates all identified high-impact CPU and memory issues.
 - **Issue:** Cached decisions are loaded into a process-global `Map`, persisted to disk, and never evicted by age or size.
 - **Impact:** Long-running operator review history can permanently grow resident memory and on-disk cache size.
 
+### 27) Pinnacle score WebSocket subscriptions are added from a read path without stale unsubscribe
+
+- **Files:** `lib/shared/engine-value-bets.ts` (lines 294-303), `lib/scores/websocket.ts` (lines 34-43, 363-421)
+- **Issue:** Building the value-bets response calls `subscribeToScores(liveEventIds)`, which appends to the singleton `subscribed` set. There is no corresponding diff/unsubscribe in this path when events leave the 3h live window.
+- **Impact:** The score WebSocket can keep subscriptions, subscription IDs, socket listeners, and score-store writes alive for old events until an explicit disconnect or process restart.
+- **Detail:** `unsubscribeFromScore()` exists, but no call path was found that reconciles the subscribed set against the current live roster.
+
+### 28) Multi-source score provider index grows with every matched provider event id
+
+- **Files:** `lib/scores/multi-source-store.ts` (lines 28-42, 122-170, 444-464), `lib/background/fetcher.ts` (lines 786-834)
+- **Issue:** `providerIdIndex` is populated for every matched event on each fixture sync. Cleanup only removes index entries whose normalized event has an old `multiScoreStore` entry removed by age; events that are registered but never receive a source score never enter `multiScoreStore`, so their provider-index entries are not pruned by `cleanupOldMultiScores()`.
+- **Impact:** Provider event id mappings can grow for every rotated/expired fixture, especially for pre-match events that never go live or never produce score messages.
+- **Detail:** `persistedTerminalIds` is coupled to `multiScoreStore` cleanup too, so terminal-event retention depends on score entries aging out successfully.
+
+### 29) Pinnacle odds STOMP resubscribe can duplicate underlying broker subscriptions
+
+- **Files:** `lib/adapters/pinnacle/ws-client.ts` (lines 17-35, 76-93, 102-132, 146-148), `lib/services/pinnacle-sync-service.ts` (lines 103-118)
+- **Issue:** `activeSubscriptions` is bounded by cleanup, but `resubscribeAll()` calls `doSubscribe(ctx)` on reconnect without first unsubscribing or clearing `ctx.stompSub`. If the STOMP client reconnects/re-activates more than once, old subscription objects can be overwritten and become impossible to unsubscribe by handle.
+- **Impact:** Duplicate broker subscriptions can retain callbacks and process the same odds updates multiple times after reconnect churn.
+- **Detail:** `deactivate()` also only deactivates the client and does not clear `activeSubscriptions`, so provider-disable paths rely on later roster cleanup rather than immediate local state release.
+
+### 30) Sportsbook pending-confirmation maps have no hard cap during provider/feed outages
+
+- **Files:** `lib/betting/ninewickets/placement-confirmation.ts` (lines 126-202), `lib/betting/velki/placement-confirmation.ts` (lines 65-128)
+- **Issue:** Both trackers keep provider-specific global pending maps and remove entries only from the poll tick. Under feed outages or stuck poller failures, registrations can continue to accumulate without a max pending count.
+- **Impact:** Auto-place bursts during a provider incident can retain full bet context, dashboard URLs, and notification payload data until ticks recover and time out.
+- **Detail:** The normal deadline path is bounded, but there is no backpressure when `pending.size` is already high.
+
+### 31) Auth rate limiter has no hard cardinality cap
+
+- **File:** `lib/auth/rate-limit/index.ts` (lines 30-210)
+- **Issue:** `rateLimitStore` is an in-process singleton map keyed by arbitrary identifier. Cleanup runs every 10 minutes and removes old unblocked entries, but there is no maximum key count or early cleanup on insert.
+- **Impact:** A burst of unique identifiers can retain many entries for up to an hour and can exhaust memory before the periodic cleanup catches up.
+- **Detail:** This is low risk for trusted localhost usage, higher risk if auth endpoints become internet-facing.
+
+### 32) Client-side ETag cache retains full value-bets responses per URL variant
+
+- **File:** `components/hooks/useInfiniteEvents.ts` (lines 95-184)
+- **Issue:** Module-level `etagCache` stores `{ etag, data }` keyed by full `/api/value-bets?...` URL and has no max size, TTL, or cleanup on filter/search churn.
+- **Impact:** Each distinct search/filter/page URL can retain a full `DashboardApiResponse` payload in browser memory even after React Query's own `gcTime` would release query data.
+- **Detail:** This duplicates TanStack Query caching rather than integrating ETags into the query cache lifecycle.
+
+### 33) Telegram destructive-confirmation store only garbage-collects on interaction
+
+- **File:** `lib/telegram/confirm.ts` (lines 14-41)
+- **Issue:** `pending` has a 2-minute TTL, but expired entries are removed only when `createConfirm()` or `takeConfirm()` calls `gc()`. There is no background cleanup and no max pending count.
+- **Impact:** If users create many confirmation prompts and then stop interacting, closures captured in `run()` remain retained until the next confirmation/callback.
+- **Detail:** Individual entries are short-lived in intent, but `run()` closures may capture command context and provider/client state.
+
+### 34) Unmapped sportsbook market observability can spike between log intervals
+
+- **File:** `lib/atoms/mappings/ninewickets-sportsbook.ts` (lines 73-94)
+- **Issue:** `unmappedCounts` accumulates distinct raw market names until the periodic top-10 debug log clears it; there is no max key count between log windows.
+- **Impact:** Unexpected provider payloads with many unique market names can create a short-lived but avoidable memory spike.
+- **Detail:** This is not a long-run leak because the map clears after logging, but it is still a burst-retention risk in malformed-feed scenarios.
+
 ---
 
 ## D) Phased priority plan
@@ -210,28 +266,42 @@ This document consolidates all identified high-impact CPU and memory issues.
 9. **SofaScore day-events cache** (`lib/settle/sources/sofascore.ts`)
    - Large payload retention risk when many historical settlement dates are touched.
 
-10. **Circuit-breaker registry + settlement alias cache + match cache** (`lib/shared/circuit-breaker.ts`, `lib/settle/aliases.ts`, `lib/matching/match-cache.ts`)
+10. **Pinnacle score subscriptions + multi-source score provider index** (`lib/scores/websocket.ts`, `lib/shared/engine-value-bets.ts`, `lib/scores/multi-source-store.ts`)
+    - Score tracking can retain event ids and subscriptions beyond event lifecycle.
+    - Add active-roster diffing for subscriptions and prune provider-index entries by current fixture ids, not only by scored-entry age.
+
+11. **Circuit-breaker registry + settlement alias cache + match cache** (`lib/shared/circuit-breaker.ts`, `lib/settle/aliases.ts`, `lib/matching/match-cache.ts`)
     - Each item is smaller individually, but together they create process-lifetime retention drift.
 
 ### Phase 3 — Secondary retention and bookkeeping hardening
 
-11. **Event-bus listener bookkeeping** (`lib/events/event-bus.ts`)
+12. **Pinnacle odds STOMP reconnect lifecycle** (`lib/adapters/pinnacle/ws-client.ts`, `lib/services/pinnacle-sync-service.ts`)
+    - Prevent duplicate subscription handles on reconnect/deactivate.
+
+13. **Event-bus listener bookkeeping** (`lib/events/event-bus.ts`)
     - Important correctness/lifecycle hardening, especially if subscriber cleanup is imperfect.
 
-12. **Dashboard delta snapshot duplication** (`lib/cache/delta.ts`)
+14. **Dashboard delta snapshot duplication** (`lib/cache/delta.ts`)
     - More of a resident-memory multiplier than a leak, but worth tightening once bigger stores are capped.
 
-13. **Closing capture workload side-effects** (`lib/background/closing-capture.ts`)
+15. **Auth and Telegram pending maps** (`lib/auth/rate-limit/index.ts`, `lib/telegram/confirm.ts`, `lib/betting/*/placement-confirmation.ts`)
+    - Add max cardinality/backpressure and periodic cleanup so incident bursts cannot retain unlimited pending state.
+
+16. **Client-side value-bets ETag cache** (`components/hooks/useInfiniteEvents.ts`)
+    - Add small LRU/TTL or rely on TanStack Query data instead of a second unbounded response cache.
+
+17. **Closing capture workload side-effects** (`lib/background/closing-capture.ts`)
     - Primarily CPU/DB-heavy, but it can indirectly increase allocation and transient memory pressure under load.
 
 ### Phase 4 — Allocation churn and poll-amplification follow-up
 
-14. **Dashboard polling + heavy stats recompute** (`app/dashboard/page.tsx`, `app/api/accounts/stats/route.ts`)
-15. **BetConstruct score poller fanout** (`lib/scores/bc-poller.ts`)
-16. **Matcher reconciliation / normalization hot paths** (`lib/matching/matcher.ts`, `lib/matching/locate.ts`, `lib/matching/normalize.ts`)
-17. **SSE serialization churn** (`lib/shared/engine-http.ts`)
-18. **Connection wait polling** (`lib/adapters/betconstruct/client.ts`)
-19. **UI JSON serialization equality checks** (`components/spreadsheet/ValueBetSpreadsheet.tsx`)
+18. **Dashboard polling + heavy stats recompute** (`app/dashboard/page.tsx`, `app/api/accounts/stats/route.ts`)
+19. **BetConstruct score poller fanout** (`lib/scores/bc-poller.ts`)
+20. **Matcher reconciliation / normalization hot paths** (`lib/matching/matcher.ts`, `lib/matching/locate.ts`, `lib/matching/normalize.ts`)
+21. **SSE serialization churn** (`lib/shared/engine-http.ts`)
+22. **Connection wait polling** (`lib/adapters/betconstruct/client.ts`)
+23. **UI JSON serialization equality checks** (`components/spreadsheet/ValueBetSpreadsheet.tsx`)
+24. **Unmapped-market debug counter burst retention** (`lib/atoms/mappings/ninewickets-sportsbook.ts`)
 
 These are worth fixing, but they should come after the clear heap-retention issues above because they are mostly CPU/allocation amplifiers rather than the primary sources of memory growth.
 
@@ -249,9 +319,15 @@ These are worth fixing, but they should come after the clear heap-retention issu
   - `market-limits-store.ts`
   - `ai-decision-cache.ts`
   - `sofascore.ts`
+  - `scores/websocket.ts`
+  - `scores/multi-source-store.ts`
   - `match-cache.ts`
   - `aliases.ts`
   - `circuit-breaker.ts`
+  - `auth/rate-limit/index.ts`
+  - `telegram/confirm.ts`
+  - `betting/*/placement-confirmation.ts`
+  - `components/hooks/useInfiniteEvents.ts`
 
 ### Pass 2 — Collapse or centralize runaway polling/loop lifecycles
 

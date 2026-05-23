@@ -304,6 +304,8 @@ function detectMarketType(
   // Total Goals (Over/Under) - use startsWith for exact pattern matching
   if (
     (lower.startsWith("total goals over / under ") ||
+      lower.startsWith("over / under ") ||
+      lower.startsWith("half-time total goals over / under ") ||
       lower.startsWith("half time total goals over / under ") ||
       lower.startsWith("second half total goals over / under ")) &&
     line !== null
@@ -805,3 +807,25 @@ export const SPORTSBOOK_MARKET_TYPES = {
 
 export type SportsbookMarketType =
   (typeof SPORTSBOOK_MARKET_TYPES)[keyof typeof SPORTSBOOK_MARKET_TYPES];
+
+/**
+ * Backward-compatible wrapper used by older tests/scripts.
+ */
+export function mapNinewicketsSportsbookToAtom(
+  marketName: string,
+  selectionName: string,
+  homeTeam: string,
+  awayTeam: string,
+  handicap?: number,
+  resolvedSelections?: Record<string, string>,
+): string | null {
+  return mapSportsbookToAtom(
+    0,
+    selectionName,
+    marketName,
+    homeTeam,
+    awayTeam,
+    handicap,
+    resolvedSelections,
+  );
+}

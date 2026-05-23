@@ -44,6 +44,7 @@ export interface PipelineData {
   inference: {
     modelLoaded: boolean;
     modelVersion: number | null;
+    vertexEndpoint: string | null;
     totalScoringAttempts: number;
     totalScored: number;
     avgInferenceMs: number;
@@ -163,6 +164,12 @@ export interface PipelineData {
     version: number;
     status: string;
     trainingSamples: number;
+    featureCount: number;
+    featureVersion: number;
+    featureNamesHash: string | null;
+    modelArtifactPath: string | null;
+    vertexModelName: string | null;
+    vertexEndpointName: string | null;
     oosAucRoc: number | null;
     deflatedSharpe: number | null;
     pbo: number | null;

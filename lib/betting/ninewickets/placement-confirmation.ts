@@ -95,7 +95,6 @@ export interface PendingConfirmation {
   // Telegram context
   timeScope: string | null;
   familyLine: string | null;
-  gradeUrl?: string;
   dashboardUrl?: string;
 
   /** Ticket id returned synchronously, if any. Used as a match short-circuit. */
@@ -518,7 +517,6 @@ async function finaliseConfirmed(
         attempt.balanceAtSubmit != null
           ? attempt.balanceAtSubmit - authoritativeStake
           : undefined,
-      gradeUrl: attempt.gradeUrl,
       dashboardUrl: attempt.dashboardUrl,
     });
   } catch (err) {

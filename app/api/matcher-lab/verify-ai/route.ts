@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
         reasoning: verdict.reasoning,
         sources: verdict.sources,
         searchQueriesUsed: verdict.searchQueriesUsed,
+        diagnostics: verdict.diagnostics,
       },
     });
   } catch (err) {

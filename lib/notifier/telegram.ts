@@ -305,7 +305,7 @@ function formatPlaced(e: BetPlacedEvent): FormattedMessage {
 
   return {
     text: lines.join("\n"),
-    buttons: buildButtons(e.dashboardUrl, e.gradeUrl),
+    buttons: buildButtons(e.dashboardUrl),
   };
 }
 
@@ -378,7 +378,7 @@ function formatSettled(e: BetSettledEvent): FormattedMessage {
 
   return {
     text: lines.join("\n"),
-    buttons: buildButtons(e.dashboardUrl, e.gradeUrl),
+    buttons: buildButtons(e.dashboardUrl),
   };
 }
 
@@ -758,13 +758,9 @@ function formatUnifiedBoot(e: UnifiedBootEvent): FormattedMessage {
 // Helpers
 // --------------------------------------------------------------------
 
-function buildButtons(
-  dashboardUrl?: string,
-  gradeUrl?: string,
-): InlineKey[] | undefined {
+function buildButtons(dashboardUrl?: string): InlineKey[] | undefined {
   const btns: InlineKey[] = [];
   if (dashboardUrl) btns.push({ text: "📊 Dashboard", url: dashboardUrl });
-  if (gradeUrl) btns.push({ text: "🧠 Google AI", url: gradeUrl });
   return btns.length > 0 ? btns : undefined;
 }
 

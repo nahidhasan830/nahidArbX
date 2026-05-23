@@ -12,20 +12,19 @@ import type {
   EventInfo,
   MatchVerdict,
   BatchMatchVerdict,
-  SettlementVerdict,
   GroundedAnswer,
   SearchResult,
   SourceCitation,
   PairVerdict,
+  MatchDecision,
+  AiParseDiagnostics,
 } from "./search/types";
 import {
   ENTITY_MATCH_SYSTEM,
   ENTITY_MATCH_BATCH_SYSTEM,
-  SETTLEMENT_SYSTEM,
   buildGenericSystem,
   entityMatchPrompt,
   entityMatchBatchPrompt,
-  settlementPrompt,
   genericQueryPrompt,
 } from "./prompts";
 import { getSearchRouter, type SearchRouter } from "./search/router";
@@ -33,6 +32,12 @@ import { logAiActivity } from "./activity-logger";
 import { bestSim } from "../matching/string-sim";
 import { normalize, normalizeCompetition } from "../matching/normalize";
 import { format, isValid, parseISO } from "date-fns";
+
+// DeepSeek v4 currently supports up to 384K output tokens. Keep the app from
+// imposing small local caps; prompt shape + JSON parsing define the response.
+const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
+const ENTITY_MATCH_EVIDENCE_ITEMS = 8;
+const ENTITY_MATCH_EVIDENCE_CHARS = 420;
 
 function getDeepSeekClient(): OpenAI {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -157,17 +162,53 @@ export function buildBatchMatchQueries(
   return queries;
 }
 
-export function buildSettlementQueries(event: EventInfo): string[] {
-  const { date } = getGroundingDates(event.startTime);
+function compactEventInfo(event: EventInfo) {
+  return {
+    homeTeam: event.homeTeam,
+    awayTeam: event.awayTeam,
+    competition: event.competition,
+    startTime: event.startTime,
+    provider: event.provider,
+  };
+}
 
-  return [
-    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${date} final score result`,
-    `${event.homeTeam} vs ${event.awayTeam} ${event.competition} ${date} full time score football`,
-    `${event.homeTeam} ${event.awayTeam} ${date} score flashscore livescore sofascore`,
-    `${event.homeTeam} ${event.awayTeam} ${date} result ESPN BBC Sport`,
-    `${event.homeTeam} ${event.awayTeam} resultado ${date} futebol football`,
-    `"${event.homeTeam}" "${event.awayTeam}" "${date}" "FT" score`,
-  ];
+function searchResultText(r: SearchResult): string {
+  return r.content || r.snippet || "";
+}
+
+function fullSearchResults(results: SearchResult[]) {
+  return uniqueSearchResults(results).map((r) => ({
+    title: r.title,
+    url: r.url,
+    snippet: r.snippet,
+    content: searchResultText(r),
+    source: r.source,
+    score: r.score ?? null,
+  }));
+}
+
+function compactChatResponse(resp: unknown) {
+  const choice = (resp as {
+    choices?: Array<{
+      finish_reason?: string;
+      message?: { content?: string | null };
+    }>;
+  })?.choices?.[0];
+  const content = choice?.message?.content ?? "";
+  const r = resp as {
+    id?: string;
+    model?: string;
+    usage?: unknown;
+  };
+  return {
+    id: r.id,
+    model: r.model,
+    finishReason: choice?.finish_reason,
+    truncated: choice?.finish_reason === "length",
+    content,
+    contentChars: content.length,
+    usage: r.usage ?? null,
+  };
 }
 
 class GroundingEngine {
@@ -193,7 +234,11 @@ class GroundingEngine {
       queriesUsed.push(q);
     }
 
-    const evidenceText = formatEvidence(allEvidence);
+    const evidenceText = formatEvidence(
+      allEvidence,
+      ENTITY_MATCH_EVIDENCE_ITEMS,
+      ENTITY_MATCH_EVIDENCE_CHARS,
+    );
     let prompt = entityMatchPrompt(
       {
         homeTeam: eventA.homeTeam,
@@ -224,26 +269,44 @@ class GroundingEngine {
         provider: "deepseek-flash",
         endpoint: "entity-match",
         model,
+        query: `${eventA.homeTeam} vs ${eventA.awayTeam} ↔ ${eventB.homeTeam} vs ${eventB.awayTeam}`,
         itemCount: 1,
-        response: { promptLength: prompt.length },
+        request: {
+          systemPrompt: ENTITY_MATCH_SYSTEM,
+          userPrompt: prompt,
+          eventA: compactEventInfo(eventA),
+          eventB: compactEventInfo(eventB),
+          searchQueriesUsed: queriesUsed,
+          evidence: fullSearchResults(allEvidence),
+          evidenceText,
+        },
+        response: compactChatResponse,
+        metadata: {
+          promptLength: prompt.length,
+          searchQueryCount: queriesUsed.length,
+          evidenceCount: allEvidence.length,
+          evidenceTextLength: evidenceText.length,
+        },
       },
       async () => {
-        const r = await llm.chat.completions.create({
+        const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
           model,
           messages: [
             { role: "system", content: ENTITY_MATCH_SYSTEM },
             { role: "user", content: prompt },
           ],
           temperature: 0,
-          max_tokens: 256,
+          max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
           response_format: { type: "json_object" },
-        });
+        };
+        const r = await llm.chat.completions.create(params);
         raw = r.choices[0]?.message?.content || "{}";
         return r;
       },
     );
 
     raw = resp.choices[0]?.message?.content || "{}";
+    const finishReason = resp.choices[0]?.finish_reason;
     return this._parseMatchVerdict(
       raw,
       model,
@@ -251,6 +314,7 @@ class GroundingEngine {
       queriesUsed,
       eventA,
       eventB,
+      finishReason,
     );
   }
 
@@ -291,7 +355,11 @@ class GroundingEngine {
       queriesUsed.push(q);
     }
 
-    const evidenceText = formatEvidence(allEvidence, 15);
+    const evidenceText = formatEvidence(
+      allEvidence,
+      ENTITY_MATCH_EVIDENCE_ITEMS,
+      ENTITY_MATCH_EVIDENCE_CHARS,
+    );
     let prompt = entityMatchBatchPrompt(indexedPairs);
     if (evidenceText) {
       prompt += `\n\nWEB SEARCH EVIDENCE:\n${evidenceText}`;
@@ -299,7 +367,6 @@ class GroundingEngine {
 
     const llm = getDeepSeekClient();
     const model = getDeepSeekModel();
-    const maxTokens = Math.min(256 * pairs.length, 4096);
 
     let rawBatch = "";
     const resp = await logAiActivity(
@@ -308,106 +375,55 @@ class GroundingEngine {
         provider: "deepseek-flash",
         endpoint: "entity-match",
         model,
+        query: `${pairs.length} entity-match pairs`,
         itemCount: pairs.length,
-        response: { promptLength: prompt.length },
+        request: {
+          systemPrompt: ENTITY_MATCH_BATCH_SYSTEM,
+          userPrompt: prompt,
+          pairCount: pairs.length,
+          pairs: pairs.slice(0, 20).map((p) => ({
+            eventA: compactEventInfo(p.eventA),
+            eventB: compactEventInfo(p.eventB),
+          })),
+          searchQueriesUsed: queriesUsed,
+          evidence: fullSearchResults(allEvidence),
+          evidenceText,
+        },
+        response: compactChatResponse,
+        metadata: {
+          promptLength: prompt.length,
+          searchQueryCount: queriesUsed.length,
+          evidenceCount: allEvidence.length,
+          evidenceTextLength: evidenceText.length,
+        },
       },
       async () => {
-        const r = await llm.chat.completions.create({
+        const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
           model,
           messages: [
             { role: "system", content: ENTITY_MATCH_BATCH_SYSTEM },
             { role: "user", content: prompt },
           ],
           temperature: 0,
-          max_tokens: maxTokens,
+          max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
           response_format: { type: "json_object" },
-        });
+        };
+        const r = await llm.chat.completions.create(params);
         rawBatch = r.choices[0]?.message?.content || "[]";
         return r;
       },
     );
 
     rawBatch = resp.choices[0]?.message?.content || "[]";
+    const finishReason = resp.choices[0]?.finish_reason;
     return this._parseBatchVerdict(
       rawBatch,
       model,
       pairs.length,
       allEvidence,
       queriesUsed,
+      finishReason,
     );
-  }
-
-  // ── Settlement verification ────────────────────────────────────────
-
-  async verifySettlement(
-    event: EventInfo,
-    question: string,
-  ): Promise<SettlementVerdict> {
-    const queries = buildSettlementQueries(event);
-
-    const allResults: SearchResult[] = [];
-    const seen = new Set<string>();
-
-    for (const q of queries) {
-      try {
-        const { results } = await this.search.search(q, 5);
-        for (const r of results) {
-          const key = r.url.replace(/\/$/, "").toLowerCase();
-          if (!seen.has(key)) {
-            seen.add(key);
-            allResults.push(r);
-          }
-        }
-      } catch {
-        // Ignore search errors for individual queries
-      }
-    }
-
-    const evidenceText = formatEvidence(allResults, 12);
-    let prompt = settlementPrompt(
-      event.homeTeam,
-      event.awayTeam,
-      event.competition,
-      event.startTime,
-      question,
-    );
-    if (evidenceText) {
-      prompt += `\n\nWEB SEARCH EVIDENCE:\n${evidenceText}`;
-    } else {
-      prompt += `\n\nNo web search results were found. Based on your knowledge, if you are confident about the result of this match, provide the score. Only say UNKNOWN if you have no reliable information at all.`;
-    }
-
-    const llm = getDeepSeekClient();
-    const model = getDeepSeekModel();
-
-    let rawSettle = "";
-    const resp = await logAiActivity(
-      {
-        system: "llm",
-        provider: "deepseek-flash",
-        endpoint: "verify-settlement",
-        model,
-        itemCount: 1,
-        response: { promptLength: prompt.length },
-      },
-      async () => {
-        const r = await llm.chat.completions.create({
-          model,
-          messages: [
-            { role: "system", content: SETTLEMENT_SYSTEM },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0,
-          max_tokens: 512,
-          response_format: { type: "json_object" },
-        });
-        rawSettle = r.choices[0]?.message?.content || "{}";
-        return r;
-      },
-    );
-
-    rawSettle = resp.choices[0]?.message?.content || "{}";
-    return this._parseSettlementVerdict(rawSettle, model, allResults);
   }
 
   // ── Generic grounded query ─────────────────────────────────────────
@@ -442,7 +458,7 @@ class GroundingEngine {
     }
 
     const evidence = callerResults.length > 0 ? callerResults : internalResults;
-    const evidenceText = formatEvidence(evidence, 10);
+    const evidenceText = formatEvidence(evidence);
     const sources = resultsToCitations(evidence);
 
     // Strip web_search_results from the leftover context — they're already
@@ -473,8 +489,27 @@ class GroundingEngine {
           provider: "gemini-lite",
           endpoint: "grounded-query",
           model: modelId,
+          query: question.slice(0, 200),
           itemCount: 1,
-          response: { promptLength: prompt.length },
+          request: {
+            systemPrompt,
+            userPrompt: prompt,
+            question,
+            evidence: fullSearchResults(evidence),
+            evidenceText,
+          },
+          response: (r: unknown) => ({
+            text:
+              typeof r === "object" && r !== null && "text" in r
+                ? (r as { text?: string }).text
+                : "",
+          }),
+          metadata: {
+            promptLength: prompt.length,
+            evidenceCount: evidence.length,
+            evidenceTextLength: evidenceText.length,
+            provider,
+          },
         },
         async () => {
           const r = await client.models.generateContent({
@@ -513,8 +548,22 @@ class GroundingEngine {
         provider: "deepseek-flash",
         endpoint: "grounded-query",
         model,
+        query: question.slice(0, 200),
         itemCount: 1,
-        response: { promptLength: prompt.length },
+        request: {
+          systemPrompt,
+          userPrompt: prompt,
+          question,
+          evidence: fullSearchResults(evidence),
+          evidenceText,
+        },
+        response: compactChatResponse,
+        metadata: {
+          promptLength: prompt.length,
+          evidenceCount: evidence.length,
+          evidenceTextLength: evidenceText.length,
+          provider,
+        },
       },
       async () => {
         const r = await llm.chat.completions.create({
@@ -524,7 +573,7 @@ class GroundingEngine {
             { role: "user", content: prompt },
           ],
           temperature: 0,
-          max_tokens: 4096,
+          max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
           response_format: { type: "json_object" },
         });
         return r;
@@ -570,73 +619,17 @@ class GroundingEngine {
     queriesUsed: string[],
     eventA: EventInfo,
     eventB: EventInfo,
+    finishReason?: string,
   ): MatchVerdict {
-    const data = parseJson(raw);
-    let decisionValue: unknown =
-      data?.decision ??
-      data?.verdict ??
-      data?.answer ??
-      data?.match ??
-      data?.same_match ??
-      data?.is_same_match;
-
-    if (typeof decisionValue === "boolean") {
-      decisionValue = decisionValue ? "SAME" : "DIFFERENT";
-    }
-
-    let decision = (decisionValue || "UNCERTAIN").toString().toUpperCase();
-    // Handle common LLM synonyms
-    if (
-      decision === "TRUE" ||
-      decision === "YES" ||
-      decision === "MATCH" ||
-      decision === "SAME_MATCH"
-    )
-      decision = "SAME";
-    if (
-      decision === "FALSE" ||
-      decision === "NO" ||
-      decision === "MISMATCH" ||
-      decision === "NOT_SAME" ||
-      decision === "DIFFERENT_MATCH"
-    )
-      decision = "DIFFERENT";
-    if (!["SAME", "DIFFERENT", "UNCERTAIN"].includes(decision))
-      decision = "UNCERTAIN";
-    const confidence = clampConfidence(
-      data?.confidence ??
-        data?.confidence_score ??
-        data?.confidenceScore ??
-        data?.score,
-    );
-    const reasoning =
-      (data?.reasoning as string) ||
-      (data?.explanation as string) ||
-      (data?.rationale as string) ||
-      "";
-
-    if (decision === "UNCERTAIN" && confidence <= 60) {
-      const heuristic = heuristicMatchVerdict(eventA, eventB);
-      if (heuristic) {
-        return {
-          decision: heuristic.decision,
-          confidence: heuristic.confidence,
-          reasoning: heuristic.reasoning,
-          sources: resultsToCitations(evidence),
-          searchQueriesUsed: queriesUsed,
-          model,
-        };
-      }
-    }
-
-    return {
-      decision: decision as MatchVerdict["decision"],
-      confidence,
-      reasoning,
-      sources: resultsToCitations(evidence),
-      searchQueriesUsed: queriesUsed,
+    return parseMatchVerdictFromRaw({
+      raw,
       model,
-    };
+      evidence,
+      queriesUsed,
+      eventA,
+      eventB,
+      finishReason,
+    });
   }
 
   private _parseBatchVerdict(
@@ -645,64 +638,18 @@ class GroundingEngine {
     pairCount: number,
     evidence: SearchResult[],
     queriesUsed: string[],
+    finishReason?: string,
   ): BatchMatchVerdict {
-    const arr = parseJson(raw);
-    const items = Array.isArray(arr) ? arr : [];
-
-    const verdicts: PairVerdict[] = items.map(
-      (item: Record<string, unknown>) => ({
-        pairIndex: (typeof item.pair === "number"
-          ? item.pair
-          : typeof item.pair_index === "number"
-            ? item.pair_index
-            : 0) as number,
-        decision: ((item.decision as string) ||
-          "UNCERTAIN") as PairVerdict["decision"],
-        confidence: clampConfidence(item.confidence),
-        reasoning: (item.reasoning as string) || "",
-      }),
-    );
-
-    if (verdicts.length < pairCount) {
-      for (let i = verdicts.length + 1; i <= pairCount; i++) {
-        verdicts.push({
-          pairIndex: i,
-          decision: "UNCERTAIN",
-          confidence: 50,
-          reasoning: "",
-        });
-      }
-    }
-
-    return {
-      verdicts: verdicts.slice(0, pairCount),
-      sources: resultsToCitations(evidence),
-      searchQueriesUsed: queriesUsed,
+    return parseBatchVerdictFromRaw({
+      raw,
       model,
-    };
+      pairCount,
+      evidence,
+      queriesUsed,
+      finishReason,
+    });
   }
 
-  private _parseSettlementVerdict(
-    raw: string,
-    model: string,
-    evidence: SearchResult[],
-  ): SettlementVerdict {
-    const data = parseJson(raw);
-    const answer =
-      data?.answer ??
-      data?.score ??
-      data?.final_score ??
-      data?.ft_score ??
-      data?.result ??
-      "";
-    return {
-      answer: String(answer),
-      confidence: clampConfidence(data?.confidence),
-      reasoning: (data?.reasoning as string) || "",
-      sources: resultsToCitations(evidence),
-      model,
-    };
-  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -790,24 +737,306 @@ function heuristicMatchVerdict(
   return null;
 }
 
-function parseJson(raw: string): Record<string, unknown> {
+function parseMatchVerdictFromRaw(input: {
+  raw: string;
+  model: string;
+  evidence: SearchResult[];
+  queriesUsed: string[];
+  eventA: EventInfo;
+  eventB: EventInfo;
+  finishReason?: string;
+}): MatchVerdict {
+  const parsed = parseJsonValue(input.raw, input.finishReason);
+  const data = objectFromJsonValue(parsed.value) ?? {};
+  const decisionValue =
+    data?.decision ??
+    data?.verdict ??
+    data?.answer ??
+    data?.match ??
+    data?.same_match ??
+    data?.is_same_match;
+  const decision = normalizeDecision(decisionValue);
+  const confidence = clampConfidence(
+    data?.confidence ??
+      data?.confidence_score ??
+      data?.confidenceScore ??
+      data?.score,
+  );
+  const reasoning =
+    (data?.reasoning as string) ||
+    (data?.explanation as string) ||
+    (data?.rationale as string) ||
+    parsed.warning ||
+    "";
+
+  if (decision === "UNCERTAIN" && confidence <= 60) {
+    const heuristic = heuristicMatchVerdict(input.eventA, input.eventB);
+    if (heuristic && parsed.status !== "invalid") {
+      return {
+        decision: heuristic.decision,
+        confidence: heuristic.confidence,
+        reasoning: heuristic.reasoning,
+        sources: resultsToCitations(input.evidence),
+        searchQueriesUsed: input.queriesUsed,
+        model: input.model,
+        diagnostics: diagnosticsFromParsed(parsed),
+      };
+    }
+  }
+
+  return {
+    decision,
+    confidence,
+    reasoning,
+    sources: resultsToCitations(input.evidence),
+    searchQueriesUsed: input.queriesUsed,
+    model: input.model,
+    diagnostics: diagnosticsFromParsed(parsed),
+  };
+}
+
+function parseBatchVerdictFromRaw(input: {
+  raw: string;
+  model: string;
+  pairCount: number;
+  evidence: SearchResult[];
+  queriesUsed: string[];
+  finishReason?: string;
+}): BatchMatchVerdict {
+  const parsed = parseJsonValue(input.raw, input.finishReason);
+  const parsedObject = objectFromJsonValue(parsed.value);
+  const items = Array.isArray(parsed.value)
+    ? parsed.value
+    : Array.isArray(parsedObject?.verdicts)
+      ? parsedObject.verdicts
+      : Array.isArray(parsedObject?.results)
+        ? parsedObject.results
+        : Array.isArray(parsedObject?.pairs)
+          ? parsedObject.pairs
+          : parsedObject?.decision !== undefined ||
+              parsedObject?.confidence !== undefined
+            ? [parsedObject]
+            : [];
+
+  const verdicts: PairVerdict[] = items.map((item: unknown, index) => {
+    const obj = objectFromJsonValue(item) ?? {};
+    return {
+      pairIndex: normalizePairIndex(
+        obj.pair ?? obj.pair_index ?? obj.pairIndex,
+        index,
+        input.pairCount,
+      ),
+      decision: normalizeDecision(obj.decision),
+      confidence: clampConfidence(obj.confidence),
+      reasoning:
+        (obj.reasoning as string) ||
+        (obj.explanation as string) ||
+        parsed.warning ||
+        "",
+      diagnostics: diagnosticsFromParsed(parsed),
+    };
+  });
+
+  if (verdicts.length < input.pairCount) {
+    for (let i = verdicts.length; i < input.pairCount; i++) {
+      verdicts.push({
+        pairIndex: i,
+        decision: "UNCERTAIN",
+        confidence: 50,
+        reasoning:
+          parsed.warning || "AI response did not include a verdict for this pair.",
+        diagnostics: diagnosticsFromParsed(parsed),
+      });
+    }
+  }
+
+  return {
+    verdicts: verdicts.slice(0, input.pairCount),
+    sources: resultsToCitations(input.evidence),
+    searchQueriesUsed: input.queriesUsed,
+    model: input.model,
+  };
+}
+
+type JsonRecord = Record<string, unknown>;
+type ParsedJsonValue = {
+  value: unknown;
+  status: AiParseDiagnostics["parseStatus"];
+  finishReason?: string;
+  warning?: string;
+};
+
+function normalizeDecision(value: unknown): MatchDecision {
+  let decisionValue = value;
+  if (typeof decisionValue === "boolean") {
+    decisionValue = decisionValue ? "SAME" : "DIFFERENT";
+  }
+
+  let decision = (decisionValue || "UNCERTAIN").toString().toUpperCase();
+  if (
+    decision === "TRUE" ||
+    decision === "YES" ||
+    decision === "MATCH" ||
+    decision === "SAME_MATCH"
+  ) {
+    decision = "SAME";
+  }
+  if (
+    decision === "FALSE" ||
+    decision === "NO" ||
+    decision === "MISMATCH" ||
+    decision === "NOT_SAME" ||
+    decision === "DIFFERENT_MATCH"
+  ) {
+    decision = "DIFFERENT";
+  }
+  if (!["SAME", "DIFFERENT", "UNCERTAIN"].includes(decision)) {
+    return "UNCERTAIN";
+  }
+  return decision as MatchDecision;
+}
+
+function objectFromJsonValue(value: unknown): JsonRecord | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as JsonRecord;
+}
+
+function diagnosticsFromParsed(
+  parsed: ParsedJsonValue,
+): AiParseDiagnostics | undefined {
+  if (parsed.status === "valid" && parsed.finishReason !== "length") {
+    return undefined;
+  }
+  return {
+    parseStatus: parsed.status,
+    finishReason: parsed.finishReason,
+    warning: parsed.warning,
+  };
+}
+
+function parseJsonValue(raw: string, finishReason?: string): ParsedJsonValue {
   let text = raw.trim();
   // Strip markdown fences
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
-    return JSON.parse(text);
+    return { value: JSON.parse(text), status: "valid", finishReason };
   } catch {
     // Greedy bracket extraction
     const m = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
     if (m) {
       try {
-        return JSON.parse(m[0]);
+        return {
+          value: JSON.parse(m[0]),
+          status: "recovered",
+          finishReason,
+          warning: "Recovered JSON from surrounding text.",
+        };
       } catch {
         // ignore
       }
     }
-    return {};
+    const recoveredObject = recoverPartialJsonObject(text);
+    if (recoveredObject) {
+      return {
+        value: recoveredObject,
+        status: "recovered",
+        finishReason,
+        warning:
+          finishReason === "length"
+            ? "Recovered fields from a truncated AI JSON response."
+            : "Recovered fields from malformed AI JSON.",
+      };
+    }
+    const recoveredVerdicts = recoverPartialBatchVerdicts(text);
+    if (recoveredVerdicts.length > 0) {
+      return {
+        value: { verdicts: recoveredVerdicts },
+        status: "recovered",
+        finishReason,
+        warning:
+          finishReason === "length"
+            ? "Recovered batch verdicts from a truncated AI JSON response."
+            : "Recovered batch verdicts from malformed AI JSON.",
+      };
+    }
+    return {
+      value: {},
+      status: "invalid",
+      finishReason,
+      warning:
+        finishReason === "length"
+          ? "AI response was truncated before valid JSON could be parsed."
+          : "AI response was not valid JSON.",
+    };
   }
+}
+
+function recoverPartialJsonObject(text: string): JsonRecord | null {
+  const decisionMatch = text.match(
+    /"(?:decision|verdict|answer|match|same_match|is_same_match)"\s*:\s*("([^"]*)"|true|false)/i,
+  );
+  const confidenceMatch = text.match(
+    /"(?:confidence|confidence_score|confidenceScore|score)"\s*:\s*("?)(\d+(?:\.\d+)?)\1/i,
+  );
+  if (!decisionMatch && !confidenceMatch) return null;
+
+  const reasoningMatch = text.match(
+    /"(?:reasoning|explanation|rationale)"\s*:\s*"([^"]*)/i,
+  );
+  const recovered: JsonRecord = {};
+  if (decisionMatch) {
+    const rawDecision = decisionMatch[2] ?? decisionMatch[1];
+    recovered.decision =
+      rawDecision === "true" ? true : rawDecision === "false" ? false : rawDecision;
+  }
+  if (confidenceMatch) {
+    recovered.confidence = Number(confidenceMatch[2]);
+  }
+  if (reasoningMatch) {
+    recovered.reasoning = `${reasoningMatch[1].trim()} [truncated]`;
+  }
+  return recovered;
+}
+
+function recoverPartialBatchVerdicts(text: string): JsonRecord[] {
+  const verdicts: JsonRecord[] = [];
+  const decisionMatches = text.matchAll(/"(?:decision|verdict)"\s*:/gi);
+  for (const match of decisionMatches) {
+    const decisionAt = match.index ?? 0;
+    const objectStart = text.lastIndexOf("{", decisionAt);
+    if (objectStart < 0) continue;
+    const nextObjectStart = text.indexOf("{", decisionAt + 1);
+    const objectEnd = text.indexOf("}", decisionAt + 1);
+    const sliceEnd =
+      objectEnd >= 0 && (nextObjectStart < 0 || objectEnd < nextObjectStart)
+        ? objectEnd + 1
+        : nextObjectStart >= 0
+          ? nextObjectStart
+          : text.length;
+    const fragment = text.slice(objectStart, sliceEnd);
+    const recovered = recoverPartialJsonObject(fragment);
+    if (!recovered) continue;
+    const pairMatch = fragment.match(
+      /"(?:pair|pair_index|pairIndex)"\s*:\s*("?)(\d+)\1/i,
+    );
+    if (pairMatch) recovered.pair = Number(pairMatch[2]);
+    verdicts.push(recovered);
+  }
+  return verdicts;
+}
+
+function normalizePairIndex(
+  value: unknown,
+  fallbackIndex: number,
+  pairCount: number,
+): number {
+  const n = typeof value === "number" ? value : parseInt(String(value), 10);
+  if (!Number.isFinite(n)) return fallbackIndex;
+  // Prompted pair numbers are 1-based. Accept zero-based values only when the
+  // model explicitly emits 0, which is outside the prompt contract.
+  if (n >= 1 && n <= pairCount) return n - 1;
+  if (n >= 0 && n < pairCount) return n;
+  return fallbackIndex;
 }
 
 function clampConfidence(val: unknown): number {
@@ -817,28 +1046,51 @@ function clampConfidence(val: unknown): number {
   return Math.max(0, Math.min(100, n));
 }
 
-function formatEvidence(results: SearchResult[], maxItems = 8): string {
-  if (!results.length) return "";
-
+function uniqueSearchResults(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
   const unique: SearchResult[] = [];
   for (const r of results) {
-    const key = r.url.replace(/\/$/, "").toLowerCase();
+    const key = (r.url || `${r.source}:${r.title}`).replace(/\/$/, "").toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
       unique.push(r);
     }
   }
+  return unique;
+}
 
+function formatEvidence(
+  results: SearchResult[],
+  maxItems = Number.POSITIVE_INFINITY,
+  maxContentChars = Number.POSITIVE_INFINITY,
+): string {
+  const unique = uniqueSearchResults(results);
+  if (!unique.length) return "";
   const lines: string[] = [];
   for (let i = 0; i < Math.min(unique.length, maxItems); i++) {
     const r = unique[i];
     lines.push(`[${i + 1}] ${r.title}`);
     lines.push(`    URL: ${r.url}`);
-    lines.push(`    ${r.snippet.slice(0, 300)}`);
+    lines.push(`    Source: ${r.source}`);
+    const rawContent = searchResultText(r).trim();
+    const content =
+      rawContent.length > maxContentChars
+        ? `${rawContent.slice(0, maxContentChars).trim()}...`
+        : rawContent;
+    if (content) {
+      lines.push(`    Content:`);
+      lines.push(indentEvidenceContent(content));
+    }
     lines.push("");
   }
   return lines.join("\n");
+}
+
+function indentEvidenceContent(content: string): string {
+  return content
+    .split(/\r?\n/)
+    .map((line) => `    ${line}`)
+    .join("\n");
 }
 
 function resultsToCitations(results: SearchResult[]): SourceCitation[] {
@@ -848,7 +1100,11 @@ function resultsToCitations(results: SearchResult[]): SourceCitation[] {
     const key = r.url.replace(/\/$/, "").toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
-      citations.push({ url: r.url, title: r.title, snippet: r.snippet });
+      citations.push({
+        url: r.url,
+        title: r.title,
+        snippet: r.snippet || searchResultText(r),
+      });
     }
   }
   return citations;
@@ -872,8 +1128,14 @@ function extractResults(context: unknown): SearchResult[] {
         const url = typeof it.url === "string" ? it.url : "";
         const title = typeof it.title === "string" ? it.title : "";
         const snippet = typeof it.snippet === "string" ? it.snippet : "";
+        const content =
+          typeof it.content === "string"
+            ? it.content
+            : typeof it.raw_content === "string"
+              ? it.raw_content
+              : snippet;
         const source = typeof it.source === "string" ? it.source : "caller";
-        if (url) out.push({ url, title, snippet, source });
+        if (url) out.push({ url, title, snippet, content, source });
       }
     }
     if (out.length > 0) return out;
@@ -911,3 +1173,56 @@ export const grounding = new Proxy({} as GroundingEngine, {
     return (engine as unknown as Record<string, unknown>)[prop as string];
   },
 });
+
+export const __groundingTestHooks = {
+  parseMatchVerdict(
+    raw: string,
+    opts?: {
+      finishReason?: string;
+      model?: string;
+      eventA?: EventInfo;
+      eventB?: EventInfo;
+      evidence?: SearchResult[];
+      queriesUsed?: string[];
+    },
+  ): MatchVerdict {
+    return parseMatchVerdictFromRaw({
+      raw,
+      model: opts?.model ?? "deepseek-v4-flash",
+      evidence: opts?.evidence ?? [],
+      queriesUsed: opts?.queriesUsed ?? [],
+      eventA: opts?.eventA ?? {
+        homeTeam: "Dukla Prague",
+        awayTeam: "Banik Ostrava",
+        competition: "Czech 1 Liga",
+        startTime: "2026-05-23 12:00:00+00",
+      },
+      eventB: opts?.eventB ?? {
+        homeTeam: "Banik Ostrava B",
+        awayTeam: "Sparta Prague B",
+        competition: "Czech 2 Liga",
+        startTime: "2026-05-23 12:00:00+00",
+      },
+      finishReason: opts?.finishReason,
+    });
+  },
+  parseBatchVerdict(
+    raw: string,
+    pairCount: number,
+    opts?: {
+      finishReason?: string;
+      model?: string;
+      evidence?: SearchResult[];
+      queriesUsed?: string[];
+    },
+  ): BatchMatchVerdict {
+    return parseBatchVerdictFromRaw({
+      raw,
+      pairCount,
+      model: opts?.model ?? "deepseek-v4-flash",
+      evidence: opts?.evidence ?? [],
+      queriesUsed: opts?.queriesUsed ?? [],
+      finishReason: opts?.finishReason,
+    });
+  },
+};

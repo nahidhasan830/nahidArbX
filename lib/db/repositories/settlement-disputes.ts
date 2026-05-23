@@ -2,7 +2,7 @@
  * Repository for settlement_disputes — the cross-check log.
  *
  * Flow:
- *   1. A secondary tier (url_context, etc.) resolves an event that already
+ *   1. A secondary source resolves an event that already
  *      has a cached score.
  *   2. If the new FT score disagrees with the cached one, we log a
  *      dispute row instead of blindly overwriting the cache.

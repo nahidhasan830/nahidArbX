@@ -579,8 +579,6 @@ function RunRow({ run }: { run: SettlementRunRowApi }) {
           run.tier0Hits && `T0:${run.tier0Hits}`,
           run.tier1Hits && `T1:${run.tier1Hits}`,
           run.tier2Hits && `T2:${run.tier2Hits}`,
-          run.tier3Hits && `T3:${run.tier3Hits}`,
-          run.tier4Hits && `T4:${run.tier4Hits}`,
         ]
           .filter(Boolean)
           .join(" ") || "—"}

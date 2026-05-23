@@ -11,12 +11,6 @@ export type ScoreSource =
   | "sofascore"
   | "openligadb"
   | "pinnacle-settled"
-  | "ai-search-deepseek"
-  | "ai-search-hf"
-  | "ai-search-groq" // legacy — kept for old DB rows; new rows use ai-search-deepseek
-  | "url-context" // legacy — no longer produced, but old DB rows have this
-  | "gemini-batch" // legacy — no longer produced, but old DB rows have this
-  | "legacy-ai"
   | "manual";
 
 /**
@@ -72,7 +66,7 @@ export interface SettleResult {
   outcome: Outcome;
   /** Score in "home-away" form for the relevant scope (FT / 1H / 2H). */
   scopeScore: string;
-  /** Deterministic settlement is always 1.0 — AI tiers emit lower values. */
+  /** Deterministic settlement confidence. */
   confidence: number;
   reasoning: string;
   reason: SettleReason;

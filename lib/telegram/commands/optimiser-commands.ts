@@ -174,8 +174,8 @@ registerCommand({
       const status = await engineGet<{
         modelLoaded: boolean;
         modelVersion: number | null;
-        modelPath: string | null;
         featureCount: number;
+        vertexEndpoint: string | null;
         totalScoringAttempts: number;
         totalScored: number;
         avgInferenceMs: number;
@@ -194,6 +194,7 @@ registerCommand({
           status.modelVersion != null ? `v${status.modelVersion}` : "—",
         ],
         ["Features", String(status.featureCount)],
+        ["Vertex Endpoint", status.vertexEndpoint ?? "—"],
         ["Total Attempts", status.totalScoringAttempts.toLocaleString()],
         ["Total Scored", status.totalScored.toLocaleString()],
         ["Avg Inference", `${status.avgInferenceMs.toFixed(2)} ms`],
