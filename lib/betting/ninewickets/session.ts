@@ -15,7 +15,6 @@
  *   captureSession()    one-shot CF-solve + API login; persists to disk
  *   invalidateSession() wipes the cache — call on 401/403 from exchange
  */
-import { randomBytes } from "node:crypto";
 import * as fs from "fs";
 import * as path from "path";
 import type { NineWicketsSession } from "./types";
@@ -27,6 +26,11 @@ import {
   createCloudflareBridge,
   type CaptureResult,
 } from "@/lib/shared/cloudflare-bridge";
+import {
+  buildBetconstructLoginBody,
+  decodeJwtExp,
+  extractBetconstructAccessToken,
+} from "@/lib/betting/shared/betconstruct-login";
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -51,23 +55,18 @@ const bridge = createCloudflareBridge({
       );
     }
     return {
-      languageTypeId: 1,
-      currencyTypeId: 8,
+      ...buildBetconstructLoginBody({
+        languageTypeId: 1,
+        currencyTypeId: 8,
+        userId,
+        password,
+      }),
       userId,
       password,
-      isBioLogin: false,
-      loginTypeId: 0,
-      fingerprint2: randomBytes(16).toString("hex"),
-      fingerprint4: randomBytes(16).toString("hex"),
-      browserHash: randomBytes(16).toString("hex"),
-      deviceHash: randomBytes(16).toString("hex"),
     };
   },
 
-  extractAccessToken: (json) => {
-    const data = (json as { data?: { accessToken?: string } }).data;
-    return data?.accessToken ?? null;
-  },
+  extractAccessToken: extractBetconstructAccessToken,
 
   gameUrlEndpoint: "https://9wktsbest.com/api/bt/v1/provider/getGameUrl",
 
@@ -144,15 +143,7 @@ export async function captureSession(): Promise<NineWicketsSession> {
   const { queryPass } = result.providerData as { queryPass: string };
 
   // Decode JWT exp from accessToken
-  let accessTokenExp = 0;
-  try {
-    const payload = JSON.parse(
-      Buffer.from(result.accessToken.split(".")[1], "base64").toString(),
-    );
-    accessTokenExp = payload.exp ?? 0;
-  } catch {
-    // non-fatal — we'll just miss TTL-based refresh
-  }
+  const accessTokenExp = decodeJwtExp(result.accessToken);
 
   const session: NineWicketsSession = {
     username,

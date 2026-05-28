@@ -36,6 +36,8 @@ export type MatchPairDecidedBy =
   | "gemini-flash"
   | "gemini-pro";
 
+export type MatchPairResolutionSource = MatchPairDecidedBy;
+
 export type MatchPairSource = "near-match" | "unmatched-candidate";
 
 export interface UpsertMatchPairInput {
@@ -226,10 +228,34 @@ export async function markDecided(
       decidedBy,
       decidedAt: new Date().toISOString(),
       decisionReason: reason ?? null,
+      resolutionSource: decidedBy,
       stage: "history",
       stageChangedAt: new Date().toISOString(),
     })
     .where(eq(matchPairs.id, id))
+    .returning({ id: matchPairs.id });
+  return rows.length > 0;
+}
+
+export async function markDecidedFromStage(
+  id: string,
+  from: MatchPairStage,
+  decision: MatchPairDecision,
+  decidedBy: MatchPairDecidedBy,
+  reason?: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(matchPairs)
+    .set({
+      decision,
+      decidedBy,
+      decidedAt: new Date().toISOString(),
+      decisionReason: reason ?? null,
+      resolutionSource: decidedBy,
+      stage: "history",
+      stageChangedAt: new Date().toISOString(),
+    })
+    .where(and(eq(matchPairs.id, id), eq(matchPairs.stage, from)))
     .returning({ id: matchPairs.id });
   return rows.length > 0;
 }
@@ -301,6 +327,31 @@ export async function getStageCounts(): Promise<
     }
   }
   return counts;
+}
+
+export interface ResolutionSourceStat {
+  source: string;
+  count: number;
+}
+
+export async function getResolutionSourceStats(): Promise<
+  ResolutionSourceStat[]
+> {
+  const sourceExpr = sql<string>`coalesce(${matchPairs.resolutionSource}, ${matchPairs.decidedBy}, 'unknown')`;
+  const rows = await db
+    .select({
+      source: sourceExpr,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(matchPairs)
+    .where(eq(matchPairs.stage, "history"))
+    .groupBy(sourceExpr)
+    .orderBy(sql`count(*) desc`);
+
+  return rows.map((row) => ({
+    source: row.source,
+    count: row.count,
+  }));
 }
 
 // ─── Cleanup ───────────────────────────────────────────────────────────

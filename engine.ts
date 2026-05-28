@@ -70,7 +70,8 @@ async function main() {
     { geniusSportsSyncService },
     { betconstructSyncService },
     { startReactiveDetector, stopReactiveDetector },
-    { isProviderRuntimeEnabled },
+    { getRuntimeEnabledProviderIds, isProviderRuntimeEnabled },
+    { getProviderDataSourceLabels },
   ] = await Promise.all([
     import("./lib/background/fetcher"),
     import("./lib/settle/scheduler"),
@@ -84,6 +85,7 @@ async function main() {
     import("./lib/services/betconstruct-sync-service"),
     import("./lib/background/reactive-detector"),
     import("./lib/providers/runtime-state"),
+    import("./lib/providers/registry"),
   ]);
 
   // ── Startup diagnostics ─────────────────────────────────────────────
@@ -207,11 +209,17 @@ async function main() {
     );
   }
 
+  // ── Engine HTTP API ──────────────────────────────────────────────────
+  // Exposes in-memory state to the Next.js web process. Start this before
+  // emitting boot payloads so frontend reachability checks observe readiness.
+  const { startEngineHttp, stopEngineHttp, ENGINE_PORT } =
+    await import("./lib/shared/engine-http");
+  await startEngineHttp();
+
   // ── Boot notification ───────────────────────────────────────────────
 
   if (hasTelegramCreds) {
     const settleStatus = getAutoSettleStatus();
-    const { ENGINE_PORT: ePort } = await import("./lib/shared/engine-http");
     const bootPayload = {
       type: "system:boot" as const,
       process: "engine" as const,
@@ -219,7 +227,7 @@ async function main() {
       nodeVersion: process.version,
       env: process.env.NODE_ENV ?? "development",
       pid: process.pid,
-      enginePort: ePort,
+      enginePort: ENGINE_PORT,
       syncScheduler: isSchedulerRunning(),
       autoSettle: settleStatus.active,
       autoSettleIntervalSec: Math.round(settleStatus.intervalMs / 1000),
@@ -228,13 +236,7 @@ async function main() {
         displayName: p.providerDisplayName,
         enabled: p.enabled,
       })),
-      dataSources: [
-        "Pinnacle WebSocket",
-        "Genius Sports Polling (9W + Velki)",
-        ...(isProviderRuntimeEnabled("betconstruct")
-          ? ["BetConstruct WebSocket"]
-          : []),
-      ],
+      dataSources: getProviderDataSourceLabels(getRuntimeEnabledProviderIds()),
       detectorDebounceMs: 500,
       mlRetrainJob: process.env.OPTIMIZER_JOB_NAME ?? null,
       mlRetrainRegion: process.env.GCP_REGION ?? null,
@@ -254,12 +256,6 @@ async function main() {
       });
     }
   }
-
-  // ── Engine HTTP API ──────────────────────────────────────────────────
-  // Exposes in-memory state to the Next.js web process.
-  const { startEngineHttp, stopEngineHttp, ENGINE_PORT } =
-    await import("./lib/shared/engine-http");
-  await startEngineHttp();
 
   logger.info("Engine", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   logger.info(

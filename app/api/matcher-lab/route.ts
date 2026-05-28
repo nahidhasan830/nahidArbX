@@ -22,14 +22,9 @@ import {
 import { db } from "@/lib/db/client";
 import { matcherConfig } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { harvestMatchPair } from "@/lib/matching/entities/match-harvester";
 import { getIdToken } from "@/lib/matching/entities/matcher-client";
-import {
-  normalize,
-  normalizeCompetition,
-} from "@/lib/matching/entities/normalize";
-import type { NormalizedEvent } from "@/lib/types";
-import type { PreNormalizedNames } from "@/lib/matching/normalize";
+import { learnAliasesForMatchPair } from "@/lib/matching/matcher-lab-aliases";
+import { resolveMatcherRunWithAiSearch } from "@/lib/matching/matcher-lab-ai-resolver";
 import { logger } from "@/lib/shared/logger";
 
 const tag = "MatcherLab";
@@ -94,7 +89,7 @@ export async function POST(request: NextRequest) {
         if (decision === "human-merge" || decision === "ai-merge") {
           const pair = await getById(id);
           if (pair) {
-            await learnAliases(pair);
+            await learnAliasesForMatchPair(pair);
           }
         }
 
@@ -134,7 +129,7 @@ export async function POST(request: NextRequest) {
             ) {
               const pair = await getById(item.id);
               if (pair) {
-                await learnAliases(pair);
+                await learnAliasesForMatchPair(pair);
               }
             }
           } else {
@@ -174,10 +169,10 @@ export async function POST(request: NextRequest) {
               { status: 502 },
             );
           }
-          const result = await res.json();
+          const result = await resolveMatcherRunWithAiSearch(await res.json());
           logger.info(
             tag,
-            `ML batch (via server): ${result.processed} processed, ${result.merged} merged, ${result.rejected} rejected, ${result.escalated} escalated`,
+            `ML batch (via server): ${result.processed} processed, ${result.merged} merged, ${result.rejected} rejected, ${result.escalated} escalated, AI Search ${result.aiSearchMerged ?? 0}m/${result.aiSearchRejected ?? 0}r`,
           );
           return NextResponse.json(result);
         } catch (err) {
@@ -254,62 +249,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { error: (err as Error).message },
       { status: 500 },
-    );
-  }
-}
-
-async function learnAliases(
-  pair: Awaited<ReturnType<typeof getById>> & {},
-): Promise<void> {
-  try {
-    const eventA: NormalizedEvent = {
-      id: pair.eventAEventId ?? `lab-${pair.id}-a`,
-      sport: "football",
-      homeTeam: pair.eventAHomeTeam,
-      awayTeam: pair.eventAAwayTeam,
-      competition: pair.eventACompetition,
-      startTime: new Date(pair.eventAStartTime),
-      providers: {
-        [pair.eventAProvider]: { eventId: pair.eventAEventId ?? "" },
-      } as NormalizedEvent["providers"],
-    };
-
-    const eventB: NormalizedEvent = {
-      id: pair.eventBEventId ?? `lab-${pair.id}-b`,
-      sport: "football",
-      homeTeam: pair.eventBHomeTeam,
-      awayTeam: pair.eventBAwayTeam,
-      competition: pair.eventBCompetition,
-      startTime: new Date(pair.eventBStartTime),
-      providers: {
-        [pair.eventBProvider]: { eventId: pair.eventBEventId ?? "" },
-      } as NormalizedEvent["providers"],
-    };
-
-    const preNormA: PreNormalizedNames = {
-      home: normalize(pair.eventAHomeTeam),
-      away: normalize(pair.eventAAwayTeam),
-      competition: normalizeCompetition(pair.eventACompetition),
-    };
-
-    const preNormB: PreNormalizedNames = {
-      home: normalize(pair.eventBHomeTeam),
-      away: normalize(pair.eventBAwayTeam),
-      competition: normalizeCompetition(pair.eventBCompetition),
-    };
-
-    await harvestMatchPair(
-      eventA,
-      eventB,
-      preNormA,
-      preNormB,
-      pair.mlCombinedScore ?? pair.stringScore,
-      "match-review",
-    );
-  } catch (err) {
-    logger.warn(
-      tag,
-      `learnAliases failed for ${pair.id}: ${(err as Error).message}`,
     );
   }
 }

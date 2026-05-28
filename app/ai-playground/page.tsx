@@ -162,6 +162,22 @@ interface SearchResult {
   snippet: string;
 }
 
+interface PlannedSearchQuery {
+  facet: string;
+  query: string;
+  reason: string;
+}
+
+interface SearchPlan {
+  timeZone?: string;
+  localDateLabel?: string;
+  previousLocalDateLabel?: string;
+  searchNeeded?: boolean;
+  intent?: string;
+  noSearchReason?: string;
+  queries?: PlannedSearchQuery[];
+}
+
 // ── LLM family/tier organisation ──────────────────────────────────────────
 // Display order for the 2-step provider selector. The hook returns whatever
 // rows exist in `ai_provider_config`; this maps them to a (family, tier) grid.
@@ -218,6 +234,8 @@ export default function AIPlayground() {
     "idle" | "running" | "done" | "error"
   >("idle");
   const [step1Results, setStep1Results] = useState<SearchResult[] | null>(null);
+  const [step1Plan, setStep1Plan] = useState<PlannedSearchQuery[] | null>(null);
+  const [step1PlanMeta, setStep1PlanMeta] = useState<SearchPlan | null>(null);
   const [step1Error, setStep1Error] = useState<string | null>(null);
 
   const [step2State, setStep2State] = useState<
@@ -276,6 +294,8 @@ export default function AIPlayground() {
     setQuery("");
     setStep1State("idle");
     setStep1Results(null);
+    setStep1Plan(null);
+    setStep1PlanMeta(null);
     setStep1Error(null);
     setStep2State("idle");
     setStep2Answer(null);
@@ -289,18 +309,28 @@ export default function AIPlayground() {
     let step2Running = false;
 
     try {
-      let searchContext: { web_search_results: SearchResult[] } | null = null;
+      let searchContext: {
+        web_search_results: SearchResult[];
+        search_plan?: SearchPlan | null;
+        time_zone?: string;
+      } | null = null;
 
       if (useWebSearch) {
         step1Running = true;
         setStep1State("running");
-        const searchRes = await fetch("/api/ai-search/search", {
+        const timeZone =
+          Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Dhaka";
+        const searchRes = await fetch("/api/ai-search/planned-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             query: currentQuery,
             providers: searchProvider === "auto" ? undefined : [searchProvider],
             max_results: 10,
+            max_queries: 5,
+            results_per_query: 5,
+            time_zone: timeZone,
+            service: "Playground",
           }),
         });
 
@@ -328,17 +358,27 @@ export default function AIPlayground() {
 
         const searchData = (await searchRes.json()) as {
           results?: SearchResult[];
+          plan?: SearchPlan;
           providerUsed?: string;
         };
 
-        if (searchData.providerUsed === "none") {
+        if (
+          searchData.providerUsed === "none" &&
+          searchData.plan?.searchNeeded !== false
+        ) {
           throw new Error(
             "Web grounding failed: no search providers returned results.",
           );
         }
 
         setStep1Results(searchData.results || []);
-        searchContext = { web_search_results: searchData.results || [] };
+        setStep1PlanMeta(searchData.plan ?? null);
+        setStep1Plan(searchData.plan?.queries || null);
+        searchContext = {
+          web_search_results: searchData.results || [],
+          search_plan: searchData.plan ?? null,
+          time_zone: timeZone,
+        };
         setStep1State("done");
         step1Running = false;
       }
@@ -474,7 +514,9 @@ export default function AIPlayground() {
                       </span>
                       {step1Results && step1State === "done" && (
                         <span className="font-mono text-[10px] text-muted-foreground/70">
-                          {step1Results.length} sources
+                          {step1PlanMeta?.searchNeeded === false
+                            ? "no search needed"
+                            : `${step1Plan?.length ? `${step1Plan.length} angles · ` : ""}${step1Results.length} sources`}
                         </span>
                       )}
                       {step1State === "error" && (
@@ -490,6 +532,44 @@ export default function AIPlayground() {
                           Grounding aborted
                         </p>
                         {step1Error}
+                      </div>
+                    )}
+
+                    {step1PlanMeta?.searchNeeded === false && (
+                      <div className="p-3 border border-border/40 bg-card/20 rounded text-[12px] text-muted-foreground/90 leading-snug">
+                        <p className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-cyan-400/70 mb-1">
+                          Search skipped
+                        </p>
+                        {step1PlanMeta.noSearchReason ??
+                          "This message does not need web grounding."}
+                      </div>
+                    )}
+
+                    {step1Plan && step1Plan.length > 0 && (
+                      <div className="space-y-1.5">
+                        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+                          Search Plan
+                        </span>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-3 gap-y-1">
+                          {step1Plan.map((planned, i) => (
+                            <div
+                              key={`${planned.facet}-${planned.query}-${i}`}
+                              className="flex items-start gap-2 min-w-0 py-1"
+                            >
+                              <span className="font-mono text-[10px] font-bold text-cyan-400/70 shrink-0 tabular-nums w-5">
+                                {i + 1}.
+                              </span>
+                              <div className="min-w-0">
+                                <p className="text-[12px] leading-snug text-foreground/85 truncate">
+                                  {planned.query}
+                                </p>
+                                <p className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground/60">
+                                  {planned.facet.replace(/_/g, " ")}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 

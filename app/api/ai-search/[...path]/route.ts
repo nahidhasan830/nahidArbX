@@ -7,6 +7,7 @@
  * GET  /api/ai-search/llm-stats      -> LLM usage stats
  * GET  /api/ai-search/logs           -> Read from DB (ai_search_logs)
  * POST /api/ai-search/search         -> raw web search
+ * POST /api/ai-search/planned-search -> DeepSeek-planned multi-query search
  * POST /api/ai-search/entity-match   -> single-pair entity matching
  * POST /api/ai-search/grounded-query -> search-grounded Q&A
  * POST /api/ai-search/providers/{name}/toggle -> enable/disable provider
@@ -18,15 +19,22 @@ import { listAiSearchLogs } from "@/lib/db/repositories/ai-search-logs";
 import { recordAiActivity } from "@/lib/db/repositories/ai-activity-log";
 import { getGroundingEngine } from "@/lib/ai/grounding";
 import { getSearchRouter } from "@/lib/ai/search/router";
+import { runPlannedSearch } from "@/lib/ai/search/query-planner";
 import type { EventInfo } from "@/lib/ai/search/types";
 
 const ENDPOINT_SYSTEM: Record<string, string> = {
   search: "grounding",
+  "planned-search": "grounding",
   "grounded-query": "grounding",
   "entity-match": "entity-match",
 };
 
-const LOGGED_ENDPOINTS = new Set(["search", "entity-match", "grounded-query"]);
+const LOGGED_ENDPOINTS = new Set([
+  "search",
+  "planned-search",
+  "entity-match",
+  "grounded-query",
+]);
 
 const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 
@@ -173,7 +181,12 @@ export async function POST(
   const { path } = await params;
   const subPath = path.join("/");
 
-  const directAllowed = ["search", "entity-match", "grounded-query"];
+  const directAllowed = [
+    "search",
+    "planned-search",
+    "entity-match",
+    "grounded-query",
+  ];
   const isProviderToggle = /^providers\/[^/]+\/toggle$/.test(subPath);
   if (!directAllowed.includes(subPath) && !isProviderToggle) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -208,6 +221,40 @@ export async function POST(
         query: body.query,
         results,
         providerUsed: provider,
+      });
+    }
+
+    // DeepSeek-planned multi-query search. Vertex is the default primary
+    // provider; explicit provider selections from callers still pass through.
+    if (subPath === "planned-search") {
+      const question = body.query || body.question || "";
+      const preferredProviders = parseStringArray(body.providers);
+      const planned = await runPlannedSearch(question, {
+        timeZone:
+          typeof body.time_zone === "string"
+            ? body.time_zone
+            : typeof body.timeZone === "string"
+              ? body.timeZone
+              : undefined,
+        maxQueries: typeof body.max_queries === "number" ? body.max_queries : 5,
+        maxResults:
+          typeof body.max_results === "number" ? body.max_results : 10,
+        resultsPerQuery:
+          typeof body.results_per_query === "number"
+            ? body.results_per_query
+            : 5,
+        preferredProviders:
+          preferredProviders.length > 0 ? preferredProviders : ["vertex"],
+        search: (searchQuery, maxResults, providers) =>
+          getSearchRouter().search(searchQuery, maxResults, providers),
+      });
+      return logAndRespond(subPath, body, startMs, {
+        query: question,
+        plan: planned.plan,
+        results: planned.results,
+        providerUsed: planned.providerUsed,
+        resultsByQuery: planned.resultsByQuery,
+        model: planned.plan.model,
       });
     }
 
@@ -354,4 +401,9 @@ function truncateJson(obj: unknown, maxLen = 2000): object | null {
   } catch {
     return null;
   }
+}
+
+function parseStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
 }

@@ -59,6 +59,10 @@ const MIGRATIONS = [
   "0066_deepseek_rename_lite_to_flash.sql",
   "0067_ml_vertex_metadata.sql",
   "0068_ml_rebuild_phase1_defaults.sql",
+  "0071_match_pair_resolution_source.sql",
+  "0072_ml_prediction_audit.sql",
+  "0073_dedup_ml_prediction_audit.sql",
+  "0074_ml_learning_observatory.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -377,6 +381,70 @@ async function main() {
       what: "ai_provider_config: deepseek-lite row removed",
       sql: `SELECT count(*)::int AS n FROM ai_provider_config WHERE name = 'deepseek-lite'`,
       expect: 0,
+    },
+    {
+      what: "match_pairs.resolution_source column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'match_pairs'
+                AND column_name = 'resolution_source'`,
+      expect: 1,
+    },
+    {
+      what: "ml_prediction_audit table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'ml_prediction_audit'`,
+      expect: 1,
+    },
+    {
+      what: "ml_prediction_audit.prediction_key unique index",
+      sql: `SELECT count(*)::int AS n FROM pg_indexes
+              WHERE tablename = 'ml_prediction_audit'
+                AND indexname = 'ml_prediction_audit_prediction_key_unique'`,
+      expect: 1,
+    },
+    {
+      what: "ml_prediction_audit.bet_id unique index",
+      sql: `SELECT count(*)::int AS n FROM pg_indexes
+              WHERE tablename = 'ml_prediction_audit'
+                AND indexname = 'ml_prediction_audit_bet_unique'`,
+      expect: 1,
+    },
+    {
+      what: "ml_prediction_audit duplicate bet_id rows removed",
+      sql: `SELECT count(*)::int AS n
+              FROM (
+                SELECT bet_id
+                FROM ml_prediction_audit
+                GROUP BY bet_id
+                HAVING count(*) > 1
+              ) dupes`,
+      expect: 0,
+    },
+    {
+      what: "ml_learning_snapshots table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'ml_learning_snapshots'`,
+      expect: 1,
+    },
+    {
+      what: "ml_learning_explanations table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'ml_learning_explanations'`,
+      expect: 1,
+    },
+    {
+      what: "ml_learning_snapshots.snapshot_hash unique index",
+      sql: `SELECT count(*)::int AS n FROM pg_indexes
+              WHERE tablename = 'ml_learning_snapshots'
+                AND indexname = 'ml_learning_snapshots_snapshot_hash_unique'`,
+      expect: 1,
+    },
+    {
+      what: "ml_learning_explanations unique cache index",
+      sql: `SELECT count(*)::int AS n FROM pg_indexes
+              WHERE tablename = 'ml_learning_explanations'
+                AND indexname = 'ml_learning_explanations_unique'`,
+      expect: 1,
     },
   ];
   let failures = 0;

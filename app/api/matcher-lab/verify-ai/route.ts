@@ -1,13 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getById } from "@/lib/db/repositories/match-pairs";
 import { matchSingle } from "@/lib/matching/ai-search-client";
+import {
+  clearAiVerificationJob,
+  getAiVerificationJob,
+  startAiVerificationJob,
+} from "@/lib/matching/matcher-lab-ai-verification-jobs";
 import { logger } from "@/lib/shared/logger";
 
 const tag = "MatcherVerifyAi";
 
+export async function GET(request: NextRequest) {
+  const url = new URL(request.url);
+  const job = getAiVerificationJob(url.searchParams.get("jobId"));
+  return NextResponse.json({ job });
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { id, engine } = await request.json();
+    const body = await request.json();
+    const { id, engine, action } = body;
+
+    if (action === "start-bulk") {
+      const pairIds = Array.isArray(body.pairIds)
+        ? body.pairIds.filter((value: unknown): value is string => {
+            return typeof value === "string" && value.length > 0;
+          })
+        : [];
+
+      if (pairIds.length === 0) {
+        return NextResponse.json(
+          { error: "pairIds[] is required" },
+          { status: 400 },
+        );
+      }
+
+      if (engine && engine !== "ai-search" && engine !== "deepseek") {
+        return NextResponse.json(
+          { error: "Event matching uses DeepSeek Flash only" },
+          { status: 400 },
+        );
+      }
+
+      const result = startAiVerificationJob({
+        pairIds,
+        engine: "ai-search",
+        model: "flash",
+      });
+
+      return NextResponse.json(result, { status: result.reused ? 200 : 202 });
+    }
 
     if (!id || typeof id !== "string") {
       return NextResponse.json(
@@ -85,4 +127,16 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+export async function DELETE(request: NextRequest) {
+  const url = new URL(request.url);
+  const cleared = clearAiVerificationJob(url.searchParams.get("jobId"));
+  if (!cleared) {
+    return NextResponse.json(
+      { error: "Cannot clear a running AI verification job" },
+      { status: 409 },
+    );
+  }
+  return NextResponse.json({ success: true });
 }

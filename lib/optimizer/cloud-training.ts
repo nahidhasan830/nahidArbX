@@ -29,6 +29,10 @@ import {
   progressMessageFromCloudTrainLog,
   writeCloudTrainingProgress,
 } from "@/lib/optimizer/cloud-training-progress";
+import {
+  markTrainingRunFailed,
+  TRAINING_INTERRUPTED_REASON_PREFIX,
+} from "@/lib/optimizer/training-watchdog";
 
 const tag = "MLCloudTrain";
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -173,6 +177,7 @@ export async function triggerCloudTraining(
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
+  let terminalMarked = false;
 
   child.stdout.on("data", (chunk: Buffer) => {
     for (const line of chunk.toString().split("\n")) {
@@ -214,30 +219,82 @@ export async function triggerCloudTraining(
     );
   }, HEARTBEAT_INTERVAL_MS);
 
+  const shutdownSignals = ["SIGTERM", "SIGINT", "SIGHUP"] as const;
+  const shutdownHandlers = new Map<
+    (typeof shutdownSignals)[number],
+    () => void
+  >();
+
+  const removeShutdownHandlers = () => {
+    for (const [signal, handler] of shutdownHandlers) {
+      process.off(signal, handler);
+    }
+    shutdownHandlers.clear();
+  };
+
+  const killChildGroup = (signal: NodeJS.Signals) => {
+    if (!child.pid) return;
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      try {
+        child.kill(signal);
+      } catch {
+        /* best effort */
+      }
+    }
+  };
+
+  const markInterrupted = (signal: NodeJS.Signals) => {
+    if (terminalMarked) return;
+    terminalMarked = true;
+    clearInterval(heartbeat);
+    removeShutdownHandlers();
+    killChildGroup(signal);
+    const reason =
+      `${TRAINING_INTERRUPTED_REASON_PREFIX} (${signal}) before the training ` +
+      "pipeline wrote a terminal status.";
+    void markTrainingRunFailed(modelId, reason, {
+      trainingSamples: accounting.trainerExpectedSamples,
+    }).catch((err) => {
+      logger.warn(
+        tag,
+        `Failed to mark interrupted training run failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  };
+
+  for (const signal of shutdownSignals) {
+    const handler = () => markInterrupted(signal);
+    shutdownHandlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+
+  child.on("error", (err) => {
+    if (terminalMarked) return;
+    terminalMarked = true;
+    clearInterval(heartbeat);
+    removeShutdownHandlers();
+    const reason = `Cloud Build + Run pipeline failed to spawn: ${err.message}`;
+    logger.warn(tag, reason);
+    void markTrainingRunFailed(modelId, reason, {
+      trainingSamples: accounting.trainerExpectedSamples,
+    });
+  });
+
   // ── 7. Mark row failed on non-zero exit ──────────────────────────────
   child.on("exit", async (code) => {
+    if (terminalMarked) return;
+    terminalMarked = true;
     clearInterval(heartbeat);
+    removeShutdownHandlers();
     if (code !== 0 && code !== null) {
       logger.warn(tag, `Pipeline exited with code ${code}`);
       try {
-        const { db: d } = await import("@/lib/db/client");
-        const { mlModels: m } = await import("@/lib/db/schema");
-        const { eq: eqOp } = await import("drizzle-orm");
-        await d
-          .update(m)
-          .set({
-            status: "failed",
-            trainingSamples: accounting.trainerExpectedSamples,
-            rejectionReasons: [
-              `Cloud Build + Run pipeline failed (exit code ${code})`,
-            ],
-            trainingStage: "failed",
-            progressMessage: `Cloud Build + Run pipeline failed (exit code ${code})`,
-            lastHeartbeatAt: new Date().toISOString(),
-            estimatedTimeRemainingMs: 0,
-            trainingCompletedAt: new Date().toISOString(),
-          })
-          .where(eqOp(m.id, modelId));
+        const reason = `Cloud Build + Run pipeline failed (exit code ${code})`;
+        await markTrainingRunFailed(modelId, reason, {
+          trainingSamples: accounting.trainerExpectedSamples,
+        });
       } catch {
         /* best effort */
       }

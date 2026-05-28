@@ -344,45 +344,42 @@ export function BetsHistoryTable({
         header: () => (
           <StaticHeader
             label="Event"
-            hint="The sporting event — home team vs away team, plus competition."
+            hint="The sporting event: home team vs away team. Hover for league and kickoff."
           />
         ),
         accessorFn: (row) => `${row.homeTeam} vs ${row.awayTeam}`,
         cell: ({ row }) => {
           const r = row.original;
           return (
-            <div className="max-w-[380px] flex items-center gap-1.5 min-w-0">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="font-medium truncate cursor-default">
-                    {r.homeTeam}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{r.homeTeam}</TooltipContent>
-              </Tooltip>
-              <span className="text-muted-foreground shrink-0">vs</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="font-medium truncate cursor-default">
-                    {r.awayTeam}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{r.awayTeam}</TooltipContent>
-              </Tooltip>
-              {r.competition && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="text-muted-foreground/70 text-[10px] truncate shrink min-w-0 cursor-default">
-                      · {r.competition}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="max-w-[300px] flex items-center gap-1.5 min-w-0 cursor-default">
+                  <span className="font-medium truncate">{r.homeTeam}</span>
+                  <span className="text-muted-foreground shrink-0">vs</span>
+                  <span className="font-medium truncate">{r.awayTeam}</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[320px] p-2.5">
+                <div className="space-y-1 text-xs">
+                  <p className="font-medium">
+                    {r.homeTeam} vs {r.awayTeam}
+                  </p>
+                  <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-muted-foreground">
+                    <span>League</span>
+                    <span className="text-foreground">
+                      {r.competition || "Unknown"}
                     </span>
-                  </TooltipTrigger>
-                  <TooltipContent>{r.competition}</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+                    <span>Kickoff</span>
+                    <span className="text-foreground">
+                      {fmtDateTime(r.eventStartTime)}
+                    </span>
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
           );
         },
-        meta: { initialSize: 320 },
+        meta: { initialSize: 260 },
       },
       {
         id: "market",

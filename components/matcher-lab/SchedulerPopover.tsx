@@ -14,6 +14,11 @@ import {
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { updateScheduler, fetchStats } from "./api";
 import type { MlSchedulerStats, MlRunHistoryEntry } from "./types";
@@ -58,6 +63,14 @@ const STATUS_BADGE: Record<
   already_running: {
     label: "Busy",
     className: "border-amber-700/40 text-amber-400",
+  },
+  disabled: {
+    label: "Off",
+    className: "border-zinc-700/40 text-zinc-500",
+  },
+  service_error: {
+    label: "Error",
+    className: "border-red-700/40 text-red-400",
   },
 };
 
@@ -137,22 +150,28 @@ export function SchedulerPopover({
 
   return (
     <Popover onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>
-        <Button
-          size="icon"
-          variant="ghost"
-          className={cn(
-            "size-7 relative",
-            mlStats?.active && "text-emerald-400",
-          )}
-          title="Configure the ML scheduler — interval, AI Search escalation, and processing log."
-        >
-          <Clock className="size-3.5" />
-          {mlStats?.active && (
-            <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400" />
-          )}
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className={cn(
+                "size-7 relative",
+                mlStats?.active && "text-emerald-400",
+              )}
+            >
+              <Clock className="size-3.5" />
+              {mlStats?.active && (
+                <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-emerald-400" />
+              )}
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[280px]">
+          Configure the ML scheduler, AI Search escalation, and processing log.
+        </TooltipContent>
+      </Tooltip>
 
       <PopoverContent
         align="end"
@@ -288,7 +307,7 @@ export function SchedulerPopover({
                         </span>
                         {entry.aiSearchAttempted > 0 && (
                           <span className="text-cyan-400 tabular-nums">
-                            🔍 {entry.aiSearchMerged}m/{entry.aiSearchRejected}r
+                            AI {entry.aiSearchMerged}m/{entry.aiSearchRejected}r
                             of {entry.aiSearchAttempted}
                           </span>
                         )}

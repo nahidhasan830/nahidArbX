@@ -169,6 +169,19 @@ describe("ML operations verification", () => {
       expect(registrySource).toContain('os.getenv("GCP_REGION")');
     });
 
+    it("Vertex AI labels are static metadata, not decimal metrics", () => {
+      const registrySource = readRepoFile(
+        "services/optimizer/app/vertex_registry.py",
+      );
+
+      expect(registrySource).toContain("def _vertex_labels");
+      expect(registrySource).toContain('app="nahidarbx"');
+      expect(registrySource).not.toContain('"auc_roc"');
+      expect(registrySource).not.toContain('"dsr"');
+      expect(registrySource).not.toContain("metrics.auc_roc:.4f");
+      expect(registrySource).not.toContain("metrics.dsr:.4f");
+    });
+
     it("cloud training placeholders are fingerprinted with trainer sample count", () => {
       const triggerSource = readRepoFile("lib/optimizer/cloud-training.ts");
       const jobSource = readRepoFile("services/optimizer/app/job.py");

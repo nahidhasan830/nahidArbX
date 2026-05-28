@@ -86,6 +86,29 @@ export function stripMarketScopeText(label: string): string {
     .trim();
 }
 
+function parseLineValue(value: number | string | null | undefined): number | null {
+  if (value == null || value === "") return null;
+  const parsed =
+    typeof value === "number" ? value : Number.parseFloat(String(value).trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function marketTextAlreadyHasLine(
+  marketText: string,
+  familyLine: number | string | null | undefined,
+): boolean {
+  const line = parseLineValue(familyLine);
+  if (line == null) return false;
+
+  const trailingLine = marketText
+    .trim()
+    .match(/(?:^|\s)([+-]?\d+(?:\.\d+)?)$/);
+  if (!trailingLine) return false;
+
+  const existingLine = parseLineValue(trailingLine[1]);
+  return existingLine != null && Math.abs(existingLine - line) < 1e-9;
+}
+
 export function formatScopedMarketText({
   marketType,
   marketLabel,
@@ -104,7 +127,12 @@ export function formatScopedMarketText({
     : marketType
       ? formatMarketType(marketType)
       : "Market";
-  const line = familyLine != null && familyLine !== "" ? ` ${familyLine}` : "";
+  const line =
+    familyLine != null &&
+    familyLine !== "" &&
+    !marketTextAlreadyHasLine(base, familyLine)
+      ? ` ${familyLine}`
+      : "";
   const selectionLabel = selection
     ? formatSelection
       ? formatAtomLabel(selection)

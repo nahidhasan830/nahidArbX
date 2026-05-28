@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -36,6 +37,22 @@ log = logging.getLogger(__name__)
 DEFAULT_SERVING_IMAGE = (
     "asia-south1-docker.pkg.dev/nahidarbx-6e73/optimizer/nahidarbx-optimizer:latest"
 )
+PREDICTION_ENDPOINT_DISPLAY_NAME = "nahidarbx-lightgbm-endpoint"
+_VERTEX_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
+
+def _vertex_labels(**labels: str | int) -> dict[str, str]:
+    """Build Vertex labels and fail locally before the API rejects them."""
+    if len(labels) > 64:
+        raise ValueError("Vertex AI allows at most 64 labels per resource")
+
+    normalized = {str(k): str(v).lower() for k, v in labels.items()}
+    for key, value in normalized.items():
+        if not _VERTEX_LABEL_RE.fullmatch(key):
+            raise ValueError(f"Invalid Vertex AI label key: {key}")
+        if value and not _VERTEX_LABEL_RE.fullmatch(value):
+            raise ValueError(f"Invalid Vertex AI label value for {key}: {value}")
+    return normalized
 
 
 def get_model_bucket() -> str:
@@ -116,12 +133,11 @@ def register_model_in_vertex(
         serving_container_predict_route="/predict",
         serving_container_health_route="/health",
         serving_container_ports=[8080],
-        labels={
-            "version": str(version),
-            "framework": "lightgbm",
-            "auc_roc": f"{metrics.auc_roc:.4f}",
-            "dsr": f"{metrics.dsr:.4f}",
-        },
+        labels=_vertex_labels(
+            app="nahidarbx",
+            version=version,
+            framework="lightgbm",
+        ),
     )
 
     log.info(f"Registered model: {model.resource_name}")
@@ -149,11 +165,11 @@ def register_onnx_in_vertex(
         serving_container_predict_route="/predict",
         serving_container_health_route="/health",
         serving_container_ports=[8080],
-        labels={
-            "version": str(version),
-            "framework": "lightgbm",
-            "app": "nahidarbx",
-        },
+        labels=_vertex_labels(
+            app="nahidarbx",
+            version=version,
+            framework="lightgbm",
+        ),
     )
     log.info(f"Registered model: {model.resource_name}")
     return model.resource_name
@@ -166,7 +182,8 @@ def deploy_to_endpoint(
     """Deploy model to Vertex AI Prediction endpoint.
 
     If VERTEX_PREDICTION_ENDPOINT is set, deploys to that endpoint.
-    Otherwise, creates a new endpoint.
+    Otherwise, reuses the shared endpoint named
+    ``nahidarbx-lightgbm-endpoint`` or creates it once.
 
     Returns the endpoint resource name.
     """
@@ -175,32 +192,39 @@ def deploy_to_endpoint(
 
     aiplatform.init(project=project, location=region)
 
-    endpoint_id = os.getenv("VERTEX_PREDICTION_ENDPOINT")
-
-    if endpoint_id:
-        # Deploy to existing endpoint
-        endpoint = aiplatform.Endpoint(_normalize_endpoint_name(endpoint_id))
-        log.info(f"Deploying to existing endpoint: {endpoint.resource_name}")
-    else:
-        # Create new endpoint
-        endpoint = aiplatform.Endpoint.create(
-            display_name="nahidarbx-lightgbm-endpoint",
-            labels={"app": "nahidarbx", "purpose": "bet-scoring"},
-        )
-        log.info(f"Created new endpoint: {endpoint.resource_name}")
+    endpoint = _resolve_prediction_endpoint(project, region)
 
     # Get the model
     model = aiplatform.Model(model_resource_name)
+    deployed_model_display_name = f"lightgbm-v{version}"
+    before_deployed_ids = _deployed_model_ids(endpoint)
 
-    # Deploy with minimal resources (can scale up later)
-    model.deploy(
+    # Deploy with one serving replica. The project has an 8-vCPU Vertex custom
+    # serving quota in asia-south1; keeping max_replica_count at 1 prevents
+    # accepted models from reserving excess quota during rollout.
+    deployed_endpoint = model.deploy(
         endpoint=endpoint,
-        deployed_model_display_name=f"lightgbm-v{version}",
+        deployed_model_display_name=deployed_model_display_name,
         machine_type="n1-standard-2",
         min_replica_count=1,
-        max_replica_count=3,
+        max_replica_count=1,
         traffic_percentage=100,  # Route 100% traffic to this version
     )
+    endpoint = deployed_endpoint or endpoint
+
+    keep_deployed_model_id = _find_deployed_model_id(
+        endpoint,
+        deployed_model_display_name,
+        exclude_ids=before_deployed_ids,
+    )
+    if keep_deployed_model_id:
+        _undeploy_other_models(endpoint, keep_deployed_model_id)
+    else:
+        log.warning(
+            "Could not resolve deployed model id for %s; leaving existing "
+            "endpoint deployments untouched",
+            deployed_model_display_name,
+        )
 
     log.info(f"Deployed model v{version} to endpoint")
     return endpoint.resource_name
@@ -216,6 +240,119 @@ def _normalize_endpoint_name(endpoint: str) -> str:
     return (
         f"projects/{get_project_id()}/locations/{get_region()}/endpoints/{endpoint}"
     )
+
+
+def _resolve_prediction_endpoint(project: str, region: str):
+    """Resolve the shared Vertex prediction endpoint, creating it only once."""
+    endpoint_id = os.getenv("VERTEX_PREDICTION_ENDPOINT")
+    if endpoint_id:
+        endpoint = aiplatform.Endpoint(_normalize_endpoint_name(endpoint_id))
+        log.info(f"Deploying to configured endpoint: {endpoint.resource_name}")
+        return endpoint
+
+    endpoint = _find_shared_prediction_endpoint(project, region)
+    if endpoint:
+        log.info(f"Reusing shared endpoint: {endpoint.resource_name}")
+        return endpoint
+
+    endpoint = aiplatform.Endpoint.create(
+        display_name=PREDICTION_ENDPOINT_DISPLAY_NAME,
+        labels=_vertex_labels(app="nahidarbx", purpose="bet-scoring"),
+    )
+    log.info(f"Created shared endpoint: {endpoint.resource_name}")
+    return endpoint
+
+
+def _find_shared_prediction_endpoint(project: str, region: str):
+    endpoints = aiplatform.Endpoint.list(
+        filter=f'display_name="{PREDICTION_ENDPOINT_DISPLAY_NAME}"',
+        order_by="create_time desc",
+        project=project,
+        location=region,
+    )
+    if not endpoints:
+        return None
+
+    # Prefer the endpoint already serving traffic. Failed deployments can leave
+    # empty endpoints behind; selecting an active one avoids endpoint sprawl.
+    for endpoint in endpoints:
+        if _deployed_model_ids(endpoint):
+            return endpoint
+    return endpoints[0]
+
+
+def _deployed_model_ids(endpoint) -> set[str]:
+    ids: set[str] = set()
+    try:
+        deployed_models = endpoint.list_models()
+    except Exception as exc:
+        log.warning(
+            "Could not list deployed models for endpoint %s: %s",
+            getattr(endpoint, "resource_name", "<unknown>"),
+            exc,
+        )
+        return ids
+
+    for deployed_model in deployed_models:
+        deployed_id = getattr(deployed_model, "id", None)
+        if deployed_id:
+            ids.add(str(deployed_id))
+    return ids
+
+
+def _find_deployed_model_id(
+    endpoint,
+    display_name: str,
+    *,
+    exclude_ids: set[str],
+) -> str | None:
+    try:
+        deployed_models = endpoint.list_models()
+    except Exception as exc:
+        log.warning(
+            "Could not list deployed models after deployment for endpoint %s: %s",
+            getattr(endpoint, "resource_name", "<unknown>"),
+            exc,
+        )
+        return None
+
+    fallback_id = None
+    for deployed_model in deployed_models:
+        deployed_id = getattr(deployed_model, "id", None)
+        if not deployed_id:
+            continue
+        deployed_id = str(deployed_id)
+        if getattr(deployed_model, "display_name", None) == display_name:
+            if deployed_id not in exclude_ids:
+                return deployed_id
+            fallback_id = deployed_id
+    return fallback_id
+
+
+def _undeploy_other_models(endpoint, keep_deployed_model_id: str) -> None:
+    try:
+        deployed_models = endpoint.list_models()
+    except Exception as exc:
+        log.warning(
+            "Could not list stale deployed models for endpoint %s: %s",
+            getattr(endpoint, "resource_name", "<unknown>"),
+            exc,
+        )
+        return
+
+    for deployed_model in deployed_models:
+        deployed_id = getattr(deployed_model, "id", None)
+        if not deployed_id:
+            continue
+        deployed_id = str(deployed_id)
+        if deployed_id == keep_deployed_model_id:
+            continue
+        log.info(
+            "Undeploying stale Vertex deployed model %s from endpoint %s",
+            deployed_id,
+            getattr(endpoint, "resource_name", "<unknown>"),
+        )
+        endpoint.undeploy(deployed_model_id=deployed_id, sync=True)
 
 
 def export_and_register_vertex(

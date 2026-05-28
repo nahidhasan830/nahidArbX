@@ -54,6 +54,7 @@ export const ML_FEATURE_COUNT = 22; // Dimensionality of feature vector (removed
 export const ML_FEATURE_VERSION = 1; // Contract version for persisted ML feature vectors after the clean rebuild reset
 export const ML_WARMUP_MIN_TICKS = 3; // Min sharp-provider ticks before trusting history-dependent features
 export const ML_RETRAIN_GROWTH_STEP = 200; // Auto-retrain after this many new training examples since the last deployed model. Aligned with ML_COLD_START_THRESHOLD so retrain cadence matches the minimum-viable training step.
+export const ML_TRAINING_STALE_TIMEOUT_MS = 45 * 60 * 1000; // Mark training placeholders failed when no launcher/job heartbeat lands for 45 minutes.
 
 // Vertex AI Search — allowed domains (Google limit: 50 domains)
 export const VERTEX_AI_ALLOWED_DOMAINS = [

@@ -37,6 +37,7 @@ import {
   teamVariantTag,
 } from "./normalize";
 import { autoResolve } from "./auto-resolve";
+import { getProviderObservationWeight } from "../../providers/registry";
 
 const tag = "EntityObs";
 
@@ -46,12 +47,6 @@ const tag = "EntityObs";
 // sharp benchmark; settle observations get a high weight because they
 // piggy-back on score-source matches (a stronger truth signal than mere
 // "two providers had the same fixture at the same minute").
-const PROVIDER_WEIGHT: Record<string, number> = {
-  pinnacle: 3,
-  "ninewickets-exchange": 2,
-  "ninewickets-sportsbook": 2,
-  betconstruct: 1,
-};
 const SOURCE_WEIGHT_MULTIPLIER: Record<ObservationSource, number> = {
   "match-review": 4, // operator confirm = high trust
   learner: 2,
@@ -60,7 +55,7 @@ const SOURCE_WEIGHT_MULTIPLIER: Record<ObservationSource, number> = {
 };
 
 function providerWeight(provider: string): number {
-  return PROVIDER_WEIGHT[provider] ?? 1;
+  return getProviderObservationWeight(provider);
 }
 
 // ─── Public API ────────────────────────────────────────────────────────

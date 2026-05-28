@@ -47,6 +47,9 @@ class MatcherConfig:
     xe_escalation_high: float = 0.89
     xe_merge_threshold: float = 0.9
     xe_pvalue_threshold: float = 0.05
+    ai_search_enabled: bool = True
+    ai_search_confidence_threshold: int = 70
+    ai_search_max_batch_size: int = 20
 
 
 def read_config() -> MatcherConfig:
@@ -70,6 +73,9 @@ def read_config() -> MatcherConfig:
             xe_escalation_high=row["xe_escalation_high"],
             xe_merge_threshold=row["xe_merge_threshold"],
             xe_pvalue_threshold=row["xe_pvalue_threshold"],
+            ai_search_enabled=row["ai_search_enabled"],
+            ai_search_confidence_threshold=row["ai_search_confidence_threshold"],
+            ai_search_max_batch_size=row["ai_search_max_batch_size"],
         )
 
 
@@ -104,6 +110,9 @@ def get_scheduler_status() -> dict:
             "team_merge_threshold": config.team_merge_threshold,
             "combined_merge_threshold": config.combined_merge_threshold,
             "xe_escalation_enabled": config.xe_escalation_enabled,
+            "ai_search_enabled": config.ai_search_enabled,
+            "ai_search_confidence_threshold": config.ai_search_confidence_threshold,
+            "ai_search_max_batch_size": config.ai_search_max_batch_size,
         },
     }
 
@@ -297,7 +306,18 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
                     SET status = 'empty', completed_at = now(), duration_ms = 0
                     WHERE id = :id
                 """), {"id": run_id})
-            return {"status": "empty", "processed": 0, "merged": 0, "rejected": 0, "escalated": 0}
+            return {
+                "status": "empty",
+                "processed": 0,
+                "merged": 0,
+                "rejected": 0,
+                "escalated": 0,
+                "runId": run_id,
+                "escalatedPairIds": [],
+                "aiSearchAttempted": 0,
+                "aiSearchMerged": 0,
+                "aiSearchRejected": 0,
+            }
 
         log.info("Processing %d inbox pairs", len(ids))
 
@@ -321,6 +341,7 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
         merged = 0
         rejected = 0
         escalated = 0
+        escalated_ids: list[str] = []
 
         with engine.begin() as conn:
             for r in results:
@@ -363,6 +384,7 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
                             stage = 'history',
                             decision = 'auto-merge',
                             decided_by = :db,
+                            resolution_source = :db,
                             decided_at = now(),
                             decision_reason = :reason,
                             stage_changed_at = now()
@@ -376,6 +398,7 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
                             stage = 'history',
                             decision = 'auto-reject',
                             decided_by = :db,
+                            resolution_source = :db,
                             decided_at = now(),
                             decision_reason = :reason,
                             stage_changed_at = now()
@@ -391,6 +414,7 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
                         WHERE id = :id
                     """), {"id": r.pair_id})
                     escalated += 1
+                    escalated_ids.append(r.pair_id)
 
         duration_ms = int((time.time() - t0) * 1000)
 
@@ -427,6 +451,11 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
             "rejected": rejected,
             "escalated": escalated,
             "durationMs": duration_ms,
+            "runId": run_id,
+            "escalatedPairIds": escalated_ids,
+            "aiSearchAttempted": 0,
+            "aiSearchMerged": 0,
+            "aiSearchRejected": 0,
         }
 
     except Exception as exc:
@@ -454,6 +483,11 @@ def process_batch(trigger: str = "scheduler", pair_ids: Optional[list[str]] = No
             "rejected": 0,
             "escalated": 0,
             "error": str(exc),
+            "runId": run_id,
+            "escalatedPairIds": [],
+            "aiSearchAttempted": 0,
+            "aiSearchMerged": 0,
+            "aiSearchRejected": 0,
         }
     finally:
         _state.processing = False

@@ -46,9 +46,6 @@ export const rung05ColdStart: RungDefinition = {
     },
   ],
   evidence: {
-    assertion:
-      "dataCollection.qualifiedForTraining ≥ dataCollection.coldStartThreshold",
-    sourceFile: "lib/ml/training-sample-accounting.ts:160",
-    why: "Below 200 the trainer rejects every run with `Cold start: N samples, need 200` and writes a `failed` row to ml_models.",
+    why: "Below the cold-start threshold, training runs are rejected before they can produce a usable model.",
   },
 };

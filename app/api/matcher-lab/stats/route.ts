@@ -7,7 +7,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getStageCounts } from "@/lib/db/repositories/match-pairs";
+import {
+  getResolutionSourceStats,
+  getStageCounts,
+} from "@/lib/db/repositories/match-pairs";
 import { db } from "@/lib/db/client";
 import { matcherConfig, matcherRuns } from "@/lib/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
@@ -21,9 +24,16 @@ export async function GET(request: NextRequest) {
       50,
     );
 
-    const [stageCounts, configRows, runs, totalProcessedResult] =
+    const [
+      stageCounts,
+      resolutionSources,
+      configRows,
+      runs,
+      totalProcessedResult,
+    ] =
       await Promise.all([
         getStageCounts(),
+        getResolutionSourceStats(),
         db.select().from(matcherConfig).where(eq(matcherConfig.id, "default")),
         db
           .select()
@@ -62,12 +72,15 @@ export async function GET(request: NextRequest) {
         | "success"
         | "empty"
         | "service_unreachable"
-        | "already_running",
+        | "already_running"
+        | "disabled"
+        | "service_error",
       trigger: r.trigger as "scheduler" | "manual",
     }));
 
     return NextResponse.json({
       stageCounts,
+      resolutionSources,
       mlStats,
       history,
       historyTotal: history.length,

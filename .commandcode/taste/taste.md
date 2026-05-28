@@ -28,3 +28,19 @@
 # architecture
 
 - For ML dashboard: use panels/ and tabs/ architecture. Preserve AnalysisModal and related analysis components when refactoring; do not delete entire dashboard/ directory blindly. Confidence: 0.80
+
+# timezone
+
+- Remove all manual timezone conversions from the entire application. Data already arrives in the user's timezone, and the browser automatically converts UTC timestamps to local time via new Date(). Do not add UTC offset calculations or timezone libraries for display purposes. Confidence: 0.90
+- Use date-fns for any date manipulation instead of writing custom date calculation code. Confidence: 0.85
+
+# ml-pipeline
+
+- DeepSeek has 1M total context tokens — never limit it. Pass full search grounding results to DeepSeek without truncation. Confidence: 0.85
+- Vertex AI should always be the first-priority provider. Fallback to other providers only when Vertex result confidence is low. Confidence: 0.80
+
+# workflow
+
+- npm run dev:all must start both the Next.js dev server and the engine background process together. Confidence: 0.80
+- Prefer aggressive refactoring: when stale code or files are found during cleanup, delete them entirely rather than preserving them. Confidence: 0.75
+- No database backups needed before destructive operations — clean everything directly. Solo developer workflow on main branch only. Confidence: 0.80

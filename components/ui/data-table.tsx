@@ -73,7 +73,7 @@ import { cn } from "@/lib/utils";
 
 export type DataTableColumnMeta = {
   /** Tooltip shown on header hover. Explain the column's meaning in plain English. */
-  hint?: string;
+  hint?: React.ReactNode;
   /** Cell alignment. `right` auto-adds `tabular-nums` for numeric columns. */
   align?: "left" | "right" | "center";
   /** Pinned to its edge — excluded from drag-reorder. Use for select/actions. */
@@ -280,7 +280,8 @@ function HeaderCellInner<T>({
             </TooltipTrigger>
             <TooltipContent
               side="top"
-              className="max-w-[280px] whitespace-pre-line"
+              sideOffset={8}
+              className="max-w-[320px] rounded-md border-border/80 bg-popover/95 px-3 py-2.5 text-left text-sm leading-snug shadow-lg shadow-black/10 backdrop-blur supports-[backdrop-filter]:bg-popover/90"
             >
               {hint}
             </TooltipContent>

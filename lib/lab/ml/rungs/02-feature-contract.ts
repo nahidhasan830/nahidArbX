@@ -18,7 +18,7 @@ export const rung02FeatureContract: RungDefinition = {
       return {
         status: "pass",
         primary: `${totalCurrent.toLocaleString()} bets`,
-        secondary: `all at v=${fc.currentVersion}, count=${fc.currentFeatureCount}, hash=${fc.currentNamesHash}.`,
+        secondary: "all active feature vectors use the current contract.",
       };
     }
 
@@ -32,8 +32,7 @@ export const rung02FeatureContract: RungDefinition = {
         primary: `${staleCount.toLocaleString()} stale`,
         secondary:
           "older feature contracts present in the bets table — loaders skip them but the dashboard reports it.",
-        action:
-          "Run `scripts/run-ml-residual-cleanup.ts` to drop fv≠1 rows from the bets table.",
+        action: "Rebuild the stale feature vectors before the next training run.",
       };
     }
 
@@ -43,15 +42,13 @@ export const rung02FeatureContract: RungDefinition = {
       secondary:
         "some current-version vectors carry an out-of-range competition tier.",
       action:
-        "Inspect featureContract.semanticChecks; the enrichment cache may be writing tiers outside {1, 2, 3}.",
+        "Refresh competition enrichment and wait for new clean feature vectors.",
     };
   },
   inputs: (d) => {
     const fc = d.featureContract;
     return [
       { label: "currentVersion", value: String(fc.currentVersion) },
-      { label: "currentFeatureCount", value: String(fc.currentFeatureCount) },
-      { label: "currentNamesHash", value: fc.currentNamesHash },
       {
         label: "versionDistribution",
         value: fc.versionDistribution
@@ -83,30 +80,6 @@ export const rung02FeatureContract: RungDefinition = {
     ];
   },
   evidence: {
-    assertion:
-      "featureContract.allVersionsMatch && allLengthsMatch && allSemanticChecksPass",
-    sourceFile: "app/api/ml/pipeline/route.ts:323",
     why: "Mixed feature contracts poison every loader query; the trainer hard-fails before training even starts.",
-    sql: `SELECT
-  ml_feature_version AS version,
-  array_length(ml_features, 1) AS length,
-  count(*)::int AS n
-FROM bets
-WHERE ml_features IS NOT NULL
-GROUP BY version, length;`,
   },
-  actions: [
-    {
-      id: "residual_cleanup_instruction",
-      kind: "instruction",
-      label: "Show cleanup command",
-      description:
-        "Remove residual fv≠1 rows from ml_models, ml_training_examples, and bets.ml_features.",
-      command:
-        "node --import tsx scripts/run-ml-residual-cleanup.ts",
-      visibleWhen: (d) =>
-        !d.featureContract.allVersionsMatch ||
-        !d.featureContract.allLengthsMatch,
-    },
-  ],
 };

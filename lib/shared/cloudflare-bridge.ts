@@ -89,11 +89,11 @@ export interface CloudflareBridgeConfig {
    */
   isHardLoginFailure?: (json: unknown) => boolean;
 
-  /** Game-URL / provider-launch endpoint. */
-  gameUrlEndpoint: string;
+  /** Game-URL / provider-launch endpoint. Omit for login-only captures. */
+  gameUrlEndpoint?: string;
 
-  /** Build the getGameUrl request body. */
-  buildGameUrlBody: () => Record<string, unknown>;
+  /** Build the getGameUrl request body. Required when gameUrlEndpoint is set. */
+  buildGameUrlBody?: () => Record<string, unknown>;
 
   /**
    * Process the getGameUrl response and (optionally) the browser context
@@ -107,7 +107,7 @@ export interface CloudflareBridgeConfig {
    * @param context     The browser context (for providers that need to navigate)
    * @returns The provider-specific result, or null on failure
    */
-  processGameUrlResult: (
+  processGameUrlResult?: (
     json: unknown,
     accessToken: string,
     context: BrowserContext,
@@ -128,6 +128,8 @@ export interface CloudflareBridgeConfig {
 
 export interface CaptureResult {
   accessToken: string;
+  /** Raw login JSON response. Useful when the provider flow also needs refreshToken. */
+  loginResponse?: unknown;
   /** Provider-specific data returned by processGameUrlResult. */
   providerData: unknown;
   /** How many attempts it took (1 = first try). */
@@ -263,6 +265,20 @@ export function createCloudflareBridge(
       }
       stepCompleted(config.browserKey, "login", Date.now() - t0);
 
+      if (!config.gameUrlEndpoint) {
+        return {
+          accessToken,
+          loginResponse: loginResult.json,
+          providerData: { loginResponse: loginResult.json },
+          attempts: 0 /* set by caller */,
+        };
+      }
+      if (!config.buildGameUrlBody || !config.processGameUrlResult) {
+        const msg = `[${config.browserKey}] game-url config is incomplete`;
+        stepFailed(config.browserKey, "game-url", msg);
+        throw new BridgeCaptureError("game-url", msg, true);
+      }
+
       // ── Step 2: getGameUrl via in-page fetch ───────────────────────
       t0 = Date.now();
       const gameResult = await inPagePost(
@@ -294,7 +310,12 @@ export function createCloudflareBridge(
       }
       stepCompleted(config.browserKey, "provider-process", Date.now() - t0);
 
-      return { accessToken, providerData, attempts: 0 /* set by caller */ };
+      return {
+        accessToken,
+        loginResponse: loginResult.json,
+        providerData,
+        attempts: 0 /* set by caller */,
+      };
     } catch (err) {
       // Any capture failure taints the warm browser — reset so the
       // next attempt starts with a clean Chromium process (auto-heal).

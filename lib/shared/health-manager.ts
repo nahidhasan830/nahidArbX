@@ -22,6 +22,7 @@ import {
 } from "./circuit-breaker";
 import { logger } from "./logger";
 import { singleton } from "@/lib/util/singleton";
+import { getDataHealthProviderIds } from "../providers/registry";
 
 // ============================================
 // Types
@@ -150,12 +151,7 @@ export function getSystemHealth(): SystemHealth {
   // Critical components that must be healthy
   const CRITICAL = ["scheduler"];
   // Data providers - need at least one working for the app to be useful
-  const DATA_PROVIDERS = [
-    "betconstruct",
-    "pinnacle",
-    "ninewickets-exchange",
-    "ninewickets-sportsbook",
-  ];
+  const dataProviders = getDataHealthProviderIds();
 
   for (const [id] of hmState.healthProviders) {
     const health = getComponentHealth(id);
@@ -173,7 +169,7 @@ export function getSystemHealth(): SystemHealth {
   });
 
   // Check if at least one data provider works
-  const hasWorkingProvider = DATA_PROVIDERS.some((id) => {
+  const hasWorkingProvider = dataProviders.some((id) => {
     const comp = components[id];
     return comp && comp.status === "healthy";
   });

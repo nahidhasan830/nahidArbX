@@ -33,7 +33,7 @@ export const rung09DeploymentGate: RungDefinition = {
         primary: `v${rejected.version} rejected`,
         secondary: `gate rejected the latest model: ${reason}.`,
         action:
-          "Read the rest of `rejected.reasons` and decide whether to retrain (more data) or relax a gate threshold.",
+          "Review the rejection reasons and decide whether to retrain with more data.",
       };
     }
 
@@ -77,22 +77,18 @@ export const rung09DeploymentGate: RungDefinition = {
     return inputs;
   },
   evidence: {
-    assertion: "training.deployedModel !== null",
-    sourceFile:
-      "services/optimizer/app/deployment_gate.py:evaluate_deployment_gate",
     why: "A deployed model is the threshold that flips the pipeline from 'observing' to 'capable of affecting placement'.",
   },
   actions: [
     {
       id: "rollback_previous",
-      kind: "mutation",
       label: "Roll back to previous deployed version",
       description:
         "Retire the current deployed model and re-deploy the most recent previously-deployed version.",
       intent: "destructive",
       confirm: {
         title: "Roll back deployed model",
-        body: "This retires the current deployed model and re-deploys the most recent previously-deployed version. The Vertex AI scorer picks up the change within ~60s. Reversible by deploying again.",
+        body: "This retires the current deployed model and re-deploys the most recent previously-deployed version. The live scorer usually picks up the change within about a minute.",
         confirmText: "Roll back",
       },
       method: "POST",

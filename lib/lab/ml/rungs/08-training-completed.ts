@@ -31,8 +31,7 @@ export const rung08TrainingCompleted: RungDefinition = {
         status: "fail",
         primary: `v${lastFailed.version} failed`,
         secondary: `latest run rejected: ${reason}.`,
-        action:
-          "Open rung ⑨ and the engine logs to see the deployment-gate verdict in detail.",
+        action: "Review the deployment gate result before starting another run.",
       };
     }
 
@@ -65,13 +64,6 @@ export const rung08TrainingCompleted: RungDefinition = {
     ];
   },
   evidence: {
-    assertion: "modelHistory contains at least one row with status ≠ 'failed'",
-    sourceFile: "app/api/ml/pipeline/route.ts:802",
     why: "If every run fails, the pipeline never produces a model — every downstream rung is stuck.",
-    sql: `SELECT version, status, training_samples, created_at,
-  rejection_reasons::text
-FROM ml_models
-ORDER BY created_at DESC
-LIMIT 10;`,
   },
 };

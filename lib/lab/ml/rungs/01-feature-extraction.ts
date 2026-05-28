@@ -21,7 +21,7 @@ export const rung01FeatureExtraction: RungDefinition = {
         secondary:
           "feature extraction is lagging on a meaningful slice of recent bets.",
         action:
-          "Check engine logs for ReactiveDetector feature errors and confirm both Pinnacle + soft-book sync are healthy.",
+          "Check that the engine and both odds feeds are healthy.",
       };
     }
     return {
@@ -29,8 +29,7 @@ export const rung01FeatureExtraction: RungDefinition = {
       primary: `${rate}%`,
       secondary:
         "most recent bets are missing an ML feature vector — training data is starving.",
-      action:
-        "Engine is probably not running, or the reactive detector is throwing. Start `npm run engine` and inspect logs.",
+      action: "Start or restart the engine, then refresh this page.",
     };
   },
   inputs: (d) => [
@@ -52,14 +51,6 @@ export const rung01FeatureExtraction: RungDefinition = {
     },
   ],
   evidence: {
-    assertion: "dataCollection.recentFeatureRate ≥ 80",
-    sourceFile: "app/api/ml/pipeline/route.ts:289",
     why: "If features stop being attached to bets, the corpus stops growing and every downstream rung quietly drifts.",
-    sql: `SELECT
-  count(*) FILTER (WHERE ml_features IS NOT NULL)::float
-  / nullif(count(*), 0) * 100 AS recent_feature_rate
-FROM (
-  SELECT ml_features FROM bets ORDER BY first_seen_at DESC LIMIT 100
-) recent;`,
   },
 };

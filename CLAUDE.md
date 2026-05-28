@@ -38,7 +38,7 @@ npm run db:generate  # Drizzle codegen
 npm run db:migrate   # Drizzle migrations
 ```
 
-Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used — prefer API/curl over Playwright.\*\*
+Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib/**/*.test.ts`). UI verification is manual. For frontend data issues, call the same API endpoints the client uses with curl/scripts first; browser automation test suites are not part of this repo.
 
 ## Architecture
 
@@ -116,7 +116,7 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 - **Bangladesh geo-restriction.** Engine MUST run from Bangladesh network for NineWickets/Velki. Cloud Run asia-south1 will NOT work.
 - **Cloud Run: Jobs for batch work, Services for HTTP only.** `--no-cpu-throttling` does NOT prevent idle reaping.
 - **Scrape.do proxy is SofaScore-fallback only.** Direct first, proxy on 403 only. Free tier 1k credits/mo.
-- **Post-change: always run `npm run build` + `npm run lint`**. Don't run Playwright E2E.
+- **Post-change: always run `npm run build` + `npm run lint`**.
 - **Always clean dead code and artifacts** (unused scripts, stale imports, temp files) after completing a task.
 
 ## Entity Resolution

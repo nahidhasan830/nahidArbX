@@ -130,10 +130,10 @@ export function engineSSEProxy(): ReadableStream | null {
 /**
  * Check if the engine HTTP API is reachable.
  */
-export async function isEngineReachable(): Promise<boolean> {
+export async function isEngineReachable(timeoutMs = 2_000): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 2_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(`${ENGINE_BASE}/engine/health`, {
       signal: controller.signal,
       cache: "no-store",
@@ -143,4 +143,23 @@ export async function isEngineReachable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function waitForEngineReachable({
+  timeoutMs = 10_000,
+  intervalMs = 500,
+  attemptTimeoutMs = 1_000,
+}: {
+  timeoutMs?: number;
+  intervalMs?: number;
+  attemptTimeoutMs?: number;
+} = {}): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (await isEngineReachable(attemptTimeoutMs)) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  return false;
 }

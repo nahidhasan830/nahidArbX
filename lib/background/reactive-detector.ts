@@ -62,11 +62,14 @@ import {
   cleanupOldMultiScores,
   getMultiScoreCount,
 } from "@/lib/scores/multi-source-store";
+import { pruneMarketLimitsForStaleEvents } from "@/lib/atoms/market-limits-store";
 import { detectAllValueBetsIncremental } from "@/lib/atoms/value-detector";
 import { persistValueBets } from "@/lib/db/repositories/bets";
+import { recordPredictionBatch } from "@/lib/db/repositories/ml-prediction-audit";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { maybeAutoPlace } from "@/lib/betting/auto-placer";
 import {
+  getEvent,
   getMatchedEvents,
   setValueBets,
   getValueBets as storeGetValueBets,
@@ -77,15 +80,28 @@ import { computeDelta } from "@/lib/cache/delta";
 import { syncBus } from "@/lib/events/event-bus";
 import { buildMovementSnapshot } from "@/lib/atoms/odds-history";
 import { extractFeatures, isFeatureWarm } from "@/lib/ml/features";
-import { FEATURE_INDEX } from "@/lib/ml/feature-contract";
-import { scoreBatch, isModelLoaded } from "@/lib/ml/scorer";
-import { computeScoredStake, computeKellyMultiplier } from "@/lib/ml/staker";
+import {
+  FEATURE_COUNT,
+  FEATURE_INDEX,
+  FEATURE_NAMES_HASH,
+  FEATURE_VERSION,
+} from "@/lib/ml/feature-contract";
+import { scoreBatch, isModelLoaded, getScorerStatus } from "@/lib/ml/scorer";
+import {
+  computeScoredStake,
+  computeKellyMultiplier,
+  computeModelEdgePct,
+  computeRawStakeMultiplier,
+} from "@/lib/ml/staker";
+import { classifyDecisionDriver } from "@/lib/ml/decision-reason";
 import {
   getPermissionLevel,
   getPolicyEdgeThresholdPct,
 } from "@/lib/ml/deployment-gate";
 import { isMarketPhaseAllowed } from "@/lib/betting/market-phase";
 import { writeDetectionSnapshot } from "@/lib/ml/training-example-writer";
+import { getFamily } from "@/lib/atoms/registry";
+import { formatAtomLabel } from "@/lib/formatting/labels";
 
 // ============================================
 // State — singleton for HMR safety
@@ -321,9 +337,11 @@ async function runDetectionPass(): Promise<void> {
         const scoresMap = new Map<string, number | null>();
         const kellyMap = new Map<string, number | null>();
         const kellyMultiplierMap = new Map<string, number | null>();
+        const rawMultiplierMap = new Map<string, number | null>();
         try {
           const featureArrays: number[][] = [];
           const betIds: string[] = [];
+          const valueBetById = new Map(valueBets.map((vb) => [vb.id, vb]));
           // Score all warm bets (not just changed — needed for stale
           // score refresh and model-deploy rescore)
           for (const vb of valueBets) {
@@ -343,9 +361,14 @@ async function runDetectionPass(): Promise<void> {
               // Permission-aware staking: computeScoredStake respects
               // the deployment gate level. Returns null when ML should
               // not affect staking (shadow mode or no model).
-              const vb = valueBets.find((b) => b.id === betId);
+              const vb = valueBetById.get(betId);
               if (vb) {
                 const features = featuresMap.get(betId)!;
+                const rawMultiplier =
+                  score == null
+                    ? null
+                    : computeRawStakeMultiplier(score, features);
+                rawMultiplierMap.set(betId, rawMultiplier);
 
                 // Compute the multiplier for actual auto-placement stake sizing
                 const multiplier = computeKellyMultiplier(
@@ -364,6 +387,77 @@ async function runDetectionPass(): Promise<void> {
                 );
                 kellyMap.set(betId, adjusted);
               }
+            }
+
+            const scorerStatus = getScorerStatus();
+            const scoredAt = new Date().toISOString();
+            const auditRows = betIds.flatMap((betId) => {
+              const vb = valueBetById.get(betId);
+              const score = scoresMap.get(betId);
+              const features = featuresMap.get(betId);
+              const event = vb ? getEvent(vb.eventId) : undefined;
+              const family = vb ? getFamily(vb.familyId) : undefined;
+              if (
+                !vb ||
+                score == null ||
+                !Number.isFinite(score) ||
+                !features ||
+                !event ||
+                !family
+              ) {
+                return [];
+              }
+
+              const rawMultiplier =
+                rawMultiplierMap.get(betId) ??
+                computeRawStakeMultiplier(score, features);
+              const modelEdgePct = computeModelEdgePct(score, features);
+              const decision = classifyDecisionDriver(
+                score,
+                features,
+                rawMultiplier,
+              ).decision;
+
+              return [
+                {
+                  scoredAt,
+                  betId,
+                  eventId: vb.eventId,
+                  familyId: vb.familyId,
+                  atomId: vb.atomId,
+                  atomLabel: formatAtomLabel(vb.atomId),
+                  homeTeam: event.homeTeam,
+                  awayTeam: event.awayTeam,
+                  competition: event.competition ?? null,
+                  eventStartTime: event.startTime.toISOString(),
+                  marketType: family.market_type,
+                  timeScope: family.time_scope,
+                  familyLine: family.line ?? null,
+                  softProvider: vb.softProvider,
+                  softOdds: vb.softOdds,
+                  softCommissionPct: vb.commissionPct,
+                  sharpProvider: vb.sharpProvider,
+                  sharpOdds: vb.sharpOdds,
+                  sharpTrueProb: vb.trueProb,
+                  baselineEvPct: vb.evPct,
+                  baselineKellyFraction: vb.kellyFraction,
+                  modelVersion: scorerStatus.modelVersion,
+                  mlScore: score,
+                  modelEdgePct,
+                  kellyMultiplier: rawMultiplier,
+                  mlStakeFraction: kellyMap.get(betId) ?? null,
+                  decision,
+                  permissionLevel,
+                  mlFeatures: features,
+                  mlFeatureVersion: FEATURE_VERSION,
+                  mlFeatureCount: FEATURE_COUNT,
+                  mlFeatureNamesHash: FEATURE_NAMES_HASH,
+                },
+              ];
+            });
+
+            if (auditRows.length > 0) {
+              void recordPredictionBatch(auditRows);
             }
           }
         } catch (err) {
@@ -687,6 +781,9 @@ function runStaleCleanup(): void {
   const prunedScores = cleanupOldScores(3 * 60 * 60 * 1000); // 3h
   const prunedMultiScores = cleanupOldMultiScores(3 * 60 * 60 * 1000); // 3h
 
+  // Prune market limits store — entries from finished events accumulate forever
+  const prunedMarketLimits = pruneMarketLimitsForStaleEvents(activeIds);
+
   // Prune the lastPersisted dedup cache — remove entries for bets
   // that no longer exist in the active value-bet set
   let prunedDedup = 0;
@@ -699,12 +796,12 @@ function runStaleCleanup(): void {
   }
 
   const totalPruned =
-    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedDedup;
+    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedMarketLimits + prunedDedup;
   if (totalPruned > 0) {
     const histStats = getHistoryStats();
     logger.info(
       "ReactiveDetector",
-      `Stale cleanup: odds=${prunedOdds} history=${prunedHistory} scores=${prunedScores} multiScores=${prunedMultiScores} dedup=${prunedDedup} | historyMem≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB`,
+      `Stale cleanup: odds=${prunedOdds} history=${prunedHistory} scores=${prunedScores} multiScores=${prunedMultiScores} marketLimits=${prunedMarketLimits} dedup=${prunedDedup} | historyMem≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB`,
     );
   }
 }

@@ -34,9 +34,10 @@ interface Provider {
 export class SearchRouter {
   private _providers: Provider[] = [];
   private _initialized = false;
+  private _initPromise: Promise<void> | null = null;
 
   constructor() {
-    this._init();
+    this._initPromise = this._init();
   }
 
   private async _init() {
@@ -267,7 +268,8 @@ export class SearchRouter {
 
   private async _ensureInit() {
     if (!this._initialized) {
-      await this._init();
+      this._initPromise ??= this._init();
+      await this._initPromise;
     }
   }
 

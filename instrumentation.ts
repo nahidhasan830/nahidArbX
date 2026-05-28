@@ -31,9 +31,9 @@ export async function register() {
 
   if (hasTgCreds) {
     const { notify } = await import("./lib/notifier");
-    const { isEngineReachable, ENGINE_BASE_URL } =
+    const { waitForEngineReachable, ENGINE_BASE_URL } =
       await import("./lib/engine-proxy");
-    const reachable = await isEngineReachable();
+    const reachable = await waitForEngineReachable();
     // Access Node.js-only globals indirectly to avoid Edge Runtime
     // static-analysis warnings (this code is guarded by NEXT_RUNTIME check above)
     const proc = globalThis.process;
@@ -48,12 +48,13 @@ export async function register() {
       engineReachable: reachable,
     };
 
-    const { isUnifiedBoot, writeBootPayload, collectBootPayloads } =
+    const { isUnifiedBoot, writeBootPayload, waitForBootPayloads } =
       await import("./lib/notifier/unified-boot");
     if (isUnifiedBoot()) {
-      // Write our own payload, then collect all and send one unified notification
+      // Write our own payload, then give the engine process a short window
+      // to publish its ready payload before sending the combined notification.
       writeBootPayload("frontend", frontendPayload);
-      const payloads = collectBootPayloads();
+      const payloads = await waitForBootPayloads(["engine", "frontend"]);
       const engine = payloads.find((p) => p.role === "engine");
       const aiSearch = payloads.find((p) => p.role === "ai-search");
       const frontend = payloads.find((p) => p.role === "frontend");

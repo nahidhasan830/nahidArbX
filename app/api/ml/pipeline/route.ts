@@ -41,7 +41,6 @@ export const revalidate = 0;
 interface DeploymentGateStatus {
   permissionLevel: string;
   policyEdgeThresholdPct: number;
-  policyEdgeThresholdSource?: string;
   modelVersion: number | null;
   canGate: boolean;
   canReduceStake: boolean;
@@ -52,23 +51,29 @@ interface DeploymentGateStatus {
 interface ScorerStatus {
   modelLoaded: boolean;
   modelVersion: number | null;
-  featureCount: number;
-  vertexEndpoint: string | null;
   totalScored: number;
   totalScoringAttempts: number;
   avgInferenceMs: number;
   lastInferenceMs: number;
-  error?: string;
 }
+
+type EngineScorerStatus = ScorerStatus & {
+  featureCount?: number;
+  vertexEndpoint?: string | null;
+  error?: string;
+};
 
 interface SchedulerStatus {
   active: boolean;
   lastTickAt: number | null;
   totalRetrainTriggers: number;
-  lastError: string | null;
   /** Absolute step (in training examples) that triggers an auto-retrain since the last deployed model. */
   retrainStep: number;
 }
+
+type EngineSchedulerStatus = SchedulerStatus & {
+  lastError?: string | null;
+};
 
 const PAPER_SIMPLE_RULE_MIN_EV_PCT = 3;
 const PAPER_SIMPLE_RULE_MARKETS = ["ASIAN_HANDICAP", "MATCH_RESULT"] as const;
@@ -260,9 +265,6 @@ export async function GET() {
           status: mlModels.status,
           modelType: mlModels.modelType,
           trainingSamples: mlModels.trainingSamples,
-          featureCount: mlModels.featureCount,
-          featureVersion: mlModels.featureVersion,
-          featureNamesHash: mlModels.featureNamesHash,
           trainingStartedAt: mlModels.trainingStartedAt,
           trainingCompletedAt: mlModels.trainingCompletedAt,
           trainingStage: mlModels.trainingStage,
@@ -277,10 +279,8 @@ export async function GET() {
           pbo: mlModels.pbo,
           calibrationError: mlModels.calibrationError,
           permissionLevel: mlModels.permissionLevel,
+          featureNamesHash: mlModels.featureNamesHash,
           rejectionReasons: mlModels.rejectionReasons,
-          modelArtifactPath: mlModels.modelArtifactPath,
-          vertexModelName: mlModels.vertexModelName,
-          vertexEndpointName: mlModels.vertexEndpointName,
           deployedAt: mlModels.deployedAt,
           retiredAt: mlModels.retiredAt,
           notifiedAt: mlModels.notifiedAt,
@@ -292,10 +292,10 @@ export async function GET() {
         )
         .orderBy(desc(mlModels.createdAt))
         .limit(50),
-      engineGet<ScorerStatus & { deploymentGate?: DeploymentGateStatus }>(
+      engineGet<EngineScorerStatus & { deploymentGate?: DeploymentGateStatus }>(
         "/engine/ml/status",
       ),
-      engineGet<SchedulerStatus>("/engine/ml/scheduler"),
+      engineGet<EngineSchedulerStatus>("/engine/ml/scheduler"),
     ]);
 
     // ── Recent feature extraction health ─────────────────────────────
@@ -306,7 +306,6 @@ export async function GET() {
         : 0;
 
     // ── Feature contract diagnostics ─────────────────────────────────
-    const currentNamesHash = FEATURE_NAMES_HASH.slice(0, 16);
     const semanticBetsRow =
       (semanticBetsResult.rows[0] as Record<string, unknown> | undefined) ?? {};
     const semanticTrainingRow =
@@ -365,7 +364,6 @@ export async function GET() {
     const featureContract = {
       currentVersion: ML_FEATURE_VERSION,
       currentFeatureCount: ML_FEATURE_COUNT,
-      currentNamesHash,
       versionDistribution: featureVersionRows.map((r) => ({
         version: r.version ?? null,
         count: r.cnt,
@@ -638,7 +636,6 @@ export async function GET() {
       },
       mlMinScore: ML_MIN_SCORE,
       mlModelEdgeThresholdPct: mlPolicyThresholdPct,
-      mlModelEdgeThresholdSource: deployedPolicyThreshold.source,
       metrics: {
         detectedBaseline,
         simpleEvCore,
@@ -667,6 +664,17 @@ export async function GET() {
     // ── Training stats ───────────────────────────────────────────────
     const deployed = allModels.find((m) => m.status === "deployed") ?? null;
     const latest = allModels[0] ?? null;
+    const toModelSummary = (m: (typeof allModels)[number] | null) =>
+      m
+        ? {
+            version: m.version,
+            status: m.status,
+            trainingSamples: m.trainingSamples,
+            permissionLevel: m.permissionLevel,
+            deployedAt: m.deployedAt,
+            createdAt: m.createdAt,
+          }
+        : null;
 
     // Champion/challenger removed — the deployed model is the only "active"
     // model. Validated models stay as candidates; if a new one is validated,
@@ -720,9 +728,10 @@ export async function GET() {
       }));
 
     // Retraining readiness — auto-retrain triggers after
-    // ≥ML_RETRAIN_GROWTH_STEP new training examples since the last
-    // deployed model. `examplesUntilRetrain` lets the UI render a
-    // progress bar against the absolute step.
+    // ≥ML_RETRAIN_GROWTH_STEP new training examples since the last deployed
+    // model, or since the latest rejected/failed run with the current feature
+    // contract. The terminal-run baseline prevents repeated near-identical
+    // auto-retrains after a candidate fails the deployment gate.
     let readyToRetrain = false;
     let newDataSinceLastTrain = 0;
     let examplesUntilRetrain = ML_RETRAIN_GROWTH_STEP;
@@ -731,29 +740,33 @@ export async function GET() {
       modelsInTraining === 0 &&
       totalAvailableSamples >= accounting.coldStartThreshold
     ) {
-      if (!deployed) {
-        readyToRetrain = true;
-        newDataSinceLastTrain = totalAvailableSamples;
-        examplesUntilRetrain = 0;
-      } else {
-        newDataSinceLastTrain = Math.max(
-          0,
-          totalAvailableSamples - deployed.trainingSamples,
-        );
-        examplesUntilRetrain = Math.max(
-          0,
-          ML_RETRAIN_GROWTH_STEP - newDataSinceLastTrain,
-        );
-        readyToRetrain = newDataSinceLastTrain >= ML_RETRAIN_GROWTH_STEP;
-      }
+      const lastTerminalCurrentContract = allModels.find(
+        (m) =>
+          (m.status === "rejected" || m.status === "failed") &&
+          m.featureNamesHash === FEATURE_NAMES_HASH,
+      );
+      const baselineSamples =
+        lastTerminalCurrentContract?.trainingSamples ??
+        deployed?.trainingSamples ??
+        null;
+
+      newDataSinceLastTrain =
+        baselineSamples == null
+          ? totalAvailableSamples
+          : Math.max(0, totalAvailableSamples - baselineSamples);
+      examplesUntilRetrain = Math.max(
+        0,
+        ML_RETRAIN_GROWTH_STEP - newDataSinceLastTrain,
+      );
+      readyToRetrain =
+        baselineSamples == null ||
+        newDataSinceLastTrain >= ML_RETRAIN_GROWTH_STEP;
     }
 
     // ── Inference status (engine proxy) ──────────────────────────────
     let inference: ScorerStatus = {
       modelLoaded: false,
       modelVersion: null,
-      featureCount: 0,
-      vertexEndpoint: deployed?.vertexEndpointName ?? null,
       totalScored: 0,
       totalScoringAttempts: 0,
       avgInferenceMs: 0,
@@ -761,16 +774,18 @@ export async function GET() {
     };
     let deploymentGate: DeploymentGateStatus | null = null;
     if (inferenceResult) {
-      const { deploymentGate: gate, ...scorerFields } = inferenceResult;
+      const {
+        deploymentGate: gate,
+        error: _scorerError,
+        featureCount: _featureCount,
+        vertexEndpoint: _vertexEndpoint,
+        ...scorerFields
+      } = inferenceResult;
       inference = {
         ...inference,
         ...scorerFields,
-        vertexEndpoint:
-          scorerFields.vertexEndpoint ?? deployed?.vertexEndpointName ?? null,
       };
       deploymentGate = gate ?? null;
-    } else {
-      inference.error = "Engine unreachable";
     }
 
     // ── Scheduler status (engine proxy) ──────────────────────────────
@@ -778,12 +793,12 @@ export async function GET() {
       active: false,
       lastTickAt: null,
       totalRetrainTriggers: 0,
-      lastError: null,
       retrainStep: ML_RETRAIN_GROWTH_STEP,
     };
     if (schedulerResult) {
+      const { lastError: _lastError, ...schedulerFields } = schedulerResult;
       scheduler = {
-        ...schedulerResult,
+        ...schedulerFields,
         // Engine may run an older build without retrainStep — fall back
         // to the canonical constant so the UI can still display it.
         retrainStep: schedulerResult.retrainStep ?? ML_RETRAIN_GROWTH_STEP,
@@ -833,8 +848,8 @@ export async function GET() {
       },
       training: {
         totalModels: allModels.length,
-        deployedModel: deployed,
-        latestModel: latest,
+        deployedModel: toModelSummary(deployed),
+        latestModel: toModelSummary(latest),
         modelsInTraining,
         readyToRetrain,
         newDataSinceLastTrain,
@@ -847,7 +862,6 @@ export async function GET() {
       deploymentGate: deploymentGate ?? {
         permissionLevel: "observe",
         policyEdgeThresholdPct: 0,
-        policyEdgeThresholdSource: "no_model",
         modelVersion: null,
         canGate: false,
         canReduceStake: false,
@@ -867,12 +881,6 @@ export async function GET() {
           version: m.version,
           status: m.status,
           trainingSamples: m.trainingSamples,
-          featureCount: m.featureCount,
-          featureVersion: m.featureVersion,
-          featureNamesHash: m.featureNamesHash,
-          modelArtifactPath: m.modelArtifactPath,
-          vertexModelName: m.vertexModelName,
-          vertexEndpointName: m.vertexEndpointName,
           oosAucRoc: m.oosAucRoc != null ? Number(m.oosAucRoc) : null,
           deflatedSharpe:
             m.deflatedSharpe != null ? Number(m.deflatedSharpe) : null,

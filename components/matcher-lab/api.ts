@@ -7,6 +7,10 @@ import type {
   MlProgressEvent,
   StatsResponse,
 } from "./types";
+import type {
+  AiVerificationJobSnapshot,
+  StartAiVerificationJobResponse,
+} from "./types";
 
 async function unwrap<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -152,6 +156,53 @@ export async function verifyAiMatch(
     throw new Error(data.error || "Failed to verify match");
   }
   return data.result;
+}
+
+export async function startAiVerificationJob(
+  pairIds: string[],
+  opts?: {
+    engine?: "ai-search" | "deepseek";
+    model?: "flash";
+  },
+): Promise<StartAiVerificationJobResponse> {
+  const res = await fetch("/api/matcher-lab/verify-ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "start-bulk",
+      pairIds,
+      model: opts?.model,
+      engine: opts?.engine,
+    }),
+  });
+  return unwrap(res);
+}
+
+export async function fetchAiVerificationJob(
+  jobId?: string | null,
+): Promise<AiVerificationJobSnapshot | null> {
+  const params = new URLSearchParams();
+  if (jobId) params.set("jobId", jobId);
+  const qs = params.toString();
+  const data = await unwrap<{ job: AiVerificationJobSnapshot | null }>(
+    await fetch(`/api/matcher-lab/verify-ai${qs ? `?${qs}` : ""}`, {
+      cache: "no-store",
+    }),
+  );
+  return data.job;
+}
+
+export async function clearAiVerificationJob(
+  jobId?: string | null,
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (jobId) params.set("jobId", jobId);
+  const qs = params.toString();
+  await unwrap<{ success: boolean }>(
+    await fetch(`/api/matcher-lab/verify-ai${qs ? `?${qs}` : ""}`, {
+      method: "DELETE",
+    }),
+  );
 }
 
 export async function checkAiSearchHealth(): Promise<{

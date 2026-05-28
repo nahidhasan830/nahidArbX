@@ -29,12 +29,19 @@ import { logger } from "@/lib/shared/logger";
 import { normalizeOutcome, type Outcome } from "@/lib/bets-history/types";
 import { formatAtomLabel } from "@/lib/formatting/labels";
 import { getBettingSettings } from "./betting-settings";
+import { recordPredictionBatch } from "./ml-prediction-audit";
 import {
   FEATURE_COUNT,
   FEATURE_NAMES_HASH,
   FEATURE_VERSION,
 } from "@/lib/ml/feature-contract";
 import { adjustOddsForCommission } from "@/lib/shared/commission";
+import {
+  computeModelEdgePct,
+  computeRawStakeMultiplier,
+} from "@/lib/ml/staker";
+import { classifyDecisionDriver } from "@/lib/ml/decision-reason";
+import { getPermissionLevel } from "@/lib/ml/deployment-gate";
 
 // ─── Type re-exports for backwards compatibility ────────────────────────────────
 
@@ -58,6 +65,95 @@ export type PersistResult = {
 
 const toIso = (d: Date | string | number): string =>
   typeof d === "string" ? d : new Date(d).toISOString();
+
+function computeBaseline(row: BetRow): {
+  evPct: number | null;
+  kellyFraction: number | null;
+} {
+  const adjustedSoftOdds = adjustOddsForCommission(
+    Number(row.softOdds),
+    Number(row.softCommissionPct ?? 0),
+  );
+  const sharpTrueProb = Number(row.sharpTrueProb);
+  if (
+    !Number.isFinite(adjustedSoftOdds) ||
+    adjustedSoftOdds <= 1 ||
+    !Number.isFinite(sharpTrueProb)
+  ) {
+    return { evPct: null, kellyFraction: null };
+  }
+
+  const edge = adjustedSoftOdds * sharpTrueProb - 1;
+  return {
+    evPct: edge * 100,
+    kellyFraction:
+      edge > 0 ? Math.max(0, edge / (adjustedSoftOdds - 1)) : 0,
+  };
+}
+
+async function mirrorPredictionAudit(row: BetRow): Promise<void> {
+  const mlScore = row.mlScore == null ? null : Number(row.mlScore);
+  const features = row.mlFeatures;
+  if (!features || mlScore == null || !Number.isFinite(mlScore)) return;
+  if (
+    row.mlFeatureVersion == null ||
+    row.mlFeatureCount == null ||
+    !row.mlFeatureNamesHash
+  ) {
+    return;
+  }
+
+  const rawMultiplier = computeRawStakeMultiplier(mlScore, features);
+  const modelEdgePct = computeModelEdgePct(mlScore, features);
+  const decision = classifyDecisionDriver(
+    mlScore,
+    features,
+    rawMultiplier,
+  ).decision;
+  const baseline = computeBaseline(row);
+  const { getScorerStatus } = await import("@/lib/ml/scorer");
+
+  await recordPredictionBatch([
+    {
+      scoredAt: row.lastSeenAt,
+      betId: row.id,
+      eventId: row.eventId,
+      familyId: row.familyId,
+      atomId: row.atomId,
+      atomLabel: row.atomLabel,
+      homeTeam: row.homeTeam,
+      awayTeam: row.awayTeam,
+      competition: row.competition,
+      eventStartTime: row.eventStartTime,
+      marketType: row.marketType,
+      timeScope: row.timeScope,
+      familyLine: row.familyLine,
+      softProvider: row.softProvider,
+      softOdds: row.softOdds,
+      softCommissionPct: row.softCommissionPct,
+      sharpProvider: row.sharpProvider,
+      sharpOdds: row.sharpOdds,
+      sharpTrueProb: row.sharpTrueProb,
+      baselineEvPct: baseline.evPct,
+      baselineKellyFraction: baseline.kellyFraction,
+      modelVersion: getScorerStatus().modelVersion,
+      mlScore,
+      modelEdgePct,
+      kellyMultiplier: rawMultiplier,
+      mlStakeFraction: row.mlStakeFraction,
+      decision,
+      permissionLevel: getPermissionLevel(),
+      mlFeatures: features,
+      mlFeatureVersion: row.mlFeatureVersion,
+      mlFeatureCount: row.mlFeatureCount,
+      mlFeatureNamesHash: row.mlFeatureNamesHash,
+      outcome: row.outcome,
+      pnl: row.pnl,
+      clvPct: row.clvPct,
+      settledAt: row.settledAt,
+    },
+  ]);
+}
 
 // ─── Persist (upsert from value detection pipeline) ────────────────────────────
 
@@ -234,6 +330,10 @@ export const persistValueBets = async (
       const row = rows[0];
       if (row?.tickCount === 1) result.inserted++;
       else result.updated++;
+
+      if (row) {
+        void mirrorPredictionAudit(row);
+      }
 
       if (
         hasMlFeatures &&
@@ -739,26 +839,42 @@ export async function updateHistoricalMlFeatures(
     featureVersion: number;
     featureCount: number;
     featureNamesHash: string;
-  }>,
+}>,
 ): Promise<number> {
   if (updates.length === 0) return 0;
 
-  let updated = 0;
-  for (const row of updates) {
-    const result = await db
-      .update(bets)
-      .set({
-        mlFeatures: row.features,
-        mlFeatureVersion: row.featureVersion,
-        mlFeatureCount: row.featureCount,
-        mlFeatureNamesHash: row.featureNamesHash,
-      })
-      .where(eq(bets.id, row.id))
-      .returning({ id: bets.id });
-    updated += result.length;
-  }
+  const payload = JSON.stringify(
+    updates.map((row) => ({
+      id: row.id,
+      features: row.features,
+      feature_version: row.featureVersion,
+      feature_count: row.featureCount,
+      feature_names_hash: row.featureNamesHash,
+    })),
+  );
 
-  return updated;
+  const result = await db.execute(sql`
+    WITH payload AS (
+      SELECT *
+      FROM jsonb_to_recordset(${payload}::jsonb) AS p(
+        id text,
+        features real[],
+        feature_version integer,
+        feature_count integer,
+        feature_names_hash text
+      )
+    )
+    UPDATE ${bets} b
+    SET ml_features = payload.features,
+        ml_feature_version = payload.feature_version,
+        ml_feature_count = payload.feature_count,
+        ml_feature_names_hash = payload.feature_names_hash
+    FROM payload
+    WHERE b.id = payload.id
+    RETURNING b.id
+  `);
+
+  return result.rows.length;
 }
 
 // ─── Outcome / settlement ─────────────────────────────────────────────────────

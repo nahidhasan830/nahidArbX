@@ -23,8 +23,7 @@ export const rung04CorpusCoverage: RungDefinition = {
       primary: `${uncovered.toLocaleString()} uncovered`,
       secondary:
         "qualified settled bets are not yet wired into the training corpus.",
-      action:
-        "Click Reconcile to run `reconcileMissingSettledExamples(500)` immediately, or trigger any retrain.",
+      action: "Click Reconcile now to backfill missing settled examples.",
     };
   },
   inputs: (d) => [
@@ -42,29 +41,14 @@ export const rung04CorpusCoverage: RungDefinition = {
     },
   ],
   evidence: {
-    assertion: "dataCollection.uncoveredQualifiedBets === 0",
-    sourceFile: "lib/ml/training-sample-accounting.ts:88",
     why: "Uncovered settled bets are eligible training data the loader can never see. They inflate qualifiedForTraining without adding to the actual training set.",
-    sql: `SELECT
-  count(*)::int AS uncovered
-FROM bets q
-WHERE q.outcome NOT IN ('pending', 'void')
-  AND q.ml_features IS NOT NULL
-  AND q.ml_feature_version = 1
-  AND NOT EXISTS (
-    SELECT 1 FROM ml_training_examples m
-    WHERE m.source_bet_id = q.id
-      AND m.label IN ('positive', 'negative')
-      AND m.feature_version = 1
-  );`,
   },
   actions: [
     {
       id: "reconcile_now",
-      kind: "mutation",
       label: "Reconcile now",
       description:
-        "Run reconcileMissingSettledExamples(500) — idempotent, safe to retry.",
+        "Backfill missing settled examples. Safe to retry.",
       method: "POST",
       endpoint: "/api/ml/reconcile",
       visibleWhen: (d) => d.dataCollection.uncoveredQualifiedBets > 0,

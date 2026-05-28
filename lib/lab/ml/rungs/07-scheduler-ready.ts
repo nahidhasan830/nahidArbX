@@ -64,18 +64,14 @@ export const rung07SchedulerReady: RungDefinition = {
     },
   ],
   evidence: {
-    assertion:
-      "modelsInTraining > 0 OR readyToRetrain — newDataSinceLastTrain ≥ retrainStep",
-    sourceFile: "lib/optimizer/scheduler.ts:shouldRetrain",
-    why: "This rung tells you whether the corpus has crossed the auto-retrain threshold. When it shows `queued`, the next tick spawns Cloud Build.",
+    why: "This rung tells you whether the corpus has crossed the auto-retrain threshold. When it shows queued, the next tick starts training.",
   },
   actions: [
     {
       id: "retrain_now",
-      kind: "mutation",
       label: "Retrain now",
       description:
-        "Manually trigger a Cloud Build → Cloud Run training job. Reconciles missing examples first.",
+        "Manually trigger a training job. Missing examples are reconciled first.",
       method: "POST",
       endpoint: "/api/ml/retrain",
       visibleWhen: (d) => d.training.modelsInTraining === 0,

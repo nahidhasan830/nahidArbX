@@ -71,9 +71,6 @@ export const rung12BeatsBaseline: RungDefinition = {
     ];
   },
   evidence: {
-    assertion:
-      "paperEvaluation.verdict.enoughMlGateSamples && mlBeatsSimpleRule",
-    sourceFile: "app/api/ml/pipeline/route.ts:574",
-    why: "If the model can't beat a 4-line EV rule, the ML stack is paying its operational cost without earning it.",
+    why: "If the model can't beat the simple EV baseline, the ML stack is paying its operational cost without earning it.",
   },
 };

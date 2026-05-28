@@ -62,3 +62,24 @@ export function marketLimitsStoreSize(): number {
 export function clearMarketLimits(): void {
   store.clear();
 }
+
+/**
+ * Prune market limits for events no longer in the active roster.
+ * Key format: "<provider>|<normalizedEventId>|<atomId>"
+ * The normalizedEventId is the second segment.
+ */
+export function pruneMarketLimitsForStaleEvents(
+  activeEventIds: Set<string>,
+): number {
+  let pruned = 0;
+  for (const key of store.keys()) {
+    const parts = key.split("|");
+    if (parts.length !== 3) continue;
+    const eventId = parts[1];
+    if (!activeEventIds.has(eventId)) {
+      store.delete(key);
+      pruned++;
+    }
+  }
+  return pruned;
+}

@@ -45,18 +45,7 @@ import {
 } from "@/lib/betting/velki/placement-confirmation";
 import type { ProviderKey } from "@/lib/atoms/types";
 import type { ValueBetRow } from "@/lib/bets-history/types";
-
-/**
- * Providers whose "placed" / "pending" book responses must be verified
- * against the provider's bet-history feed before we persist to the DB.
- * Today this is 9W Sportsbook only — see
- * [placement-confirmation.ts](../ninewickets/placement-confirmation.ts)
- * for the rationale and polling protocol.
- */
-const CONFIRMATION_REQUIRED_PROVIDERS = new Set<string>([
-  "ninewickets-sportsbook",
-  "velki-sportsbook",
-]);
+import { providerRequiresPlacementConfirmation } from "@/lib/providers/registry";
 
 export type PlacementOutcome =
   | {
@@ -631,7 +620,7 @@ async function placeBetForValueBetImpl(
     //     drops if the deadline elapses without a match. This makes
     //     the provider's bet-history feed the source of truth instead
     //     of the book's raw placement response.
-    if (CONFIRMATION_REQUIRED_PROVIDERS.has(providerId)) {
+    if (providerRequiresPlacementConfirmation(providerId)) {
       const isVelki = providerId === "velki-sportsbook";
       const placementId = isVelki ? velkiNewPlacementId() : newPlacementId();
       const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");

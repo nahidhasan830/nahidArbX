@@ -55,21 +55,6 @@ export const rung03TierEnrichment: RungDefinition = {
     ];
   },
   evidence: {
-    assertion: "featureContract.recentTierHealth.healthy === true",
-    sourceFile: "app/api/ml/pipeline/route.ts:208",
-    why: "Every loader filter excludes bets whose competition_tier ∉ {1, 2, 3}. A broken enrichment warmer silently shrinks the trainable corpus to zero.",
-    sql: `SELECT
-  count(*) FILTER (
-    WHERE first_seen_at >= now() - interval '24 hours'
-      AND ml_features IS NOT NULL
-      AND ml_features[19] IN (1.0, 2.0, 3.0)
-  )::float
-  / nullif(
-      count(*) FILTER (
-        WHERE first_seen_at >= now() - interval '24 hours'
-          AND ml_features IS NOT NULL
-      ), 0
-    ) * 100 AS valid_tier_pct
-FROM bets;`,
+    why: "Every loader filter excludes bets whose competition tier is invalid. A broken enrichment warmer silently shrinks the trainable corpus to zero.",
   },
 };

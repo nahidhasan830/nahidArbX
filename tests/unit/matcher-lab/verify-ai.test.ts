@@ -5,9 +5,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Wrap mock refs in vi.hoisted so vitest's vi.mock hoisting can access them.
-const { mockGetById, mockMatchSingle, mockLogger } = vi.hoisted(() => ({
+const {
+  mockGetById,
+  mockMatchSingle,
+  mockStartAiVerificationJob,
+  mockGetAiVerificationJob,
+  mockClearAiVerificationJob,
+  mockLogger,
+} = vi.hoisted(() => ({
   mockGetById: vi.fn(),
   mockMatchSingle: vi.fn(),
+  mockStartAiVerificationJob: vi.fn(),
+  mockGetAiVerificationJob: vi.fn(),
+  mockClearAiVerificationJob: vi.fn(),
   mockLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
@@ -19,12 +29,18 @@ vi.mock("@/lib/matching/ai-search-client", () => ({
   matchSingle: mockMatchSingle,
 }));
 
+vi.mock("@/lib/matching/matcher-lab-ai-verification-jobs", () => ({
+  startAiVerificationJob: mockStartAiVerificationJob,
+  getAiVerificationJob: mockGetAiVerificationJob,
+  clearAiVerificationJob: mockClearAiVerificationJob,
+}));
+
 vi.mock("@/lib/shared/logger", () => ({
   logger: mockLogger,
 }));
 
 // ── Test subject (imported AFTER mocks) ──
-import { POST } from "@/app/api/matcher-lab/verify-ai/route";
+import { DELETE, GET, POST } from "@/app/api/matcher-lab/verify-ai/route";
 
 // ── Helpers ────────────
 function jsonBody(obj: unknown): Request {
@@ -66,6 +82,7 @@ function makeVerdict(overrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockClearAiVerificationJob.mockReturnValue(true);
 });
 
 // ── Input Validation ─────────────────────────────────────────────────
@@ -103,6 +120,102 @@ describe("verify-ai: pair lookup", () => {
     expect(res.status).toBe(404);
     const data = await res.json();
     expect(data.error).toBe("Pair not found");
+  });
+});
+
+// ── Persistent Bulk Job ─────────────────────────────────────────────────
+
+describe("verify-ai: persistent bulk job", () => {
+  it("starts a bulk verification job and returns its snapshot", async () => {
+    const job = {
+      id: "ai-verify-1",
+      pairIds: ["pair-001", "pair-002"],
+      status: "running",
+      engine: "ai-search",
+      model: "flash",
+      total: 2,
+      processed: 0,
+      same: 0,
+      different: 0,
+      uncertain: 0,
+      errors: 0,
+      results: [],
+      startedAt: "2026-05-16T15:00:00Z",
+      completedAt: null,
+      error: null,
+    };
+    mockStartAiVerificationJob.mockReturnValueOnce({ job, reused: false });
+
+    const res = await POST(
+      jsonBody({
+        action: "start-bulk",
+        pairIds: ["pair-001", "pair-002", "pair-001"],
+        engine: "ai-search",
+      }),
+    );
+
+    expect(res.status).toBe(202);
+    expect(mockStartAiVerificationJob).toHaveBeenCalledWith({
+      pairIds: ["pair-001", "pair-002", "pair-001"],
+      engine: "ai-search",
+      model: "flash",
+    });
+    const data = await res.json();
+    expect(data.job).toEqual(job);
+    expect(data.reused).toBe(false);
+  });
+
+  it("returns current job status by job id", async () => {
+    mockGetAiVerificationJob.mockReturnValueOnce({ id: "ai-verify-1" });
+
+    const res = await GET(
+      new Request(
+        "http://localhost/api/matcher-lab/verify-ai?jobId=ai-verify-1",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockGetAiVerificationJob).toHaveBeenCalledWith("ai-verify-1");
+    expect(await res.json()).toEqual({ job: { id: "ai-verify-1" } });
+  });
+
+  it("clears a finished bulk verification job", async () => {
+    mockClearAiVerificationJob.mockReturnValueOnce(true);
+
+    const res = await DELETE(
+      new Request(
+        "http://localhost/api/matcher-lab/verify-ai?jobId=ai-verify-1",
+        { method: "DELETE" },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockClearAiVerificationJob).toHaveBeenCalledWith("ai-verify-1");
+    expect(await res.json()).toEqual({ success: true });
+  });
+
+  it("does not clear a running bulk verification job", async () => {
+    mockClearAiVerificationJob.mockReturnValueOnce(false);
+
+    const res = await DELETE(
+      new Request(
+        "http://localhost/api/matcher-lab/verify-ai?jobId=ai-verify-1",
+        { method: "DELETE" },
+      ),
+    );
+
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe("Cannot clear a running AI verification job");
+  });
+
+  it("rejects bulk verification without pair ids", async () => {
+    const res = await POST(jsonBody({ action: "start-bulk", pairIds: [] }));
+
+    expect(res.status).toBe(400);
+    expect(mockStartAiVerificationJob).not.toHaveBeenCalled();
+    const data = await res.json();
+    expect(data.error).toBe("pairIds[] is required");
   });
 });
 

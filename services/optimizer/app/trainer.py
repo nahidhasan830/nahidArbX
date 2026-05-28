@@ -420,9 +420,11 @@ def train(
             kurtosis=kurt_val,
         )
 
-    # PBO — CPCV-paths based, single-config.
+    # PBO needs multiple candidate configs across common validation paths.
+    # Use completed HPO trial paths so the statistic measures search overfit;
+    # if HPO was skipped or too few full trials completed, pbo_score returns 0.
     pbo_val = pbo_score(
-        [cpcv_policy_at_threshold["per_fold_rois"]],
+        hpo_result.per_trial_fold_returns,
         n_subsamples=200,
         seed=42,
     )

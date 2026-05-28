@@ -61,6 +61,7 @@ import { ninewicketsExchangeAdapter } from "./ninewickets-exchange";
 import { ninewicketsSportsbookAdapter } from "./ninewickets-sportsbook";
 import { betconstructAdapter } from "./betconstruct";
 import { velkiSportsbookAdapter } from "./velki-sportsbook";
+import { sabaSportsbookAdapter } from "./saba-sportsbook";
 
 import { PinnacleAtomsAdapter } from "../atoms/adapters/pinnacle";
 import { NineWicketsExchangeAtomsAdapter } from "../atoms/adapters/ninewickets-exchange";
@@ -87,7 +88,7 @@ interface ProviderAdapters {
   atoms?: AtomsProviderAdapter;
 }
 
-const ADAPTERS: Record<ProviderKey, ProviderAdapters> = {
+const ADAPTERS: Partial<Record<ProviderKey, ProviderAdapters>> = {
   pinnacle: {
     events: pinnacleAdapter,
     atoms: pinnacleAtomsAdapter,
@@ -108,6 +109,9 @@ const ADAPTERS: Record<ProviderKey, ProviderAdapters> = {
     events: velkiSportsbookAdapter,
     atoms: velkiSportsbookAtomsAdapter,
   },
+  "saba-sportsbook": {
+    events: sabaSportsbookAdapter,
+  },
 };
 
 // ============================================
@@ -121,7 +125,7 @@ const ADAPTERS: Record<ProviderKey, ProviderAdapters> = {
 export function getEnabledEventAdapters(): ProviderAdapter[] {
   return (Object.keys(PROVIDER_REGISTRY) as ProviderKey[])
     .filter((id) => isProviderRuntimeEnabled(id) && ADAPTERS[id]?.events)
-    .map((id) => ADAPTERS[id].events!);
+    .map((id) => ADAPTERS[id]!.events!);
 }
 
 /**
@@ -142,7 +146,7 @@ export function getEventAdapter(provider: ProviderKey): ProviderAdapter | null {
 export function getEnabledAtomsAdapters(): AtomsProviderAdapter[] {
   return (Object.keys(PROVIDER_REGISTRY) as ProviderKey[])
     .filter((id) => isProviderRuntimeEnabled(id) && ADAPTERS[id]?.atoms)
-    .map((id) => ADAPTERS[id].atoms!);
+    .map((id) => ADAPTERS[id]!.atoms!);
 }
 
 /**

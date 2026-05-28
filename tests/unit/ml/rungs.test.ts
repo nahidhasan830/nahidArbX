@@ -65,8 +65,6 @@ function makePassingData(): PipelineData {
     inference: {
       modelLoaded: true,
       modelVersion: 1,
-      vertexEndpoint:
-        "projects/nahidarbx-6e73/locations/asia-south1/endpoints/123456789",
       totalScoringAttempts: 200,
       totalScored: 200,
       avgInferenceMs: 42,
@@ -75,7 +73,6 @@ function makePassingData(): PipelineData {
       active: true,
       lastTickAt: Date.now() - 30_000,
       totalRetrainTriggers: 1,
-      lastError: null,
       retrainStep: 200,
     },
     deploymentGate: {
@@ -91,7 +88,6 @@ function makePassingData(): PipelineData {
     featureContract: {
       currentVersion: 1,
       currentFeatureCount: 22,
-      currentNamesHash: "d918944abcdef012",
       versionDistribution: [{ version: 1, count: 4821 }],
       lengthDistribution: [{ length: 22, count: 4821 }],
       allVersionsMatch: true,
@@ -186,15 +182,6 @@ function makePassingData(): PipelineData {
         version: 1,
         status: "deployed",
         trainingSamples: 4821,
-        featureCount: 22,
-        featureVersion: 1,
-        featureNamesHash: "d918944abcdef012",
-        modelArtifactPath:
-          "projects/nahidarbx-6e73/locations/asia-south1/models/123",
-        vertexModelName:
-          "projects/nahidarbx-6e73/locations/asia-south1/models/123",
-        vertexEndpointName:
-          "projects/nahidarbx-6e73/locations/asia-south1/endpoints/123456789",
         oosAucRoc: 0.65,
         deflatedSharpe: 0.7,
         pbo: 0,
@@ -364,12 +351,6 @@ describe("ML pipeline ladder rungs", () => {
           version: 0,
           status: "failed",
           trainingSamples: 0,
-          featureCount: 22,
-          featureVersion: 1,
-          featureNamesHash: "d918944abcdef012",
-          modelArtifactPath: null,
-          vertexModelName: null,
-          vertexEndpointName: null,
           oosAucRoc: null,
           deflatedSharpe: null,
           pbo: null,
@@ -490,11 +471,8 @@ describe("ML pipeline ladder rungs", () => {
   });
 
   describe("evidence record completeness", () => {
-    it("every rung's evidence has assertion / sourceFile / why", () => {
+    it("every rung's evidence explains why it matters", () => {
       for (const def of RUNG_REGISTRY) {
-        expect(def.evidence.assertion.length).toBeGreaterThan(0);
-        expect(def.evidence.sourceFile).toMatch(/[a-z]/i);
-        expect(def.evidence.sourceFile).toMatch(/[/.]/);
         expect(def.evidence.why.length).toBeGreaterThan(0);
       }
     });

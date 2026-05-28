@@ -14,6 +14,7 @@ import {
   resolveDetectionSnapshot,
 } from "../ml/training-example-writer";
 import type { BetRow } from "../db/schema";
+import { attachSettlementOutcomes } from "../db/repositories/ml-prediction-audit";
 
 export interface SettlementOutcomeUpdate {
   id: string;
@@ -138,7 +139,7 @@ export async function applySettlementOutcomes(
   if (applied > 0) {
     // Re-fetch rows with updated outcomes for training example creation
     const settledIds = updates
-      .filter((u) => u.outcome !== "pending" && u.outcome !== "void")
+      .filter((u) => u.outcome !== "pending")
       .map((u) => u.id);
     if (settledIds.length > 0) {
       getBetsByIds(settledIds)
@@ -171,7 +172,27 @@ export async function applySettlementOutcomes(
             }
           }
 
-          // 3. Feed drift detector (ADWIN) with settled bet outcomes
+          // 3. Mirror settlement onto ML prediction snapshots for visualization.
+          try {
+            await attachSettlementOutcomes(
+              settledRows
+                .filter((row) => row.outcome !== "pending")
+                .map((row) => ({
+                  betId: row.id,
+                  outcome: row.outcome,
+                  pnl: row.pnl ?? null,
+                  clvPct: row.clvPct ?? null,
+                  settledAt: row.settledAt ?? null,
+                })),
+            );
+          } catch (err) {
+            logger.warn(
+              "SettlementApply",
+              `attachSettlementOutcomes failed: ${(err as Error).message}`,
+            );
+          }
+
+          // 4. Feed drift detector (ADWIN) with settled bet outcomes
           //    This tracks model performance drift and triggers retraining
           try {
             const { observeBet } = await import("../ml/drift-detector");

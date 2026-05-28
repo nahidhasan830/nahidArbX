@@ -15,16 +15,13 @@ const INPUT_LABELS: Record<string, string> = {
   canonicalExamples: "Canonical examples",
   coldStartThreshold: "Cold-start threshold",
   currentFeatureCount: "Feature count",
-  currentNamesHash: "Feature-name hash",
   currentVersion: "Feature version",
   deployedRows: "Deployed rows",
   deployedVersion: "Deployed version",
   detectedBaseline: "Detected baseline",
-  error: "Error",
   examplesUntilRetrain: "Examples until retrain",
   failedRows: "Failed rows",
   healthy: "Healthy",
-  lastError: "Last error",
   lastTickAt: "Last scheduler tick",
   lengthDistribution: "Vector lengths",
   mlGate: "ML gate",
@@ -57,7 +54,6 @@ const INPUT_LABELS: Record<string, string> = {
   validTierPct: "Valid tier rate",
   validatedRows: "Validated rows",
   versionDistribution: "Feature versions",
-  vertexEndpoint: "Vertex endpoint",
   windowHours: "Window",
 };
 
@@ -92,7 +88,6 @@ const WORD_OVERRIDES: Record<string, string> = {
   pbo: "PBO",
   pnl: "P&L",
   roi: "ROI",
-  sql: "SQL",
 };
 
 function titleCaseToken(token: string): string {

@@ -47,6 +47,7 @@ export interface MatchPairRow {
   decidedBy: string | null;
   decidedAt: string | null;
   decisionReason: string | null;
+  resolutionSource: string | null;
   pairKey: string;
   detectedAt: string;
   stageChangedAt: string;
@@ -78,8 +79,19 @@ export interface MlRunHistoryEntry {
   aiSearchAttempted: number;
   aiSearchMerged: number;
   aiSearchRejected: number;
-  status: "success" | "empty" | "service_unreachable" | "already_running";
+  status:
+    | "success"
+    | "empty"
+    | "service_unreachable"
+    | "already_running"
+    | "disabled"
+    | "service_error";
   trigger: "scheduler" | "manual";
+}
+
+export interface ResolutionSourceStat {
+  source: string;
+  count: number;
 }
 
 export interface MatcherConfigResponse {
@@ -99,6 +111,7 @@ export interface MatcherConfigResponse {
 
 export interface StatsResponse {
   stageCounts: StageCounts;
+  resolutionSources: ResolutionSourceStat[];
   mlStats: MlSchedulerStats;
   history: MlRunHistoryEntry[];
   historyTotal: number;
@@ -113,12 +126,66 @@ export interface ListResponse {
   offset: number;
 }
 
+export type AiVerificationJobStatus = "running" | "completed" | "failed";
+export type AiVerificationResultStatus = "success" | "error";
+export type AiVerificationDecision =
+  | "SAME"
+  | "DIFFERENT"
+  | "UNCERTAIN"
+  | "ERROR";
+
+export interface AiVerificationJobResult {
+  id: string;
+  pair: MatchPairRow;
+  status: AiVerificationResultStatus;
+  decision: AiVerificationDecision;
+  confidence: number | null;
+  model: string | null;
+  engine: "ai-search";
+  reasoning: string;
+  sources: { url: string; title: string; snippet: string }[];
+  searchQueriesUsed: string[];
+  error?: string;
+}
+
+export interface AiVerificationJobSnapshot {
+  id: string;
+  pairIds: string[];
+  status: AiVerificationJobStatus;
+  engine: "ai-search";
+  model: "flash";
+  total: number;
+  processed: number;
+  same: number;
+  different: number;
+  uncertain: number;
+  errors: number;
+  results: AiVerificationJobResult[];
+  startedAt: string;
+  completedAt: string | null;
+  error: string | null;
+}
+
+export interface StartAiVerificationJobResponse {
+  job: AiVerificationJobSnapshot;
+  reused: boolean;
+}
+
 export interface MlBatchResult {
-  status: "success" | "empty" | "service_unreachable" | "already_running";
+  status:
+    | "success"
+    | "empty"
+    | "service_unreachable"
+    | "already_running"
+    | "disabled"
+    | "service_error";
   processed: number;
   merged: number;
   rejected: number;
   escalated: number;
+  aiSearchAttempted?: number;
+  aiSearchMerged?: number;
+  aiSearchRejected?: number;
 }
 
 export const STAGE_META: Record<
@@ -171,6 +238,9 @@ export interface MlProgressEvent {
   escalated?: number;
   processed?: number;
   durationMs?: number;
+  aiSearchAttempted?: number;
+  aiSearchMerged?: number;
+  aiSearchRejected?: number;
 }
 
 export type PairProcessingStatus =

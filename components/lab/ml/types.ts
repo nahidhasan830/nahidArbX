@@ -44,24 +44,20 @@ export interface PipelineData {
   inference: {
     modelLoaded: boolean;
     modelVersion: number | null;
-    vertexEndpoint: string | null;
     totalScoringAttempts: number;
     totalScored: number;
     avgInferenceMs: number;
-    error?: string;
   };
   scheduler: {
     active: boolean;
     lastTickAt: number | null;
     totalRetrainTriggers: number;
-    lastError: string | null;
     /** Auto-retrain absolute step in new training examples (e.g. 200 ⇒ retrain fires after +200 since last deploy). */
     retrainStep: number;
   };
   deploymentGate: {
     permissionLevel: string;
     policyEdgeThresholdPct: number;
-    policyEdgeThresholdSource?: string;
     modelVersion: number | null;
     canGate: boolean;
     canReduceStake: boolean;
@@ -72,7 +68,6 @@ export interface PipelineData {
   featureContract: {
     currentVersion: number;
     currentFeatureCount: number;
-    currentNamesHash: string;
     versionDistribution: { version: number | null; count: number }[];
     lengthDistribution: { length: number | null; count: number }[];
     allVersionsMatch: boolean;
@@ -123,7 +118,6 @@ export interface PipelineData {
     };
     mlMinScore: number;
     mlModelEdgeThresholdPct: number;
-    mlModelEdgeThresholdSource?: string;
     metrics: {
       detectedBaseline: PaperEvaluationMetric;
       simpleEvCore: PaperEvaluationMetric;
@@ -164,12 +158,6 @@ export interface PipelineData {
     version: number;
     status: string;
     trainingSamples: number;
-    featureCount: number;
-    featureVersion: number;
-    featureNamesHash: string | null;
-    modelArtifactPath: string | null;
-    vertexModelName: string | null;
-    vertexEndpointName: string | null;
     oosAucRoc: number | null;
     deflatedSharpe: number | null;
     pbo: number | null;

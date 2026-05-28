@@ -53,9 +53,6 @@ export const rung11ScoreQuality: RungDefinition = {
       value: `n=${b.count}, ROI=${b.avgPnl.toFixed(2)}%, win=${b.winRate.toFixed(1)}%`,
     })),
   evidence: {
-    assertion:
-      "scoreBucketROI is monotonically non-decreasing in avgPnl from low to high edge",
-    sourceFile: "services/optimizer/app/scoring.py:score_bucket_report",
     why: "If higher predicted edge doesn't produce higher realized return, the model is well-calibrated noise. Stake-affecting permissions are unsafe.",
   },
 };

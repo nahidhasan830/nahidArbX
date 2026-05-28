@@ -24,6 +24,7 @@ import {
   type IPolicy,
 } from "cockatiel";
 import { logger } from "./logger";
+import { getProviderTimeoutMs } from "../providers/registry";
 
 // ============================================
 // Types
@@ -43,14 +44,6 @@ export interface CircuitBreakerStats {
 // ============================================
 // Per-provider timeout configuration (ms)
 // ============================================
-
-const PROVIDER_TIMEOUTS: Record<string, number> = {
-  pinnacle: 30_000,
-  betconstruct: 15_000,
-  "ninewickets-exchange": 60_000,
-  "ninewickets-sportsbook": 60_000,
-  "velki-sportsbook": 60_000,
-};
 
 const DEFAULT_TIMEOUT = 15_000;
 
@@ -93,7 +86,7 @@ function circuitStateToString(
  * (retry wraps CB which wraps timeout, so retries happen outside the CB)
  */
 function createProviderPolicy(providerId: string): ProviderTracking {
-  const timeoutMs = PROVIDER_TIMEOUTS[providerId] ?? DEFAULT_TIMEOUT;
+  const timeoutMs = getProviderTimeoutMs(providerId) ?? DEFAULT_TIMEOUT;
 
   // Retry: 2 retries with exponential backoff starting at 1s
   const retryPolicy = retry(handleAll, {

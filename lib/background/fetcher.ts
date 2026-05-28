@@ -48,6 +48,7 @@ import {
 import { reconcilePendingBets } from "../betting/ninewickets/reconciler";
 import { singleton } from "../util/singleton";
 import { getIdToken } from "../matching/entities/matcher-client";
+import { resolveMatcherRunWithAiSearch } from "../matching/matcher-lab-ai-resolver";
 import { notify } from "../notifier";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import { getBettingSettings } from "../db/repositories/betting-settings";
@@ -685,19 +686,24 @@ export function startScheduler(): void {
           });
 
           if (res.ok) {
-            const result = await res.json();
+            const result = await resolveMatcherRunWithAiSearch(
+              await res.json(),
+            );
+            const merged = result.merged ?? 0;
+            const rejected = result.rejected ?? 0;
+            const escalated = result.escalated ?? 0;
             if (
               result.status === "success" &&
-              (result.merged > 0 || result.rejected > 0 || result.escalated > 0)
+              (merged > 0 || rejected > 0 || escalated > 0)
             ) {
               // Only notify if it actually did something actionable
               await notify({
                 type: "ml:run_completed",
                 at: new Date().toISOString(),
                 processed: result.processed ?? 0,
-                merged: result.merged ?? 0,
-                rejected: result.rejected ?? 0,
-                escalated: result.escalated ?? 0,
+                merged,
+                rejected,
+                escalated,
                 durationMs: result.durationMs ?? 0,
               });
             }

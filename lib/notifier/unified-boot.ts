@@ -65,3 +65,24 @@ export function collectBootPayloads(): BootPayload[] {
     return [];
   }
 }
+
+export async function waitForBootPayloads(
+  roles: BootRole[],
+  {
+    timeoutMs = 10_000,
+    intervalMs = 250,
+  }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<BootPayload[]> {
+  const deadline = Date.now() + timeoutMs;
+  let payloads = collectBootPayloads();
+
+  while (
+    Date.now() < deadline &&
+    !roles.every((role) => payloads.some((payload) => payload.role === role))
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    payloads = collectBootPayloads();
+  }
+
+  return payloads;
+}

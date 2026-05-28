@@ -5,7 +5,7 @@ export const rung13PilotUnlocked: RungDefinition = {
   id: "pilot_unlocked",
   number: 13,
   category: "quality",
-  title: "Pilot has unlocked stake_increase",
+  title: "Pilot has unlocked stake increases",
   prereqs: ["beats_baseline"],
   evaluate: (d) => {
     const level = d.deploymentGate.permissionLevel;
@@ -64,8 +64,6 @@ export const rung13PilotUnlocked: RungDefinition = {
     },
   ],
   evidence: {
-    assertion: "deploymentGate.permissionLevel === 'stake_increase'",
-    sourceFile: "lib/optimizer/scheduler.ts:evaluatePilot",
-    why: "stake_increase is the terminal state of the pipeline — full ML-driven sizing on real money. It only unlocks after a successful pilot A/B test.",
+    why: "Stake increases are the terminal state of the pipeline: full ML-driven sizing on real money. They only unlock after a successful pilot A/B test.",
   },
 };

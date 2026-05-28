@@ -10,7 +10,7 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - `npx vitest run` — Vitest (`tests/unit/`)
 - `npm run test:settle` — Node runner for `lib/settle/*.test.ts`
 - `npm run db:generate` then `npm run db:migrate` — Drizzle (snake_case casing)
-- UI verification is manual — do not run Playwright E2E suites. **Never open a browser for testing; write scripts (bash/curl/Python) instead.** Before browser automation, always check if an API endpoint can be used instead — prefer API/curl over Playwright.\*\*
+- UI verification is manual. For frontend data issues, call the same API endpoints the client uses with curl/scripts first; browser automation test suites are not part of this repo.
 
 ## Architecture & Data
 

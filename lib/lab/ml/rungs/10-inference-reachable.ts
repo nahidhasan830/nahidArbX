@@ -4,7 +4,7 @@ export const rung10InferenceReachable: RungDefinition = {
   id: "inference_reachable",
   number: 10,
   category: "inference",
-  title: "Inference is reaching Vertex",
+  title: "Inference is available",
   prereqs: ["deployment_gate"],
   evaluate: (d) => {
     const inf = d.inference;
@@ -12,12 +12,9 @@ export const rung10InferenceReachable: RungDefinition = {
     if (!inf.modelLoaded) {
       return {
         status: "fail",
-        primary: "endpoint missing",
-        secondary: inf.error
-          ? `engine reports: ${inf.error}.`
-          : "no Vertex Prediction endpoint is configured or stored on the deployed model.",
-        action:
-          "Set `VERTEX_PREDICTION_ENDPOINT` in `.env` or deploy a model with `ml_models.vertex_endpoint_name`, restart the engine, and re-check.",
+        primary: "offline",
+        secondary: "live scoring is not available for the deployed model.",
+        action: "Restart the engine after confirming a deployed model exists.",
       };
     }
 
@@ -28,7 +25,7 @@ export const rung10InferenceReachable: RungDefinition = {
       return {
         status: "pending",
         primary: "0 attempts",
-        secondary: "endpoint configured but no inference has run yet.",
+        secondary: "live scoring is configured but no inference has run yet.",
       };
     }
 
@@ -44,10 +41,8 @@ export const rung10InferenceReachable: RungDefinition = {
     return {
       status: "warn",
       primary: `${successRate.toFixed(1)}% success`,
-      secondary:
-        "a meaningful fraction of inference attempts return null — endpoint is flaky or auth-broken.",
-      action:
-        "Check Vertex AI endpoint health, ADC credentials, and the engine logs for `VertexPredictionClient` warnings.",
+      secondary: "a meaningful fraction of inference attempts are failing.",
+      action: "Check live scoring health and restart the engine if failures continue.",
     };
   },
   inputs: (d) => [
@@ -55,10 +50,6 @@ export const rung10InferenceReachable: RungDefinition = {
     {
       label: "modelVersion",
       value: d.inference.modelVersion == null ? "null" : `v${d.inference.modelVersion}`,
-    },
-    {
-      label: "vertexEndpoint",
-      value: d.inference.vertexEndpoint ?? "null",
     },
     {
       label: "totalScoringAttempts",
@@ -72,15 +63,8 @@ export const rung10InferenceReachable: RungDefinition = {
       label: "avgInferenceMs",
       value: `${d.inference.avgInferenceMs.toFixed(2)} ms`,
     },
-    {
-      label: "error",
-      value: d.inference.error ?? "null",
-    },
   ],
   evidence: {
-    assertion:
-      "inference.modelLoaded && inference.totalScored / totalScoringAttempts ≥ 0.95",
-    sourceFile: "lib/ml/scorer.ts:scoreBatch",
     why: "Without working inference the model exists but never affects a bet decision.",
   },
 };

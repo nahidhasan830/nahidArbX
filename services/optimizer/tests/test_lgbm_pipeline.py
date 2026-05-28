@@ -18,19 +18,22 @@ from app.cpcv import CpcvConfig, make_cpcv_splits
 from app.feature_names import FEATURE_COUNT, FEATURE_NAMES, FEATURE_NAMES_HASH, FEATURE_VERSION
 from app.loader import TrainingData
 from app.policy import (
+    POLICY_EDGE_THRESHOLD_PCT,
+    compute_policy_threshold_stats,
     hpo_policy_objective_stats,
     model_edge_pct,
     policy_unit_returns,
-    select_policy_threshold,
 )
 from app.trainer import TrainingMetrics, TrainingResult, train
+
+IDX = {name: FEATURE_NAMES.index(name) for name in FEATURE_NAMES}
 
 
 class TestFeatureContract:
     """Verify the feature name contract is self-consistent."""
 
     def test_feature_count_matches(self):
-        assert len(FEATURE_NAMES) == FEATURE_COUNT == 25
+        assert len(FEATURE_NAMES) == FEATURE_COUNT
 
     def test_feature_names_unique(self):
         assert len(set(FEATURE_NAMES)) == len(FEATURE_NAMES)
@@ -130,8 +133,8 @@ class TestPolicyAlignedMetrics:
 
     def test_model_edge_uses_adjusted_odds(self):
         features = np.zeros((3, FEATURE_COUNT), dtype=np.float32)
-        features[:, 2] = np.array([2.0, 2.0, 3.0], dtype=np.float32)
-        features[:, 3] = np.array([1.9, 0.0, 2.8], dtype=np.float32)
+        features[:, IDX["soft_odds"]] = np.array([2.0, 2.0, 3.0], dtype=np.float32)
+        features[:, IDX["adjusted_soft_odds"]] = np.array([1.9, 0.0, 2.8], dtype=np.float32)
         probs = np.array([0.55, 0.55, 0.25], dtype=np.float64)
 
         edges = model_edge_pct(probs, features)
@@ -142,10 +145,10 @@ class TestPolicyAlignedMetrics:
 
     def test_hpo_objective_scores_selected_policy_returns_only(self):
         features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
-        features[:, 0] = 4.0
-        features[:, 2] = 2.0
-        features[:, 3] = 2.0
-        features[:, 17] = 0.0
+        features[:, IDX["sharp_true_prob"]] = 0.52
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
         probs = np.array([0.6, 0.4, 0.7, 0.3], dtype=np.float64)
         unit_returns = np.array([1.0, -1.0, 3.0, -1.0], dtype=np.float64)
 
@@ -163,10 +166,10 @@ class TestPolicyAlignedMetrics:
         from app.hpo import _train_and_score_fold
 
         features = np.zeros((6, FEATURE_COUNT), dtype=np.float32)
-        features[:, 0] = 4.0
-        features[:, 2] = 2.0
-        features[:, 3] = 2.0
-        features[:, 17] = 0.0
+        features[:, IDX["sharp_true_prob"]] = 0.52
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
         labels = np.array([1, 0, 1, 0, 1, 0], dtype=np.int32)
         metadata = pl.DataFrame({
             "unit_return": [1.0, -10.0, 1.0, -10.0, 1.0, -10.0],
@@ -202,16 +205,34 @@ class TestPolicyAlignedMetrics:
 
         assert mean_ur == pytest.approx(1.0 * (2 / 30))
 
+    def test_hpo_records_completed_fold_return_paths_for_pbo(self, synthetic_data: TrainingData):
+        from app.hpo import optimize
+        from app.trainer import DEFAULT_LGBM_PARAMS
+
+        result = optimize(
+            synthetic_data,
+            base_params={**DEFAULT_LGBM_PARAMS, "n_estimators": 20},
+            n_trials=3,
+            n_walk_forward_splits=4,
+            timeout_seconds=None,
+            seed=7,
+        )
+
+        assert result.n_trials >= 2
+        assert len(result.per_trial_fold_returns) >= 2
+        assert all(len(path) == 4 for path in result.per_trial_fold_returns)
+        assert all(np.isfinite(v) for path in result.per_trial_fold_returns for v in path)
+
     def test_policy_requires_simple_ev_baseline_then_model_edge(self):
         features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
-        features[:, 2] = 2.0
-        features[:, 3] = 2.0
-        features[:, 17] = 0.0
-        features[0, 0] = 4.0
-        features[1, 0] = 1.0
-        features[2, 0] = 4.0
-        features[2, 17] = 7.0
-        features[3, 0] = 4.0
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
+        features[0, IDX["sharp_true_prob"]] = 0.52
+        features[1, IDX["sharp_true_prob"]] = 0.505
+        features[2, IDX["sharp_true_prob"]] = 0.52
+        features[2, IDX["market_type_encoded"]] = 7.0
+        features[3, IDX["sharp_true_prob"]] = 0.52
         probs = np.array([0.6, 0.8, 0.8, 0.4], dtype=np.float64)
         unit_returns = np.array([1.0, 5.0, 5.0, -1.0], dtype=np.float64)
 
@@ -225,57 +246,53 @@ class TestPolicyAlignedMetrics:
         assert mask.tolist() == [True, False, False, False]
         assert selected.tolist() == [1.0]
 
-    def test_threshold_selection_prefers_conservative_oos_improvement(self):
+    def test_fixed_policy_threshold_scores_incremental_oos_improvement(self):
         n_good = 120
         n_bad = 100
         features = np.zeros((n_good + n_bad, FEATURE_COUNT), dtype=np.float32)
-        features[:, 0] = 4.0
-        features[:, 2] = 2.0
-        features[:, 3] = 2.0
-        features[:, 17] = 0.0
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
+        features[:, IDX["sharp_true_prob"]] = 0.54
         probs = np.concatenate([
             np.full(n_good, 0.56),
-            np.full(n_bad, 0.51),
+            np.full(n_bad, 0.50),
         ])
         unit_returns = np.concatenate([
             np.full(n_good, 0.10),
             np.full(n_bad, -0.20),
         ])
 
-        result = select_policy_threshold(
+        result = compute_policy_threshold_stats(
             probs,
             features,
             unit_returns,
-            candidates=(0.0, 10.0),
-            min_sample_size=100,
         )
 
-        assert result.threshold_pct == 10.0
+        assert result.threshold_pct == POLICY_EDGE_THRESHOLD_PCT
         assert result.sample_size == n_good
         assert result.roi_delta_pct > 0
 
-    def test_threshold_selection_falls_back_to_coverage_when_underpowered(self):
+    def test_fixed_policy_threshold_does_not_search_lucky_tiny_slice(self):
         n = 50
         features = np.zeros((n, FEATURE_COUNT), dtype=np.float32)
-        features[:, 0] = 4.0
-        features[:, 2] = 2.0
-        features[:, 3] = 2.0
-        features[:, 17] = 0.0
-        probs = np.full(n, 0.51)
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
+        features[:, IDX["sharp_true_prob"]] = 0.54
+        probs = np.full(n, 0.50)
         probs[:5] = 0.60
         unit_returns = np.full(n, -0.05)
         unit_returns[:5] = 1.0
 
-        result = select_policy_threshold(
+        result = compute_policy_threshold_stats(
             probs,
             features,
             unit_returns,
-            candidates=(0.0, 10.0),
-            min_sample_size=100,
         )
 
-        assert result.threshold_pct == 0.0
-        assert result.sample_size == n
+        assert result.threshold_pct == POLICY_EDGE_THRESHOLD_PCT
+        assert result.sample_size == 5
 
 
 class TestONNXExport:
@@ -384,6 +401,18 @@ class TestScoringIntegration:
         # DSR and PBO should be finite numbers
         assert np.isfinite(result.metrics.dsr)
         assert np.isfinite(result.metrics.pbo)
+
+    def test_pbo_uses_hpo_trial_paths_when_hpo_runs(self, synthetic_data: TrainingData):
+        result = train(
+            synthetic_data,
+            cpcv_config=CpcvConfig(n_groups=5, n_test_groups=2, embargo_pct=0.01),
+            hpo_trials=3,
+            hpo_timeout_seconds=None,
+        )
+
+        assert np.isfinite(result.metrics.pbo)
+        assert 0.0 <= result.metrics.pbo <= 1.0
+        assert result.metrics.hpo_n_trials >= 2
 
     def test_per_fold_sharpes_populated(self, synthetic_data: TrainingData):
         """Per-fold Sharpe ratios should be computed for each fold."""

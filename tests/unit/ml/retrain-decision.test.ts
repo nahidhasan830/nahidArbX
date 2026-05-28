@@ -63,8 +63,10 @@ describe("decideRetrain", () => {
       const d = decideRetrain(
         baseInputs({
           lastTerminalNonDeployed: {
+            status: "rejected",
             trainingSamples: 4821,
             featureNamesHash: HASH_A,
+            rejectionReasons: ["AUC-ROC too low"],
           },
         }),
       );
@@ -78,21 +80,43 @@ describe("decideRetrain", () => {
       const d = decideRetrain(
         baseInputs({
           lastTerminalNonDeployed: {
+            status: "rejected",
             trainingSamples: 4821,
             featureNamesHash: HASH_B, // older hash
+            rejectionReasons: ["AUC-ROC too low"],
           },
         }),
       );
       expect(d).toEqual({ should: true, reason: "cold_start_first_train" });
     });
 
-    it("allows retraining when corpus grew since last rejection", () => {
+    it("blocks when corpus grew only slightly since last rejection", () => {
+      const d = decideRetrain(
+        baseInputs({
+          totalAvailableSamples: 4824,
+          lastTerminalNonDeployed: {
+            status: "rejected",
+            trainingSamples: 4821,
+            featureNamesHash: HASH_A,
+            rejectionReasons: ["AUC-ROC too low"],
+          },
+        }),
+      );
+      expect(d).toEqual({
+        should: false,
+        reason: "terminal_growth_below_step",
+      });
+    });
+
+    it("allows retraining when corpus grew by a full retrain step since last rejection", () => {
       const d = decideRetrain(
         baseInputs({
           totalAvailableSamples: 5021,
           lastTerminalNonDeployed: {
+            status: "rejected",
             trainingSamples: 4821,
             featureNamesHash: HASH_A,
+            rejectionReasons: ["AUC-ROC too low"],
           },
         }),
       );
@@ -103,8 +127,10 @@ describe("decideRetrain", () => {
       const d = decideRetrain(
         baseInputs({
           lastTerminalNonDeployed: {
+            status: "rejected",
             trainingSamples: 4821,
             featureNamesHash: null,
+            rejectionReasons: ["AUC-ROC too low"],
           },
         }),
       );
@@ -114,21 +140,40 @@ describe("decideRetrain", () => {
 
     it("guard takes priority over deployed-model growth check", () => {
       // Even when there's a deployed model and growth would normally fire,
-      // an identical-input rejection on top of that data should block.
+      // a recent same-contract rejection should block until another full
+      // retrain step has accumulated.
       const d = decideRetrain(
         baseInputs({
           deployedModel: { trainingSamples: 4500 },
-          totalAvailableSamples: 4821,
+          totalAvailableSamples: 4824,
           lastTerminalNonDeployed: {
+            status: "rejected",
             trainingSamples: 4821,
             featureNamesHash: HASH_A,
+            rejectionReasons: ["AUC-ROC too low"],
           },
         }),
       );
       expect(d).toEqual({
         should: false,
-        reason: "identical_inputs_would_repeat_outcome",
+        reason: "terminal_growth_below_step",
       });
+    });
+
+    it("allows deployed-model growth check after terminal baseline also grew by a full step", () => {
+      const d = decideRetrain(
+        baseInputs({
+          deployedModel: { trainingSamples: 4500 },
+          totalAvailableSamples: 5021,
+          lastTerminalNonDeployed: {
+            status: "rejected",
+            trainingSamples: 4821,
+            featureNamesHash: HASH_A,
+            rejectionReasons: ["AUC-ROC too low"],
+          },
+        }),
+      );
+      expect(d).toEqual({ should: true, reason: "growth_step_reached" });
     });
 
     it("does not block when only a deployed model exists (no terminal-non-deployed)", () => {
@@ -140,6 +185,61 @@ describe("decideRetrain", () => {
         }),
       );
       expect(d).toEqual({ should: true, reason: "growth_step_reached" });
+    });
+
+    it("blocks watchdog-marked launcher interruption on identical inputs", () => {
+      const d = decideRetrain(
+        baseInputs({
+          lastTerminalNonDeployed: {
+            status: "failed",
+            trainingSamples: 4821,
+            featureNamesHash: HASH_A,
+            rejectionReasons: [
+              "Training watchdog marked this run failed: no heartbeat since 2026-05-23T19:05:33.389Z (60m > 45m).",
+            ],
+          },
+        }),
+      );
+      expect(d).toEqual({
+        should: false,
+        reason: "identical_inputs_would_repeat_outcome",
+      });
+    });
+
+    it("still blocks non-retryable failed runs on identical inputs", () => {
+      const d = decideRetrain(
+        baseInputs({
+          lastTerminalNonDeployed: {
+            status: "failed",
+            trainingSamples: 4821,
+            featureNamesHash: HASH_A,
+            rejectionReasons: ["Cloud Build + Run pipeline failed (exit code 1)"],
+          },
+        }),
+      );
+      expect(d).toEqual({
+        should: false,
+        reason: "identical_inputs_would_repeat_outcome",
+      });
+    });
+
+    it("blocks Vertex label failures on identical inputs", () => {
+      const d = decideRetrain(
+        baseInputs({
+          lastTerminalNonDeployed: {
+            status: "failed",
+            trainingSamples: 4821,
+            featureNamesHash: HASH_A,
+            rejectionReasons: [
+              "Unexpected error in training pipeline: Field: model.labels; Message: Label values must be valid.",
+            ],
+          },
+        }),
+      );
+      expect(d).toEqual({
+        should: false,
+        reason: "identical_inputs_would_repeat_outcome",
+      });
     });
   });
 
@@ -159,8 +259,10 @@ describe("decideRetrain", () => {
         baseInputs({
           totalAvailableSamples: 50,
           lastTerminalNonDeployed: {
+            status: "rejected",
             trainingSamples: 50,
             featureNamesHash: HASH_A,
+            rejectionReasons: ["AUC-ROC too low"],
           },
         }),
       );

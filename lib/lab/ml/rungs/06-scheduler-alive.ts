@@ -15,7 +15,7 @@ export const rung06SchedulerAlive: RungDefinition = {
         primary: "stopped",
         secondary:
           "engine is not running, so the auto-retrain scheduler can't fire.",
-        action: "Start the engine: `npm run engine` from the Bangladesh box.",
+        action: "Start or restart the engine on the Bangladesh machine.",
       };
     }
 
@@ -24,8 +24,7 @@ export const rung06SchedulerAlive: RungDefinition = {
         status: "warn",
         primary: "no ticks yet",
         secondary: "scheduler started but hasn't completed its first tick.",
-        action:
-          "Wait ~60s; if it stays this way the engine logs will show the cause.",
+        action: "Wait about a minute, then restart the engine if it stays stuck.",
       };
     }
 
@@ -37,8 +36,7 @@ export const rung06SchedulerAlive: RungDefinition = {
         primary: `${ageMin} min stale`,
         secondary:
           "scheduler is registered but hasn't ticked in too long — it may be deadlocked.",
-        action:
-          "Check the engine logs. Restart the engine if no obvious error.",
+        action: "Restart the engine if it does not recover on the next refresh.",
       };
     }
 
@@ -63,28 +61,11 @@ export const rung06SchedulerAlive: RungDefinition = {
       value: String(d.scheduler.totalRetrainTriggers),
     },
     {
-      label: "lastError",
-      value: d.scheduler.lastError ?? "null",
-    },
-    {
       label: "retrainStep",
       value: d.scheduler.retrainStep.toLocaleString(),
     },
   ],
   evidence: {
-    assertion: "scheduler.active && (now - scheduler.lastTickAt) ≤ 5min",
-    sourceFile: "lib/optimizer/scheduler.ts:tick",
     why: "Auto-retrain only happens inside the scheduler tick. A dead scheduler means new corpus rows never trigger a fresh model.",
   },
-  actions: [
-    {
-      id: "start_engine_instructions",
-      kind: "instruction",
-      label: "Show start command",
-      description:
-        "The engine must run on the Bangladesh box (NineWickets/Velki are geo-restricted).",
-      command: "npm run engine",
-      visibleWhen: (d) => !d.scheduler.active,
-    },
-  ],
 };

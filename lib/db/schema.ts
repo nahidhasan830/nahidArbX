@@ -206,6 +206,208 @@ export type AutoPlacerLogRow = typeof autoPlacerLog.$inferSelect;
 export type NewAutoPlacerLogRow = typeof autoPlacerLog.$inferInsert;
 
 /**
+ * ML prediction audit — latest durable per-selection scoring snapshot.
+ *
+ * One row per deterministic bet_id. Repeated reactive ticks update the latest
+ * score/price context instead of appending near-duplicate rows.
+ * Settlement mirrors outcome fields here for visualization only; `bets`
+ * remains the settlement source of truth.
+ */
+export const mlPredictionAudit = pgTable(
+  "ml_prediction_audit",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    predictionKey: text().notNull().unique(),
+    createdAt: tsNow(),
+    scoredAt: ts().notNull(),
+
+    betId: text().notNull(),
+    eventId: text().notNull(),
+    familyId: text().notNull(),
+    atomId: text().notNull(),
+    atomLabel: text().notNull(),
+
+    homeTeam: text().notNull(),
+    awayTeam: text().notNull(),
+    competition: text(),
+    eventStartTime: ts().notNull(),
+
+    marketType: text().notNull(),
+    timeScope: text().notNull(),
+    familyLine: numeric({ precision: 5, scale: 2, mode: "number" }),
+
+    softProvider: text().notNull(),
+    softOdds: nz4().notNull(),
+    softCommissionPct: numeric({
+      precision: 5,
+      scale: 2,
+      mode: "number",
+    }).notNull(),
+    sharpProvider: text().notNull(),
+    sharpOdds: nz4().notNull(),
+    sharpTrueProb: numeric({
+      precision: 6,
+      scale: 5,
+      mode: "number",
+    }).notNull(),
+    baselineEvPct: numeric({ precision: 8, scale: 3, mode: "number" }),
+    baselineKellyFraction: real(),
+
+    modelVersion: integer(),
+    mlScore: real().notNull(),
+    modelEdgePct: numeric({ precision: 8, scale: 3, mode: "number" }),
+    kellyMultiplier: real(),
+    mlStakeFraction: real(),
+    decision: text().notNull(), // 'boost' | 'shrink' | 'skip' | 'agree'
+    permissionLevel: text().notNull(),
+
+    mlFeatures: real("ml_features").array(),
+    mlFeatureVersion: integer().notNull(),
+    mlFeatureCount: integer().notNull(),
+    mlFeatureNamesHash: text().notNull(),
+
+    outcome: text().notNull().default("pending"),
+    pnl: numeric({ precision: 10, scale: 2, mode: "number" }),
+    clvPct: numeric({ precision: 6, scale: 2, mode: "number" }),
+    settledAt: ts(),
+  },
+  (t) => [
+    index("ml_prediction_audit_scored_idx").on(t.scoredAt.desc()),
+    uniqueIndex("ml_prediction_audit_bet_unique").on(t.betId),
+    index("ml_prediction_audit_model_idx").on(t.modelVersion, t.scoredAt.desc()),
+    index("ml_prediction_audit_decision_idx").on(t.decision, t.scoredAt.desc()),
+    index("ml_prediction_audit_market_idx").on(t.marketType, t.scoredAt.desc()),
+    index("ml_prediction_audit_event_start_idx").on(t.eventStartTime.desc()),
+    index("ml_prediction_audit_outcome_idx").on(t.outcome, t.scoredAt.desc()),
+  ],
+);
+
+export type MlPredictionAuditRow = typeof mlPredictionAudit.$inferSelect;
+export type NewMlPredictionAuditRow = typeof mlPredictionAudit.$inferInsert;
+
+/**
+ * ML Learning Snapshots — durable post-settlement evidence reports.
+ *
+ * A snapshot freezes the current "is the model learning?" answer so the
+ * operator can compare evidence over time. The large metric payload stays in
+ * JSONB because the chart/report shape evolves faster than the core DB schema.
+ */
+export const mlLearningSnapshots = pgTable(
+  "ml_learning_snapshots",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    snapshotHash: text("snapshot_hash").notNull().unique(),
+    modelVersion: integer("model_version"),
+    verdict: text().notNull(),
+    verdictReason: text("verdict_reason").notNull(),
+    trigger: text().notNull().default("manual"), // manual|settlement|training|scheduler
+    dataAsOf: timestamp("data_as_of", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    settledPredictionCount: integer("settled_prediction_count").notNull(),
+    pendingPredictionCount: integer("pending_prediction_count").notNull(),
+    scoredPredictionCount: integer("scored_prediction_count").notNull(),
+    baselineRoiPct: numeric("baseline_roi_pct", {
+      precision: 14,
+      scale: 4,
+      mode: "number",
+    }),
+    simpleRoiPct: numeric("simple_roi_pct", {
+      precision: 14,
+      scale: 4,
+      mode: "number",
+    }),
+    mlGateRoiPct: numeric("ml_gate_roi_pct", {
+      precision: 14,
+      scale: 4,
+      mode: "number",
+    }),
+    roiLiftPct: numeric("roi_lift_pct", {
+      precision: 14,
+      scale: 4,
+      mode: "number",
+    }),
+    calibrationError: numeric("calibration_error", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
+    brierScore: numeric("brier_score", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
+    logLoss: numeric("log_loss", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
+    aucRoc: numeric("auc_roc", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
+    scoreMonotonicity: numeric("score_monotonicity", {
+      precision: 6,
+      scale: 4,
+      mode: "number",
+    }),
+    metrics: jsonb().notNull(),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("ml_learning_snapshots_created_idx").on(t.createdAt.desc()),
+    index("ml_learning_snapshots_model_idx").on(t.modelVersion, t.createdAt.desc()),
+    index("ml_learning_snapshots_verdict_idx").on(t.verdict, t.createdAt.desc()),
+  ],
+);
+
+export type MlLearningSnapshotRow = typeof mlLearningSnapshots.$inferSelect;
+export type NewMlLearningSnapshotRow = typeof mlLearningSnapshots.$inferInsert;
+
+/**
+ * ML Learning Explanations — cached DeepSeek readings of a snapshot.
+ *
+ * The deterministic verdict comes from metrics. These rows only store the
+ * language-model explanation layer so it can be reused until the snapshot hash
+ * changes.
+ */
+export const mlLearningExplanations = pgTable(
+  "ml_learning_explanations",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    snapshotHash: text("snapshot_hash").notNull(),
+    explanationType: text("explanation_type").notNull().default("operator"),
+    provider: text().notNull(),
+    model: text().notNull(),
+    status: text().notNull().default("success"),
+    summary: text(),
+    content: jsonb().notNull(),
+    promptHash: text("prompt_hash").notNull(),
+    generatedAt: timestamp("generated_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    uniqueIndex("ml_learning_explanations_unique").on(
+      t.snapshotHash,
+      t.explanationType,
+      t.model,
+    ),
+    index("ml_learning_explanations_snapshot_idx").on(t.snapshotHash),
+    index("ml_learning_explanations_created_idx").on(t.createdAt.desc()),
+  ],
+);
+
+export type MlLearningExplanationRow =
+  typeof mlLearningExplanations.$inferSelect;
+export type NewMlLearningExplanationRow =
+  typeof mlLearningExplanations.$inferInsert;
+
+/**
  * Settled match scores — permanent cache keyed by normalized eventId.
  *
  * Populated by the settlement waterfall from the cheapest available source
@@ -680,6 +882,7 @@ export const matchPairs = pgTable(
     decidedBy: text(),
     decidedAt: ts(),
     decisionReason: text(),
+    resolutionSource: text("resolution_source"),
 
     // Canonical pair key (dedup + lookup)
     pairKey: text().notNull().unique(),
@@ -1051,6 +1254,8 @@ export const schema = {
   competitionTiers,
   competitionEnrichments,
   mlTrainingExamples,
+  mlLearningSnapshots,
+  mlLearningExplanations,
   aiProviderConfig,
   aiLogs,
 };

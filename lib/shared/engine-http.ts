@@ -207,6 +207,92 @@ export function registerEngineRoutes() {
     return jsonResponse(res, response);
   });
 
+  // ── GET /engine/memory-diagnostic ─────────────────────────────────
+  addRoute("GET", "/engine/memory-diagnostic", async (_req, res) => {
+    const { getEvents, getValueBets } = await import("../store");
+    const { getStoreStats } = await import("../atoms/store");
+    const { getHistoryStats } = await import("../atoms/odds-history");
+    const { getScoreCount, getCornersScoreCount } = await import("../scores/store");
+    const { getMultiScoreCount } = await import("../scores/multi-source-store");
+    const { marketLimitsStoreSize } = await import("../atoms/market-limits-store");
+    const { getMatchCacheStats } = await import("../matching");
+    const { getCacheStats: getAIDecisionCacheStats } = await import("../matching/ai-decision-cache");
+    const { getAllSessionDiagnostics } = await import("./session-diagnostics");
+    const { getDeltaStats } = await import("../cache/delta");
+
+    const mem = process.memoryUsage();
+    const atomsStats = getStoreStats();
+    const historyStats = getHistoryStats();
+    const matchCacheStats = getMatchCacheStats();
+    const aiCacheStats = getAIDecisionCacheStats();
+    const sessionDiags = getAllSessionDiagnostics();
+    const deltaStats = getDeltaStats();
+
+    const sessionDiagEntries = Object.keys(sessionDiags).length;
+    const totalSteps = Object.values(sessionDiags).reduce((sum, d) => sum + d.steps.length, 0);
+
+    const response = {
+      timestamp: new Date().toISOString(),
+      process: {
+        heapUsedMB: Math.round((mem.heapUsed / 1024 / 1024) * 100) / 100,
+        heapTotalMB: Math.round((mem.heapTotal / 1024 / 1024) * 100) / 100,
+        rssMB: Math.round((mem.rss / 1024 / 1024) * 100) / 100,
+        externalMB: Math.round((mem.external / 1024 / 1024) * 100) / 100,
+      },
+      stores: {
+        oddsHistory: {
+          trackedAtoms: historyStats.trackedAtoms,
+          totalTicks: historyStats.totalTicksRecorded,
+          estimatedMB: Math.round((historyStats.memoryEstimateBytes / 1024 / 1024) * 100) / 100,
+        },
+        atomsOdds: {
+          events: atomsStats.eventCount,
+          families: atomsStats.totalFamilies,
+          atoms: atomsStats.totalAtoms,
+          oddsRecords: atomsStats.totalOddsRecords,
+        },
+        scores: {
+          live: getScoreCount(),
+          corners: getCornersScoreCount(),
+        },
+        multiSourceScores: {
+          entries: getMultiScoreCount(),
+        },
+        marketLimits: {
+          entries: marketLimitsStoreSize(),
+          issue: "NO CLEANUP - grows forever",
+        },
+        matchCache: {
+          cachedEvents: matchCacheStats.cachedEvents,
+          bucketSkipRate: matchCacheStats.bucketSkipRate,
+        },
+        aiDecisionCache: {
+          total: aiCacheStats.total,
+          byDecider: aiCacheStats.byDecider,
+          byVerdict: aiCacheStats.byVerdict,
+          issue: "NO EVICTION - grow only",
+        },
+        sessionDiagnostics: {
+          providers: sessionDiagEntries,
+          totalSteps,
+          issue: "UNBOUNDED growth",
+        },
+        valueBets: {
+          count: getValueBets().length,
+        },
+        events: {
+          count: getEvents().length,
+        },
+        deltaSnapshot: {
+          hasSnapshot: deltaStats.hasSnapshot,
+          snapshotValueBets: deltaStats.snapshotValueBets,
+        },
+      },
+    };
+
+    return jsonResponse(res, response);
+  });
+
   // ── GET /engine/stream — SSE ────────────────────────────────────────
   addRoute("GET", "/engine/stream", async (_req, res) => {
     const { syncBus } = await import("../events/event-bus");

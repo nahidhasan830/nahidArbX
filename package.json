@@ -19,14 +19,6 @@
     "deploy": "echo '🔨 Building...' && NODE_ENV=production npm run build && echo '✅ Build complete!' && echo '🚀 Starting server with PM2...' && pm2 delete nahidarbx 2>/dev/null || true && pm2 start ecosystem.config.js --env production && echo '✅ Deploy complete!' && pm2 list",
     "pm2:start": "pm2 start ecosystem.config.js --env production && pm2 list",
     "pm2:stop": "pm2 delete all && pm2 list",
-    "test": "npx playwright test",
-    "test:ui": "npx playwright test --ui",
-    "test:headed": "npx playwright test --headed",
-    "test:report": "npx playwright show-report",
-    "test:login": "npx playwright test e2e/login.spec.ts",
-    "test:admin": "npx playwright test e2e/admin.spec.ts",
-    "test:api": "npx playwright test e2e/api-health.spec.ts",
-    "test:nav": "npx playwright test e2e/navigation.spec.ts",
     "test:settle": "node --import tsx --test lib/settle/*.test.ts",
     "test:unit": "node --import tsx --test lib/**/*.test.ts",
     "ml:verify": "tsx scripts/ml-verify.ts",
@@ -83,7 +75,6 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/bcrypt": "^6.0.0",
     "@types/better-sqlite3": "^7.6.13",

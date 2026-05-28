@@ -24,6 +24,7 @@ import {
   ML_RETRAIN_GROWTH_STEP,
 } from "../shared/constants";
 import { processPendingModelNotifications } from "./notifier-tick";
+import { failStaleTrainingRuns } from "./training-watchdog";
 
 const tag = "ModelRetrainingScheduler";
 const POLL_INTERVAL_MS = 60_000; // 60s — auto-retrain readiness checks don't need to be frequent
@@ -73,8 +74,10 @@ export interface RetrainDecisionInputs {
   /** Most recent terminal-non-deployed `ml_models` row (rejected or failed),
    *  ordered by `created_at DESC`. Null when no such row exists. */
   lastTerminalNonDeployed: {
+    status: "rejected" | "failed";
     trainingSamples: number;
     featureNamesHash: string | null;
+    rejectionReasons: string[] | null;
   } | null;
 }
 
@@ -86,6 +89,7 @@ export type RetrainDecision =
         | "training_in_progress"
         | "below_cold_start"
         | "identical_inputs_would_repeat_outcome"
+        | "terminal_growth_below_step"
         | "growth_below_step";
     };
 
@@ -96,10 +100,10 @@ export type RetrainDecision =
  *
  *   1. A run is already in progress → wait.
  *   2. Corpus is below cold-start → wait.
- *   3. The most recent terminal-non-deployed run was on **identical inputs**
- *      (same `trainingSamples`, same `featureNamesHash`) → repeating would
- *      produce the same outcome. Wait for the corpus to grow or for code
- *      to change.
+ *   3. The most recent terminal-non-deployed run used the same feature
+ *      contract and the corpus has not grown by a full retrain step since
+ *      then → wait. Tiny sample increments after a rejection usually
+ *      resubmit the same candidate.
  *   4. No deployed model and corpus is above cold-start → train.
  *   5. Otherwise: train iff growth since last deploy ≥ growthStep.
  */
@@ -114,16 +118,24 @@ export function decideRetrain(
     return { should: false, reason: "below_cold_start" };
   }
 
-  // Identical-inputs guard. If the most recent rejected/failed run trained on
-  // the same corpus size with the same feature contract, retraining would
-  // produce the same metrics and the same gate verdict. Burn no Cloud Build.
+  // Terminal-inputs guard. If the most recent rejected/failed run used the
+  // same feature contract, wait for a full retrain step before auto-retrying.
+  // Manual retrain can still bypass this after an operator fixes config or
+  // infrastructure, and feature contract changes automatically unblock code
+  // fixes.
   const last = input.lastTerminalNonDeployed;
   if (
     last &&
-    last.trainingSamples === input.totalAvailableSamples &&
     last.featureNamesHash === input.currentFeatureNamesHash
   ) {
-    return { should: false, reason: "identical_inputs_would_repeat_outcome" };
+    const growthSinceTerminal =
+      input.totalAvailableSamples - last.trainingSamples;
+    if (growthSinceTerminal === 0) {
+      return { should: false, reason: "identical_inputs_would_repeat_outcome" };
+    }
+    if (growthSinceTerminal < input.growthStep) {
+      return { should: false, reason: "terminal_growth_below_step" };
+    }
   }
 
   if (!input.deployedModel) {
@@ -171,13 +183,30 @@ async function shouldRetrain(): Promise<boolean> {
 
     const [lastTerminal] = await db
       .select({
+        status: mlModels.status,
         trainingSamples: mlModels.trainingSamples,
         featureNamesHash: mlModels.featureNamesHash,
+        rejectionReasons: mlModels.rejectionReasons,
       })
       .from(mlModels)
       .where(inArray(mlModels.status, ["rejected", "failed"]))
       .orderBy(desc(mlModels.createdAt))
       .limit(1);
+
+    let lastTerminalNonDeployed: RetrainDecisionInputs["lastTerminalNonDeployed"] =
+      null;
+    if (
+      lastTerminal &&
+      (lastTerminal.status === "rejected" || lastTerminal.status === "failed")
+    ) {
+      const terminalStatus: "rejected" | "failed" = lastTerminal.status;
+      lastTerminalNonDeployed = {
+        status: terminalStatus,
+        trainingSamples: lastTerminal.trainingSamples,
+        featureNamesHash: lastTerminal.featureNamesHash,
+        rejectionReasons: lastTerminal.rejectionReasons,
+      };
+    }
 
     const decision = decideRetrain({
       inTrainingCount: trainingRow ? 1 : 0,
@@ -186,7 +215,7 @@ async function shouldRetrain(): Promise<boolean> {
       growthStep: ML_RETRAIN_GROWTH_STEP,
       currentFeatureNamesHash: FEATURE_NAMES_HASH,
       deployedModel: deployed ?? null,
-      lastTerminalNonDeployed: lastTerminal ?? null,
+      lastTerminalNonDeployed,
     });
 
     // Diagnostic logging — silence the noisy "training in progress" + "growth
@@ -195,11 +224,12 @@ async function shouldRetrain(): Promise<boolean> {
     if (decision.should) {
       logger.info(tag, `shouldRetrain → fire (${decision.reason})`);
     } else if (
-      decision.reason === "identical_inputs_would_repeat_outcome"
+      decision.reason === "identical_inputs_would_repeat_outcome" ||
+      decision.reason === "terminal_growth_below_step"
     ) {
       logger.info(
         tag,
-        `shouldRetrain → skip (identical-inputs guard: last run rejected on ${totalAvailableSamples} samples, same feature contract — wait for corpus to grow or code to change)`,
+        `shouldRetrain → skip (${decision.reason}: last run failed/rejected on same feature contract — wait for ${ML_RETRAIN_GROWTH_STEP} new samples, feature-contract change, or manual retry)`,
       );
     }
 
@@ -244,7 +274,15 @@ async function triggerRetraining(): Promise<void> {
 async function tick(): Promise<void> {
   state.lastTickAt = Date.now();
 
-  // 1. Check for pending model deployment notifications
+  // 1. Repair stale training placeholders before scheduling decisions.
+  try {
+    await failStaleTrainingRuns();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(tag, `training watchdog failed: ${msg}`);
+  }
+
+  // 2. Check for pending model deployment notifications
   try {
     await processPendingModelNotifications();
   } catch (err) {
@@ -252,7 +290,7 @@ async function tick(): Promise<void> {
     logger.warn(tag, `processPendingModelNotifications failed: ${msg}`);
   }
 
-  // 2. Drift detection + pilot evaluation. Both subsystems only make sense
+  // 3. Drift detection + pilot evaluation. Both subsystems only make sense
   //    when a model is actually deployed. Cold-start systems with no
   //    deployed model fall through to the auto-retrain check below.
   let deployedModel: {
@@ -376,7 +414,7 @@ async function tick(): Promise<void> {
     }
   }
 
-  // 3. Auto-retrain check — fires when corpus has grown ≥ML_RETRAIN_GROWTH_STEP
+  // 4. Auto-retrain check — fires when corpus has grown ≥ML_RETRAIN_GROWTH_STEP
   //    examples since last deployed model. Drift detection only degrades permission (no retrain trigger).
   try {
     if (await shouldRetrain()) {

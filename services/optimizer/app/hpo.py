@@ -86,6 +86,13 @@ class HpoResult:
 
     per_trial_objectives: list[float] = field(default_factory=list)
 
+    per_trial_fold_returns: list[list[float]] = field(default_factory=list)
+    """Per-completed-trial OOS policy unit returns by walk-forward fold.
+
+    This is the matrix PBO needs: candidate configs × validation paths.
+    It is diagnostic-only and does not affect the winning params or final fit.
+    """
+
 
 def optimize(
     data: TrainingData,
@@ -158,6 +165,7 @@ def optimize(
 
     per_trial_sharpes: list[float] = []
     per_trial_objectives: list[float] = []
+    per_trial_fold_returns: list[list[float]] = []
 
     def objective(trial: "optuna.Trial") -> float:
         suggested = _suggest(trial)
@@ -205,6 +213,7 @@ def optimize(
 
         per_trial_sharpes.append(mean_sharpe)
         per_trial_objectives.append(objective_value)
+        per_trial_fold_returns.append(fold_unit_returns)
         if progress_callback is not None and (
             trial.number == 0
             or (trial.number + 1) % 10 == 0
@@ -238,6 +247,9 @@ def optimize(
         n_trials=completed,
         per_trial_sharpes=per_trial_sharpes,
         per_trial_objectives=per_trial_objectives,
+        per_trial_fold_returns=_rectangular_completed_paths(
+            per_trial_fold_returns, expected_paths=len(splits),
+        ),
     )
 
 
@@ -312,3 +324,16 @@ def _train_and_score_fold(
 def feature_count() -> int:
     """Helper for tests/diagnostics — exposes the feature dim used by HPO."""
     return FEATURE_COUNT
+
+
+def _rectangular_completed_paths(
+    paths: list[list[float]],
+    *,
+    expected_paths: int,
+) -> list[list[float]]:
+    """Keep only full completed trial paths so PBO gets a valid matrix."""
+    return [
+        [float(v) for v in path]
+        for path in paths
+        if len(path) == expected_paths and all(np.isfinite(path))
+    ]

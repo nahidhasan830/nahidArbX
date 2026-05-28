@@ -18,7 +18,6 @@ import { logger } from "@/lib/shared/logger";
 import { FEATURE_COUNT } from "./feature-contract";
 import {
   getVertexPredictionEndpoint,
-  healthCheck,
   predictBatch,
   setVertexPredictionEndpoint,
 } from "./vertex-prediction-client";
@@ -87,8 +86,10 @@ export async function ensureModel(): Promise<boolean> {
       "MLScorer",
       `Vertex AI Prediction endpoint configured: ${endpoint}`,
     );
-    // Health check the endpoint
-    const healthy = await healthCheck();
+    // Probe through scoreBatch so the inference dashboard reflects the
+    // startup check, even before a live value bet is warm enough to score.
+    const probe = await scoreBatch([Array(FEATURE_COUNT).fill(0)]);
+    const healthy = probe.length === 1 && probe[0] !== null;
     if (healthy) {
       logger.info("MLScorer", "Vertex AI endpoint health check passed");
     } else {

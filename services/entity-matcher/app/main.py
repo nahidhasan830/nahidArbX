@@ -191,6 +191,7 @@ def scheduler_runs(limit: int = 20) -> dict:
         rows = conn.execute(sa_text("""
             SELECT id, started_at, completed_at, duration_ms,
                    processed, merged, rejected, escalated,
+                   ai_search_attempted, ai_search_merged, ai_search_rejected,
                    status, trigger, error_message
             FROM matcher_runs
             ORDER BY started_at DESC
@@ -219,6 +220,9 @@ class ConfigUpdateRequest(BaseModel):
     xe_escalation_high: Optional[float] = None
     xe_merge_threshold: Optional[float] = None
     xe_pvalue_threshold: Optional[float] = None
+    ai_search_enabled: Optional[bool] = None
+    ai_search_confidence_threshold: Optional[int] = None
+    ai_search_max_batch_size: Optional[int] = None
 
 
 @app.get("/config")
@@ -238,6 +242,9 @@ def get_config() -> dict:
         "xe_escalation_high": cfg.xe_escalation_high,
         "xe_merge_threshold": cfg.xe_merge_threshold,
         "xe_pvalue_threshold": cfg.xe_pvalue_threshold,
+        "ai_search_enabled": cfg.ai_search_enabled,
+        "ai_search_confidence_threshold": cfg.ai_search_confidence_threshold,
+        "ai_search_max_batch_size": cfg.ai_search_max_batch_size,
     }
 
 

@@ -34,6 +34,24 @@ export interface ProviderMetadata {
   displayName: string; // "Pinnacle", "9W Exchange"
   source: OddsSource; // "exchange" | "sportsbook"
   bookmakerType: BookmakerType; // "sharp" = benchmark odds, "soft" = target for value
+  integration: {
+    /** Top-level transport family. Used for orchestration and status copy. */
+    kind: "polling" | "websocket" | "managed";
+    /** Optional shared platform, e.g. providers backed by Genius Sports. */
+    platform?: "genius-sports" | "pinnacle" | "betconstruct" | "saba";
+    /** Human-readable runtime data source shown in boot/status payloads. */
+    dataSourceLabel?: string;
+    /** Some books require post-submit bet-history confirmation before DB write. */
+    requiresPlacementConfirmation?: boolean;
+    /** Provider has a betting adapter and can submit real bets. */
+    placeable?: boolean;
+    /** Health manager should count this provider toward data-source health. */
+    contributesToDataHealth?: boolean;
+    /** Entity-alias evidence weight for positive observations. */
+    observationWeight: number;
+    /** Fixture fetch circuit-breaker timeout. */
+    timeoutMs: number;
+  };
   color: {
     bg: string; // Tailwind bg class
     text: string; // Tailwind text class
@@ -68,6 +86,14 @@ export const PROVIDER_REGISTRY = {
     displayName: "Pinnacle",
     source: "exchange" as const,
     bookmakerType: "sharp" as const, // Benchmark - most accurate odds
+    integration: {
+      kind: "websocket" as const,
+      platform: "pinnacle" as const,
+      dataSourceLabel: "Pinnacle WebSocket",
+      contributesToDataHealth: true,
+      observationWeight: 3,
+      timeoutMs: 30_000,
+    },
     color: {
       bg: "bg-blue-50",
       text: "text-blue-700",
@@ -92,6 +118,12 @@ export const PROVIDER_REGISTRY = {
     displayName: "9W Exchange",
     source: "exchange" as const,
     bookmakerType: "soft" as const, // Target for value betting
+    integration: {
+      kind: "polling" as const,
+      contributesToDataHealth: true,
+      observationWeight: 2,
+      timeoutMs: 60_000,
+    },
     color: {
       bg: "bg-violet-50",
       text: "text-violet-700",
@@ -116,6 +148,16 @@ export const PROVIDER_REGISTRY = {
     displayName: "9W Sportsbook",
     source: "sportsbook" as const,
     bookmakerType: "soft" as const, // Target for value betting
+    integration: {
+      kind: "polling" as const,
+      platform: "genius-sports" as const,
+      dataSourceLabel: "Genius Sports Polling",
+      requiresPlacementConfirmation: true,
+      placeable: true,
+      contributesToDataHealth: true,
+      observationWeight: 2,
+      timeoutMs: 60_000,
+    },
     color: {
       bg: "bg-amber-50",
       text: "text-amber-700",
@@ -140,6 +182,14 @@ export const PROVIDER_REGISTRY = {
     displayName: "BetConstruct",
     source: "sportsbook" as const,
     bookmakerType: "soft" as const, // Target for value betting
+    integration: {
+      kind: "websocket" as const,
+      platform: "betconstruct" as const,
+      dataSourceLabel: "BetConstruct WebSocket",
+      contributesToDataHealth: true,
+      observationWeight: 1,
+      timeoutMs: 15_000,
+    },
     color: {
       bg: "bg-emerald-50",
       text: "text-emerald-700",
@@ -164,6 +214,16 @@ export const PROVIDER_REGISTRY = {
     displayName: "Velki Sportsbook",
     source: "sportsbook" as const,
     bookmakerType: "soft" as const, // Target for value betting
+    integration: {
+      kind: "polling" as const,
+      platform: "genius-sports" as const,
+      dataSourceLabel: "Genius Sports Polling",
+      requiresPlacementConfirmation: true,
+      placeable: true,
+      contributesToDataHealth: true,
+      observationWeight: 2,
+      timeoutMs: 60_000,
+    },
     color: {
       bg: "bg-rose-50",
       text: "text-rose-700",
@@ -180,6 +240,38 @@ export const PROVIDER_REGISTRY = {
     requiresAuth: true, // Needs DRF token + JSESSIONID handshake
     enabled: true,
     commissionPct: 0, // Sportsbook, margin built into odds
+    fetch: { concurrency: 30 },
+  },
+  "saba-sportsbook": {
+    id: "saba-sportsbook",
+    shortName: "SABA",
+    displayName: "SABA Sportsbook",
+    source: "sportsbook" as const,
+    bookmakerType: "soft" as const,
+    integration: {
+      kind: "polling" as const,
+      platform: "saba" as const,
+      dataSourceLabel: "SABA Polling",
+      contributesToDataHealth: true,
+      observationWeight: 1,
+      timeoutMs: 60_000,
+    },
+    color: {
+      bg: "bg-teal-50",
+      text: "text-teal-700",
+      bgDark: "dark:bg-teal-900/30",
+      textDark: "dark:text-teal-300",
+      accent: "bg-teal-600",
+      border: "border-teal-200",
+      borderDark: "dark:border-teal-800",
+      chartStroke: "stroke-teal-400",
+      chartDot: "bg-teal-400",
+      textInline: "text-teal-400 dark:text-teal-300",
+      chartHex: "#2dd4bf",
+    },
+    requiresAuth: true,
+    enabled: false,
+    commissionPct: 0,
     fetch: { concurrency: 30 },
   },
 } as const;
@@ -326,6 +418,66 @@ export function getProviderConcurrency(id: string): number {
     PROVIDER_REGISTRY[id as ProviderKey]?.fetch.concurrency ??
     DEFAULT_FETCH_CONCURRENCY
   );
+}
+
+export function getProviderTimeoutMs(id: string): number {
+  return (
+    PROVIDER_REGISTRY[id as ProviderKey]?.integration.timeoutMs ??
+    15_000
+  );
+}
+
+export function getProviderObservationWeight(id: string): number {
+  return PROVIDER_REGISTRY[id as ProviderKey]?.integration.observationWeight ?? 1;
+}
+
+export function providerRequiresPlacementConfirmation(id: string): boolean {
+  const integration = PROVIDER_REGISTRY[id as ProviderKey]?.integration;
+  return (
+    Boolean(integration) &&
+    "requiresPlacementConfirmation" in integration &&
+    integration.requiresPlacementConfirmation === true
+  );
+}
+
+export function isPlaceableProvider(id: string): boolean {
+  const integration = PROVIDER_REGISTRY[id as ProviderKey]?.integration;
+  return (
+    Boolean(integration) &&
+    "placeable" in integration &&
+    integration.placeable === true
+  );
+}
+
+export function getPlaceableProviderIds(): ProviderKey[] {
+  return PROVIDER_IDS.filter((id) => isPlaceableProvider(id));
+}
+
+export function getDataHealthProviderIds(): ProviderKey[] {
+  return PROVIDER_IDS.filter(
+    (id) => {
+      const integration = PROVIDER_REGISTRY[id].integration;
+      return (
+        PROVIDER_REGISTRY[id].enabled &&
+        integration.contributesToDataHealth === true
+      );
+    },
+  );
+}
+
+export function getProviderDataSourceLabels(
+  providerIds: readonly string[] = PROVIDER_IDS,
+): string[] {
+  const labels = new Set<string>();
+  for (const id of providerIds) {
+    const integration = PROVIDER_REGISTRY[id as ProviderKey]?.integration;
+    const label =
+      integration && "dataSourceLabel" in integration
+        ? integration.dataSourceLabel
+        : undefined;
+    if (label) labels.add(label);
+  }
+  return Array.from(labels);
 }
 
 /**

@@ -11,6 +11,7 @@
 import { NextRequest } from "next/server";
 import { logger } from "@/lib/shared/logger";
 import { getIdToken } from "@/lib/matching/entities/matcher-client";
+import { resolveMatcherRunWithAiSearch } from "@/lib/matching/matcher-lab-ai-resolver";
 
 const tag = "MlStreamRoute";
 
@@ -66,14 +67,18 @@ export async function POST(request: NextRequest) {
             return;
           }
 
-          const result = await res.json();
+          const result = await resolveMatcherRunWithAiSearch(await res.json());
 
           send({
             type: "batch_complete",
-            processed: result.processed ?? 0,
+            processed:
+              result.status === "already_running" ? -1 : result.processed ?? 0,
             merged: result.merged ?? 0,
             rejected: result.rejected ?? 0,
             escalated: result.escalated ?? 0,
+            aiSearchAttempted: result.aiSearchAttempted ?? 0,
+            aiSearchMerged: result.aiSearchMerged ?? 0,
+            aiSearchRejected: result.aiSearchRejected ?? 0,
             durationMs: result.durationMs ?? 0,
           });
         } catch (err) {

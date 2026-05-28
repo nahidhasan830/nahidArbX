@@ -4,6 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
 import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+} from "recharts";
+import {
   CheckCircle2,
   ExternalLink,
   Loader2,
@@ -66,6 +73,9 @@ import {
   decidePair,
   bulkDecide,
   runMlStream,
+  startAiVerificationJob,
+  fetchAiVerificationJob,
+  clearAiVerificationJob,
 } from "./api";
 import type {
   MatchPairRow,
@@ -76,6 +86,8 @@ import type {
   MlProgressEvent,
   PairProcessingStatus,
   MatchPairDecision,
+  ResolutionSourceStat,
+  AiVerificationJobSnapshot,
 } from "./types";
 import {
   STAGE_META,
@@ -94,6 +106,8 @@ const REFRESH_INTERVALS: Partial<Record<MatchPairStage, number>> = {
   inbox: 15_000,
   human_review: 30_000,
 };
+
+const AI_JOB_POLL_MS = 1_500;
 
 type AiReviewAction = "merge" | "reject" | "keep";
 
@@ -124,6 +138,52 @@ type AiProgress = {
   errors: number;
 };
 
+const RESOLUTION_SOURCE_META: Record<
+  string,
+  { label: string; color: string; textClassName: string }
+> = {
+  "ml-bi-encoder": {
+    label: "ML bi-encoder",
+    color: "#34d399",
+    textClassName: "text-emerald-300",
+  },
+  "ml-cross-encoder": {
+    label: "ML cross-encoder",
+    color: "#f59e0b",
+    textClassName: "text-amber-300",
+  },
+  "ai-search": {
+    label: "AI Search",
+    color: "#22d3ee",
+    textClassName: "text-cyan-300",
+  },
+  human: {
+    label: "Human",
+    color: "#a78bfa",
+    textClassName: "text-violet-300",
+  },
+  "gemini-lite": {
+    label: "Gemini Lite",
+    color: "#60a5fa",
+    textClassName: "text-sky-300",
+  },
+  "gemini-flash": {
+    label: "Gemini Flash",
+    color: "#38bdf8",
+    textClassName: "text-sky-300",
+  },
+  "gemini-pro": {
+    label: "Gemini Pro",
+    color: "#818cf8",
+    textClassName: "text-indigo-300",
+  },
+  unknown: {
+    label: "Unknown",
+    color: "#71717a",
+    textClassName: "text-zinc-400",
+  },
+};
+
 function fmtMmmHm(iso: string | null): string {
   if (!iso) return "—";
   const d = parseISO(iso);
@@ -146,6 +206,57 @@ function formatConfidence(confidence: number | null): string {
   if (confidence == null || !Number.isFinite(confidence)) return "—";
   const pct = confidence <= 1 ? confidence * 100 : confidence;
   return `${Math.round(pct)}%`;
+}
+
+function actionForAiDecision(
+  decision: AiReviewResult["aiDecision"],
+): AiReviewAction {
+  if (decision === "SAME") return "merge";
+  if (decision === "DIFFERENT") return "reject";
+  return "keep";
+}
+
+function statusForAiDecision(
+  decision: AiReviewResult["aiDecision"],
+): PairProcessingStatus {
+  if (decision === "SAME") return "ai-same";
+  if (decision === "DIFFERENT") return "ai-different";
+  if (decision === "ERROR") return "error";
+  return "escalated";
+}
+
+function progressFromAiJob(job: AiVerificationJobSnapshot): AiProgress {
+  return {
+    phase:
+      job.status === "running"
+        ? `Verifying ${job.processed}/${job.total}`
+        : "Review AI results",
+    current: job.processed,
+    total: job.total,
+    same: job.same,
+    different: job.different,
+    uncertain: job.uncertain,
+    errors: job.errors,
+  };
+}
+
+function resultsFromAiJob(job: AiVerificationJobSnapshot): AiReviewResult[] {
+  return job.results.map((result) => ({
+    id: result.id,
+    pair: result.pair,
+    status: result.status,
+    aiDecision: result.decision,
+    confidence: result.confidence,
+    model: result.model,
+    engine: result.engine,
+    reasoning:
+      result.reasoning || "AI verification completed without a reasoning summary.",
+    sources: result.sources ?? [],
+    searchQueriesUsed: result.searchQueriesUsed ?? [],
+    action:
+      result.status === "error" ? "keep" : actionForAiDecision(result.decision),
+    error: result.error,
+  }));
 }
 
 function formatCountdown(seconds: number): string {
@@ -248,6 +359,100 @@ function PairStatusCell({ status }: { status: PairProcessingStatus }) {
   );
 }
 
+function getResolutionSourceMeta(source: string) {
+  return RESOLUTION_SOURCE_META[source] ?? RESOLUTION_SOURCE_META.unknown;
+}
+
+function ResolutionSourcePanel({
+  stats,
+}: {
+  stats: ResolutionSourceStat[];
+}) {
+  const total = stats.reduce((sum, stat) => sum + stat.count, 0);
+  if (total <= 0) return null;
+
+  const data = stats.map((stat) => {
+    const meta = getResolutionSourceMeta(stat.source);
+    return {
+      source: stat.source,
+      label: meta.label,
+      count: stat.count,
+      color: meta.color,
+      textClassName: meta.textClassName,
+      percent: Math.round((stat.count / total) * 100),
+    };
+  });
+
+  return (
+    <div className="shrink-0 border-b border-border/50 bg-muted/15 px-3 py-2">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-20 w-20 shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={data}
+                  dataKey="count"
+                  nameKey="label"
+                  innerRadius={24}
+                  outerRadius={38}
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {data.map((item) => (
+                    <Cell key={item.source} fill={item.color} />
+                  ))}
+                </Pie>
+                <RechartsTooltip
+                  contentStyle={{
+                    background: "var(--popover)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    color: "var(--popover-foreground)",
+                    fontSize: 12,
+                  }}
+                  formatter={(value, name) => [
+                    `${value} decisions`,
+                    name,
+                  ]}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-foreground">
+              Resolution source
+            </div>
+            <div className="text-sm text-muted-foreground">
+              History decisions grouped by the service that settled the pair.
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-1.5 sm:grid-cols-2 lg:min-w-[420px]">
+          {data.map((item) => (
+            <div
+              key={item.source}
+              className="flex min-w-0 items-center gap-2 text-xs"
+            >
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: item.color }}
+              />
+              <span className={cn("truncate", item.textClassName)}>
+                {item.label}
+              </span>
+              <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                {item.count} ({item.percent}%)
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────
 
 function AiVerifyDropdown({
@@ -338,6 +543,9 @@ export function MatcherLab() {
   });
   const [mlStats, setMlStats] = useState<MlSchedulerStats | null>(null);
   const [mlHistory, setMlHistory] = useState<MlRunHistoryEntry[]>([]);
+  const [resolutionSources, setResolutionSources] = useState<
+    ResolutionSourceStat[]
+  >([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [historyTotal, setHistoryTotal] = useState(0);
 
@@ -357,6 +565,11 @@ export function MatcherLab() {
   const [applyingAiReview, setApplyingAiReview] = useState(false);
   const [aiVerifyingIds, setAiVerifyingIds] = useState<Set<string>>(new Set());
   const [isBulkVerifying, setIsBulkVerifying] = useState(false);
+  const [aiVerificationJobId, setAiVerificationJobId] = useState<string | null>(
+    null,
+  );
+  const [aiVerificationJobStatus, setAiVerificationJobStatus] =
+    useState<AiVerificationJobSnapshot["status"] | null>(null);
   const hasPendingAiReview = aiReviewOpen || aiReviewResults.length > 0;
   const aiRunning = aiVerifyingIds.size > 0 || isBulkVerifying;
   const initialTabPicked = useRef(false);
@@ -439,6 +652,7 @@ export function MatcherLab() {
       setCounts(data.stageCounts);
       setMlStats(data.mlStats);
       setMlHistory(data.history ?? []);
+      setResolutionSources(data.resolutionSources ?? []);
       setHasMoreHistory(data.hasMoreHistory ?? false);
       setHistoryTotal(data.historyTotal ?? 0);
 
@@ -473,10 +687,103 @@ export function MatcherLab() {
     await Promise.all([loadRows(activeStage), loadStats()]);
   }, [activeStage, loadRows, loadStats]);
 
+  const syncAiVerificationJob = useCallback(
+    (job: AiVerificationJobSnapshot) => {
+      setAiVerificationJobId(job.id);
+      setAiVerificationJobStatus(job.status);
+      setAiProgress(progressFromAiJob(job));
+
+      const pendingIds = new Set(job.pairIds);
+      const statuses = new Map<string, PairProcessingStatus>();
+
+      for (const result of job.results) {
+        pendingIds.delete(result.id);
+        statuses.set(result.id, statusForAiDecision(result.decision));
+      }
+
+      if (job.status === "running") {
+        for (const id of pendingIds) {
+          statuses.set(id, "ai-searching");
+        }
+      }
+
+      setPairStatuses(statuses);
+      setAiVerifyingIds(job.status === "running" ? pendingIds : new Set());
+      setIsBulkVerifying(job.status === "running");
+
+      if (job.status === "completed") {
+        const results = resultsFromAiJob(job);
+        setAiReviewResults(results);
+        setAiReviewOpen(results.length > 0);
+      } else if (job.status === "failed") {
+        setAiReviewResults([]);
+        setAiReviewOpen(false);
+        setAiProgress(null);
+        toast.error("AI verification failed", {
+          description: job.error ?? "The background job failed.",
+        });
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     setLoading(true);
     void refresh();
   }, [activeStage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateLatestJob() {
+      try {
+        const job = await fetchAiVerificationJob();
+        if (cancelled || !job) return;
+        syncAiVerificationJob(job);
+      } catch {
+        // Job visibility is best-effort; normal data refresh still works.
+      }
+    }
+
+    void hydrateLatestJob();
+    return () => {
+      cancelled = true;
+    };
+  }, [syncAiVerificationJob]);
+
+  useEffect(() => {
+    if (!aiVerificationJobId || aiVerificationJobStatus !== "running") return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const job = await fetchAiVerificationJob(aiVerificationJobId);
+        if (cancelled || !job) return;
+        syncAiVerificationJob(job);
+        if (job.status !== "running") {
+          await refresh();
+        }
+      } catch (err) {
+        if (!cancelled) {
+          toast.error("Failed to refresh AI verification status", {
+            description: (err as Error).message,
+          });
+        }
+      }
+    };
+
+    const id = setInterval(poll, AI_JOB_POLL_MS);
+    void poll();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [
+    aiVerificationJobId,
+    aiVerificationJobStatus,
+    refresh,
+    syncAiVerificationJob,
+  ]);
 
   useEffect(() => {
     if (mlRunning || aiRunning || hasPendingAiReview) return;
@@ -555,6 +862,11 @@ export function MatcherLab() {
       setAiReviewOpen(false);
       setAiProgress(null);
       setPairStatuses(new Map());
+      if (aiVerificationJobId) {
+        await clearAiVerificationJob(aiVerificationJobId).catch(() => {});
+      }
+      setAiVerificationJobId(null);
+      setAiVerificationJobStatus(null);
       return;
     }
 
@@ -577,6 +889,11 @@ export function MatcherLab() {
       setAiProgress(null);
       setAiReviewResults([]);
       setPairStatuses(new Map());
+      if (aiVerificationJobId) {
+        await clearAiVerificationJob(aiVerificationJobId).catch(() => {});
+      }
+      setAiVerificationJobId(null);
+      setAiVerificationJobStatus(null);
       await refresh();
     } catch (err) {
       toast.error("Failed to apply AI review", {
@@ -590,7 +907,7 @@ export function MatcherLab() {
         return next;
       });
     }
-  }, [aiReviewResults, refresh]);
+  }, [aiReviewResults, aiVerificationJobId, refresh]);
 
   const handleVerifyAi = useCallback(
     async (engine: AiModelMenuEngine, model: ModelTier, singleId?: string) => {
@@ -626,128 +943,132 @@ export function MatcherLab() {
       void engine;
       void model;
       const apiEngine = "ai-search";
+
+      if (!singleId) {
+        try {
+          const result = await startAiVerificationJob(idsToRun, {
+            engine: apiEngine,
+            model: "flash",
+          });
+          syncAiVerificationJob(result.job);
+          toast.info(
+            result.reused
+              ? "AI verification already running"
+              : "AI verification started",
+            {
+              description: `${result.job.total} pair${result.job.total === 1 ? "" : "s"} will continue in the background.`,
+            },
+          );
+        } catch (err) {
+          setIsBulkVerifying(false);
+          setAiProgress(null);
+          setAiVerifyingIds(new Set());
+          setPairStatuses(new Map());
+          toast.error("AI verification failed to start", {
+            description: (err as Error).message,
+          });
+        }
+        return;
+      }
+
+      const id = singleId;
+      const pair = rows.find((r) => r.id === id);
+      if (!pair) {
+        setAiProgress(null);
+        setAiVerifyingIds(new Set());
+        return;
+      }
+
+      setPairStatuses((prev) => {
+        const next = new Map(prev);
+        next.set(id, "ai-searching");
+        return next;
+      });
+
       const reviewResults: AiReviewResult[] = [];
 
-      for (const [index, id] of idsToRun.entries()) {
-        const pair = rows.find((r) => r.id === id);
-        if (!pair) {
-          continue;
-        }
+      try {
+        const result = await verifyAiMatch(id, {
+          engine: apiEngine,
+          model: "flash" as const,
+        });
+        const decision =
+          result.decision === "SAME"
+            ? "SAME"
+            : result.decision === "DIFFERENT" ||
+                result.decision === "NOT_SAME"
+              ? "DIFFERENT"
+              : "UNCERTAIN";
+
+        reviewResults.push({
+          id,
+          pair,
+          status: "success",
+          aiDecision: decision,
+          confidence: result.confidence,
+          model: result.model,
+          engine: result.engine,
+          reasoning:
+            result.reasoning ||
+            "AI verification completed without a reasoning summary.",
+          sources: result.sources ?? [],
+          searchQueriesUsed: result.searchQueriesUsed ?? [],
+          action: actionForAiDecision(decision),
+        });
 
         setPairStatuses((prev) => {
           const next = new Map(prev);
-          next.set(id, "ai-searching");
+          next.set(id, statusForAiDecision(decision));
           return next;
         });
         setAiProgress((prev) =>
           prev
             ? {
                 ...prev,
-                phase: `Verifying ${index + 1}/${idsToRun.length}`,
-                current: index,
+                current: 1,
+                same: decision === "SAME" ? 1 : 0,
+                different: decision === "DIFFERENT" ? 1 : 0,
+                uncertain: decision === "UNCERTAIN" ? 1 : 0,
               }
             : null,
         );
-
-        try {
-          const result = await verifyAiMatch(id, {
-            engine: apiEngine,
-            model: "flash" as const,
-          });
-          const decision =
-            result.decision === "SAME"
-              ? "SAME"
-              : result.decision === "DIFFERENT" ||
-                  result.decision === "NOT_SAME"
-                ? "DIFFERENT"
-                : "UNCERTAIN";
-          const action: AiReviewAction =
-            decision === "SAME"
-              ? "merge"
-              : decision === "DIFFERENT"
-                ? "reject"
-                : "keep";
-
-          reviewResults.push({
-            id,
-            pair,
-            status: "success",
-            aiDecision: decision,
-            confidence: result.confidence,
-            model: result.model,
-            engine: result.engine,
-            reasoning:
-              result.reasoning ||
-              "AI verification completed without a reasoning summary.",
-            sources: result.sources ?? [],
-            searchQueriesUsed: result.searchQueriesUsed ?? [],
-            action,
-          });
-
-          setPairStatuses((prev) => {
-            const next = new Map(prev);
-            next.set(
-              id,
-              decision === "SAME"
-                ? "ai-same"
-                : decision === "DIFFERENT"
-                  ? "ai-different"
-                  : "escalated",
-            );
-            return next;
-          });
-          setAiProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  current: index + 1,
-                  same: prev.same + (decision === "SAME" ? 1 : 0),
-                  different:
-                    prev.different + (decision === "DIFFERENT" ? 1 : 0),
-                  uncertain:
-                    prev.uncertain + (decision === "UNCERTAIN" ? 1 : 0),
-                }
-              : null,
-          );
-        } catch (err) {
-          reviewResults.push({
-            id,
-            pair,
-            status: "error",
-            aiDecision: "ERROR",
-            confidence: null,
-            model: null,
-            engine: apiEngine,
-            reasoning: (err as Error).message,
-            sources: [],
-            searchQueriesUsed: [],
-            action: "keep",
-            error: (err as Error).message,
-          });
-          setPairStatuses((prev) => {
-            const next = new Map(prev);
-            next.set(id, "error");
-            return next;
-          });
-          setAiProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  current: index + 1,
-                  errors: prev.errors + 1,
-                }
-              : null,
-          );
-        } finally {
-          setAiVerifyingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
-        }
+      } catch (err) {
+        reviewResults.push({
+          id,
+          pair,
+          status: "error",
+          aiDecision: "ERROR",
+          confidence: null,
+          model: null,
+          engine: apiEngine,
+          reasoning: (err as Error).message,
+          sources: [],
+          searchQueriesUsed: [],
+          action: "keep",
+          error: (err as Error).message,
+        });
+        setPairStatuses((prev) => {
+          const next = new Map(prev);
+          next.set(id, "error");
+          return next;
+        });
+        setAiProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                current: 1,
+                errors: 1,
+              }
+            : null,
+        );
+      } finally {
+        setAiVerifyingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
       }
 
-      setIsBulkVerifying(false);
       setAiProgress((prev) =>
         prev
           ? {
@@ -766,7 +1087,7 @@ export function MatcherLab() {
         setAiProgress(null);
       }
     },
-    [selectedPairIds, rows],
+    [selectedPairIds, rows, syncAiVerificationJob],
   );
 
   const handleRunMl = useCallback(async () => {
@@ -902,6 +1223,11 @@ export function MatcherLab() {
               if (event.merged) parts.push(`✅ ${event.merged} merged`);
               if (event.rejected) parts.push(`🚫 ${event.rejected} rejected`);
               if (event.escalated) parts.push(`👀 ${event.escalated} → review`);
+              if (event.aiSearchAttempted) {
+                parts.push(
+                  `AI ${event.aiSearchMerged ?? 0}m/${event.aiSearchRejected ?? 0}r`,
+                );
+              }
               toast.success(`🤖 ML batch complete${sec ? ` in ${sec}` : ""}`, {
                 description: parts.join(" · ") || "No changes",
               });
@@ -1145,6 +1471,8 @@ export function MatcherLab() {
             </div>
           )}
 
+          <ResolutionSourcePanel stats={resolutionSources} />
+
           {/* DataTable */}
           <div className="flex-1 min-h-0 p-2">
             <DataTable<MatchPairRow>
@@ -1224,6 +1552,11 @@ export function MatcherLab() {
             setAiProgress(null);
             setAiReviewResults([]);
             setPairStatuses(new Map());
+            if (aiVerificationJobId) {
+              void clearAiVerificationJob(aiVerificationJobId).catch(() => {});
+            }
+            setAiVerificationJobId(null);
+            setAiVerificationJobStatus(null);
           }
         }}
         results={aiReviewResults}
@@ -1235,6 +1568,11 @@ export function MatcherLab() {
           setAiProgress(null);
           setAiReviewResults([]);
           setPairStatuses(new Map());
+          if (aiVerificationJobId) {
+            void clearAiVerificationJob(aiVerificationJobId).catch(() => {});
+          }
+          setAiVerificationJobId(null);
+          setAiVerificationJobStatus(null);
         }}
       />
     </TooltipProvider>
@@ -1497,12 +1835,12 @@ function buildColumns(
       },
       {
         id: "decidedBy",
-        header: "By",
+        header: "Source",
         size: 100,
-        meta: { hint: "Who or what made the decision." },
-        accessorFn: (row) => row.decidedBy,
+        meta: { hint: "The service or person that settled this pair." },
+        accessorFn: (row) => row.resolutionSource ?? row.decidedBy,
         cell: ({ row }) => {
-          const by = row.original.decidedBy;
+          const by = row.original.resolutionSource ?? row.original.decidedBy;
           if (!by) return <span className="text-zinc-600">—</span>;
           const isAiSearch = by === "ai-search";
           const isGemini = by.startsWith("gemini-");

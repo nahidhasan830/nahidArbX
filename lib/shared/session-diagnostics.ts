@@ -41,6 +41,8 @@ const store = singleton("session-diagnostics", () => ({
   providers: new Map<string, ProviderSessionDiagnostics>(),
 }));
 
+const MAX_STEPS_PER_PROVIDER = 20;
+
 function getOrCreate(providerId: string): ProviderSessionDiagnostics {
   let d = store.providers.get(providerId);
   if (!d) {
@@ -64,6 +66,12 @@ export function captureStarted(providerId: string): void {
   d.lastCaptureStatus = "pending";
   d.lastCaptureAt = new Date().toISOString();
   d.totalAttempts++;
+
+  // Cap total providers tracked to prevent unbounded map growth
+  if (store.providers.size > 50) {
+    const oldest = store.providers.keys().next().value;
+    if (oldest && oldest !== providerId) store.providers.delete(oldest);
+  }
 }
 
 /** Record a step completion. */
@@ -79,6 +87,9 @@ export function stepCompleted(
     durationMs,
     at: new Date().toISOString(),
   });
+  if (d.steps.length > MAX_STEPS_PER_PROVIDER) {
+    d.steps.splice(0, d.steps.length - MAX_STEPS_PER_PROVIDER);
+  }
 }
 
 /** Record a step failure. */
@@ -96,6 +107,9 @@ export function stepFailed(
     durationMs,
     at: new Date().toISOString(),
   });
+  if (d.steps.length > MAX_STEPS_PER_PROVIDER) {
+    d.steps.splice(0, d.steps.length - MAX_STEPS_PER_PROVIDER);
+  }
   d.lastCaptureStatus = "failed";
   d.consecutiveFailures++;
 }
