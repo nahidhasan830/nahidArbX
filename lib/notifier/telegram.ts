@@ -94,6 +94,7 @@ function formatMlRunCompleted(e: MlRunCompletedEvent): FormattedMessage | null {
         text: `Review ${Math.min(e.escalated, 5)} now`,
         callback_data: `m:l:${Math.min(e.escalated, 5)}`,
       },
+      { text: "Run all human review", callback_data: "m:A" },
     ],
   };
 }

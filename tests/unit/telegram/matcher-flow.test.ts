@@ -115,7 +115,10 @@ describe("Telegram matcher review flow", () => {
     expect(sendBody.text).toContain("Matcher Review Needed");
     expect(sendBody.text).toContain("Human review: <b>3</b>");
     expect(sendBody.reply_markup.inline_keyboard).toEqual([
-      [{ text: "Review 3 now", callback_data: "m:l:3" }],
+      [
+        { text: "Review 3 now", callback_data: "m:l:3" },
+        { text: "Run all human review", callback_data: "m:A" },
+      ],
     ]);
   });
 
@@ -142,8 +145,11 @@ describe("Telegram matcher review flow", () => {
       { text: "1. b3d3f9ff", callback_data: `m:v:${row.decisionId}` },
     ]);
     expect(queueEdit?.reply_markup.inline_keyboard).toContainEqual([
-      { text: "🔁 Re-run listed", callback_data: "m:P:3" },
+      { text: "🔁 Run listed", callback_data: "m:P:3" },
       { text: "↻ Refresh", callback_data: "m:l:3" },
+    ]);
+    expect(queueEdit?.reply_markup.inline_keyboard).toContainEqual([
+      { text: "🔁 Run all human review", callback_data: "m:A" },
     ]);
 
     vi.clearAllMocks();
@@ -188,6 +194,34 @@ describe("Telegram matcher review flow", () => {
     const confirmEdit = fetchBodies().find((body) =>
       String(body.text).includes("Confirm matcher merge"),
     );
+    expect(confirmEdit?.reply_markup.inline_keyboard[0][0].callback_data).toMatch(
+      /^c:/,
+    );
+    expect(confirmEdit?.reply_markup.inline_keyboard[0][1].callback_data).toMatch(
+      /^x:/,
+    );
+  });
+
+  it("exposes run-all human review as a confirm-gated action", async () => {
+    await handleMatcherCallback({
+      id: "callback-run-all",
+      from: { id: 12345, is_bot: false },
+      message: {
+        message_id: 10,
+        chat: { id: 12345, type: "private" },
+        date: 0,
+      },
+      data: "m:A",
+    });
+
+    expect(eventMatcher.runEventMatcher).not.toHaveBeenCalled();
+    expect(eventMatcher.countDecisionRows).toHaveBeenCalledWith({
+      decision: "human_review",
+    });
+    const confirmEdit = fetchBodies().find((body) =>
+      String(body.text).includes("all current human-review rows"),
+    );
+    expect(confirmEdit?.text).toContain("Rows: 3");
     expect(confirmEdit?.reply_markup.inline_keyboard[0][0].callback_data).toMatch(
       /^c:/,
     );

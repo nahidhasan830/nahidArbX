@@ -1,7 +1,7 @@
 /**
  * Matcher Lab controls:
  *   /matcher_reviews, /matcher_review, /matcher_match, /matcher_reject,
- *   /matcher_keep, /matcher_run.
+ *   /matcher_keep, /matcher_run, /matcher_run_all.
  */
 
 import {
@@ -121,9 +121,10 @@ async function renderReviewList(limit: number): Promise<{
           },
         ]),
         [
-          { text: "🔁 Re-run listed", callback_data: `m:P:${safeLimit}` },
+          { text: "🔁 Run listed", callback_data: `m:P:${safeLimit}` },
           { text: "↻ Refresh", callback_data: `m:l:${safeLimit}` },
         ],
+        [{ text: "🔁 Run all human review", callback_data: "m:A" }],
       ],
     },
   };
@@ -444,6 +445,48 @@ registerCommand({
   },
 });
 
+registerCommand({
+  name: "matcher_run_all",
+  usage: "/matcher_run_all",
+  description: "Run Matcher Lab pipeline for every human-review row.",
+  explanation:
+    "Re-runs the matcher over every current human-review row. This is confirm-gated because it can apply canonical merges when refreshed evidence is decisive.",
+  group: "destructive",
+  destructive: true,
+  async handler({ reply, chatId, messageId }) {
+    const total = await countDecisionRows({ decision: "human_review" });
+    if (total === 0) {
+      await reply("✅ No Matcher Lab human-review items to run.");
+      return { alreadyReplied: true };
+    }
+
+    const description = [
+      b("Confirm matcher run"),
+      "",
+      kvList([
+        ["Rows", num(total)],
+        ["Scope", "all current human-review rows"],
+      ]),
+      "",
+      "<i>This can apply canonical merges when the matcher becomes decisive.</i>",
+    ].join("\n");
+    const { keyboard } = createConfirm({
+      description,
+      chatId,
+      messageId,
+      run: async () => {
+        const rows = await listDecisionRows({
+          decision: "human_review",
+          limit: total,
+        });
+        return formatRunSummary("🔁", await runMatcherForRows(rows));
+      },
+    });
+    await reply(description, keyboard);
+    return { alreadyReplied: true };
+  },
+});
+
 export async function handleMatcherCallback(
   query: TgCallbackQuery,
 ): Promise<boolean> {
@@ -473,6 +516,42 @@ export async function handleMatcherCallback(
     );
     const rendered = await renderReviewList(limit);
     await editOrSend(rendered.text, rendered.keyboard);
+    return true;
+  }
+
+  if (action === "A") {
+    await answerCallbackQuery({
+      callback_query_id: query.id,
+      text: "Confirm matcher run.",
+    });
+    const total = await countDecisionRows({ decision: "human_review" });
+    if (total === 0) {
+      await editOrSend("✅ No Matcher Lab human-review items to run.");
+      return true;
+    }
+    const description = [
+      b("Confirm matcher run"),
+      "",
+      kvList([
+        ["Rows", num(total)],
+        ["Scope", "all current human-review rows"],
+      ]),
+      "",
+      "<i>This can apply canonical merges when the matcher becomes decisive.</i>",
+    ].join("\n");
+    const { keyboard } = createConfirm({
+      description,
+      chatId: query.message?.chat.id ?? query.from.id,
+      messageId: query.message?.message_id ?? 0,
+      run: async () => {
+        const rows = await listDecisionRows({
+          decision: "human_review",
+          limit: total,
+        });
+        return formatRunSummary("🔁", await runMatcherForRows(rows));
+      },
+    });
+    await editOrSend(description, keyboard);
     return true;
   }
 

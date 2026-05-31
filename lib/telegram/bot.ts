@@ -25,13 +25,12 @@ import {
   getUpdates,
   isTelegramConfigured,
   sendMessage,
-  setChatMenuButton,
-  setMyCommands,
 } from "./client";
 import { isCommandEnabled } from "./config";
 import { takeConfirm } from "./confirm";
 import { recordCommandHistory } from "./history";
-import { getCommand, listCommands } from "./registry";
+import { getCommand } from "./registry";
+import { syncTelegramCommandMenu } from "./menu";
 import { handleMatcherCallback } from "./commands/matcher-commands";
 import "./commands"; // side-effect: registers every command
 import type {
@@ -268,54 +267,7 @@ async function loop(): Promise<void> {
   logger.info(TAG, "poll loop exited");
 }
 
-/**
- * Push the current enabled-command list to Telegram's slash-command
- * autocomplete and pin the chat menu button so it shows them. Disabled
- * commands are excluded from the autocomplete list — re-enabling on the
- * dashboard re-registers them on the next call.
- */
-export async function syncTelegramCommandMenu(): Promise<void> {
-  if (!isTelegramConfigured()) return;
-  const primaryMenuCommands = new Set([
-    "help",
-    "status",
-    "health",
-    "errors",
-    "balance",
-    "today",
-    "value",
-    "pending",
-    "sync",
-    "scheduler",
-    "settle",
-    "autoplace",
-    "provider",
-    "matcher_reviews",
-    "matcher_review",
-    "matcher_match",
-    "matcher_reject",
-    "matcher_run",
-  ]);
-  const showFullMenu = process.env.TELEGRAM_FULL_COMMAND_MENU === "1";
-  const enabled = listCommands().filter(
-    (c) =>
-      isCommandEnabled(c.name) &&
-      (showFullMenu || primaryMenuCommands.has(c.name)),
-  );
-  // Telegram caps each description at 256 chars but BotFather guidance is
-  // ≤22 for mobile readability. Truncate the longer one-liners so the
-  // popover stays clean.
-  const trimmed = enabled.map((c) => ({
-    command: c.name,
-    description:
-      c.description.length > 64
-        ? c.description.slice(0, 61) + "…"
-        : c.description,
-  }));
-  await setMyCommands(trimmed);
-  await setChatMenuButton("commands");
-  logger.info(TAG, `Telegram command menu synced (${trimmed.length} commands)`);
-}
+export { syncTelegramCommandMenu } from "./menu";
 
 export function startTelegramBot(): boolean {
   if (state.running) {

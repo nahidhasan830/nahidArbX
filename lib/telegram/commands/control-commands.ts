@@ -44,6 +44,7 @@ import {
   PROVIDER_REGISTRY,
   type ProviderKey,
 } from "@/lib/providers/registry";
+import { syncTelegramCommandMenu } from "../menu";
 import { registerCommand } from "../registry";
 import { esc, header, kvList } from "../format";
 
@@ -67,6 +68,26 @@ registerCommand({
     } else {
       void syncAll();
       await reply("🔄 Full sync triggered (fixtures + matching + odds).");
+    }
+    return { alreadyReplied: true };
+  },
+});
+
+// ── /commandsync ────────────────────────────────────────────────────────
+
+registerCommand({
+  name: "commandsync",
+  usage: "/commandsync",
+  description: "Refresh Telegram slash-command autosuggestions.",
+  explanation:
+    "Republishes the bot's slash-command menu to Telegram using the currently enabled command list. Use this after adding, removing, enabling, or disabling commands if Telegram's / autosuggestions look stale.",
+  group: "control",
+  async handler({ reply }) {
+    try {
+      const count = await syncTelegramCommandMenu();
+      await reply(`✅ Telegram autosuggestions refreshed (${count} commands).`);
+    } catch (err) {
+      await reply(`⚠️ Command sync failed: ${esc((err as Error).message)}`);
     }
     return { alreadyReplied: true };
   },
