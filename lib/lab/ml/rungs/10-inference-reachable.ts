@@ -42,14 +42,18 @@ export const rung10InferenceReachable: RungDefinition = {
       status: "warn",
       primary: `${successRate.toFixed(1)}% success`,
       secondary: "a meaningful fraction of inference attempts are failing.",
-      action: "Check live scoring health and restart the engine if failures continue.",
+      action:
+        "Check live scoring health and restart the engine if failures continue.",
     };
   },
   inputs: (d) => [
     { label: "modelLoaded", value: String(d.inference.modelLoaded) },
     {
       label: "modelVersion",
-      value: d.inference.modelVersion == null ? "null" : `v${d.inference.modelVersion}`,
+      value:
+        d.inference.modelVersion == null
+          ? "null"
+          : `v${d.inference.modelVersion}`,
     },
     {
       label: "totalScoringAttempts",

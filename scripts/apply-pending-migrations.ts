@@ -63,6 +63,14 @@ const MIGRATIONS = [
   "0072_ml_prediction_audit.sql",
   "0073_dedup_ml_prediction_audit.sql",
   "0074_ml_learning_observatory.sql",
+  "0075_event_matcher.sql",
+  "0076_drop_legacy_matcher_lab.sql",
+  "0077_event_matcher_scheduler_settings.sql",
+  "0078_trim_event_matcher_debug_payloads.sql",
+  "0079_drop_matcher_feedback.sql",
+  "0080_drop_matcher_decision_grounded_evidence.sql",
+  "0081_event_matcher_run_jobs.sql",
+  "0082_matcher_grounded_decision.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -174,9 +182,59 @@ async function main() {
       expect: 1,
     },
     {
-      what: "match_pairs table",
+      what: "match_pairs table dropped",
       sql: `SELECT count(*)::int AS n FROM information_schema.tables
               WHERE table_schema = 'public' AND table_name = 'match_pairs'`,
+      expect: 0,
+    },
+    {
+      what: "event_matcher_runs table dropped",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'event_matcher_runs'`,
+      expect: 0,
+    },
+    {
+      what: "matcher_candidates table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'matcher_candidates'`,
+      expect: 1,
+    },
+    {
+      what: "matcher_decisions table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'matcher_decisions'`,
+      expect: 1,
+    },
+    {
+      what: "matcher_decisions.grounded_decision column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'matcher_decisions'
+                AND column_name = 'grounded_decision'`,
+      expect: 1,
+    },
+    {
+      what: "matcher_decisions.grounded_confidence column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'matcher_decisions'
+                AND column_name = 'grounded_confidence'`,
+      expect: 1,
+    },
+    {
+      what: "event_matcher_scheduler_settings table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'event_matcher_scheduler_settings'`,
+      expect: 1,
+    },
+    {
+      what: "event_matcher_run_jobs table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'event_matcher_run_jobs'`,
+      expect: 1,
+    },
+    {
+      what: "event_matcher_run_job_events table",
+      sql: `SELECT count(*)::int AS n FROM information_schema.tables
+              WHERE table_schema = 'public' AND table_name = 'event_matcher_run_job_events'`,
       expect: 1,
     },
     {
@@ -381,13 +439,6 @@ async function main() {
       what: "ai_provider_config: deepseek-lite row removed",
       sql: `SELECT count(*)::int AS n FROM ai_provider_config WHERE name = 'deepseek-lite'`,
       expect: 0,
-    },
-    {
-      what: "match_pairs.resolution_source column",
-      sql: `SELECT count(*)::int AS n FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'match_pairs'
-                AND column_name = 'resolution_source'`,
-      expect: 1,
     },
     {
       what: "ml_prediction_audit table",

@@ -12,9 +12,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST() {
   try {
-    const { reconcileMissingSettledExamples } = await import(
-      "@/lib/ml/training-example-writer"
-    );
+    const { reconcileMissingSettledExamples } =
+      await import("@/lib/ml/training-example-writer");
     const written = await reconcileMissingSettledExamples(500);
     return NextResponse.json({ ok: true, written });
   } catch (err) {

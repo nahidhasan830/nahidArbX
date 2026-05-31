@@ -20,8 +20,7 @@ export const rung01FeatureExtraction: RungDefinition = {
         primary: `${rate}%`,
         secondary:
           "feature extraction is lagging on a meaningful slice of recent bets.",
-        action:
-          "Check that the engine and both odds feeds are healthy.",
+        action: "Check that the engine and both odds feeds are healthy.",
       };
     }
     return {

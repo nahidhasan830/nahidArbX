@@ -1,49 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isValid, parseISO } from "date-fns";
 import { toast } from "sonner";
-import { type ColumnDef, type RowSelectionState } from "@tanstack/react-table";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-} from "recharts";
-import {
+  Activity,
   CheckCircle2,
-  ExternalLink,
+  Clock3,
+  Database,
+  GitMerge,
   Loader2,
   Play,
   RefreshCw,
   Search,
+  ShieldAlert,
+  TerminalSquare,
   XCircle,
-  Timer,
-  Zap,
-  CheckCheck,
-  Ban,
-  ArrowUpRight,
-  Brain,
-  AlertTriangle,
 } from "lucide-react";
+import type { RowSelectionState } from "@tanstack/react-table";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { verifyAiMatch } from "./api";
-import { AiModelMenuItems } from "@/components/shared/AiModelMenuItems";
-import type {
-  AiModelMenuEngine,
-  AiModelMenuCallbacks,
-} from "@/components/shared/AiModelMenuItems";
-import type { ModelTier } from "@/lib/ai/models";
-
+import { AppShell } from "@/components/nav/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DataTable } from "@/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -52,6 +33,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -59,2279 +46,205 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { VirtualList } from "@/components/ui/virtual-list";
+import { fmtSeen } from "@/lib/formatting/helpers";
+import { MATCHER_LAB_AUTO_REFRESH_MS } from "@/lib/shared/constants";
 import { cn } from "@/lib/utils";
 import {
-  fetchPairsByStage,
-  fetchStats,
-  decidePair,
-  bulkDecide,
-  runMlStream,
-  startAiVerificationJob,
-  fetchAiVerificationJob,
-  clearAiVerificationJob,
+  fetchLatestMatcherRunJob,
+  fetchMatcherDecisions,
+  fetchMatcherRunJob,
+  fetchMatcherSchedulerSettings,
+  fetchMatcherStats,
+  sendManualMatcherDecisions,
+  startMatcherRunJob,
+  updateMatcherSchedulerSettings,
 } from "./api";
-import type {
-  MatchPairRow,
-  MatchPairStage,
-  StageCounts,
-  MlSchedulerStats,
-  MlRunHistoryEntry,
-  MlProgressEvent,
-  PairProcessingStatus,
-  MatchPairDecision,
-  ResolutionSourceStat,
-  AiVerificationJobSnapshot,
-} from "./types";
 import {
-  STAGE_META,
-  DECISION_COLORS,
+  DECISION_META,
   PROVIDER_BADGE,
   PROVIDER_DISPLAY_NAMES,
+  type MatcherDecisionRow,
+  type MatcherManualDecision,
+  type MatcherRunJob,
+  type MatcherRunProgressEvent,
+  type MatcherSchedulerSettingsRow,
+  type MatcherStatsResponse,
 } from "./types";
-import { SchedulerPopover } from "./SchedulerPopover";
-import { format, isValid, parseISO } from "date-fns";
 
-import { AppShell } from "@/components/nav/AppShell";
+type DecisionFilter = "all" | "human_review" | "auto_merge" | "auto_reject";
+type GroundedDecision = NonNullable<MatcherDecisionRow["groundedDecision"]>;
+const ACTIVE_MATCHER_JOB_KEY = "matcher-lab-active-run-job";
 
-const VISIBLE_STAGES: MatchPairStage[] = ["inbox", "human_review", "history"];
+const DECISION_FILTERS: { value: DecisionFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "human_review", label: "Needs review" },
+  { value: "auto_merge", label: "Auto merge" },
+  { value: "auto_reject", label: "Auto reject" },
+];
 
-const REFRESH_INTERVALS: Partial<Record<MatchPairStage, number>> = {
-  inbox: 15_000,
-  human_review: 30_000,
-};
-
-const AI_JOB_POLL_MS = 1_500;
-
-type AiReviewAction = "merge" | "reject" | "keep";
-
-type AiReviewStatus = "success" | "error";
-
-type AiReviewResult = {
-  id: string;
-  pair: MatchPairRow;
-  status: AiReviewStatus;
-  aiDecision: "SAME" | "DIFFERENT" | "UNCERTAIN" | "ERROR";
-  confidence: number | null;
-  model: string | null;
-  engine: string | null;
-  reasoning: string;
-  sources: { url: string; title: string; snippet: string }[];
-  searchQueriesUsed: string[];
-  action: AiReviewAction;
-  error?: string;
-};
-
-type AiProgress = {
-  phase: string;
-  current: number;
-  total: number;
-  same: number;
-  different: number;
-  uncertain: number;
-  errors: number;
-};
-
-const RESOLUTION_SOURCE_META: Record<
-  string,
-  { label: string; color: string; textClassName: string }
+const DECISION_TAB_COLORS: Record<
+  DecisionFilter,
+  { active: string; dot: string }
 > = {
-  "ml-bi-encoder": {
-    label: "ML bi-encoder",
-    color: "#34d399",
-    textClassName: "text-emerald-300",
+  all: {
+    active: "bg-zinc-800 text-zinc-100 border-zinc-600",
+    dot: "bg-zinc-400",
   },
-  "ml-cross-encoder": {
-    label: "ML cross-encoder",
-    color: "#f59e0b",
-    textClassName: "text-amber-300",
+  human_review: {
+    active: "bg-amber-500/15 text-amber-300 border-amber-500/40",
+    dot: "bg-amber-400",
   },
-  "ai-search": {
-    label: "AI Search",
-    color: "#22d3ee",
-    textClassName: "text-cyan-300",
+  auto_merge: {
+    active: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+    dot: "bg-emerald-400",
   },
-  human: {
-    label: "Human",
-    color: "#a78bfa",
-    textClassName: "text-violet-300",
-  },
-  "gemini-lite": {
-    label: "Gemini Lite",
-    color: "#60a5fa",
-    textClassName: "text-sky-300",
-  },
-  "gemini-flash": {
-    label: "Gemini Flash",
-    color: "#38bdf8",
-    textClassName: "text-sky-300",
-  },
-  "gemini-pro": {
-    label: "Gemini Pro",
-    color: "#818cf8",
-    textClassName: "text-indigo-300",
-  },
-  unknown: {
-    label: "Unknown",
-    color: "#71717a",
-    textClassName: "text-zinc-400",
+  auto_reject: {
+    active: "bg-rose-500/15 text-rose-300 border-rose-500/40",
+    dot: "bg-rose-400",
   },
 };
 
-function fmtMmmHm(iso: string | null): string {
-  if (!iso) return "—";
+const MANUAL_DECISION_LABELS: Record<MatcherManualDecision, string> = {
+  auto_merge: "Match",
+  auto_reject: "Not a match",
+  human_review: "Needs review",
+};
+
+const GROUNDED_DECISION_META: Record<
+  GroundedDecision,
+  { label: string; className: string; description: string }
+> = {
+  SAME: {
+    label: "Same",
+    className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-300",
+    description: "Grounded review identified the rows as the same fixture.",
+  },
+  DIFFERENT: {
+    label: "Different",
+    className: "border-red-500/25 bg-red-500/10 text-red-300",
+    description: "Grounded review identified the rows as different fixtures.",
+  },
+  UNCERTAIN: {
+    label: "Unclear",
+    className: "border-amber-500/25 bg-amber-500/10 text-amber-300",
+    description: "Grounded review did not safely resolve the pair.",
+  },
+};
+
+const PHASE_LABELS: Record<MatcherRunProgressEvent["phase"], string> = {
+  initializing: "Initializing",
+  loading_snapshots: "Snapshots",
+  generating_candidates: "Candidates",
+  filtering_candidates: "Deduping",
+  scoring_candidates: "Scoring",
+  reviewing_residual: "DeepSeek",
+  writing_decision: "Decision",
+  applying_merge: "Merge",
+  rebuilding_impact: "Impact",
+  completed: "Complete",
+  failed: "Failed",
+};
+
+const RUN_PHASES: MatcherRunProgressEvent["phase"][] = [
+  "initializing",
+  "loading_snapshots",
+  "generating_candidates",
+  "filtering_candidates",
+  "scoring_candidates",
+  "reviewing_residual",
+  "writing_decision",
+  "applying_merge",
+  "rebuilding_impact",
+  "completed",
+];
+
+const PHASE_DETAILS: Partial<Record<MatcherRunProgressEvent["phase"], string>> =
+  {
+    initializing: "Preparing run scope",
+    loading_snapshots: "Loading selected rows",
+    generating_candidates: "Building candidate pairs",
+    filtering_candidates: "Removing duplicate pairs",
+    scoring_candidates: "Scoring teams and kickoff",
+    reviewing_residual: "Checking ambiguous pairs",
+    writing_decision: "Recording policy output",
+    applying_merge: "Applying accepted links",
+    rebuilding_impact: "Refreshing rollups",
+    completed: "Ready for review",
+    failed: "Run stopped",
+  };
+
+const MATCHER_LOCAL_TIME_ZONE = "Asia/Dhaka";
+
+function fmtDateTime(iso: string | null | undefined): string {
+  if (!iso) return "n/a";
   const d = parseISO(iso);
-  if (!isValid(d)) return "—";
-  return format(d, "dd MMM HH:mm");
+  if (!isValid(d)) return "n/a";
+  return `${fmtZonedTime(d, MATCHER_LOCAL_TIME_ZONE)} BDT`;
 }
 
-function formatKickoff(iso: string | null): string {
-  return fmtMmmHm(iso);
+function fmtShort(iso: string | null | undefined): string {
+  if (!iso) return "n/a";
+  const d = parseISO(iso);
+  if (!isValid(d)) return "n/a";
+  return `${fmtZonedTime(d, MATCHER_LOCAL_TIME_ZONE, false)} BDT`;
 }
 
-function scoreColor(score: number | null): string {
-  if (score === null) return "text-zinc-500";
-  if (score >= 0.9) return "text-emerald-400";
-  if (score >= 0.7) return "text-amber-300";
-  return "text-red-400";
+function fmtZonedTime(
+  date: Date,
+  timeZone: string,
+  includeSeconds = true,
+): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(includeSeconds ? { second: "2-digit" as const } : {}),
+    hourCycle: "h23",
+  })
+    .format(date)
+    .replace(",", "")
+    .replace(/^0/, "");
 }
 
-function formatConfidence(confidence: number | null): string {
-  if (confidence == null || !Number.isFinite(confidence)) return "—";
-  const pct = confidence <= 1 ? confidence * 100 : confidence;
-  return `${Math.round(pct)}%`;
+function fmtElapsed(ms: number | null | undefined): string {
+  if (!ms || ms < 0) return "0s";
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  if (minutes === 0) return `${remaining}s`;
+  return `${minutes}m ${remaining}s`;
 }
 
-function actionForAiDecision(
-  decision: AiReviewResult["aiDecision"],
-): AiReviewAction {
-  if (decision === "SAME") return "merge";
-  if (decision === "DIFFERENT") return "reject";
-  return "keep";
+function fmtPercent(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "n/a";
+  return `${Math.round(value * 100)}%`;
 }
 
-function statusForAiDecision(
-  decision: AiReviewResult["aiDecision"],
-): PairProcessingStatus {
-  if (decision === "SAME") return "ai-same";
-  if (decision === "DIFFERENT") return "ai-different";
-  if (decision === "ERROR") return "error";
-  return "escalated";
-}
-
-function progressFromAiJob(job: AiVerificationJobSnapshot): AiProgress {
-  return {
-    phase:
-      job.status === "running"
-        ? `Verifying ${job.processed}/${job.total}`
-        : "Review AI results",
-    current: job.processed,
-    total: job.total,
-    same: job.same,
-    different: job.different,
-    uncertain: job.uncertain,
-    errors: job.errors,
-  };
-}
-
-function resultsFromAiJob(job: AiVerificationJobSnapshot): AiReviewResult[] {
-  return job.results.map((result) => ({
-    id: result.id,
-    pair: result.pair,
-    status: result.status,
-    aiDecision: result.decision,
-    confidence: result.confidence,
-    model: result.model,
-    engine: result.engine,
-    reasoning:
-      result.reasoning || "AI verification completed without a reasoning summary.",
-    sources: result.sources ?? [],
-    searchQueriesUsed: result.searchQueriesUsed ?? [],
-    action:
-      result.status === "error" ? "keep" : actionForAiDecision(result.decision),
-    error: result.error,
-  }));
-}
-
-function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return "any moment now";
+function fmtInterval(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${(seconds / 60).toFixed(1)}m`;
 }
 
-// ─── Countdown timer component ────────────────────────────────────────
-
-function SchedulerCountdown({ mlStats }: { mlStats: MlSchedulerStats | null }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (!mlStats?.active || !mlStats.lastRunAt || !mlStats.intervalMs) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [mlStats?.active, mlStats?.lastRunAt, mlStats?.intervalMs]);
-
-  if (!mlStats?.active || !mlStats.lastRunAt || !mlStats.intervalMs)
-    return null;
-
-  const lastRun = new Date(mlStats.lastRunAt).getTime();
-  const nextRun = lastRun + mlStats.intervalMs;
-  const secondsLeft = Math.max(0, Math.ceil((nextRun - now) / 1000));
-
-  return (
-    <span className="text-[11px] text-zinc-500 tabular-nums flex items-center gap-1">
-      <Timer className="size-3 text-zinc-600" />
-      Next run in{" "}
-      <span className="text-zinc-400">{formatCountdown(secondsLeft)}</span>
-    </span>
-  );
-}
-
-// ─── Status indicator for per-pair ML processing ──────────────────────
-
-const STATUS_CONFIG: Record<
-  PairProcessingStatus,
-  { icon: typeof Loader2; className: string; label: string }
-> = {
-  idle: { icon: Loader2, className: "text-zinc-600", label: "" },
-  queued: {
-    icon: Timer,
-    className: "text-zinc-400 animate-pulse",
-    label: "Queued",
-  },
-  embedding: {
-    icon: Zap,
-    className: "text-sky-400 animate-pulse",
-    label: "Embedding",
-  },
-  scoring: {
-    icon: Loader2,
-    className: "text-amber-400 animate-spin",
-    label: "Scoring",
-  },
-  "ai-searching": {
-    icon: Search,
-    className: "text-cyan-400 animate-pulse",
-    label: "AI Search",
-  },
-  "ai-same": {
-    icon: CheckCircle2,
-    className: "text-emerald-400",
-    label: "AI same",
-  },
-  "ai-different": {
-    icon: XCircle,
-    className: "text-red-400",
-    label: "AI diff",
-  },
-  merged: {
-    icon: CheckCheck,
-    className: "text-emerald-400",
-    label: "Merged",
-  },
-  rejected: { icon: Ban, className: "text-red-400", label: "Rejected" },
-  escalated: {
-    icon: ArrowUpRight,
-    className: "text-violet-400",
-    label: "To review",
-  },
-  error: { icon: XCircle, className: "text-red-500", label: "Error" },
-};
-
-function PairStatusCell({ status }: { status: PairProcessingStatus }) {
-  if (status === "idle") return null;
-  const config = STATUS_CONFIG[status];
-  const Icon = config.icon;
-  return (
-    <div className="flex items-center gap-1">
-      <Icon className={cn("size-3", config.className)} />
-      <span className={cn("text-[10px]", config.className)}>
-        {config.label}
-      </span>
-    </div>
-  );
-}
-
-function getResolutionSourceMeta(source: string) {
-  return RESOLUTION_SOURCE_META[source] ?? RESOLUTION_SOURCE_META.unknown;
-}
-
-function ResolutionSourcePanel({
-  stats,
-}: {
-  stats: ResolutionSourceStat[];
-}) {
-  const total = stats.reduce((sum, stat) => sum + stat.count, 0);
-  if (total <= 0) return null;
-
-  const data = stats.map((stat) => {
-    const meta = getResolutionSourceMeta(stat.source);
-    return {
-      source: stat.source,
-      label: meta.label,
-      count: stat.count,
-      color: meta.color,
-      textClassName: meta.textClassName,
-      percent: Math.round((stat.count / total) * 100),
-    };
-  });
-
-  return (
-    <div className="shrink-0 border-b border-border/50 bg-muted/15 px-3 py-2">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-20 w-20 shrink-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={data}
-                  dataKey="count"
-                  nameKey="label"
-                  innerRadius={24}
-                  outerRadius={38}
-                  paddingAngle={2}
-                  stroke="none"
-                >
-                  {data.map((item) => (
-                    <Cell key={item.source} fill={item.color} />
-                  ))}
-                </Pie>
-                <RechartsTooltip
-                  contentStyle={{
-                    background: "var(--popover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 6,
-                    color: "var(--popover-foreground)",
-                    fontSize: 12,
-                  }}
-                  formatter={(value, name) => [
-                    `${value} decisions`,
-                    name,
-                  ]}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">
-              Resolution source
-            </div>
-            <div className="text-sm text-muted-foreground">
-              History decisions grouped by the service that settled the pair.
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-1.5 sm:grid-cols-2 lg:min-w-[420px]">
-          {data.map((item) => (
-            <div
-              key={item.source}
-              className="flex min-w-0 items-center gap-2 text-xs"
-            >
-              <span
-                className="size-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: item.color }}
-              />
-              <span className={cn("truncate", item.textClassName)}>
-                {item.label}
-              </span>
-              <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
-                {item.count} ({item.percent}%)
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────
-
-function AiVerifyDropdown({
-  disabled,
-  running,
-  selectedCount,
-  progress,
-  onVerify,
-  inline = false,
-}: {
-  disabled: boolean;
-  running: boolean;
-  selectedCount?: number;
-  progress?: { current: number; total: number } | null;
-  onVerify: (
-    engine: AiModelMenuEngine,
-    model: ModelTier,
-    providerId?: string,
-  ) => void;
-  inline?: boolean;
-}) {
-  const callbacks: AiModelMenuCallbacks = {
-    onSelectAi: (engine, model) => onVerify(engine, model),
-  };
-
-  const runningLabel =
-    progress && progress.total > 1
-      ? `Verifying ${progress.current}/${progress.total}`
-      : "Verifying";
-
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size={inline ? "icon" : "sm"}
-              variant={inline ? "ghost" : "outline"}
-              className={cn(
-                inline ? "size-6" : "h-7 px-2.5 text-[11px] gap-1",
-                inline && "text-muted-foreground hover:text-foreground",
-              )}
-              disabled={disabled || running}
-            >
-              {running ? (
-                inline ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <>
-                    <Loader2 className="size-3 animate-spin" />
-                    {runningLabel}
-                  </>
-                )
-              ) : inline ? (
-                <Brain className="size-3.5" />
-              ) : (
-                <>
-                  <Brain className="size-3" />
-                  Verify with AI
-                  {selectedCount != null && selectedCount > 0 && (
-                    <span className="tabular-nums">({selectedCount})</span>
-                  )}
-                </>
-              )}
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>
-          Verify match using AI, then review before applying
-        </TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-[210px] p-1">
-        <AiModelMenuItems callbacks={callbacks} />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-export function MatcherLab() {
-  const [activeStage, setActiveStage] = useState<MatchPairStage>("inbox");
-  const [rows, setRows] = useState<MatchPairRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [counts, setCounts] = useState<StageCounts>({
-    inbox: 0,
-    human_review: 0,
-    history: 0,
-  });
-  const [mlStats, setMlStats] = useState<MlSchedulerStats | null>(null);
-  const [mlHistory, setMlHistory] = useState<MlRunHistoryEntry[]>([]);
-  const [resolutionSources, setResolutionSources] = useState<
-    ResolutionSourceStat[]
-  >([]);
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
-  const [historyTotal, setHistoryTotal] = useState(0);
-
-  const [actingOn, setActingOn] = useState<Set<string>>(new Set());
-  const [mlRunning, setMlRunning] = useState(false);
-  const [pairStatuses, setPairStatuses] = useState<
-    Map<string, PairProcessingStatus>
-  >(new Map());
-  const [mlProgress, setMlProgress] = useState<{
-    phase: string;
-    current: number;
-    total: number;
-  } | null>(null);
-  const [aiProgress, setAiProgress] = useState<AiProgress | null>(null);
-  const [aiReviewResults, setAiReviewResults] = useState<AiReviewResult[]>([]);
-  const [aiReviewOpen, setAiReviewOpen] = useState(false);
-  const [applyingAiReview, setApplyingAiReview] = useState(false);
-  const [aiVerifyingIds, setAiVerifyingIds] = useState<Set<string>>(new Set());
-  const [isBulkVerifying, setIsBulkVerifying] = useState(false);
-  const [aiVerificationJobId, setAiVerificationJobId] = useState<string | null>(
-    null,
-  );
-  const [aiVerificationJobStatus, setAiVerificationJobStatus] =
-    useState<AiVerificationJobSnapshot["status"] | null>(null);
-  const hasPendingAiReview = aiReviewOpen || aiReviewResults.length > 0;
-  const aiRunning = aiVerifyingIds.size > 0 || isBulkVerifying;
-  const initialTabPicked = useRef(false);
-
-  // Row selection — all selected by default on inbox
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const prevRowIdsRef = useRef<string>("");
-
-  // Keep track of previous stage to handle transitions
-  const prevStageRef = useRef<MatchPairStage>(activeStage);
-
-  // Auto-select NEW rows when inbox rows change, and handle stage transitions
-  useEffect(() => {
-    if (prevStageRef.current !== activeStage) {
-      setRowSelection({});
-      prevRowIdsRef.current = "";
-      prevStageRef.current = activeStage;
-      if (activeStage !== "inbox") return; // don't auto-select on other tabs initially
-    }
-
-    if (activeStage !== "inbox") {
-      // For non-inbox tabs, just cleanup deleted rows
-      setRowSelection((prev) => {
-        const next = { ...prev };
-        let changed = false;
-        for (const id of Object.keys(next)) {
-          if (!rows.some((r) => r.id === id)) {
-            delete next[id];
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-      return;
-    }
-
-    const rowIds = rows.map((r) => r.id).join(",");
-    if (rowIds === prevRowIdsRef.current) return;
-
-    const prevIds = new Set(
-      prevRowIdsRef.current ? prevRowIdsRef.current.split(",") : [],
-    );
-    prevRowIdsRef.current = rowIds;
-
-    setRowSelection((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      rows.forEach((row) => {
-        if (!prevIds.has(row.id)) {
-          next[row.id] = true;
-          changed = true;
-        }
-      });
-      // Cleanup deleted rows from selection state
-      for (const id of Object.keys(next)) {
-        if (!rows.some((r) => r.id === id)) {
-          delete next[id];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [rows, activeStage]);
-
-  const selectedCount = useMemo(() => {
-    if (activeStage !== "inbox" && activeStage !== "human_review") return 0;
-    return Object.values(rowSelection).filter(Boolean).length;
-  }, [rowSelection, activeStage]);
-
-  const selectedPairIds = useMemo(() => {
-    if (activeStage !== "inbox" && activeStage !== "human_review") return [];
-    return Object.entries(rowSelection)
-      .filter(([, selected]) => selected)
-      .map(([id]) => id);
-  }, [rowSelection, activeStage]);
-
-  const loadStats = useCallback(async () => {
-    try {
-      const data = await fetchStats();
-      setCounts(data.stageCounts);
-      setMlStats(data.mlStats);
-      setMlHistory(data.history ?? []);
-      setResolutionSources(data.resolutionSources ?? []);
-      setHasMoreHistory(data.hasMoreHistory ?? false);
-      setHistoryTotal(data.historyTotal ?? 0);
-
-      if (!initialTabPicked.current) {
-        initialTabPicked.current = true;
-        const firstNonEmpty = VISIBLE_STAGES.find(
-          (s) => (data.stageCounts[s] ?? 0) > 0,
-        );
-        if (firstNonEmpty) setActiveStage(firstNonEmpty);
-      }
-    } catch {
-      // Stale counts are acceptable
-    }
-  }, []);
-
-  const loadRows = useCallback(async (stage: MatchPairStage) => {
-    setRefreshing(true);
-    try {
-      const data = await fetchPairsByStage(stage, { limit: 200 });
-      setRows(data.rows);
-    } catch (err) {
-      toast.error("❌ Failed to load pairs", {
-        description: (err as Error).message,
-      });
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  const refresh = useCallback(async () => {
-    await Promise.all([loadRows(activeStage), loadStats()]);
-  }, [activeStage, loadRows, loadStats]);
-
-  const syncAiVerificationJob = useCallback(
-    (job: AiVerificationJobSnapshot) => {
-      setAiVerificationJobId(job.id);
-      setAiVerificationJobStatus(job.status);
-      setAiProgress(progressFromAiJob(job));
-
-      const pendingIds = new Set(job.pairIds);
-      const statuses = new Map<string, PairProcessingStatus>();
-
-      for (const result of job.results) {
-        pendingIds.delete(result.id);
-        statuses.set(result.id, statusForAiDecision(result.decision));
-      }
-
-      if (job.status === "running") {
-        for (const id of pendingIds) {
-          statuses.set(id, "ai-searching");
-        }
-      }
-
-      setPairStatuses(statuses);
-      setAiVerifyingIds(job.status === "running" ? pendingIds : new Set());
-      setIsBulkVerifying(job.status === "running");
-
-      if (job.status === "completed") {
-        const results = resultsFromAiJob(job);
-        setAiReviewResults(results);
-        setAiReviewOpen(results.length > 0);
-      } else if (job.status === "failed") {
-        setAiReviewResults([]);
-        setAiReviewOpen(false);
-        setAiProgress(null);
-        toast.error("AI verification failed", {
-          description: job.error ?? "The background job failed.",
-        });
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    setLoading(true);
-    void refresh();
-  }, [activeStage]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function hydrateLatestJob() {
-      try {
-        const job = await fetchAiVerificationJob();
-        if (cancelled || !job) return;
-        syncAiVerificationJob(job);
-      } catch {
-        // Job visibility is best-effort; normal data refresh still works.
-      }
-    }
-
-    void hydrateLatestJob();
-    return () => {
-      cancelled = true;
-    };
-  }, [syncAiVerificationJob]);
-
-  useEffect(() => {
-    if (!aiVerificationJobId || aiVerificationJobStatus !== "running") return;
-
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const job = await fetchAiVerificationJob(aiVerificationJobId);
-        if (cancelled || !job) return;
-        syncAiVerificationJob(job);
-        if (job.status !== "running") {
-          await refresh();
-        }
-      } catch (err) {
-        if (!cancelled) {
-          toast.error("Failed to refresh AI verification status", {
-            description: (err as Error).message,
-          });
-        }
-      }
-    };
-
-    const id = setInterval(poll, AI_JOB_POLL_MS);
-    void poll();
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [
-    aiVerificationJobId,
-    aiVerificationJobStatus,
-    refresh,
-    syncAiVerificationJob,
-  ]);
-
-  useEffect(() => {
-    if (mlRunning || aiRunning || hasPendingAiReview) return;
-    const interval = REFRESH_INTERVALS[activeStage];
-    if (!interval) return;
-    const id = setInterval(refresh, interval);
-    return () => clearInterval(id);
-  }, [activeStage, refresh, mlRunning, aiRunning, hasPendingAiReview]);
-
-  const handleDecide = useCallback(
-    async (id: string, decision: "human-merge" | "human-reject") => {
-      setActingOn((s) => new Set(s).add(id));
-      try {
-        const pair = rows.find((r) => r.id === id);
-        await decidePair(id, decision, "human");
-        const eventLabel = pair
-          ? `${pair.eventAHomeTeam} v ${pair.eventAAwayTeam} ↔ ${pair.eventBHomeTeam} v ${pair.eventBAwayTeam}`.slice(
-              0,
-              70,
-            )
-          : id.slice(0, 30);
-        if (decision === "human-merge") {
-          toast.success(`✅ Merged`, {
-            description: eventLabel,
-          });
-        } else {
-          toast.success(`🚫 Rejected`, {
-            description: eventLabel,
-          });
-        }
-        await refresh();
-      } catch (err) {
-        toast.error("❌ Action failed", {
-          description: (err as Error).message,
-        });
-      } finally {
-        setActingOn((s) => {
-          const next = new Set(s);
-          next.delete(id);
-          return next;
-        });
-      }
-    },
-    [refresh, rows],
-  );
-
-  const updateAiReviewAction = useCallback(
-    (id: string, action: AiReviewAction) => {
-      setAiReviewResults((prev) =>
-        prev.map((result) =>
-          result.id === id ? { ...result, action } : result,
-        ),
-      );
-    },
-    [],
-  );
-
-  const handleApplyAiReview = useCallback(async () => {
-    const items = aiReviewResults
-      .filter((result) => result.action !== "keep" && result.status !== "error")
-      .map((result) => ({
-        id: result.id,
-        decision:
-          result.action === "merge"
-            ? ("human-merge" as MatchPairDecision)
-            : ("human-reject" as MatchPairDecision),
-        reason: [
-          `AI Search suggested ${result.aiDecision} (${formatConfidence(result.confidence)} confidence).`,
-          result.reasoning,
-        ]
-          .filter(Boolean)
-          .join(" "),
-      }));
-
-    if (items.length === 0) {
-      setAiReviewOpen(false);
-      setAiProgress(null);
-      setPairStatuses(new Map());
-      if (aiVerificationJobId) {
-        await clearAiVerificationJob(aiVerificationJobId).catch(() => {});
-      }
-      setAiVerificationJobId(null);
-      setAiVerificationJobStatus(null);
-      return;
-    }
-
-    setApplyingAiReview(true);
-    setActingOn((prev) => {
-      const next = new Set(prev);
-      for (const item of items) next.add(item.id);
-      return next;
-    });
-
-    try {
-      const result = await bulkDecide(items, "ai-search");
-      toast.success("AI review applied", {
-        description:
-          result.failed > 0
-            ? `${result.succeeded} applied, ${result.failed} failed`
-            : `${result.succeeded} decision${result.succeeded === 1 ? "" : "s"} applied`,
-      });
-      setAiReviewOpen(false);
-      setAiProgress(null);
-      setAiReviewResults([]);
-      setPairStatuses(new Map());
-      if (aiVerificationJobId) {
-        await clearAiVerificationJob(aiVerificationJobId).catch(() => {});
-      }
-      setAiVerificationJobId(null);
-      setAiVerificationJobStatus(null);
-      await refresh();
-    } catch (err) {
-      toast.error("Failed to apply AI review", {
-        description: (err as Error).message,
-      });
-    } finally {
-      setApplyingAiReview(false);
-      setActingOn((prev) => {
-        const next = new Set(prev);
-        for (const item of items) next.delete(item.id);
-        return next;
-      });
-    }
-  }, [aiReviewResults, aiVerificationJobId, refresh]);
-
-  const handleVerifyAi = useCallback(
-    async (engine: AiModelMenuEngine, model: ModelTier, singleId?: string) => {
-      const idsToRun = singleId ? [singleId] : [...selectedPairIds];
-      if (idsToRun.length === 0) return;
-
-      setAiReviewResults([]);
-      setAiReviewOpen(false);
-      setAiProgress({
-        phase:
-          idsToRun.length > 1
-            ? "Running AI verification"
-            : "Running AI verification",
-        current: 0,
-        total: idsToRun.length,
-        same: 0,
-        different: 0,
-        uncertain: 0,
-        errors: 0,
-      });
-
-      if (!singleId) {
-        setRowSelection({});
-        setIsBulkVerifying(true);
-      }
-
-      setAiVerifyingIds((prev) => {
-        const next = new Set(prev);
-        for (const id of idsToRun) next.add(id);
-        return next;
-      });
-
-      void engine;
-      void model;
-      const apiEngine = "ai-search";
-
-      if (!singleId) {
-        try {
-          const result = await startAiVerificationJob(idsToRun, {
-            engine: apiEngine,
-            model: "flash",
-          });
-          syncAiVerificationJob(result.job);
-          toast.info(
-            result.reused
-              ? "AI verification already running"
-              : "AI verification started",
-            {
-              description: `${result.job.total} pair${result.job.total === 1 ? "" : "s"} will continue in the background.`,
-            },
-          );
-        } catch (err) {
-          setIsBulkVerifying(false);
-          setAiProgress(null);
-          setAiVerifyingIds(new Set());
-          setPairStatuses(new Map());
-          toast.error("AI verification failed to start", {
-            description: (err as Error).message,
-          });
-        }
-        return;
-      }
-
-      const id = singleId;
-      const pair = rows.find((r) => r.id === id);
-      if (!pair) {
-        setAiProgress(null);
-        setAiVerifyingIds(new Set());
-        return;
-      }
-
-      setPairStatuses((prev) => {
-        const next = new Map(prev);
-        next.set(id, "ai-searching");
-        return next;
-      });
-
-      const reviewResults: AiReviewResult[] = [];
-
-      try {
-        const result = await verifyAiMatch(id, {
-          engine: apiEngine,
-          model: "flash" as const,
-        });
-        const decision =
-          result.decision === "SAME"
-            ? "SAME"
-            : result.decision === "DIFFERENT" ||
-                result.decision === "NOT_SAME"
-              ? "DIFFERENT"
-              : "UNCERTAIN";
-
-        reviewResults.push({
-          id,
-          pair,
-          status: "success",
-          aiDecision: decision,
-          confidence: result.confidence,
-          model: result.model,
-          engine: result.engine,
-          reasoning:
-            result.reasoning ||
-            "AI verification completed without a reasoning summary.",
-          sources: result.sources ?? [],
-          searchQueriesUsed: result.searchQueriesUsed ?? [],
-          action: actionForAiDecision(decision),
-        });
-
-        setPairStatuses((prev) => {
-          const next = new Map(prev);
-          next.set(id, statusForAiDecision(decision));
-          return next;
-        });
-        setAiProgress((prev) =>
-          prev
-            ? {
-                ...prev,
-                current: 1,
-                same: decision === "SAME" ? 1 : 0,
-                different: decision === "DIFFERENT" ? 1 : 0,
-                uncertain: decision === "UNCERTAIN" ? 1 : 0,
-              }
-            : null,
-        );
-      } catch (err) {
-        reviewResults.push({
-          id,
-          pair,
-          status: "error",
-          aiDecision: "ERROR",
-          confidence: null,
-          model: null,
-          engine: apiEngine,
-          reasoning: (err as Error).message,
-          sources: [],
-          searchQueriesUsed: [],
-          action: "keep",
-          error: (err as Error).message,
-        });
-        setPairStatuses((prev) => {
-          const next = new Map(prev);
-          next.set(id, "error");
-          return next;
-        });
-        setAiProgress((prev) =>
-          prev
-            ? {
-                ...prev,
-                current: 1,
-                errors: 1,
-              }
-            : null,
-        );
-      } finally {
-        setAiVerifyingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-      }
-
-      setAiProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              phase: "Review AI results",
-              current: prev.total,
-            }
-          : null,
-      );
-      setAiReviewResults(reviewResults);
-      setAiReviewOpen(reviewResults.length > 0);
-      if (reviewResults.length === 0) {
-        toast.warning("No AI results to review", {
-          description: "The selected rows were no longer available.",
-        });
-        setAiProgress(null);
-      }
-    },
-    [selectedPairIds, rows, syncAiVerificationJob],
-  );
-
-  const handleRunMl = useCallback(async () => {
-    if (selectedPairIds.length === 0) return;
-    setMlRunning(true);
-    setPairStatuses(new Map());
-    setMlProgress(null);
-    setRowSelection({}); // Reset selection immediately
-
-    // Mark all selected as queued
-    const initial = new Map<string, PairProcessingStatus>();
-    for (const id of selectedPairIds) {
-      initial.set(id, "queued");
-    }
-    setPairStatuses(new Map(initial));
-
-    try {
-      await runMlStream(selectedPairIds, (event: MlProgressEvent) => {
-        switch (event.type) {
-          case "transitioning":
-            setMlProgress({
-              phase: "Processing ML batch...",
-              current: 0,
-              total: 0,
-            });
-            break;
-
-          case "batch_start":
-            setMlProgress({
-              phase: "Starting batch",
-              current: 0,
-              total: event.total ?? 0,
-            });
-            break;
-
-          case "embedding":
-            setMlProgress({
-              phase: "Computing embeddings",
-              current: 0,
-              total: event.total ?? 0,
-            });
-            setPairStatuses((prev) => {
-              const next = new Map(prev);
-              for (const [id, status] of next) {
-                if (status === "queued") next.set(id, "embedding");
-              }
-              return next;
-            });
-            break;
-
-          case "embedding_done":
-            setMlProgress({
-              phase: "Embeddings ready — scoring pairs",
-              current: 0,
-              total: event.total ?? 0,
-            });
-            break;
-
-          case "pair_scoring":
-            if (event.pairId) {
-              setPairStatuses((prev) => {
-                const next = new Map(prev);
-                next.set(event.pairId!, "scoring");
-                return next;
-              });
-              setMlProgress((p) =>
-                p
-                  ? {
-                      ...p,
-                      phase: "Scoring pairs",
-                      current: (event.index ?? 0) + 1,
-                    }
-                  : null,
-              );
-            }
-            break;
-
-          case "pair_decided":
-            if (event.pairId) {
-              const status: PairProcessingStatus =
-                event.verdict === "merged"
-                  ? "merged"
-                  : event.verdict === "rejected"
-                    ? "rejected"
-                    : event.verdict === "escalated"
-                      ? "escalated"
-                      : "error";
-              setPairStatuses((prev) => {
-                const next = new Map(prev);
-                next.set(event.pairId!, status);
-                return next;
-              });
-              setMlProgress((p) =>
-                p
-                  ? {
-                      ...p,
-                      phase: `Decided ${(event.index ?? 0) + 1}/${event.total ?? 0}`,
-                      current: (event.index ?? 0) + 1,
-                    }
-                  : null,
-              );
-            }
-            break;
-
-          case "service_unreachable":
-            toast.error("🔌 ML matcher service unreachable", {
-              description:
-                "The bi-encoder service didn't respond. Pairs returned to Inbox for retry.",
-            });
-            setPairStatuses((prev) => {
-              const next = new Map(prev);
-              for (const [id] of next) {
-                next.set(id, "error");
-              }
-              return next;
-            });
-            break;
-
-          case "batch_complete": {
-            if (event.processed === -1) {
-              toast.warning("⏳ ML batch already running", {
-                description: "Wait for the current batch to finish.",
-              });
-            } else if (event.processed === 0) {
-              toast.info("📭 No pairs to process", {
-                description: "Inbox is empty.",
-              });
-            } else {
-              const sec = event.durationMs
-                ? `${(event.durationMs / 1000).toFixed(1)}s`
-                : "";
-              const parts: string[] = [];
-              if (event.merged) parts.push(`✅ ${event.merged} merged`);
-              if (event.rejected) parts.push(`🚫 ${event.rejected} rejected`);
-              if (event.escalated) parts.push(`👀 ${event.escalated} → review`);
-              if (event.aiSearchAttempted) {
-                parts.push(
-                  `AI ${event.aiSearchMerged ?? 0}m/${event.aiSearchRejected ?? 0}r`,
-                );
-              }
-              toast.success(`🤖 ML batch complete${sec ? ` in ${sec}` : ""}`, {
-                description: parts.join(" · ") || "No changes",
-              });
-            }
-            break;
-          }
-        }
-      });
-
-      await refresh();
-    } catch (err) {
-      toast.error("❌ ML batch failed", {
-        description: (err as Error).message,
-      });
-    } finally {
-      setMlRunning(false);
-      setMlProgress(null);
-      setTimeout(() => setPairStatuses(new Map()), 3000);
-    }
-  }, [selectedPairIds, refresh]);
-
-  const columns = useMemo(
-    () =>
-      buildColumns(
-        activeStage,
-        actingOn,
-        pairStatuses,
-        handleDecide,
-        aiVerifyingIds,
-        handleVerifyAi,
-      ),
-    [
-      activeStage,
-      actingOn,
-      pairStatuses,
-      handleDecide,
-      aiVerifyingIds,
-      handleVerifyAi,
-    ],
-  );
-
-  return (
-    <TooltipProvider delayDuration={200}>
-      <AppShell
-        title="Matcher Lab"
-        edgeToEdge
-        tabs={VISIBLE_STAGES.map((stage) => {
-          const meta = STAGE_META[stage];
-          const count = counts[stage] || 0;
-          return {
-            value: stage,
-            label: meta.label,
-            badge:
-              count > 0 ? (
-                <span
-                  className={cn(
-                    "ml-1 inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums border",
-                    meta.color,
-                    meta.bgActive,
-                  )}
-                >
-                  {count}
-                </span>
-              ) : null,
-          };
-        })}
-        activeTab={activeStage}
-        onTabChange={(v) => setActiveStage(v as MatchPairStage)}
-        actions={
-          <div className="flex items-center gap-1.5">
-            {!mlProgress && mlStats?.lastRunAt && (
-              <div className="flex items-center gap-3 px-3 border-r border-border/40 text-[11px] text-zinc-500 mr-1 hidden lg:flex">
-                <span>
-                  Last ML run:{" "}
-                  <span className="text-zinc-400">
-                    {fmtMmmHm(mlStats.lastRunAt)}
-                  </span>
-                </span>
-                <span>
-                  Last batch:{" "}
-                  <span className="text-zinc-400 tabular-nums">
-                    {mlStats.lastBatchSize}
-                  </span>
-                </span>
-                <span>
-                  Total processed:{" "}
-                  <span className="text-zinc-400 tabular-nums">
-                    {mlStats.totalProcessed}
-                  </span>
-                </span>
-              </div>
-            )}
-            <SchedulerCountdown mlStats={mlStats} />
-
-            {mlStats && (
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-[11px]",
-                  mlStats.active
-                    ? "border-emerald-700/40 text-emerald-300"
-                    : "border-zinc-700/40 text-zinc-500",
-                )}
-              >
-                ML {mlStats.active ? "active" : "idle"}
-                {mlStats.processing && (
-                  <Loader2 className="size-3 animate-spin ml-1" />
-                )}
-              </Badge>
-            )}
-
-            {activeStage === "inbox" && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 px-2.5 text-[11px] gap-1"
-                    disabled={mlRunning || selectedCount === 0}
-                    onClick={handleRunMl}
-                  >
-                    {mlRunning ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      <Play className="size-3" />
-                    )}
-                    Run ML
-                    {selectedCount > 0 && (
-                      <span className="tabular-nums">({selectedCount})</span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-[320px]">
-                  {selectedCount === 0
-                    ? "Select at least one pair from the inbox to run ML scoring."
-                    : `Process ${selectedCount} selected pair${selectedCount > 1 ? "s" : ""} through the bi-encoder. Auto-merges high-confidence matches and routes uncertain ones to Human Review.`}
-                </TooltipContent>
-              </Tooltip>
-            )}
-
-            {(activeStage === "inbox" || activeStage === "human_review") && (
-              <AiVerifyDropdown
-                disabled={selectedCount === 0}
-                running={isBulkVerifying}
-                selectedCount={selectedCount}
-                progress={aiProgress}
-                onVerify={(engine, _model) =>
-                  handleVerifyAi(engine, "flash", undefined)
-                }
-              />
-            )}
-
-            <SchedulerPopover
-              mlStats={mlStats}
-              history={mlHistory}
-              hasMoreHistory={hasMoreHistory}
-              historyTotal={historyTotal}
-              onConfigSaved={loadStats}
-            />
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7"
-                  onClick={refresh}
-                  disabled={refreshing}
-                >
-                  <RefreshCw
-                    className={cn("size-3.5", refreshing && "animate-spin")}
-                  />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Refresh Matcher Lab data</TooltipContent>
-            </Tooltip>
-          </div>
-        }
-      >
-        <div className="h-full flex flex-col overflow-hidden bg-background">
-          {/* ML progress bar */}
-          {mlProgress && (
-            <div className="flex items-center gap-3 px-3 py-1.5 border-b border-zinc-800/30 bg-sky-950/20">
-              <Loader2 className="size-3 animate-spin text-sky-400 shrink-0" />
-              <span className="text-[11px] text-sky-300">
-                {mlProgress.phase}
-              </span>
-              {mlProgress.total > 0 && (
-                <>
-                  <span className="text-[11px] text-sky-400 tabular-nums">
-                    {mlProgress.current}/{mlProgress.total}
-                  </span>
-                  <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden max-w-[200px]">
-                    <div
-                      className="h-full bg-sky-500 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${(mlProgress.current / mlProgress.total) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {aiProgress && (
-            <div className="flex items-center gap-3 px-3 py-1.5 border-b border-cyan-900/30 bg-cyan-950/20">
-              {aiProgress.current < aiProgress.total ? (
-                <Loader2 className="size-3 animate-spin text-cyan-400 shrink-0" />
-              ) : (
-                <Search className="size-3 text-cyan-400 shrink-0" />
-              )}
-              <span className="text-[11px] text-cyan-200">
-                {aiProgress.phase}
-              </span>
-              <span className="text-[11px] text-cyan-300 tabular-nums">
-                {aiProgress.current}/{aiProgress.total}
-              </span>
-              <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden max-w-[220px]">
-                <div
-                  className="h-full bg-cyan-500 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.min(100, (aiProgress.current / Math.max(1, aiProgress.total)) * 100)}%`,
-                  }}
-                />
-              </div>
-              <div className="hidden md:flex items-center gap-2 text-[10px] tabular-nums">
-                <span className="text-emerald-300">{aiProgress.same} same</span>
-                <span className="text-red-300">
-                  {aiProgress.different} different
-                </span>
-                <span className="text-violet-300">
-                  {aiProgress.uncertain} uncertain
-                </span>
-                {aiProgress.errors > 0 && (
-                  <span className="text-red-400">
-                    {aiProgress.errors} failed
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <ResolutionSourcePanel stats={resolutionSources} />
-
-          {/* DataTable */}
-          <div className="flex-1 min-h-0 p-2">
-            <DataTable<MatchPairRow>
-              withCard
-              data={rows}
-              columns={columns}
-              getRowId={(row) => row.id}
-              enableSorting
-              enableVirtualization
-              enableColumnResizing
-              enableRowSelection={
-                activeStage === "inbox" || activeStage === "human_review"
-              }
-              rowSelection={
-                activeStage === "inbox" || activeStage === "human_review"
-                  ? rowSelection
-                  : undefined
-              }
-              onRowSelectionChange={
-                activeStage === "inbox" || activeStage === "human_review"
-                  ? setRowSelection
-                  : undefined
-              }
-              density="compact"
-              persistenceKey={`matcher-lab-${activeStage}`}
-              loading={loading}
-              className="h-full"
-              rowClassName={(row) => {
-                const status = pairStatuses.get(row.id);
-                if (status === "scoring")
-                  return "bg-amber-900/[0.08] animate-pulse";
-                if (status === "embedding") return "bg-sky-900/[0.06]";
-                if (status === "ai-searching")
-                  return "bg-cyan-900/[0.08] animate-pulse";
-                if (status === "ai-same") return "bg-emerald-900/[0.06]";
-                if (status === "ai-different") return "bg-red-900/[0.05]";
-                if (status === "merged") return "bg-emerald-900/[0.08]";
-                if (status === "rejected")
-                  return "bg-red-900/[0.06] opacity-80";
-                if (status === "escalated") return "bg-violet-900/[0.06]";
-                if (status === "error") return "bg-red-950/[0.12]";
-                if (row.decision?.includes("merge"))
-                  return "bg-emerald-900/[0.04]";
-                if (row.decision?.includes("reject"))
-                  return "bg-red-900/[0.04] opacity-80";
-
-                // Global processing effect for inbox pairs
-                if (
-                  activeStage === "inbox" &&
-                  (mlProgress != null || mlStats?.processing)
-                ) {
-                  return "bg-sky-900/[0.04] animate-pulse";
-                }
-                return undefined;
-              }}
-              renderEmpty={() => (
-                <div className="flex flex-col items-center justify-center py-12 text-zinc-500">
-                  <p className="text-sm">
-                    {activeStage === "inbox"
-                      ? "Inbox is empty — all pairs have been scored."
-                      : activeStage === "human_review"
-                        ? "Nothing needs a human decision right now."
-                        : "No resolved pairs yet."}
-                  </p>
-                </div>
-              )}
-            />
-          </div>
-        </div>
-      </AppShell>
-
-      <AiReviewDialog
-        open={aiReviewOpen}
-        onOpenChange={(open) => {
-          setAiReviewOpen(open);
-          if (!open && !applyingAiReview) {
-            setAiProgress(null);
-            setAiReviewResults([]);
-            setPairStatuses(new Map());
-            if (aiVerificationJobId) {
-              void clearAiVerificationJob(aiVerificationJobId).catch(() => {});
-            }
-            setAiVerificationJobId(null);
-            setAiVerificationJobStatus(null);
-          }
-        }}
-        results={aiReviewResults}
-        applying={applyingAiReview}
-        onActionChange={updateAiReviewAction}
-        onApply={handleApplyAiReview}
-        onDiscard={() => {
-          setAiReviewOpen(false);
-          setAiProgress(null);
-          setAiReviewResults([]);
-          setPairStatuses(new Map());
-          if (aiVerificationJobId) {
-            void clearAiVerificationJob(aiVerificationJobId).catch(() => {});
-          }
-          setAiVerificationJobId(null);
-          setAiVerificationJobStatus(null);
-        }}
-      />
-    </TooltipProvider>
-  );
-}
-
-// ─── Column builder ───────────────────────────────────────────────────
-
-function buildColumns(
-  stage: MatchPairStage,
-  actingOn: Set<string>,
-  pairStatuses: Map<string, PairProcessingStatus>,
-  onDecide: (id: string, decision: "human-merge" | "human-reject") => void,
-  aiVerifyingIds: Set<string>,
-  onVerifyAi: (
-    engine: AiModelMenuEngine,
-    model: Extract<ModelTier, "flash">,
-    id?: string,
-  ) => void,
-): ColumnDef<MatchPairRow, unknown>[] {
-  const cols: ColumnDef<MatchPairRow, unknown>[] = [];
-
-  if (stage === "inbox" || stage === "human_review") {
-    cols.push({
-      id: "select",
-      size: 32,
-      meta: { fixed: "left" as const },
-      header: ({ table }) => (
-        <Checkbox
-          checked={
-            table.getIsAllPageRowsSelected() ||
-            (table.getIsSomePageRowsSelected() && "indeterminate")
-          }
-          onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label="Select all"
-          className="size-3.5"
-        />
-      ),
-      cell: ({ row }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label="Select row"
-          className="size-3.5"
-        />
-      ),
-    });
-  }
-
-  // KO — always the first data column
-  cols.push({
-    id: "kickoff",
-    header: "KO",
-    size: 100,
-    meta: {
-      hint: "Kickoff time for this fixture.",
-      align: "center",
-    },
-    accessorFn: (row) => row.eventAStartTime,
-    cell: ({ row }) => (
-      <span
-        className="tabular-nums text-zinc-400 text-[11px]"
-        title={fmtMmmHm(row.original.eventAStartTime)}
-      >
-        {formatKickoff(row.original.eventAStartTime)}
-      </span>
-    ),
-  });
-
-  cols.push(
-    {
-      id: "eventA",
-      header: "Event A",
-      size: 260,
-      meta: {
-        hint: "The first event in the pair — hover for detailed breakdown.",
-      },
-      cell: ({ row }) => (
-        <EventCell
-          provider={row.original.eventAProvider}
-          home={row.original.eventAHomeTeam}
-          away={row.original.eventAAwayTeam}
-          competition={row.original.eventACompetition}
-        />
-      ),
-    },
-    {
-      id: "eventB",
-      header: "Event B",
-      size: 260,
-      meta: { hint: "The second event — from a different provider." },
-      cell: ({ row }) => (
-        <EventCell
-          provider={row.original.eventBProvider}
-          home={row.original.eventBHomeTeam}
-          away={row.original.eventBAwayTeam}
-          competition={row.original.eventBCompetition}
-        />
-      ),
-    },
-    {
-      id: "stringScore",
-      header: "Text Match",
-      size: 70,
-      meta: {
-        hint: "Dice/Jaro-Winkler string similarity from the sync matcher. This is the initial text-based similarity score before ML scoring.",
-        align: "right",
-      },
-      accessorFn: (row) => row.stringScore,
-      cell: ({ row }) => (
-        <span className="tabular-nums text-zinc-300">
-          {(row.original.stringScore * 100).toFixed(0)}%
-        </span>
-      ),
-    },
-    {
-      id: "source",
-      header: "Origin",
-      size: 80,
-      meta: {
-        hint: "How the pair was detected. Near-match means 70–85% string similarity. Unmatched means a cross-provider candidate that wasn't auto-matched.",
-      },
-      cell: ({ row }) => (
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-[10px] px-1.5 py-0",
-            row.original.source === "near-match"
-              ? "border-amber-700/40 text-amber-400"
-              : "border-sky-700/40 text-sky-400",
-          )}
-        >
-          {row.original.source === "near-match" ? "near-match" : "unmatched"}
-        </Badge>
-      ),
-    },
-  );
-
-  // Processing status column (ML on inbox, AI review on inbox/human review)
-  if (stage === "inbox" || stage === "human_review") {
-    cols.push({
-      id: "mlStatus",
-      header: "Status",
-      size: 80,
-      meta: {
-        hint: "Live processing status for ML scoring or AI verification.",
-      },
-      cell: ({ row }) => {
-        const status = pairStatuses.get(row.original.id);
-        return <PairStatusCell status={status ?? "idle"} />;
-      },
-    });
-  }
-
-  if (stage !== "inbox") {
-    cols.push(
-      {
-        id: "mlCombined",
-        header: "ML Score",
-        size: 70,
-        meta: {
-          hint: "Combined bi-encoder score: 70% team similarity + 30% competition similarity.",
-          align: "right",
-        },
-        accessorFn: (row) => row.mlCombinedScore,
-        cell: ({ row }) => {
-          const score = row.original.mlCombinedScore;
-          return (
-            <span className={cn("tabular-nums", scoreColor(score))}>
-              {score !== null ? `${(score * 100).toFixed(0)}%` : "—"}
-            </span>
-          );
-        },
-      },
-      {
-        id: "mlHome",
-        header: "Home",
-        size: 55,
-        meta: {
-          hint: "Bi-encoder cosine similarity for the home team names.",
-          align: "right",
-        },
-        accessorFn: (row) => row.mlHomeCosine,
-        cell: ({ row }) => {
-          const v = row.original.mlHomeCosine;
-          return (
-            <span className={cn("tabular-nums", scoreColor(v))}>
-              {v !== null ? v.toFixed(2) : "—"}
-            </span>
-          );
-        },
-      },
-      {
-        id: "mlAway",
-        header: "Away",
-        size: 55,
-        meta: {
-          hint: "Bi-encoder cosine similarity for the away team names.",
-          align: "right",
-        },
-        accessorFn: (row) => row.mlAwayCosine,
-        cell: ({ row }) => {
-          const v = row.original.mlAwayCosine;
-          return (
-            <span className={cn("tabular-nums", scoreColor(v))}>
-              {v !== null ? v.toFixed(2) : "—"}
-            </span>
-          );
-        },
-      },
-    );
-  }
-
-  if (stage === "human_review" || stage === "history") {
-    cols.push({
-      id: "xeScore",
-      header: "XE",
-      size: 55,
-      meta: {
-        hint: "Cross-encoder reranker score. Only populated for pairs where the bi-encoder was uncertain (0.70–0.89 combined).",
-        align: "right",
-      },
-      accessorFn: (row) => row.xeScore,
-      cell: ({ row }) => {
-        const v = row.original.xeScore;
-        return (
-          <span className={cn("tabular-nums", scoreColor(v))}>
-            {v !== null ? v.toFixed(2) : "—"}
-          </span>
-        );
-      },
-    });
-  }
-
-  if (stage === "history") {
-    cols.push(
-      {
-        id: "decision",
-        header: "Decision",
-        size: 100,
-        meta: {
-          hint: "The final verdict — auto/human/AI merge or reject. Hover for reasoning.",
-        },
-        cell: ({ row }) => {
-          const d = row.original.decision;
-          if (!d) return <span className="text-zinc-600">—</span>;
-          const reason = row.original.decisionReason?.slice(0, 200);
-          return (
-            <span
-              className={cn(
-                "inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium border cursor-default",
-                DECISION_COLORS[d] ?? "bg-zinc-800 text-zinc-400",
-              )}
-              title={reason ?? undefined}
-            >
-              {d}
-            </span>
-          );
-        },
-      },
-      {
-        id: "decidedBy",
-        header: "Source",
-        size: 100,
-        meta: { hint: "The service or person that settled this pair." },
-        accessorFn: (row) => row.resolutionSource ?? row.decidedBy,
-        cell: ({ row }) => {
-          const by = row.original.resolutionSource ?? row.original.decidedBy;
-          if (!by) return <span className="text-zinc-600">—</span>;
-          const isAiSearch = by === "ai-search";
-          const isGemini = by.startsWith("gemini-");
-          const isMl = by.startsWith("ml-");
-          return (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 text-[10px]",
-                isAiSearch
-                  ? "text-cyan-400"
-                  : isGemini
-                    ? "text-sky-400"
-                    : isMl
-                      ? "text-emerald-400"
-                      : "text-zinc-400",
-              )}
-            >
-              {isAiSearch ? (
-                <Search className="size-2.5" />
-              ) : isGemini ? (
-                <Brain className="size-2.5" />
-              ) : null}
-              {by}
-            </span>
-          );
-        },
-      },
-      {
-        id: "decidedAt",
-        header: "Decided",
-        size: 110,
-        meta: { hint: "When the decision was made.", align: "right" },
-        accessorFn: (row) => row.decidedAt,
-        cell: ({ row }) => (
-          <span className="text-zinc-500 tabular-nums">
-            {fmtMmmHm(row.original.decidedAt)}
-          </span>
-        ),
-      },
-    );
-  }
-
-  cols.push({
-    id: "detectedAt",
-    header: "Detected",
-    size: 110,
-    meta: {
-      hint: "When this pair was first detected by the sync pipeline.",
-      align: "right",
-    },
-    accessorFn: (row) => row.detectedAt,
-    cell: ({ row }) => (
-      <span className="text-zinc-500 tabular-nums">
-        {fmtMmmHm(row.original.detectedAt)}
-      </span>
-    ),
-  });
-
-  if (stage === "human_review" || stage === "inbox") {
-    cols.push({
-      id: "actions",
-      header: "",
-      size: 90,
-      meta: { fixed: "right" as const },
-      cell: ({ row }) => {
-        const id = row.original.id;
-        const busy = actingOn.has(id);
-        return (
-          <div className="flex items-center gap-0.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-6"
-                  disabled={busy}
-                  onClick={() => onDecide(id, "human-merge")}
-                >
-                  {busy ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="size-3.5 text-emerald-500" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[280px]">
-                Merge these two events and learn team aliases for future syncs.
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-6"
-                  disabled={busy}
-                  onClick={() => onDecide(id, "human-reject")}
-                >
-                  <XCircle className="size-3.5 text-red-500" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[280px]">
-                Reject this pair and record a negative observation for the ML
-                system.
-              </TooltipContent>
-            </Tooltip>
-
-            <AiVerifyDropdown
-              inline
-              disabled={busy}
-              running={aiVerifyingIds.has(id)}
-              onVerify={(engine, _model) => onVerifyAi(engine, "flash", id)}
-            />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <a
-                  href={buildSearchUrl(row.original)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center justify-center size-6 rounded-md hover:bg-accent"
-                >
-                  <ExternalLink className="size-3 text-zinc-500" />
-                </a>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[260px]">
-                Open Google AI Mode to manually verify this fixture pair.
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        );
-      },
-    });
-  }
-
-  return cols;
-}
-
-function AiReviewDialog({
-  open,
-  onOpenChange,
-  results,
-  applying,
-  onActionChange,
-  onApply,
-  onDiscard,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  results: AiReviewResult[];
-  applying: boolean;
-  onActionChange: (id: string, action: AiReviewAction) => void;
-  onApply: () => void;
-  onDiscard: () => void;
-}) {
-  const actionableCount = results.filter(
-    (result) => result.action !== "keep" && result.status !== "error",
-  ).length;
-  const same = results.filter((result) => result.aiDecision === "SAME").length;
-  const different = results.filter(
-    (result) => result.aiDecision === "DIFFERENT",
-  ).length;
-  const uncertain = results.filter(
-    (result) => result.aiDecision === "UNCERTAIN",
-  ).length;
-  const failed = results.filter((result) => result.status === "error").length;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-[1100px] gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b border-border/60 px-5 py-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-1">
-              <DialogTitle className="text-base">
-                AI verification review
-              </DialogTitle>
-              <DialogDescription className="text-xs">
-                AI Search checked {results.length} pair
-                {results.length === 1 ? "" : "s"}. No decisions are applied yet.
-              </DialogDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-[10px] tabular-nums">
-              <Badge
-                variant="outline"
-                className="border-emerald-700/40 text-emerald-300"
-              >
-                {same} same
-              </Badge>
-              <Badge
-                variant="outline"
-                className="border-red-700/40 text-red-300"
-              >
-                {different} different
-              </Badge>
-              <Badge
-                variant="outline"
-                className="border-violet-700/40 text-violet-300"
-              >
-                {uncertain} uncertain
-              </Badge>
-              {failed > 0 && (
-                <Badge
-                  variant="outline"
-                  className="border-red-700/50 text-red-400"
-                >
-                  {failed} failed
-                </Badge>
-              )}
-            </div>
-          </div>
-        </DialogHeader>
-
-        <VirtualList
-          items={results}
-          getItemKey={(result) => result.id}
-          estimateSize={116}
-          overscan={8}
-          className="max-h-[62vh]"
-          rowClassName="border-b border-border/50"
-          renderItem={(result) => (
-            <AiReviewRow result={result} onActionChange={onActionChange} />
-          )}
-        />
-
-        <DialogFooter className="border-t border-border/60 px-5 py-3">
-          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              {actionableCount} decision{actionableCount === 1 ? "" : "s"} ready
-              to apply.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={onDiscard}
-                disabled={applying}
-              >
-                Discard
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={onApply}
-                disabled={applying || actionableCount === 0}
-              >
-                {applying && <Loader2 className="size-3 animate-spin" />}
-                Apply decisions
-              </Button>
-            </div>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AiReviewRow({
-  result,
-  onActionChange,
-}: {
-  result: AiReviewResult;
-  onActionChange: (id: string, action: AiReviewAction) => void;
-}) {
-  const pair = result.pair;
-  const isError = result.status === "error";
-  const decisionClass =
-    result.aiDecision === "SAME"
-      ? "border-emerald-700/40 text-emerald-300 bg-emerald-950/20"
-      : result.aiDecision === "DIFFERENT"
-        ? "border-red-700/40 text-red-300 bg-red-950/20"
-        : result.aiDecision === "ERROR"
-          ? "border-red-700/50 text-red-400 bg-red-950/20"
-          : "border-violet-700/40 text-violet-300 bg-violet-950/20";
-
-  return (
-    <div className="grid gap-2 px-4 py-2.5 lg:grid-cols-[minmax(0,1fr)_126px_150px] lg:items-start">
-      <div className="min-w-0 space-y-1.5">
-        <div className="grid gap-1.5 md:grid-cols-2">
-          <ReviewFixtureBlock
-            label="A"
-            provider={pair.eventAProvider}
-            home={pair.eventAHomeTeam}
-            away={pair.eventAAwayTeam}
-            competition={pair.eventACompetition}
-            startTime={pair.eventAStartTime}
-          />
-          <ReviewFixtureBlock
-            label="B"
-            provider={pair.eventBProvider}
-            home={pair.eventBHomeTeam}
-            away={pair.eventBAwayTeam}
-            competition={pair.eventBCompetition}
-            startTime={pair.eventBStartTime}
-          />
-        </div>
-        <p className="line-clamp-2 text-[11px] leading-4 text-zinc-400">
-          {isError ? result.error : result.reasoning}
-        </p>
-        {result.sources.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {result.sources.slice(0, 3).map((source) => (
-              <a
-                key={source.url}
-                href={source.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex max-w-[210px] items-center gap-1 truncate rounded border border-cyan-900/40 px-1.5 py-0 text-[10px] leading-5 text-cyan-300 hover:bg-cyan-950/30"
-              >
-                <ExternalLink className="size-2.5 shrink-0" />
-                <span className="truncate">{source.title || source.url}</span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-row items-center gap-2 lg:flex-col lg:items-start lg:gap-1">
-        <Badge
-          variant="outline"
-          className={cn("w-fit px-1.5 py-0 text-[10px]", decisionClass)}
-        >
-          {result.aiDecision === "ERROR" && (
-            <AlertTriangle className="size-3" />
-          )}
-          {result.aiDecision}
-        </Badge>
-        {result.confidence != null && (
-          <span className="text-[10px] tabular-nums text-zinc-400">
-            {formatConfidence(result.confidence)} confidence
-          </span>
-        )}
-        {result.model && (
-          <span className="text-[10px] text-zinc-500">{result.model}</span>
-        )}
-      </div>
-
-      <div className="flex items-center gap-1.5 lg:flex-col lg:items-stretch">
-        <Select
-          value={result.action}
-          onValueChange={(value) =>
-            onActionChange(result.id, value as AiReviewAction)
-          }
-          disabled={isError}
-        >
-          <SelectTrigger size="sm" className="h-7 w-[128px] lg:w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectItem value="merge">Merge</SelectItem>
-            <SelectItem value="reject">Reject</SelectItem>
-            <SelectItem value="keep">Keep in review</SelectItem>
-          </SelectContent>
-        </Select>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              asChild
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-[11px]"
-            >
-              <a href={buildSearchUrl(pair)} target="_blank" rel="noreferrer">
-                <Search className="size-3" />
-                Google AI Mode
-              </a>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-[260px]">
-            Opens Google AI Mode for manual fixture verification. It does not
-            feed backend decisions.
-          </TooltipContent>
-        </Tooltip>
-      </div>
-    </div>
-  );
-}
-
-function ReviewFixtureBlock({
-  label,
-  provider,
-  home,
-  away,
-  competition,
-  startTime,
-}: {
-  label: string;
-  provider: string;
-  home: string;
-  away: string;
-  competition: string;
-  startTime: string;
-}) {
-  const badge = PROVIDER_BADGE[provider] ?? {
-    label: provider.slice(0, 3).toUpperCase(),
-    className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
-  };
-
-  return (
-    <div className="min-w-0 rounded-md border border-border/60 bg-zinc-950/30 px-2.5 py-2">
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className="text-[10px] font-medium text-zinc-500">{label}</span>
-        <Badge
-          variant="outline"
-          className={cn("text-[9px] px-1 py-0", badge.className)}
-        >
-          {badge.label}
-        </Badge>
-        <span className="ml-auto text-[10px] tabular-nums text-zinc-500">
-          {fmtMmmHm(startTime)}
-        </span>
-      </div>
-      <div className="truncate text-xs text-zinc-100">
-        {home} <span className="text-zinc-500">vs</span> {away}
-      </div>
-      <div className="truncate text-[11px] text-zinc-500">{competition}</div>
-    </div>
-  );
-}
-
-// ─── Inline EventCell with provider badge ─────────────────────────────
-
-function EventCell({
-  provider,
-  home,
-  away,
-  competition,
-}: {
-  provider: string;
-  home: string;
-  away: string;
-  competition: string;
-}) {
-  const badge = PROVIDER_BADGE[provider] ?? {
-    label: provider.slice(0, 3).toUpperCase(),
-    className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
-  };
-  const displayName = PROVIDER_DISPLAY_NAMES[provider] ?? provider;
-
-  return (
-    <div
-      className="min-w-0 py-0.5 flex items-center gap-1.5"
-      title={`Home: ${home} | Away: ${away} | Tournament: ${competition} | Provider: ${displayName}`}
-    >
-      <Badge
-        variant="outline"
-        className={cn(
-          "text-[9px] px-1 py-0 shrink-0 font-semibold tracking-wide",
-          badge.className,
-        )}
-      >
-        {badge.label}
-      </Badge>
-      <span className="text-[11px] text-zinc-100 truncate leading-tight">
-        {home} <span className="text-zinc-500">vs</span> {away}
-      </span>
-      <span className="text-[10px] text-zinc-500 truncate leading-tight shrink-0">
-        {competition}
-      </span>
-    </div>
-  );
-}
-
-function buildSearchUrl(pair: MatchPairRow): string {
-  let scheduledStr = "";
-  if (pair.eventAStartTime) {
-    try {
-      const kickoff = parseISO(pair.eventAStartTime);
-      if (isValid(kickoff)) {
-        scheduledStr = format(kickoff, "yyyy-MM-dd HH:mm");
-      }
-    } catch {}
-  }
-  if (!scheduledStr && pair.eventAStartTime) {
-    scheduledStr = pair.eventAStartTime;
-  }
-
+function buildGoogleAiModeUrl(row: MatcherDecisionRow): string {
   const query = [
-    `Are these two fixtures the exact same match?`,
-    ``,
-    `Fixture A: ${pair.eventAHomeTeam} vs ${pair.eventAAwayTeam} (${pair.eventACompetition})`,
-    `Fixture B: ${pair.eventBHomeTeam} vs ${pair.eventBAwayTeam} (${pair.eventBCompetition})`,
-    ``,
-    `Scheduled for: ${scheduledStr}.`,
-    ``,
-    `Task:`,
-    `1. Verify if both team names refer to the same entities (accounting for youth/reserve teams, naming differences, or transliterations).`,
-    `2. Verify if the competitions align or are just named differently across providers.`,
-    `3. End with a clear conclusion: Are they the same event? YES or NO.`,
+    `Are these the same football match?`,
+    `All kickoff times below are Bangladesh local time (Asia/Dhaka, BDT).`,
+    `Event A: ${row.eventA.homeTeam} vs ${row.eventA.awayTeam}, ${row.eventA.competition}, kickoff ${fmtDateTime(row.eventA.kickoff)}, provider ${PROVIDER_DISPLAY_NAMES[row.eventA.provider] ?? row.eventA.provider}.`,
+    `Event B: ${row.eventB.homeTeam} vs ${row.eventB.awayTeam}, ${row.eventB.competition}, kickoff ${fmtDateTime(row.eventB.kickoff)}, provider ${PROVIDER_DISPLAY_NAMES[row.eventB.provider] ?? row.eventB.provider}.`,
+    `Check official fixtures and reliable sources. Answer with Same match, Different match, or Unclear, then summarize the key reason.`,
   ].join("\n");
-
   const params = new URLSearchParams({
     q: query,
     udm: "50",
@@ -2341,4 +254,2131 @@ function buildSearchUrl(pair: MatchPairRow): string {
   return `https://www.google.com/search?${params.toString()}`;
 }
 
-export default MatcherLab;
+function openGoogleAiMode(row: MatcherDecisionRow) {
+  window.open(buildGoogleAiModeUrl(row), "_blank", "noopener,noreferrer");
+}
+
+function providerMeta(provider: string) {
+  return (
+    PROVIDER_BADGE[provider] ?? {
+      label: provider.slice(0, 4).toUpperCase(),
+      className: "border-zinc-600 bg-zinc-800 text-zinc-300",
+    }
+  );
+}
+
+function ProviderBadge({ provider }: { provider: string }) {
+  const meta = providerMeta(provider);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn("px-1.5 py-0 text-[10px]", meta.className)}
+        >
+          {meta.label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent>
+        {PROVIDER_DISPLAY_NAMES[provider] ?? provider}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function DecisionBadge({
+  decision,
+}: {
+  decision: MatcherDecisionRow["decision"];
+}) {
+  const meta = DECISION_META[decision];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn("px-1.5 py-0 text-[10px]", meta.className)}
+        >
+          {meta.label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[260px]">
+        {meta.description}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function inferGroundedDecision(
+  row: MatcherDecisionRow,
+): GroundedDecision | null {
+  if (row.groundedDecision) return row.groundedDecision;
+  if (row.reasonCode === "grounded_llm_same_match") return "SAME";
+  if (row.reasonCode === "grounded_llm_different_match") return "DIFFERENT";
+  if (
+    row.reasonCode === "llm_uncertain" ||
+    row.reasonCode === "llm_evidence_conflict"
+  ) {
+    const reason = row.reasonSummary.toLowerCase();
+    if (
+      /\b(teams?\s+.*differ|different\s+(fixture|match)|distinct clubs|not evidenced|no .*match)\b/.test(
+        reason,
+      )
+    ) {
+      return "DIFFERENT";
+    }
+    if (/\b(same\s+(fixture|match)|one fixture|same event)\b/.test(reason)) {
+      return "SAME";
+    }
+    return "UNCERTAIN";
+  }
+  return null;
+}
+
+function GroundedDecisionBadge({ row }: { row: MatcherDecisionRow }) {
+  const groundedDecision = inferGroundedDecision(row);
+  if (!groundedDecision) {
+    return <span className="text-[10px] text-muted-foreground">n/a</span>;
+  }
+  const meta = GROUNDED_DECISION_META[groundedDecision];
+  const confidence = row.groundedConfidence ?? row.confidence;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={cn("px-1.5 py-0 text-[10px]", meta.className)}
+        >
+          {meta.label}
+          {confidence != null ? ` ${fmtPercent(confidence)}` : ""}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[280px]">
+        {meta.description}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function EventBlock({
+  row,
+  side,
+}: {
+  row: MatcherDecisionRow;
+  side: "A" | "B";
+}) {
+  const event = side === "A" ? row.eventA : row.eventB;
+  return (
+    <div className="min-w-0 space-y-1">
+      <div className="flex items-center gap-1.5">
+        <ProviderBadge provider={event.provider} />
+        <span className="truncate text-[11px] font-medium text-foreground">
+          {event.homeTeam} v {event.awayTeam}
+        </span>
+      </div>
+      <div className="truncate text-[10px] text-muted-foreground">
+        {event.competition}
+      </div>
+    </div>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  icon: Icon,
+  detail,
+  tone = "zinc",
+}: {
+  label: string;
+  value: string | number;
+  icon: typeof Activity;
+  detail?: string;
+  tone?: "zinc" | "emerald" | "red" | "sky" | "amber";
+}) {
+  const toneClass = {
+    zinc: "text-zinc-300 bg-zinc-500/10 border-zinc-700/60",
+    emerald: "text-emerald-300 bg-emerald-500/10 border-emerald-500/25",
+    red: "text-red-300 bg-red-500/10 border-red-500/25",
+    sky: "text-sky-300 bg-sky-500/10 border-sky-500/25",
+    amber: "text-amber-300 bg-amber-500/10 border-amber-500/25",
+  }[tone];
+
+  return (
+    <div className={cn("rounded-md border px-3 py-2", toneClass)}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <Icon className="size-3.5" />
+      </div>
+      <div className="mt-1 text-lg font-semibold tabular-nums text-foreground">
+        {value}
+      </div>
+      {detail && (
+        <div className="mt-1 truncate text-[10px] text-muted-foreground">
+          {detail}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HeaderDot() {
+  return <span className="text-muted-foreground/40">·</span>;
+}
+
+function HeaderMetric({
+  icon,
+  label,
+  value,
+  tone = "muted",
+  loading,
+  tooltip,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  tone?: "positive" | "negative" | "warning" | "info" | "muted";
+  loading?: boolean;
+  tooltip: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex shrink-0 cursor-help items-center gap-1 text-muted-foreground">
+          {icon}
+          <span className="opacity-80">{label}</span>
+          {loading ? (
+            <Skeleton className="h-3.5 w-10 rounded" />
+          ) : (
+            <span
+              className={cn(
+                "font-medium tabular-nums",
+                tone === "positive" && "text-emerald-400",
+                tone === "negative" && "text-red-400",
+                tone === "warning" && "text-amber-400",
+                tone === "info" && "text-sky-400",
+                tone === "muted" && "text-foreground",
+              )}
+            >
+              {value}
+            </span>
+          )}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[300px]">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function MatcherLabHeader({
+  stats,
+  scheduler,
+}: {
+  stats: MatcherStatsResponse | null;
+  scheduler: MatcherSchedulerSettingsRow | null;
+}) {
+  const counts = new Map(
+    stats?.decisionCounts.map((item) => [item.decision, item.count]) ?? [],
+  );
+  const reliability = stats?.reliability;
+  const reviewEngineValue = !scheduler?.useDeepSeek
+    ? "Off"
+    : reliability?.healthy
+      ? "Healthy"
+      : "Degraded";
+  const reviewEngineDetail = !scheduler?.useDeepSeek
+    ? "DeepSeek review is disabled"
+    : reliability?.degradationReason ||
+      `${fmtPercent(reliability?.noSourceRate)} no-source`;
+  const loading = !stats;
+  const schedulerLoading = !scheduler;
+
+  return (
+    <div className="ml-2 hidden min-w-0 items-center gap-2 overflow-x-auto text-[11px] lg:flex">
+      <HeaderMetric
+        icon={<ShieldAlert className="size-3 opacity-70" />}
+        label="Review"
+        value={stats?.reviewCount ?? 0}
+        tone={stats && stats.reviewCount > 0 ? "warning" : "muted"}
+        loading={loading}
+        tooltip={
+          <span>
+            <b>Open review.</b> Matcher decisions that still need operator
+            review before outcomes are applied.
+          </span>
+        }
+      />
+      <HeaderDot />
+      <HeaderMetric
+        icon={<GitMerge className="size-3 opacity-70" />}
+        label="Merged"
+        value={counts.get("auto_merge") ?? 0}
+        tone="positive"
+        loading={loading}
+        tooltip={
+          <span>
+            <b>Auto merged.</b> Candidate pairs accepted by deterministic,
+            scoring, or DeepSeek review policy.
+          </span>
+        }
+      />
+      <HeaderDot />
+      <HeaderMetric
+        icon={<XCircle className="size-3 opacity-70" />}
+        label="Rejected"
+        value={counts.get("auto_reject") ?? 0}
+        tone="negative"
+        loading={loading}
+        tooltip={
+          <span>
+            <b>Auto rejected.</b> Candidate pairs blocked by hard rules or low
+            confidence scores.
+          </span>
+        }
+      />
+      <HeaderDot />
+      <HeaderMetric
+        icon={<Activity className="size-3 opacity-70" />}
+        label="LLM"
+        value={reliability?.deepseekResolved ?? 0}
+        tone="info"
+        loading={loading}
+        tooltip={
+          <span>
+            <b>LLM resolved.</b>{" "}
+            {reliability
+              ? `${reliability.deepseekReviewed} reviewed, ${reliability.groundedReviewSkipped} skipped.`
+              : "DeepSeek review counts are loading."}
+          </span>
+        }
+      />
+      <HeaderDot />
+      <HeaderMetric
+        icon={<Clock3 className="size-3 opacity-70" />}
+        label="Scheduler"
+        value={
+          scheduler?.enabled ? fmtInterval(scheduler.intervalSeconds) : "Off"
+        }
+        tone={scheduler?.enabled ? "muted" : "warning"}
+        loading={schedulerLoading}
+        tooltip={
+          <span>
+            <b>Scheduler cadence.</b> How often the engine-side matcher loop
+            runs automatically.
+          </span>
+        }
+      />
+      <HeaderDot />
+      <HeaderMetric
+        icon={<Search className="size-3 opacity-70" />}
+        label="Review engine"
+        value={reviewEngineValue}
+        tone={
+          !scheduler?.useDeepSeek
+            ? "muted"
+            : reliability?.healthy
+              ? "info"
+              : "warning"
+        }
+        loading={schedulerLoading || loading}
+        tooltip={
+          <span>
+            <b>Review engine.</b> {reviewEngineDetail}
+          </span>
+        }
+      />
+    </div>
+  );
+}
+
+function SchedulerPopover({
+  scheduler,
+  setScheduler,
+}: {
+  scheduler: MatcherSchedulerSettingsRow | null;
+  setScheduler: (value: MatcherSchedulerSettingsRow) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const update = async (patch: {
+    enabled?: boolean;
+    intervalSeconds?: number;
+    useDeepSeek?: boolean;
+  }) => {
+    setSaving(true);
+    try {
+      const next = await updateMatcherSchedulerSettings(patch);
+      setScheduler(next.row);
+      toast.success("Scheduler updated");
+    } catch (err) {
+      toast.error("Failed to update scheduler", {
+        description: (err as Error).message,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-7"
+            >
+              <Clock3 className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Open matcher scheduler config</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-[320px] p-0">
+        <div className="border-b px-3 py-2">
+          <div className="text-sm font-medium">Matcher scheduler</div>
+          <div className="text-xs text-muted-foreground">
+            Controls the engine-side matcher loop.
+          </div>
+        </div>
+
+        <div className="space-y-3 p-3">
+          <div className="flex items-center justify-between rounded-md border px-2 py-2">
+            <div>
+              <div className="text-xs font-medium">Enabled</div>
+              <div className="text-[10px] text-muted-foreground">
+                Automatic matcher passes
+              </div>
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Switch
+                  checked={scheduler?.enabled ?? true}
+                  onCheckedChange={(enabled) => update({ enabled })}
+                  disabled={saving || !scheduler}
+                  className="border border-border bg-zinc-700 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-zinc-700"
+                />
+              </TooltipTrigger>
+              <TooltipContent>
+                Enable or pause the engine matcher scheduler
+              </TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border px-2 py-2">
+            <div>
+              <div className="text-xs font-medium">Ambiguous-pair review</div>
+              <div className="text-[10px] text-muted-foreground">
+                DeepSeek review for borderline pairs
+              </div>
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Switch
+                  checked={scheduler?.useDeepSeek ?? true}
+                  onCheckedChange={(useDeepSeek) => update({ useDeepSeek })}
+                  disabled={saving || !scheduler}
+                  className="border border-border bg-zinc-700 data-[state=checked]:bg-sky-500 data-[state=unchecked]:bg-zinc-700"
+                />
+              </TooltipTrigger>
+              <TooltipContent>AI search calls can cost money</TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="grid gap-2">
+            <label className="text-xs font-medium">Interval</label>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    min={15}
+                    value={scheduler?.intervalSeconds ?? 60}
+                    onBlur={(event) => {
+                      update({ intervalSeconds: Number(event.target.value) });
+                    }}
+                    onChange={(event) => {
+                      if (!scheduler) return;
+                      setScheduler({
+                        ...scheduler,
+                        intervalSeconds: Number(event.target.value),
+                      });
+                    }}
+                    disabled={saving || !scheduler}
+                    className="h-8 pr-10 text-xs"
+                  />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                    sec
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Minimum interval is 15 seconds</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function RunProgressModal({
+  open,
+  onOpenChange,
+  events,
+  running,
+  rows,
+  decisions,
+  saving,
+  onDecisionChange,
+  onCommit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  events: MatcherRunProgressEvent[];
+  running: boolean;
+  rows: MatcherDecisionRow[];
+  decisions: Record<string, MatcherManualDecision>;
+  saving: boolean;
+  onDecisionChange: (
+    decisionId: string,
+    decision: MatcherManualDecision,
+  ) => void;
+  onCommit: () => void;
+}) {
+  const latest = events[events.length - 1] ?? null;
+  const counters = latest?.counters;
+  const summary = latest?.summary;
+  const resultCounts = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => {
+          const decision = decisions[row.decisionId] ?? "human_review";
+          acc[decision] += 1;
+          return acc;
+        },
+        { auto_merge: 0, auto_reject: 0, human_review: 0 },
+      ),
+    [decisions, rows],
+  );
+  const scored = counters?.scoredCandidates ?? summary?.candidateCount ?? 0;
+  const scoringTotal =
+    counters?.candidatesToScore ?? summary?.candidateCount ?? 0;
+  const runStatus = latest?.phase ?? (running ? "initializing" : null);
+  const currentPhaseIndex =
+    latest?.phase === "failed"
+      ? -1
+      : Math.max(0, RUN_PHASES.indexOf(latest?.phase ?? "initializing"));
+  const reviewing =
+    !running && rows.length > 0 && latest?.phase === "completed";
+  const failed = latest?.phase === "failed";
+  const eventLog = [...events].reverse();
+  const selectedCount = counters?.snapshots ?? summary?.snapshotCount ?? rows.length;
+  const outputTotal =
+    resultCounts.auto_merge +
+    resultCounts.auto_reject +
+    resultCounts.human_review;
+  const runStepState =
+    failed || reviewing || currentPhaseIndex > RUN_PHASES.indexOf("completed")
+      ? "done"
+      : running
+        ? "active"
+        : "pending";
+  const reviewStepState = failed
+    ? "failed"
+    : reviewing
+      ? "active"
+      : running
+        ? "pending"
+        : "pending";
+  const saveStepState = saving ? "active" : "pending";
+
+  const phaseState = (phase: MatcherRunProgressEvent["phase"]) => {
+    const index = RUN_PHASES.indexOf(phase);
+    if (failed && phase === latest?.phase) return "failed";
+    if (reviewing || (!failed && index < currentPhaseIndex)) return "done";
+    if (!failed && index === currentPhaseIndex) return "active";
+    return "pending";
+  };
+
+  const runState = failed
+    ? "Failed"
+    : reviewing
+      ? "Ready to apply"
+      : running
+        ? "Running"
+        : "Waiting";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex h-[min(860px,92dvh)] w-[min(1220px,calc(100vw-24px))] max-w-none flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b bg-background px-5 py-4">
+          <div className="flex items-start justify-between gap-4 pr-8">
+            <div className="min-w-0">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                {failed ? (
+                  <XCircle className="size-4 text-red-400" />
+                ) : reviewing ? (
+                  <CheckCircle2 className="size-4 text-emerald-400" />
+                ) : running ? (
+                  <Loader2 className="size-4 animate-spin text-sky-400" />
+                ) : (
+                  <TerminalSquare className="size-4 text-muted-foreground" />
+                )}
+                Matcher run review
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-xs">
+                {reviewing
+                  ? "Adjust the staged decisions, then save the final outcomes."
+                  : "The matcher scores selected rows first. Final outcomes are saved after review."}
+              </DialogDescription>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[10px]",
+                  failed && "border-red-500/30 bg-red-500/10 text-red-300",
+                  reviewing &&
+                    "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+                  running && "border-sky-500/30 bg-sky-500/10 text-sky-300",
+                  !failed &&
+                    !reviewing &&
+                    !running &&
+                    "border-border text-muted-foreground",
+                )}
+              >
+                {runState}
+              </Badge>
+              <span className="text-[11px] text-muted-foreground">
+                {latest
+                  ? `Elapsed ${fmtElapsed(latest.elapsedMs)}`
+                  : "No events"}
+              </span>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="max-h-[34dvh] shrink-0 overflow-y-auto border-b bg-muted/20 p-4 lg:max-h-none lg:overflow-visible">
+          <div className="grid gap-3 lg:grid-cols-4">
+            <OperatorFlowStep
+              step="1"
+              label="Selected rows"
+              detail={`${selectedCount.toLocaleString()} rows in scope`}
+              state={failed ? "done" : "done"}
+            />
+            <OperatorFlowStep
+              step="2"
+              label="Matcher scoring"
+              detail={`${scored.toLocaleString()} of ${scoringTotal.toLocaleString()} scored`}
+              state={failed ? "failed" : runStepState}
+            />
+            <OperatorFlowStep
+              step="3"
+              label="Review output"
+              detail={`${outputTotal.toLocaleString()} staged decisions`}
+              state={reviewStepState}
+            />
+            <OperatorFlowStep
+              step="4"
+              label="Save outcomes"
+              detail="Only this step commits your choices"
+              state={saveStepState}
+            />
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <RunMetricCard
+              label="Candidate pairs"
+              value={(
+                counters?.generatedCandidates ??
+                summary?.generatedCandidateCount ??
+                0
+              ).toLocaleString()}
+              detail={`${(
+                counters?.skippedCandidates ??
+                summary?.skippedCandidateCount ??
+                0
+              ).toLocaleString()} skipped as duplicates`}
+            />
+            <RunMetricCard
+              label="Scored"
+              value={scored.toLocaleString()}
+              detail={`${scoringTotal.toLocaleString()} pairs in this run`}
+            />
+            <RunMetricCard
+              label="Staged actions"
+              value={(
+                (counters?.autoMerged ?? summary?.autoMerged ?? 0) +
+                (counters?.autoRejected ?? summary?.autoRejected ?? 0)
+              ).toLocaleString()}
+              detail={`${(
+                counters?.autoMerged ??
+                summary?.autoMerged ??
+                0
+              ).toLocaleString()} match, ${(
+                counters?.autoRejected ??
+                summary?.autoRejected ??
+                0
+              ).toLocaleString()} not a match`}
+              tone="emerald"
+            />
+            <RunMetricCard
+              label="Needs operator"
+              value={(
+                counters?.humanReview ??
+                summary?.humanReview ??
+                resultCounts.human_review
+              ).toLocaleString()}
+              detail={`${(
+                counters?.deepseekReviewed ??
+                summary?.deepseekReviewed ??
+                0
+              ).toLocaleString()} ambiguous pairs checked`}
+              tone={resultCounts.human_review > 0 ? "amber" : "zinc"}
+            />
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden bg-background">
+          {reviewing ? (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="border-b bg-background px-4 py-3">
+                <div className="grid gap-2 md:grid-cols-[1fr_auto] md:items-center">
+                  <div>
+                    <div className="text-sm font-medium">Outcome review</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      Final choices are saved only when you apply the reviewed
+                      outcomes.
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <ReviewCount
+                      label="Link"
+                      value={resultCounts.auto_merge}
+                      tone="emerald"
+                    />
+                    <ReviewCount
+                      label="Separate"
+                      value={resultCounts.auto_reject}
+                      tone="red"
+                    />
+                    <ReviewCount
+                      label="Review"
+                      value={resultCounts.human_review}
+                      tone="amber"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="divide-y">
+                  {rows.map((row) => (
+                    <ReviewRow
+                      key={row.decisionId}
+                      row={row}
+                      decision={decisions[row.decisionId] ?? "human_review"}
+                      onDecisionChange={(decision) =>
+                        onDecisionChange(row.decisionId, decision)
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid h-full min-h-0 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-h-0 overflow-y-auto p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium">
+                      {latest?.message ?? "Waiting for matcher events"}
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {runStatus ? PHASE_LABELS[runStatus] : "Queued"}
+                    </div>
+                  </div>
+                  {failed && (
+                    <Badge
+                      variant="outline"
+                      className="border-red-500/30 bg-red-500/10 text-red-300"
+                    >
+                      Failed
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="mb-3 rounded-md border bg-card/50 px-3 py-2">
+                  <div className="text-xs font-medium">Pipeline details</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    These are internal matcher stages. The operator flow above
+                    is the decision path.
+                  </div>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {RUN_PHASES.map((phase) => (
+                    <PhaseCard
+                      key={phase}
+                      phase={phase}
+                      state={phaseState(phase)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex min-h-0 flex-col border-t bg-muted/20 lg:border-l lg:border-t-0">
+                <div className="shrink-0 border-b px-4 py-3">
+                  <div className="text-sm font-medium">Activity</div>
+                  <div className="text-xs text-muted-foreground">
+                    Newest events first
+                  </div>
+                </div>
+                <div className="h-0 min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+                  {events.length === 0 ? (
+                    <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-md border border-dashed text-muted-foreground">
+                      <Loader2 className="size-5 animate-spin" />
+                      <div className="text-sm">Waiting for matcher events</div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {eventLog.map((event, index) => (
+                        <RunEventRow
+                          key={`${event.timestamp}-${index}`}
+                          event={event}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {reviewing && (
+          <DialogFooter className="border-t bg-background px-4 py-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={saving}
+                >
+                  Close
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Close without saving changes</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onCommit}
+                  disabled={saving || rows.length === 0}
+                >
+                  {saving ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <GitMerge className="size-4" />
+                  )}
+                  Apply reviewed outcomes
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Save the selected matcher outcomes</TooltipContent>
+            </Tooltip>
+          </DialogFooter>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function OperatorFlowStep({
+  step,
+  label,
+  detail,
+  state,
+}: {
+  step: string;
+  label: string;
+  detail: string;
+  state: "pending" | "active" | "done" | "failed";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border bg-background px-3 py-2.5",
+        state === "active" && "border-sky-500/35 bg-sky-500/10",
+        state === "done" && "border-emerald-500/30 bg-emerald-500/10",
+        state === "failed" && "border-red-500/30 bg-red-500/10",
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex size-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold tabular-nums",
+              state === "done" &&
+                "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+              state === "active" &&
+                "border-sky-500/40 bg-sky-500/15 text-sky-300",
+              state === "failed" &&
+                "border-red-500/40 bg-red-500/15 text-red-300",
+              state === "pending" &&
+                "border-border bg-muted/40 text-muted-foreground",
+            )}
+          >
+            {step}
+          </span>
+          <span className="truncate text-xs font-medium">{label}</span>
+        </div>
+        <RunStateIcon state={state} />
+      </div>
+      <div className="mt-1 truncate pl-7 text-[11px] text-muted-foreground">
+        {detail}
+      </div>
+    </div>
+  );
+}
+
+function RunStateIcon({
+  state,
+}: {
+  state: "pending" | "active" | "done" | "failed";
+}) {
+  if (state === "done") {
+    return <CheckCircle2 className="size-3.5 text-emerald-400" />;
+  }
+  if (state === "active") {
+    return <Loader2 className="size-3.5 animate-spin text-sky-400" />;
+  }
+  if (state === "failed") {
+    return <XCircle className="size-3.5 text-red-400" />;
+  }
+  return (
+    <span className="size-3.5 rounded-full border border-muted-foreground/30" />
+  );
+}
+
+function RunMetricCard({
+  label,
+  value,
+  detail,
+  tone = "zinc",
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "zinc" | "emerald" | "amber";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border bg-background px-3 py-2",
+        tone === "emerald" && "border-emerald-500/20",
+        tone === "amber" && "border-amber-500/25",
+      )}
+    >
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "mt-1 text-xl font-semibold tabular-nums",
+          tone === "emerald" && "text-emerald-300",
+          tone === "amber" && "text-amber-300",
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+        {detail}
+      </div>
+    </div>
+  );
+}
+
+function PhaseCard({
+  phase,
+  state,
+}: {
+  phase: MatcherRunProgressEvent["phase"];
+  state: "pending" | "active" | "done" | "failed";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border bg-card/50 p-3 transition-colors",
+        state === "done" && "border-emerald-500/25 bg-emerald-500/10",
+        state === "active" && "border-sky-500/35 bg-sky-500/10",
+        state === "failed" && "border-red-500/35 bg-red-500/10",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <RunStateIcon state={state} />
+        <span className="text-xs font-medium">{PHASE_LABELS[phase]}</span>
+      </div>
+      <div className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        {PHASE_DETAILS[phase]}
+      </div>
+    </div>
+  );
+}
+
+function ReviewCount({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "emerald" | "red" | "amber";
+}) {
+  return (
+    <div
+      className={cn(
+        "min-w-24 rounded-md border bg-card/50 px-3 py-2",
+        tone === "emerald" && "border-emerald-500/25",
+        tone === "red" && "border-red-500/25",
+        tone === "amber" && "border-amber-500/25",
+      )}
+    >
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "text-lg font-semibold tabular-nums",
+          tone === "emerald" && "text-emerald-300",
+          tone === "red" && "text-red-300",
+          tone === "amber" && "text-amber-300",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ReviewRow({
+  row,
+  decision,
+  onDecisionChange,
+}: {
+  row: MatcherDecisionRow;
+  decision: MatcherManualDecision;
+  onDecisionChange: (decision: MatcherManualDecision) => void;
+}) {
+  return (
+    <div className="grid gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_180px_190px_auto] lg:items-center">
+      <div className="grid min-w-0 gap-3 md:grid-cols-2">
+        <div className="min-w-0 rounded-md border bg-muted/20 p-2">
+          <EventBlock row={row} side="A" />
+          <div className="mt-2 text-[11px] text-muted-foreground">
+            KO {fmtShort(row.eventA.kickoff)}
+          </div>
+        </div>
+        <div className="min-w-0 rounded-md border bg-muted/20 p-2">
+          <EventBlock row={row} side="B" />
+          <div className="mt-2 text-[11px] text-muted-foreground">
+            KO {fmtShort(row.eventB.kickoff)}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs lg:grid-cols-1">
+        <div>
+          <div className="text-[11px] text-muted-foreground">Score</div>
+          <div className="font-medium tabular-nums">
+            {fmtPercent(row.scoreBreakdown?.combined)}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] text-muted-foreground">Confidence</div>
+          <div className="font-medium tabular-nums">
+            {fmtPercent(row.confidence)}
+          </div>
+        </div>
+      </div>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div>
+            <Select
+              value={decision}
+              onValueChange={(value) =>
+                onDecisionChange(value as MatcherManualDecision)
+              }
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["auto_merge", "auto_reject", "human_review"] as const).map(
+                  (item) => (
+                    <SelectItem key={item} value={item}>
+                      {MANUAL_DECISION_LABELS[item]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>Choose the final outcome for this pair</TooltipContent>
+      </Tooltip>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            onClick={() => openGoogleAiMode(row)}
+          >
+            <Search className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Open manual Google AI Mode verification</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+function RunEventRow({ event }: { event: MatcherRunProgressEvent }) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" className="text-[10px]">
+          {PHASE_LABELS[event.phase]}
+        </Badge>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          +{fmtElapsed(event.elapsedMs)}
+        </span>
+        <span className="text-xs font-medium">{event.message}</span>
+      </div>
+
+      {event.candidate && (
+        <div className="mt-2 grid gap-2 text-xs">
+          <CandidatePreview
+            provider={event.candidate.providerA}
+            home={event.candidate.homeA}
+            away={event.candidate.awayA}
+            kickoff={event.candidate.kickoffA}
+          />
+          <CandidatePreview
+            provider={event.candidate.providerB}
+            home={event.candidate.homeB}
+            away={event.candidate.awayB}
+            kickoff={event.candidate.kickoffB}
+          />
+        </div>
+      )}
+
+      {(event.score || event.decision || event.errorMessage) && (
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+          {event.score && (
+            <>
+              <span>score {fmtPercent(event.score.combined)}</span>
+              <span>teams {fmtPercent(event.score.team)}</span>
+              <span>competition {fmtPercent(event.score.competition)}</span>
+              <span>kickoff {fmtPercent(event.score.kickoff)}</span>
+            </>
+          )}
+          {event.decision && (
+            <span className="text-foreground">
+              {DECISION_META[event.decision.value]?.label ??
+                event.decision.value}{" "}
+              at {fmtPercent(event.decision.confidence)}
+            </span>
+          )}
+          {event.errorMessage && (
+            <span className="text-red-300">{event.errorMessage}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CandidatePreview({
+  provider,
+  home,
+  away,
+  kickoff,
+}: {
+  provider: string;
+  home: string;
+  away: string;
+  kickoff: string;
+}) {
+  return (
+    <div className="rounded-md bg-muted/40 p-2">
+      <div className="mb-1 text-[10px] text-muted-foreground">
+        {PROVIDER_DISPLAY_NAMES[provider] ?? provider}
+      </div>
+      <div className="truncate font-medium">
+        {home} vs {away}
+      </div>
+      <div className="text-[10px] text-muted-foreground">
+        {fmtShort(kickoff)}
+      </div>
+    </div>
+  );
+}
+
+function RunStatusButton({
+  job,
+  running,
+  eventCount,
+  resultCount,
+  onOpen,
+}: {
+  job: MatcherRunJob | null;
+  running: boolean;
+  eventCount: number;
+  resultCount: number;
+  onOpen: () => void;
+}) {
+  if (!job) return null;
+
+  const failed = job.status === "failed";
+  const completed = job.status === "completed";
+  const label = failed
+    ? "Run failed"
+    : completed
+      ? "Review results"
+      : "Run running";
+  const detail = failed
+    ? job.errorMessage || "Open matcher run details"
+    : completed
+      ? `${resultCount.toLocaleString()} staged decisions`
+      : `${eventCount.toLocaleString()} events received`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="sm"
+          variant={completed ? "default" : "outline"}
+          className={cn(
+            "h-7 gap-1.5 px-2 text-[11px]",
+            running && "border-sky-500/35 bg-sky-500/10 text-sky-300",
+            failed && "border-red-500/35 bg-red-500/10 text-red-300",
+          )}
+          onClick={onOpen}
+        >
+          {running ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : failed ? (
+            <XCircle className="size-3.5" />
+          ) : (
+            <CheckCircle2 className="size-3.5" />
+          )}
+          {label}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{detail}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function DetailDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: MatcherDecisionRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const score = row?.scoreBreakdown;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[86dvh] max-w-5xl overflow-auto">
+        <DialogHeader>
+          <DialogTitle>Matcher decision</DialogTitle>
+          <DialogDescription>
+            Candidate score components and final policy output.
+          </DialogDescription>
+        </DialogHeader>
+
+        {row && (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-md border bg-muted/20 p-3">
+                <EventBlock row={row} side="A" />
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  KO {fmtDateTime(row.eventA.kickoff)}
+                </div>
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3">
+                <EventBlock row={row} side="B" />
+                <div className="mt-2 text-[11px] text-muted-foreground">
+                  KO {fmtDateTime(row.eventB.kickoff)}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-4">
+              <MetricTile
+                label="Confidence"
+                value={fmtPercent(row.confidence)}
+                icon={CheckCircle2}
+                tone="emerald"
+              />
+              <MetricTile
+                label="Combined"
+                value={fmtPercent(score?.combined)}
+                icon={Activity}
+                tone="sky"
+              />
+              <MetricTile
+                label="Best team"
+                value={fmtPercent(score?.bestTeam)}
+                icon={GitMerge}
+              />
+              <MetricTile
+                label="Kickoff"
+                value={fmtPercent(score?.kickoff)}
+                icon={Database}
+              />
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[1fr_1.1fr]">
+              <div className="rounded-md border p-3">
+                <div className="mb-2 text-xs font-medium">Policy</div>
+                <div className="space-y-2 text-[11px]">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Decision</span>
+                    <DecisionBadge decision={row.decision} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Grounded</span>
+                    <GroundedDecisionBadge row={row} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Stage</span>
+                    <span>{row.decisionStage}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Final</span>
+                    <span>{row.final ? "yes" : "no"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border p-3">
+                <div className="mb-2 text-xs font-medium">Reason</div>
+                <p className="text-sm leading-relaxed text-muted-foreground">
+                  {row.reasonSummary}
+                </p>
+                {row.hardBlockers.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {row.hardBlockers.map((blocker) => (
+                      <Badge
+                        key={blocker}
+                        variant="outline"
+                        className="text-[10px]"
+                      >
+                        {blocker}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {score && (
+              <div className="grid gap-2 rounded-md border p-3 md:grid-cols-3">
+                {[
+                  ["home", score.home],
+                  ["away", score.away],
+                  ["swapped home", score.swappedHome],
+                  ["swapped away", score.swappedAway],
+                  ["competition", score.competition],
+                  ["embedding team", score.embeddingTeam],
+                  ["embedding comp", score.embeddingCompetition],
+                  ["provider reliability", score.providerReliability],
+                  ["alias", score.alias],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex justify-between gap-3 text-[11px]"
+                  >
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="tabular-nums">
+                      {fmtPercent(value as number | null)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          {row && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => openGoogleAiMode(row)}
+            >
+              <Search className="size-4" />
+              Google AI Mode
+            </Button>
+          )}
+          <Button onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function MatcherLab() {
+  const [stats, setStats] = useState<MatcherStatsResponse | null>(null);
+  const [rows, setRows] = useState<MatcherDecisionRow[]>([]);
+  const [rowTotal, setRowTotal] = useState(0);
+  const [rowDecisionCounts, setRowDecisionCounts] = useState<
+    { decision: string; count: number }[]
+  >([]);
+  const [decisionFilter, setDecisionFilter] =
+    useState<DecisionFilter>("human_review");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [scheduler, setScheduler] =
+    useState<MatcherSchedulerSettingsRow | null>(null);
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const [resultRows, setResultRows] = useState<MatcherDecisionRow[]>([]);
+  const [resultDecisions, setResultDecisions] = useState<
+    Record<string, MatcherManualDecision>
+  >({});
+  const [savingResults, setSavingResults] = useState(false);
+  const [detailRow, setDetailRow] = useState<MatcherDecisionRow | null>(null);
+  const [runMonitorOpen, setRunMonitorOpen] = useState(false);
+  const [runEvents, setRunEvents] = useState<MatcherRunProgressEvent[]>([]);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [currentRunJob, setCurrentRunJob] = useState<MatcherRunJob | null>(
+    null,
+  );
+  const refreshSeqRef = useRef(0);
+  const rowLoadSeqRef = useRef(0);
+
+  const loadStats = useCallback(async () => {
+    const [data, schedulerData] = await Promise.all([
+      fetchMatcherStats(),
+      fetchMatcherSchedulerSettings(),
+    ]);
+    setStats(data);
+    setScheduler(schedulerData.row);
+  }, []);
+
+  const loadRows = useCallback(async () => {
+    const requestSeq = rowLoadSeqRef.current + 1;
+    rowLoadSeqRef.current = requestSeq;
+    const data = await fetchMatcherDecisions({
+      decision: decisionFilter,
+      limit: 300,
+    });
+    if (rowLoadSeqRef.current !== requestSeq) return;
+    setRows(data.rows);
+    setRowTotal(data.total);
+    setRowDecisionCounts(data.decisionCounts);
+  }, [decisionFilter]);
+
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const requestSeq = refreshSeqRef.current + 1;
+    refreshSeqRef.current = requestSeq;
+    if (!opts?.silent) setRefreshing(true);
+    try {
+      await Promise.all([loadStats(), loadRows()]);
+    } catch (err) {
+      if (refreshSeqRef.current === requestSeq && !opts?.silent) {
+        toast.error("Failed to load matcher lab", {
+          description: (err as Error).message,
+        });
+      }
+    } finally {
+      if (refreshSeqRef.current === requestSeq) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [loadRows, loadStats]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (running) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const schedule = () => {
+      if (cancelled || timer) return;
+      timer = window.setTimeout(() => void tick(), MATCHER_LAB_AUTO_REFRESH_MS);
+    };
+
+    const tick = async () => {
+      timer = null;
+      if (cancelled) return;
+      if (document.hidden) return;
+      await refresh({ silent: true });
+      schedule();
+    };
+
+    const handleVisibilityChange = () => {
+      if (cancelled) return;
+      if (document.hidden) {
+        if (timer) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+        return;
+      }
+      void tick();
+    };
+
+    schedule();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refresh, running]);
+
+  const loadCompletedJobResults = useCallback(
+    async (job: MatcherRunJob) => {
+      const summary = job.summary;
+      if (!summary || summary.status !== "completed") return;
+      await refresh();
+      const data = await fetchMatcherDecisions({
+        runId: summary.id,
+        decision: "all",
+        limit: 500,
+      });
+      setResultRows(data.rows);
+      setResultDecisions(
+        Object.fromEntries(
+          data.rows.map((row) => {
+            const value: MatcherManualDecision =
+              row.decision === "auto_merge" || row.decision === "auto_reject"
+                ? row.decision
+                : "human_review";
+            return [row.decisionId, value];
+          }),
+        ),
+      );
+    },
+    [refresh],
+  );
+
+  const applyRunJobState = useCallback(
+    async (job: MatcherRunJob, notify: boolean) => {
+      setCurrentRunJob(job);
+      setRunEvents(job.events);
+      setRunning(job.status === "queued" || job.status === "running");
+
+      if (job.status === "queued" || job.status === "running") {
+        return;
+      }
+
+      window.localStorage.removeItem(ACTIVE_MATCHER_JOB_KEY);
+      setActiveJobId(null);
+
+      if (job.status === "completed") {
+        setRowSelection({});
+        await loadCompletedJobResults(job);
+        if (notify && job.summary) {
+          toast.success("Matcher run complete", {
+            description: `${job.summary.candidateCount} pairs scored, ${job.summary.autoMerged} merged, ${job.summary.autoRejected} rejected`,
+          });
+        }
+        return;
+      }
+
+      if (notify) {
+        toast.error("Matcher run failed", {
+          description: job.errorMessage ?? "Matcher job failed",
+        });
+      }
+    },
+    [loadCompletedJobResults],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const storedJobId = window.localStorage.getItem(ACTIVE_MATCHER_JOB_KEY);
+
+    async function recoverJob() {
+      try {
+        if (storedJobId) {
+          setActiveJobId(storedJobId);
+          return;
+        }
+        const { job } = await fetchLatestMatcherRunJob({ activeOnly: true });
+        if (!cancelled && job) {
+          setCurrentRunJob(job);
+          window.localStorage.setItem(ACTIVE_MATCHER_JOB_KEY, job.id);
+          setActiveJobId(job.id);
+        }
+      } catch (err) {
+        toast.error("Failed to recover matcher job", {
+          description: (err as Error).message,
+        });
+      }
+    }
+
+    void recoverJob();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeJobId) return;
+    let cancelled = false;
+
+    async function pollJob() {
+      try {
+        const { job } = await fetchMatcherRunJob(activeJobId!);
+        if (cancelled || !job) return;
+        await applyRunJobState(job, true);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error("Failed to poll matcher job", {
+            description: (err as Error).message,
+          });
+        }
+      }
+    }
+
+    void pollJob();
+    const interval = window.setInterval(() => void pollJob(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeJobId, applyRunJobState]);
+
+  const selectedDecisionIds = useMemo(
+    () =>
+      Object.entries(rowSelection)
+        .filter(([, selected]) => selected)
+        .map(([id]) => id),
+    [rowSelection],
+  );
+  const selectedRows = useMemo(() => {
+    const selected = new Set(selectedDecisionIds);
+    return rows.filter((row) => selected.has(row.decisionId));
+  }, [rows, selectedDecisionIds]);
+  const allDecisionCount = useMemo(
+    () => rowDecisionCounts.reduce((sum, item) => sum + item.count, 0),
+    [rowDecisionCounts],
+  );
+
+  const runSelected = async () => {
+    if (selectedDecisionIds.length === 0) {
+      toast.error("Select matcher rows first");
+      return;
+    }
+    setRunning(true);
+    setRunEvents([]);
+    setResultRows([]);
+    setResultDecisions({});
+    setRunMonitorOpen(true);
+    try {
+      const { job } = await startMatcherRunJob({
+        mode: "apply",
+        decisionIds: selectedDecisionIds,
+        useDeepSeek: scheduler?.useDeepSeek ?? true,
+      });
+      if (!job) throw new Error("Matcher job was not created");
+      window.localStorage.setItem(ACTIVE_MATCHER_JOB_KEY, job.id);
+      setCurrentRunJob(job);
+      setActiveJobId(job.id);
+      setRunEvents(job.events);
+      toast.success("Matcher run queued", {
+        description: "Progress is now tracked server-side.",
+      });
+    } catch (err) {
+      toast.error("Matcher run failed", {
+        description: (err as Error).message,
+      });
+      setCurrentRunJob(null);
+      setRunning(false);
+    }
+  };
+
+  const saveResultDecisions = async () => {
+    setSavingResults(true);
+    try {
+      await sendManualMatcherDecisions({
+        items: resultRows.map((row) => ({
+          decisionId: row.decisionId,
+          decision: resultDecisions[row.decisionId] ?? "human_review",
+          reason: `Operator saved this selected result as ${
+            MANUAL_DECISION_LABELS[
+              resultDecisions[row.decisionId] ?? "human_review"
+            ]
+          }.`,
+        })),
+      });
+      toast.success("Matcher outcomes applied");
+      setRunMonitorOpen(false);
+      setCurrentRunJob(null);
+      setResultRows([]);
+      setResultDecisions({});
+      setRowSelection({});
+      await refresh();
+    } catch (err) {
+      toast.error("Failed to save matcher results", {
+        description: (err as Error).message,
+      });
+    } finally {
+      setSavingResults(false);
+    }
+  };
+
+  const columns = useMemo(
+    () =>
+      buildColumns({
+        rowSelection,
+        rowCount: rows.length,
+        onToggleRow: (id) =>
+          setRowSelection((prev) => ({ ...prev, [id]: !prev[id] })),
+        onToggleAllVisible: (checked) =>
+          setRowSelection((prev) => {
+            const next = { ...prev };
+            for (const row of rows) {
+              if (checked) next[row.decisionId] = true;
+              else delete next[row.decisionId];
+            }
+            return next;
+          }),
+      }),
+    [rowSelection, rows],
+  );
+
+  const titleBadge = <MatcherLabHeader stats={stats} scheduler={scheduler} />;
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <AppShell
+        title="Matcher Lab"
+        titleBadge={titleBadge}
+        edgeToEdge
+        actions={
+          <div className="flex items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7"
+                  onClick={() => void refresh()}
+                  disabled={refreshing || running}
+                >
+                  <RefreshCw
+                    className={cn("size-3.5", refreshing && "animate-spin")}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh matcher lab data</TooltipContent>
+            </Tooltip>
+            <RunStatusButton
+              job={currentRunJob}
+              running={running}
+              eventCount={runEvents.length}
+              resultCount={resultRows.length}
+              onOpen={() => setRunMonitorOpen(true)}
+            />
+            <SchedulerPopover
+              scheduler={scheduler}
+              setScheduler={setScheduler}
+            />
+          </div>
+        }
+      >
+        <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-border/70 bg-background/95">
+              <div className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+                  {DECISION_FILTERS.map((tab) => {
+                    const active = decisionFilter === tab.value;
+                    const palette = DECISION_TAB_COLORS[tab.value];
+                    const count =
+                      tab.value === "all"
+                        ? allDecisionCount
+                        : rowDecisionCounts.find(
+                            (item) => item.decision === tab.value,
+                          )?.count;
+                    return (
+                      <button
+                        key={tab.value}
+                        type="button"
+                        onClick={() => setDecisionFilter(tab.value)}
+                        className={cn(
+                          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors active:scale-[0.98]",
+                          active
+                            ? palette.active
+                            : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                        )}
+                      >
+                        {active && (
+                          <span
+                            className={cn(
+                              "inline-block size-1.5 rounded-full",
+                              palette.dot,
+                            )}
+                          />
+                        )}
+                        <span>{tab.label}</span>
+                        {typeof count === "number" && (
+                          <span className="tabular-nums text-current/70">
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="tabular-nums">{rows.length} loaded</span>
+                  {rowTotal > rows.length && (
+                    <span className="tabular-nums text-muted-foreground/70">
+                      / {rowTotal} total
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {selectedDecisionIds.length > 0 && (
+                <div className="flex items-center justify-between gap-2 border-t border-border/50 bg-amber-500/[0.07] px-3 py-2">
+                  <div className="text-xs text-muted-foreground">
+                    <span className="font-medium tabular-nums text-foreground">
+                      {selectedDecisionIds.length}
+                    </span>{" "}
+                    selected for matching
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() => setRowSelection({})}
+                          disabled={running}
+                        >
+                          Clear
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Clear selected matcher rows
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7"
+                          onClick={runSelected}
+                          disabled={running || selectedRows.length === 0}
+                        >
+                          {running ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Play className="size-3.5" />
+                          )}
+                          Run selected
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Score selected rows and review the output before
+                        applying outcomes
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <DataTable<MatcherDecisionRow>
+              data={rows}
+              columns={columns}
+              getRowId={(row) => row.decisionId}
+              enableRowSelection
+              rowSelection={rowSelection}
+              onRowSelectionChange={setRowSelection}
+              enableSorting
+              enableVirtualization
+              enableColumnResizing
+              enableColumnOrdering
+              rowHeight={38}
+              density="compact"
+              persistenceKey="matcher-lab-event-decisions"
+              loading={loading}
+              className="h-full w-full"
+              onRowClick={setDetailRow}
+              rowClassName={(row) => {
+                if (row.decision === "human_review")
+                  return "bg-amber-900/[0.05]";
+                if (row.decision === "auto_merge")
+                  return "bg-emerald-900/[0.04]";
+                if (row.decision === "auto_reject") return "bg-red-900/[0.04]";
+                return undefined;
+              }}
+              renderEmpty={() => (
+                <div className="flex h-48 flex-col items-center justify-center gap-2 text-muted-foreground">
+                  <Database className="size-5" />
+                  <p className="text-sm">No matcher decisions found.</p>
+                </div>
+              )}
+              renderLoading={() => (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Loading matcher decisions...
+                </span>
+              )}
+            />
+          </div>
+        </div>
+      </AppShell>
+
+      <DetailDialog
+        row={detailRow}
+        open={detailRow !== null}
+        onOpenChange={(open) => !open && setDetailRow(null)}
+      />
+      <RunProgressModal
+        open={runMonitorOpen}
+        onOpenChange={setRunMonitorOpen}
+        events={runEvents}
+        running={running}
+        rows={resultRows}
+        decisions={resultDecisions}
+        saving={savingResults}
+        onDecisionChange={(decisionId, decision) =>
+          setResultDecisions((prev) => ({ ...prev, [decisionId]: decision }))
+        }
+        onCommit={saveResultDecisions}
+      />
+    </TooltipProvider>
+  );
+}
+
+function buildColumns({
+  rowSelection,
+  rowCount,
+  onToggleRow,
+  onToggleAllVisible,
+}: {
+  rowSelection: RowSelectionState;
+  rowCount: number;
+  onToggleRow: (decisionId: string) => void;
+  onToggleAllVisible: (checked: boolean) => void;
+}): ColumnDef<MatcherDecisionRow, unknown>[] {
+  const selectedCount = Object.values(rowSelection).filter(Boolean).length;
+  const allSelected = rowCount > 0 && selectedCount >= rowCount;
+  return [
+    {
+      id: "select",
+      header: () => (
+        <Checkbox
+          checked={
+            allSelected ? true : selectedCount > 0 ? "indeterminate" : false
+          }
+          onCheckedChange={(checked) => onToggleAllVisible(checked === true)}
+          aria-label="Select all loaded matcher decisions"
+          className="size-3.5"
+        />
+      ),
+      cell: ({ row }) => (
+        <Checkbox
+          checked={Boolean(rowSelection[row.original.decisionId])}
+          onCheckedChange={() => onToggleRow(row.original.decisionId)}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Select ${row.original.decisionId}`}
+          className="size-3.5"
+        />
+      ),
+      size: 34,
+      meta: { fixed: "left", hint: "Select matcher rows.", initialSize: 34 },
+    },
+    {
+      id: "createdAt",
+      header: "Time",
+      size: 112,
+      accessorFn: (row) => row.createdAt,
+      meta: {
+        hint: "When this decision was written.",
+        align: "center",
+        initialSize: 104,
+      },
+      cell: ({ row }) => (
+        <span className="text-[10px] text-muted-foreground">
+          {fmtSeen(row.original.createdAt)}
+        </span>
+      ),
+    },
+    {
+      id: "eventA",
+      header: "Event A",
+      size: 250,
+      meta: { hint: "First provider event snapshot.", initialSize: 260 },
+      cell: ({ row }) => <EventBlock row={row.original} side="A" />,
+    },
+    {
+      id: "eventB",
+      header: "Event B",
+      size: 250,
+      meta: { hint: "Second provider event snapshot.", initialSize: 260 },
+      cell: ({ row }) => <EventBlock row={row.original} side="B" />,
+    },
+    {
+      id: "ko",
+      header: "KO",
+      size: 96,
+      accessorFn: (row) => row.eventA.kickoff,
+      meta: {
+        hint: "Kickoff from the first snapshot.",
+        align: "center",
+        initialSize: 92,
+      },
+      cell: ({ row }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {fmtShort(row.original.eventA.kickoff)}
+        </span>
+      ),
+    },
+    {
+      id: "confidence",
+      header: "Conf",
+      size: 70,
+      accessorFn: (row) => row.confidence,
+      meta: { hint: "Policy confidence.", align: "right", initialSize: 68 },
+      cell: ({ row }) => (
+        <span className="tabular-nums text-foreground">
+          {fmtPercent(row.original.confidence)}
+        </span>
+      ),
+    },
+    {
+      id: "combined",
+      header: "Score",
+      size: 70,
+      accessorFn: (row) => row.scoreBreakdown?.combined,
+      meta: {
+        hint: "Weighted matcher score.",
+        align: "right",
+        initialSize: 68,
+      },
+      cell: ({ row }) => (
+        <span className="tabular-nums text-muted-foreground">
+          {fmtPercent(row.original.scoreBreakdown?.combined)}
+        </span>
+      ),
+    },
+    {
+      id: "groundedDecision",
+      header: "Grounded",
+      size: 112,
+      accessorFn: (row) => inferGroundedDecision(row) ?? "",
+      meta: {
+        hint: "Grounded review verdict, separate from final policy action.",
+        align: "center",
+        initialSize: 112,
+      },
+      cell: ({ row }) => <GroundedDecisionBadge row={row.original} />,
+    },
+    {
+      id: "stage",
+      header: "Stage",
+      size: 112,
+      accessorFn: (row) => row.decisionStage,
+      meta: {
+        hint: "Matcher stage that produced the current decision.",
+        align: "center",
+        initialSize: 112,
+      },
+      cell: ({ row }) => (
+        <span className="capitalize text-muted-foreground">
+          {row.original.decisionStage.replaceAll("_", " ")}
+        </span>
+      ),
+    },
+    {
+      id: "reason",
+      header: "Reason",
+      size: 260,
+      accessorFn: (row) => row.reasonSummary,
+      meta: {
+        hint: "Policy reason. Open the row for full scoring details.",
+        initialSize: 280,
+      },
+      cell: ({ row }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="max-w-[280px] cursor-default truncate text-muted-foreground">
+              <span className="font-mono text-[10px] text-foreground/70">
+                {row.original.reasonCode}
+              </span>
+              <span className="mx-1 text-muted-foreground/50">·</span>
+              <span>{row.original.reasonSummary}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-[360px]">
+            {row.original.reasonSummary}
+          </TooltipContent>
+        </Tooltip>
+      ),
+    },
+    {
+      id: "decision",
+      header: "Decision",
+      size: 104,
+      accessorFn: (row) => row.decision,
+      meta: {
+        hint: "Current matcher decision.",
+        align: "center",
+        initialSize: 104,
+      },
+      cell: ({ row }) => <DecisionBadge decision={row.original.decision} />,
+    },
+    {
+      id: "actions",
+      header: "",
+      size: 48,
+      meta: {
+        fixed: "right",
+        hint: "Open manual Google AI Mode verification.",
+        align: "right",
+        initialSize: 48,
+      },
+      cell: ({ row }) => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="size-6"
+              aria-label="Open Google AI Mode verification"
+              onClick={(event) => {
+                event.stopPropagation();
+                openGoogleAiMode(row.original);
+              }}
+            >
+              <Search className="size-3.5 text-amber-400" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Open manual Google AI Mode verification</TooltipContent>
+        </Tooltip>
+      ),
+    },
+  ];
+}

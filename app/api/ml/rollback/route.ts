@@ -63,9 +63,11 @@ export async function POST(req: Request) {
       );
     }
     if (target.status === "deployed") {
-      return NextResponse.json(
-        { ok: true, alreadyDeployed: true, targetVersion },
-      );
+      return NextResponse.json({
+        ok: true,
+        alreadyDeployed: true,
+        targetVersion,
+      });
     }
 
     const result = await db.transaction(async (tx) => {
@@ -82,7 +84,9 @@ export async function POST(req: Request) {
         await tx
           .update(mlModels)
           .set({ status: "retired", retiredAt: now })
-          .where(and(eq(mlModels.id, previous.id), eq(mlModels.status, "deployed")));
+          .where(
+            and(eq(mlModels.id, previous.id), eq(mlModels.status, "deployed")),
+          );
       }
 
       // Promote the target back to deployed.

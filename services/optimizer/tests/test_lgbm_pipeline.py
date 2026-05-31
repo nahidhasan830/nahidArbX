@@ -484,3 +484,15 @@ class TestScoreBucketCalibration:
         assert _adaptive_min_child_samples(5000) == 20
         mid = _adaptive_min_child_samples(1000)
         assert 5 < mid < 20
+
+    def test_expected_calibration_error_handles_sparse_bins(self):
+        """ECE must not assume sklearn's returned bins match local digitize counts."""
+        from app.trainer import _expected_calibration_error
+
+        labels = np.array([0, 1, 0, 1, 1, 0, 1, 0], dtype=np.int32)
+        probs = np.array([0.0, 0.1, 0.2, 0.30000000000000004, 0.5, 0.7, 0.9, 1.0])
+
+        ece = _expected_calibration_error(labels, probs, n_bins=10)
+
+        assert np.isfinite(ece)
+        assert 0.0 <= ece <= 1.0

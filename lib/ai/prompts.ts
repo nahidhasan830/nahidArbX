@@ -4,6 +4,7 @@ import { format, isValid, parseISO } from "date-fns";
 
 const GENERAL_SPORTS_GROUNDING_RULES = `GENERAL ACCURACY RULES:
 - Treat dates and kickoff times as hard evidence. Prefer exact same date; be suspicious when search evidence is from a different season or tournament round.
+- Automated grounding uses UTC kickoff times. Compare source evidence against the UTC timestamp provided in the prompt, not against browser or operator-local wall-clock time.
 - Use the provided web evidence first. Do not invent facts that are not supported by the evidence.
 - Prefer official competition pages and established score sites over snippets from forums, social media, or generic SEO pages.
 - Preserve home/away orientation exactly when reporting scores or comparing fixtures.
@@ -23,8 +24,57 @@ export const ENTITY_MATCH_SCHEMA = {
       minimum: 0,
       maximum: 100,
     },
+    reasoning: {
+      type: "string",
+      maxLength: 500,
+    },
+    canonicalEvent: {
+      type: ["object", "null"],
+      properties: {
+        home: { type: ["string", "null"] },
+        away: { type: ["string", "null"] },
+        competition: { type: ["string", "null"] },
+        kickoff: { type: ["string", "null"] },
+      },
+    },
+    confirmedFacts: {
+      type: "array",
+      items: { type: "string", maxLength: 200 },
+    },
+    uncertainties: {
+      type: "array",
+      items: { type: "string", maxLength: 200 },
+    },
+    evidenceAssessment: {
+      type: "object",
+      properties: {
+        sameEvidence: { type: "integer", minimum: 0 },
+        differentEvidence: { type: "integer", minimum: 0 },
+        contradiction: { type: "boolean" },
+        noSource: { type: "boolean" },
+        notes: {
+          type: "array",
+          items: { type: "string", maxLength: 160 },
+        },
+      },
+      required: [
+        "sameEvidence",
+        "differentEvidence",
+        "contradiction",
+        "noSource",
+        "notes",
+      ],
+    },
   },
-  required: ["decision", "confidence"],
+  required: [
+    "decision",
+    "confidence",
+    "reasoning",
+    "canonicalEvent",
+    "confirmedFacts",
+    "uncertainties",
+    "evidenceAssessment",
+  ],
 } as const;
 
 export const ENTITY_MATCH_BATCH_SCHEMA = {
@@ -105,8 +155,23 @@ CONFIDENCE CALIBRATION (you MUST use these ranges):
 - 0-39: Very unsure, guessing.
 Never output confidence=0 unless you have literally zero information.
 
-Respond with ONLY a complete JSON object. Use exactly these keys: "decision", "confidence", "reasoning".
-Keep reasoning under 18 words. Do not include markdown, citations, or extra keys.`;
+Before deciding, audit the evidence:
+- sameEvidence = count of source items that support both provider rows being one fixture.
+- differentEvidence = count of source items that support separate teams, tiers, competitions, dates, or opponents.
+- Same kickoff/date alone is not sameEvidence when sources identify different teams, opponents, or competitions.
+- contradiction = true when credible source items disagree or when one supports SAME and another supports DIFFERENT.
+- noSource = true when evidence is missing or too thin to verify the pair.
+- notes must name the decisive evidence pattern using source numbers like [1].
+
+Respond with ONLY a complete JSON object. Use exactly these keys:
+"decision", "confidence", "reasoning", "canonicalEvent", "confirmedFacts", "uncertainties", "evidenceAssessment".
+
+For SAME, canonicalEvent should contain the best source-grounded home, away, competition, and kickoff identity.
+For DIFFERENT or UNCERTAIN, set canonicalEvent to null.
+confirmedFacts must list source-grounded facts you verified.
+uncertainties must list missing, contradictory, or unresolved facts. Use [] only when evidence is complete and non-conflicting.
+evidenceAssessment must be populated even when the decision is UNCERTAIN.
+Keep reasoning under 24 words. Do not include markdown, citations, or extra keys.`;
 
 export function entityMatchPrompt(
   eventA: {
@@ -115,6 +180,9 @@ export function entityMatchPrompt(
     competition: string;
     startTime: string;
     provider?: string;
+    normalized?: unknown;
+    providerMetadata?: unknown;
+    matcherContext?: unknown;
   },
   eventB: {
     homeTeam: string;
@@ -122,12 +190,36 @@ export function entityMatchPrompt(
     competition: string;
     startTime: string;
     provider?: string;
+    normalized?: unknown;
+    providerMetadata?: unknown;
+    matcherContext?: unknown;
   },
 ): string {
+  const auditContext = JSON.stringify(
+    {
+      eventA: {
+        normalized: eventA.normalized ?? null,
+        providerMetadata: eventA.providerMetadata ?? null,
+        matcherContext: eventA.matcherContext ?? null,
+      },
+      eventB: {
+        normalized: eventB.normalized ?? null,
+        providerMetadata: eventB.providerMetadata ?? null,
+        matcherContext: eventB.matcherContext ?? null,
+      },
+    },
+    null,
+    2,
+  );
   return `Are these the same real-world match?
 
 • "${eventA.homeTeam} vs ${eventA.awayTeam}", ${formatTime(eventA.startTime)}, ${eventA.competition} (${eventA.provider || "Unknown"})
-• "${eventB.homeTeam} vs ${eventB.awayTeam}", ${formatTime(eventB.startTime)}, ${eventB.competition} (${eventB.provider || "Unknown"})`;
+• "${eventB.homeTeam} vs ${eventB.awayTeam}", ${formatTime(eventB.startTime)}, ${eventB.competition} (${eventB.provider || "Unknown"})
+
+MATCHER AUDIT CONTEXT:
+${auditContext}
+
+Do not decide from kickoff fuzziness. The caller only sends exact-kickoff candidates here; use the UTC kickoff timestamp to verify against source evidence. Ignore operator-local or browser-local time renderings.`;
 }
 
 // ── Batch entity matching ────────────────────────────────────────────
@@ -250,9 +342,26 @@ export function genericQueryPrompt(question: string, context?: string): string {
 function formatTime(iso: string): string {
   try {
     const d = parseISO(iso);
-    if (isValid(d)) return format(d, "dd MMM yyyy HH:mm");
+    if (isValid(d)) {
+      return `${formatInZone(d, "UTC")} UTC`;
+    }
   } catch {
     // Fall through.
   }
   return iso;
+}
+
+function formatInZone(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  })
+    .format(date)
+    .replace(",", "");
 }

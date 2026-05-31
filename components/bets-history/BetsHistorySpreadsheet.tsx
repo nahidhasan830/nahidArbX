@@ -334,9 +334,7 @@ export function BetsHistorySpreadsheet() {
               : null,
           );
         } finally {
-          setSettlementProgress((p) =>
-            p ? { ...p, done: p.done + 1 } : null,
-          );
+          setSettlementProgress((p) => (p ? { ...p, done: p.done + 1 } : null));
         }
       }
     };

@@ -1,8 +1,8 @@
-"""Model Deployment Gate — prevents bad or overfit models from reaching runtime.
+"""Model Deployment Gate — separates observe serving from betting authority.
 
-Enforces strict quality requirements before a model can be deployed to
-production scoring. Assigns a runtime permission level based on the
-model's quality metrics and the amount of available training data.
+Enforces basic model-sanity requirements before a model can be deployed for
+observe-only scoring. Assigns active runtime permission only when economic
+policy evidence is strong enough.
 
 Deployment requirements for first observe model:
   - At least MIN_VALID_EXAMPLES valid settled examples after feature normalization
@@ -11,6 +11,10 @@ Deployment requirements for first observe model:
   - AUC above AUC_BASELINE
   - Bucket ROI/CLV is directionally monotonic
   - No severe calibration failure
+
+Additional economic evidence gates active permissions only. A model with weak
+policy ROI/DSR may still be deployed at observe level so the engine can collect
+live prediction audit rows without letting ML skip bets or change stakes.
 
 Current behavior:
   - PBO is removed from hard gates because single-trial PBO is
@@ -42,8 +46,13 @@ MIN_VALID_EXAMPLES = 200
 # AUC must beat random baseline
 AUC_BASELINE = 0.55
 
-# Maximum acceptable calibration error (ECE)
+# Maximum acceptable calibration error (ECE) for active betting authority.
 MAX_CALIBRATION_ERROR = 0.15
+
+# Catastrophic calibration ceiling for observe-only serving. A marginal ECE
+# miss should not prevent live prediction collection, but a badly calibrated
+# classifier should not be served as a probability model at all.
+MAX_OBSERVE_CALIBRATION_ERROR = 0.30
 
 # Maximum acceptable log loss (anything above this is worse than random-ish)
 MAX_LOG_LOSS = 0.75
@@ -58,9 +67,11 @@ MIN_ROI_MONOTONICITY = 0.5
 # Minimum CLV monotonicity across score buckets (softer requirement)
 MIN_CLV_MONOTONICITY = 0.3
 
-# Minimum out-of-sample live-policy evidence. The live policy gates on
-# positive model EV at the offered odds, so deployment must prove that the
-# policy cohort itself has enough samples and non-negative ROI.
+# Minimum out-of-sample live-policy evidence for active betting authority.
+# The live policy gates on positive model EV at the offered odds, so active
+# permissions must prove that the policy cohort itself has enough samples and
+# non-negative ROI. Observe-only serving is allowed below this bar so the
+# system can collect the missing prediction evidence.
 MIN_POLICY_SAMPLES = 100
 MIN_POLICY_ROI = 0.0
 
@@ -72,9 +83,9 @@ MIN_SIMPLE_COMPARISON_SAMPLES = 100
 MIN_MODEL_VS_SIMPLE_ROI_DELTA = 0.0
 MIN_MODEL_VS_SIMPLE_LCB_DELTA = 0.0
 
-# DSR threshold. A deployed model must show statistically credible
-# out-of-sample policy returns, even if it would only run at observe level.
-# Active permissions remain stricter below.
+# DSR threshold for active betting authority. Observe-only serving records
+# predictions but cannot affect placement, so low DSR blocks escalation rather
+# than blocking the first prediction-producing model.
 MIN_DSR = 0.6
 
 # PBO threshold — warning-only because single-trial
@@ -165,11 +176,18 @@ def evaluate_deployment_gate(
             f"need at least {AUC_BASELINE}"
         )
 
+    active_blockers: list[str] = []
+
     # Calibration error check
-    if metrics.calibration_error > MAX_CALIBRATION_ERROR:
+    if metrics.calibration_error > MAX_OBSERVE_CALIBRATION_ERROR:
         reasons.append(
             f"Severe calibration failure: ECE={metrics.calibration_error:.6f}, "
-            f"max allowed {MAX_CALIBRATION_ERROR}"
+            f"max allowed {MAX_OBSERVE_CALIBRATION_ERROR}"
+        )
+    elif metrics.calibration_error > MAX_CALIBRATION_ERROR:
+        active_blockers.append(
+            f"Calibration error too high for active ML: ECE={metrics.calibration_error:.6f}, "
+            f"need at most {MAX_CALIBRATION_ERROR}"
         )
 
     # Log loss check
@@ -215,13 +233,13 @@ def evaluate_deployment_gate(
         reasons.append("No score bucket report available — cannot verify monotonicity")
 
     if metrics.policy_sample_size < MIN_POLICY_SAMPLES:
-        reasons.append(
+        active_blockers.append(
             f"Insufficient ML-gated policy sample: {metrics.policy_sample_size} bets, "
             f"need at least {MIN_POLICY_SAMPLES}"
         )
 
     if metrics.policy_roi_mean < MIN_POLICY_ROI:
-        reasons.append(
+        active_blockers.append(
             f"ML-gated policy ROI is negative: {metrics.policy_roi_mean:.4f}%, "
             f"need at least {MIN_POLICY_ROI:.4f}%"
         )
@@ -242,9 +260,15 @@ def evaluate_deployment_gate(
 
     # DSR check
     if math.isnan(metrics.dsr) or metrics.dsr < MIN_DSR:
-        reasons.append(
+        active_blockers.append(
             f"Deflated Sharpe Ratio too low or invalid: {metrics.dsr:.4f}, "
             f"need at least {MIN_DSR}"
+        )
+
+    for blocker in active_blockers:
+        warnings.append(
+            f"Active ML permissions blocked: {blocker}. "
+            "Model may still run observe-only to collect live predictions."
         )
 
     # PBO check — warning-only. Single-trial PBO is
@@ -275,6 +299,7 @@ def evaluate_deployment_gate(
 
     # Start at observe (always safe)
     level = "observe"
+    active_evidence_ok = not active_blockers
     beats_simple_rule = (
         metrics.simple_policy_sample_size >= MIN_SIMPLE_COMPARISON_SAMPLES
         and metrics.model_vs_simple_roi_delta >= MIN_MODEL_VS_SIMPLE_ROI_DELTA
@@ -283,7 +308,8 @@ def evaluate_deployment_gate(
 
     # Can we escalate to gate_only?
     if (
-        metrics.auc_roc >= GATE_ONLY_MIN_AUC
+        active_evidence_ok
+        and metrics.auc_roc >= GATE_ONLY_MIN_AUC
         and metrics.n_samples >= GATE_ONLY_MIN_EXAMPLES
         and metrics.dsr >= GATE_ONLY_MIN_DSR
         and metrics.policy_sample_size >= GATE_ONLY_MIN_POLICY_SAMPLES

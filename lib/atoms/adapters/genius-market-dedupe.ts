@@ -33,7 +33,9 @@ function marketRank(group: MarketGroup): number[] {
   const status = (market.apiSiteStatus ?? "").toUpperCase();
   const statusRank = status === "OPEN" ? 2 : status === "SUSPENDED" ? 1 : 0;
   const liveRank =
-    market.marketLive === 1 || market.marketLive === true || market.live === true
+    market.marketLive === 1 ||
+    market.marketLive === true ||
+    market.live === true
       ? 1
       : 0;
   const marketName = (market.marketName ?? "").toLowerCase();

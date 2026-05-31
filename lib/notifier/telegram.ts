@@ -63,22 +63,38 @@ function getCreds(): { token: string; chatId: string } | null {
 
 interface InlineKey {
   text: string;
-  url: string;
+  url?: string;
+  callback_data?: string;
 }
 
-function formatMlRunCompleted(e: MlRunCompletedEvent): FormattedMessage {
+function formatMlRunCompleted(e: MlRunCompletedEvent): FormattedMessage | null {
+  if (e.escalated <= 0) {
+    return null;
+  }
+
   const lines: string[] = [];
 
-  lines.push(`🧠 <b>ML Matcher Batch Complete</b>`);
-  lines.push(`Total pairs processed: <b>${e.processed}</b>`);
-  lines.push(`✅ Auto-merged: <b>${e.merged}</b>`);
-  lines.push(`❌ Auto-rejected: <b>${e.rejected}</b>`);
-  lines.push(`⚠️ Needs human review: <b>${e.escalated}</b>`);
-  lines.push(`⏱ Duration: <b>${(e.durationMs / 1000).toFixed(1)}s</b>`);
+  lines.push(`⚠️ <b>Matcher Review Needed</b>`);
+  lines.push(`👤 Human review: <b>${e.escalated}</b>`);
+  lines.push(`🔎 Scored: <b>${e.processed}</b>`);
+  lines.push(`✅ Merged: <b>${e.merged}</b>`);
+  lines.push(`🚫 Rejected: <b>${e.rejected}</b>`);
+  if (typeof e.generated === "number" && typeof e.skipped === "number") {
+    lines.push(
+      `📦 Generated: <b>${e.generated}</b> · skipped: <b>${e.skipped}</b>`,
+    );
+  }
+  lines.push(`⏱ ${esc(durationLabel(e.durationMs))}`);
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
 
   return {
     text: lines.join("\n"),
+    buttons: [
+      {
+        text: `Review ${Math.min(e.escalated, 5)} now`,
+        callback_data: `m:l:${Math.min(e.escalated, 5)}`,
+      },
+    ],
   };
 }
 
@@ -145,7 +161,7 @@ function formatMlTrainingCompleted(
       lines.push(`${dsrIcon} DSR: <b>${e.dsr.toFixed(3)}</b>`);
     }
     if (e.pbo != null) {
-      const pboIcon = e.pbo <= 0.5 ? "✅" : e.pbo <= 0.7 ? "⚠️" : "❌";
+      const pboIcon = e.pbo <= 0.6 ? "✅" : "⚠️";
       lines.push(`${pboIcon} PBO: <b>${e.pbo.toFixed(3)}</b>`);
     }
   }
@@ -203,7 +219,11 @@ export const telegramChannel: NotificationChannel = {
       if (formatted.buttons && formatted.buttons.length > 0) {
         payload.reply_markup = {
           inline_keyboard: [
-            formatted.buttons.map((b) => ({ text: b.text, url: b.url })),
+            formatted.buttons.map((b) =>
+              b.callback_data
+                ? { text: b.text, callback_data: b.callback_data }
+                : { text: b.text, url: b.url },
+            ),
           ],
         };
       }

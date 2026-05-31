@@ -47,14 +47,16 @@ import {
 } from "../scores/websocket";
 import { reconcilePendingBets } from "../betting/ninewickets/reconciler";
 import { singleton } from "../util/singleton";
-import { getIdToken } from "../matching/entities/matcher-client";
-import { resolveMatcherRunWithAiSearch } from "../matching/matcher-lab-ai-resolver";
 import { notify } from "../notifier";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
 import { getBettingSettings } from "../db/repositories/betting-settings";
+import { getEventMatcherSchedulerSettings } from "../db/repositories/event-matcher-scheduler-settings";
 import { getMarketPhase } from "../betting/market-phase";
-// ML scheduler now runs on the entity-matcher Cloud Run Service (reads
-// config from matcher_config table). No more in-process setTimeout loop.
+import {
+  captureProviderSnapshots,
+  readReliabilityStats,
+  runEventMatcher,
+} from "../event-matcher";
 
 /**
  * How often to poll the book's myBets feed for pending-bet
@@ -184,13 +186,37 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     );
 
     // Collect all events
+    const fetchBatchId = `fixtures-${Date.now()}`;
+    const snapshotInputs: Parameters<typeof captureProviderSnapshots>[0] = [];
     for (const result of results) {
       if (result.status === "fulfilled") {
         allEvents.push(...result.value.events);
+        for (const event of result.value.events) {
+          const providerInfo = event.providers[result.value.provider];
+          snapshotInputs.push({
+            event,
+            provider: result.value.provider,
+            providerEventId: providerInfo?.eventId ?? event.id,
+            fetchedAt: providerInfo?.fetchedAt,
+            fetchBatchId,
+            rawStartTime: event.startTime.toISOString(),
+            parseStrategy: "adapter-normalized-date",
+            providerMetadata: {
+              provider: result.value.provider,
+              suspended: event.suspended ?? false,
+            },
+          });
+        }
       }
     }
 
     logger.info("Sync", `Total raw events: ${allEvents.length}`);
+    captureProviderSnapshots(snapshotInputs).catch((err) => {
+      logger.warn(
+        "EventMatcher",
+        `Snapshot capture failed: ${(err as Error).message}`,
+      );
+    });
 
     // Guard: if ALL adapters returned 0 events but we previously had data,
     // this is almost certainly a transient failure (timeouts, circuit breakers,
@@ -253,7 +279,7 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     // The incremental detector already prunes events that leave the
     // active set (value-detector.ts L104-111). Resetting after
     // fixtures caused value bets to be lost: the matching phase can
-    // hang for 3+ minutes (entity-matcher Cloud Run), so by the time
+    // hang for several minutes, so by the time
     // the post-fixture odds sync runs, sharp odds are stale (>90s
     // staleness gate) and the full recompute returns zero bets.
     // Removing this reset lets valid cached value bets survive across
@@ -575,8 +601,8 @@ export function startScheduler(): void {
     );
   });
 
-  // ML scheduler now runs on the entity-matcher Cloud Run Service.
-  // Config is read from matcher_config table in Postgres.
+  // Event matcher runs in-process against provider snapshots captured during
+  // fixture sync. The lab can run the same path manually.
 
   // Initial fixture sync (reactive detector handles value detection)
   syncAll();
@@ -671,53 +697,62 @@ export function startScheduler(): void {
       }
 
       const start = Date.now();
+      let intervalMs = 60_000;
       try {
-        const u = process.env.ENTITY_MATCHER_URL;
-        if (u) {
-          const token = await getIdToken();
-          const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-          };
-          if (token) headers.Authorization = `Bearer ${token}`;
+        const { row: matcherSchedule } =
+          await getEventMatcherSchedulerSettings();
+        intervalMs = matcherSchedule.intervalSeconds * 1000;
+        if (!matcherSchedule.enabled) {
+          return;
+        }
+        const reliability = await readReliabilityStats(200);
+        const useDeepSeek = matcherSchedule.useDeepSeek && reliability.healthy;
+        if (matcherSchedule.useDeepSeek && !reliability.healthy) {
+          logger.warn(
+            "EventMatcherScheduler",
+            `Disabling DeepSeek for this run: ${reliability.degradationReason}`,
+          );
+        }
 
-          const res = await fetch(`${u.replace(/\/$/, "")}/scheduler/cron`, {
-            method: "POST",
-            headers,
+        const result = await runEventMatcher({
+          trigger: "cron",
+          mode: "apply",
+          applyMerges: true,
+          useDeepSeek,
+          groundedReviewSkipReason:
+            matcherSchedule.useDeepSeek && !reliability.healthy
+              ? "degraded"
+              : undefined,
+          groundedReviewDegradationReason:
+            matcherSchedule.useDeepSeek && !reliability.healthy
+              ? reliability.degradationReason
+              : null,
+        });
+        const merged = result.autoMerged;
+        const rejected = result.autoRejected;
+        const escalated = result.humanReview;
+        if (result.status === "completed" && escalated > 0) {
+          await notify({
+            type: "ml:run_completed",
+            at: new Date().toISOString(),
+            processed: result.candidateCount,
+            generated: result.generatedCandidateCount,
+            skipped: result.skippedCandidateCount,
+            merged,
+            rejected,
+            escalated,
+            durationMs: result.durationMs,
           });
-
-          if (res.ok) {
-            const result = await resolveMatcherRunWithAiSearch(
-              await res.json(),
-            );
-            const merged = result.merged ?? 0;
-            const rejected = result.rejected ?? 0;
-            const escalated = result.escalated ?? 0;
-            if (
-              result.status === "success" &&
-              (merged > 0 || rejected > 0 || escalated > 0)
-            ) {
-              // Only notify if it actually did something actionable
-              await notify({
-                type: "ml:run_completed",
-                at: new Date().toISOString(),
-                processed: result.processed ?? 0,
-                merged,
-                rejected,
-                escalated,
-                durationMs: result.durationMs ?? 0,
-              });
-            }
-          }
         }
       } catch (_err) {
-        // Silent catch for network errors
-      }
-
-      if (sch.active) {
-        const wait = Math.max(0, 60000 - (Date.now() - start));
-        sch.mlTimer = setTimeout(() => {
-          scheduleNextMl();
-        }, wait);
+        // Silent catch for matcher errors
+      } finally {
+        if (sch.active) {
+          const wait = Math.max(0, intervalMs - (Date.now() - start));
+          sch.mlTimer = setTimeout(() => {
+            scheduleNextMl();
+          }, wait);
+        }
       }
     }, 60000);
   }

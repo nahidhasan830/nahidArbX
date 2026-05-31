@@ -107,9 +107,7 @@ export type RetrainDecision =
  *   4. No deployed model and corpus is above cold-start → train.
  *   5. Otherwise: train iff growth since last deploy ≥ growthStep.
  */
-export function decideRetrain(
-  input: RetrainDecisionInputs,
-): RetrainDecision {
+export function decideRetrain(input: RetrainDecisionInputs): RetrainDecision {
   if (input.inTrainingCount > 0) {
     return { should: false, reason: "training_in_progress" };
   }
@@ -124,10 +122,7 @@ export function decideRetrain(
   // infrastructure, and feature contract changes automatically unblock code
   // fixes.
   const last = input.lastTerminalNonDeployed;
-  if (
-    last &&
-    last.featureNamesHash === input.currentFeatureNamesHash
-  ) {
+  if (last && last.featureNamesHash === input.currentFeatureNamesHash) {
     const growthSinceTerminal =
       input.totalAvailableSamples - last.trainingSamples;
     if (growthSinceTerminal === 0) {
@@ -168,9 +163,8 @@ async function shouldRetrain(): Promise<boolean> {
       .where(eq(mlModels.status, "training"))
       .limit(1);
 
-    const { getCurrentCorpusAccounting } = await import(
-      "../ml/training-sample-accounting"
-    );
+    const { getCurrentCorpusAccounting } =
+      await import("../ml/training-sample-accounting");
     const accounting = await getCurrentCorpusAccounting(db);
     const totalAvailableSamples = accounting.trainerExpectedSamples;
 
@@ -378,9 +372,8 @@ async function tick(): Promise<void> {
 
       // ── Pilot evaluation (stake_increase promotion) ────────────────
       try {
-        const { evaluatePilot, isPilotActive, stopPilot } = await import(
-          "../ml/pilot"
-        );
+        const { evaluatePilot, isPilotActive, stopPilot } =
+          await import("../ml/pilot");
         if (isPilotActive()) {
           const pilotResult = await evaluatePilot();
           if (pilotResult.ready) {

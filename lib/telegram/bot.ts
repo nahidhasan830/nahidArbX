@@ -32,6 +32,7 @@ import { isCommandEnabled } from "./config";
 import { takeConfirm } from "./confirm";
 import { recordCommandHistory } from "./history";
 import { getCommand, listCommands } from "./registry";
+import { handleMatcherCallback } from "./commands/matcher-commands";
 import "./commands"; // side-effect: registers every command
 import type {
   CommandContext,
@@ -162,6 +163,11 @@ async function handleCallbackQuery(q: TgCallbackQuery): Promise<void> {
   const ack = (text?: string, alert = false) =>
     answerCallbackQuery({ callback_query_id: q.id, text, show_alert: alert });
 
+  if (data.startsWith("m:")) {
+    await handleMatcherCallback(q);
+    return;
+  }
+
   if (!data.startsWith("c:") && !data.startsWith("x:")) {
     await ack();
     return;
@@ -270,7 +276,32 @@ async function loop(): Promise<void> {
  */
 export async function syncTelegramCommandMenu(): Promise<void> {
   if (!isTelegramConfigured()) return;
-  const enabled = listCommands().filter((c) => isCommandEnabled(c.name));
+  const primaryMenuCommands = new Set([
+    "help",
+    "status",
+    "health",
+    "errors",
+    "balance",
+    "today",
+    "value",
+    "pending",
+    "sync",
+    "scheduler",
+    "settle",
+    "autoplace",
+    "provider",
+    "matcher_reviews",
+    "matcher_review",
+    "matcher_match",
+    "matcher_reject",
+    "matcher_run",
+  ]);
+  const showFullMenu = process.env.TELEGRAM_FULL_COMMAND_MENU === "1";
+  const enabled = listCommands().filter(
+    (c) =>
+      isCommandEnabled(c.name) &&
+      (showFullMenu || primaryMenuCommands.has(c.name)),
+  );
   // Telegram caps each description at 256 chars but BotFather guidance is
   // ≤22 for mobile readability. Truncate the longer one-liners so the
   // popover stays clean.

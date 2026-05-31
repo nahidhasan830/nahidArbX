@@ -24,7 +24,8 @@ export const rung06SchedulerAlive: RungDefinition = {
         status: "warn",
         primary: "no ticks yet",
         secondary: "scheduler started but hasn't completed its first tick.",
-        action: "Wait about a minute, then restart the engine if it stays stuck.",
+        action:
+          "Wait about a minute, then restart the engine if it stays stuck.",
       };
     }
 
@@ -36,7 +37,8 @@ export const rung06SchedulerAlive: RungDefinition = {
         primary: `${ageMin} min stale`,
         secondary:
           "scheduler is registered but hasn't ticked in too long — it may be deadlocked.",
-        action: "Restart the engine if it does not recover on the next refresh.",
+        action:
+          "Restart the engine if it does not recover on the next refresh.",
       };
     }
 

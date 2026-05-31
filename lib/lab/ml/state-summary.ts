@@ -12,9 +12,10 @@ export function buildStateSummary(
   data: PipelineData,
   rungs: EvaluatedRung[],
 ): { headline: string; mood: "good" | "warn" | "bad" } {
-  const deployed = data.training.deployedModel as
-    | { version: number; trainingSamples: number }
-    | null;
+  const deployed = data.training.deployedModel as {
+    version: number;
+    trainingSamples: number;
+  } | null;
   const inTraining = data.training.modelsInTraining;
 
   // Find the first rung that's not green and not blocked.
@@ -25,7 +26,8 @@ export function buildStateSummary(
   if (firstIssue && firstIssue.verdict.status === "fail") {
     return {
       mood: "bad",
-      headline: `Pipeline halted at rung ${firstIssue.definition.number} (${firstIssue.definition.title.toLowerCase()}). ${firstIssue.verdict.action ?? firstIssue.verdict.secondary ?? ""}`.trim(),
+      headline:
+        `Pipeline halted at rung ${firstIssue.definition.number} (${firstIssue.definition.title.toLowerCase()}). ${firstIssue.verdict.action ?? firstIssue.verdict.secondary ?? ""}`.trim(),
     };
   }
 

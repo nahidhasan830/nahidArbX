@@ -143,7 +143,10 @@ export async function recordPredictionBatch(
         },
       });
   } catch (err) {
-    logger.warn(tag, `Failed to record prediction batch: ${(err as Error).message}`);
+    logger.warn(
+      tag,
+      `Failed to record prediction batch: ${(err as Error).message}`,
+    );
   }
 }
 
@@ -160,7 +163,8 @@ function buildFilterClauses(filters: PredictionAuditFilters) {
   if (filters.marketTypes?.length) {
     clauses.push(inArray(mlPredictionAudit.marketType, filters.marketTypes));
   }
-  if (filters.eventId) clauses.push(eq(mlPredictionAudit.eventId, filters.eventId));
+  if (filters.eventId)
+    clauses.push(eq(mlPredictionAudit.eventId, filters.eventId));
   if (filters.settled === true) {
     clauses.push(sql`${mlPredictionAudit.outcome} <> 'pending'`);
   }

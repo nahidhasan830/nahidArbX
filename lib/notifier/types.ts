@@ -23,6 +23,8 @@ export interface MlRunCompletedEvent {
   type: "ml:run_completed";
   at: string;
   processed: number;
+  generated?: number;
+  skipped?: number;
   merged: number;
   rejected: number;
   escalated: number;

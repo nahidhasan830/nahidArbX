@@ -40,10 +40,7 @@ const STORE_LABELS: Record<string, string> = {
   deltaSnapshot: "Delta Snapshot",
 };
 
-function formatStoreDetails(
-  key: string,
-  store: MemoryDiagnosticStore,
-): string {
+function formatStoreDetails(key: string, store: MemoryDiagnosticStore): string {
   switch (key) {
     case "oddsHistory":
       return `${store.trackedAtoms?.toLocaleString() ?? 0} atoms, ${store.totalTicks?.toLocaleString() ?? 0} ticks`;
@@ -66,13 +63,18 @@ function formatStoreDetails(
     case "events":
       return `${store.count?.toLocaleString() ?? 0} normalized`;
     case "deltaSnapshot":
-      return store.hasSnapshot ? `${store.snapshotValueBets ?? 0} bets duplicated` : "No snapshot";
+      return store.hasSnapshot
+        ? `${store.snapshotValueBets ?? 0} bets duplicated`
+        : "No snapshot";
     default:
       return "-";
   }
 }
 
-function getRiskBadge(issue?: string): { variant: "success" | "warning" | "destructive"; label: string } {
+function getRiskBadge(issue?: string): {
+  variant: "success" | "warning" | "destructive";
+  label: string;
+} {
   if (!issue) return { variant: "success", label: "OK" };
   if (issue.includes("NO CLEANUP") || issue.includes("UNBOUNDED")) {
     return { variant: "destructive", label: "HIGH RISK" };
@@ -129,23 +131,17 @@ function MemoryStatCard({
 }
 
 export function MemoryDiagnostic() {
-  const {
-    data,
-    isLoading,
-    isError,
-    isFetching,
-    dataUpdatedAt,
-    refetch,
-  } = useQuery<MemoryDiagnosticData>({
-    queryKey: ["memory-diagnostic"],
-    queryFn: async () => {
-      const res = await fetch("/api/logs/memory");
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-    refetchInterval: 10_000,
-    staleTime: 10_000,
-  });
+  const { data, isLoading, isError, isFetching, dataUpdatedAt, refetch } =
+    useQuery<MemoryDiagnosticData>({
+      queryKey: ["memory-diagnostic"],
+      queryFn: async () => {
+        const res = await fetch("/api/logs/memory");
+        if (!res.ok) throw new Error("Failed to fetch");
+        return res.json();
+      },
+      refetchInterval: 10_000,
+      staleTime: 10_000,
+    });
 
   const lastUpdated = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString()
@@ -155,13 +151,11 @@ export function MemoryDiagnostic() {
   const totalEstimatedMB = data
     ? Object.values(data.stores).reduce(
         (sum, store) => sum + (store.estimatedMB ?? 0),
-        0
+        0,
       )
     : 0;
 
-  const unaccountedMB = data
-    ? data.process.heapUsedMB - totalEstimatedMB
-    : 0;
+  const unaccountedMB = data ? data.process.heapUsedMB - totalEstimatedMB : 0;
 
   const highRiskStores = data
     ? Object.entries(data.stores).filter(([, store]) => {
@@ -173,7 +167,7 @@ export function MemoryDiagnostic() {
   // Sort stores by estimated MB descending
   const sortedStores = data
     ? Object.entries(data.stores).sort(
-        (a, b) => (b[1].estimatedMB ?? 0) - (a[1].estimatedMB ?? 0)
+        (a, b) => (b[1].estimatedMB ?? 0) - (a[1].estimatedMB ?? 0),
       )
     : [];
 
@@ -231,7 +225,8 @@ export function MemoryDiagnostic() {
             {highRiskStores > 0 ? (
               <Badge variant="destructive" className="gap-1.5">
                 <AlertTriangle className="h-3 w-3" />
-                {highRiskStores} High Risk {highRiskStores === 1 ? "Store" : "Stores"}
+                {highRiskStores} High Risk{" "}
+                {highRiskStores === 1 ? "Store" : "Stores"}
               </Badge>
             ) : (
               <Badge variant="success" className="gap-1.5">
@@ -249,7 +244,9 @@ export function MemoryDiagnostic() {
             size="sm"
             disabled={isFetching}
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`h-4 w-4 mr-2 ${isFetching ? "animate-spin" : ""}`}
+            />
             Refresh
           </Button>
         </div>
@@ -261,10 +258,7 @@ export function MemoryDiagnostic() {
             value={data.process.heapUsedMB}
             total={data.process.heapTotalMB}
           />
-          <MemoryStatCard
-            label="Heap Total"
-            value={data.process.heapTotalMB}
-          />
+          <MemoryStatCard label="Heap Total" value={data.process.heapTotalMB} />
           <MemoryStatCard label="RSS" value={data.process.rssMB} />
           <MemoryStatCard label="External" value={data.process.externalMB} />
         </div>
@@ -325,7 +319,9 @@ export function MemoryDiagnostic() {
                 <TableRow>
                   <TableHead className="w-[200px]">Store</TableHead>
                   <TableHead>Details</TableHead>
-                  <TableHead className="text-right w-[120px]">Est. MB</TableHead>
+                  <TableHead className="text-right w-[120px]">
+                    Est. MB
+                  </TableHead>
                   <TableHead className="text-right w-[120px]">Risk</TableHead>
                   <TableHead className="w-[200px]">Issues</TableHead>
                 </TableRow>

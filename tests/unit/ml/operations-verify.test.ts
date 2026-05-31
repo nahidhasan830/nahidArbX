@@ -186,19 +186,17 @@ describe("ML operations verification", () => {
       const triggerSource = readRepoFile("lib/optimizer/cloud-training.ts");
       const jobSource = readRepoFile("services/optimizer/app/job.py");
 
-      expect(triggerSource).toContain(
-        "getCurrentCorpusAccounting(db)",
-      );
+      expect(triggerSource).toContain("getCurrentCorpusAccounting(db)");
       expect(triggerSource).toContain(
         "trainingSamples: accounting.trainerExpectedSamples",
       );
-      expect(triggerSource.indexOf("getCurrentCorpusAccounting(db)")).toBeLessThan(
-        triggerSource.indexOf("db.insert(mlModels).values"),
-      );
+      expect(
+        triggerSource.indexOf("getCurrentCorpusAccounting(db)"),
+      ).toBeLessThan(triggerSource.indexOf("db.insert(mlModels).values"));
       expect(jobSource).toContain("def _set_training_sample_count");
       expect(jobSource).toContain("training_samples = :n_samples");
       expect(jobSource).toContain(
-        "_set_training_sample_count(os.environ.get(\"TRAINING_MODEL_ID\"), data.n_samples)",
+        '_set_training_sample_count(os.environ.get("TRAINING_MODEL_ID"), data.n_samples)',
       );
     });
   });

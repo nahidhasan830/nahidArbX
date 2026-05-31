@@ -19,12 +19,9 @@ const SCOPE_LABELS: Record<KnownMarketScope, string> = {
 
 const SCOPE_CLASSES: Record<KnownMarketScope | "UNKNOWN", string> = {
   FT: "border-sky-500/35 bg-sky-500/12 text-sky-600 dark:text-sky-300",
-  "1H":
-    "border-amber-500/40 bg-amber-500/14 text-amber-700 dark:text-amber-300",
-  "2H":
-    "border-violet-500/40 bg-violet-500/14 text-violet-700 dark:text-violet-300",
-  UNKNOWN:
-    "border-border bg-muted/60 text-muted-foreground dark:bg-muted/40",
+  "1H": "border-amber-500/40 bg-amber-500/14 text-amber-700 dark:text-amber-300",
+  "2H": "border-violet-500/40 bg-violet-500/14 text-violet-700 dark:text-violet-300",
+  UNKNOWN: "border-border bg-muted/60 text-muted-foreground dark:bg-muted/40",
 };
 
 export function normalizeMarketScope(
@@ -82,11 +79,16 @@ export function inferMarketScopeFromBetId(
 export function stripMarketScopeText(label: string): string {
   return label
     .replace(/\s*\b(?:FT|1H|2H)\b\s*$/i, "")
-    .replace(/^\s*(?:Full Time|First Half|1st Half|Second Half|2nd Half)\s+/i, "")
+    .replace(
+      /^\s*(?:Full Time|First Half|1st Half|Second Half|2nd Half)\s+/i,
+      "",
+    )
     .trim();
 }
 
-function parseLineValue(value: number | string | null | undefined): number | null {
+function parseLineValue(
+  value: number | string | null | undefined,
+): number | null {
   if (value == null || value === "") return null;
   const parsed =
     typeof value === "number" ? value : Number.parseFloat(String(value).trim());
@@ -100,9 +102,7 @@ function marketTextAlreadyHasLine(
   const line = parseLineValue(familyLine);
   if (line == null) return false;
 
-  const trailingLine = marketText
-    .trim()
-    .match(/(?:^|\s)([+-]?\d+(?:\.\d+)?)$/);
+  const trailingLine = marketText.trim().match(/(?:^|\s)([+-]?\d+(?:\.\d+)?)$/);
   if (!trailingLine) return false;
 
   const existingLine = parseLineValue(trailingLine[1]);
@@ -138,7 +138,9 @@ export function formatScopedMarketText({
       ? formatAtomLabel(selection)
       : selection
     : "";
-  return selectionLabel ? `${base}${line} · ${selectionLabel}` : `${base}${line}`;
+  return selectionLabel
+    ? `${base}${line} · ${selectionLabel}`
+    : `${base}${line}`;
 }
 
 export function marketScopeLabel(scope: string | null | undefined): string {

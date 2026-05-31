@@ -11,6 +11,7 @@ import { GoogleGenAI } from "@google/genai";
 import type {
   EventInfo,
   MatchVerdict,
+  MatchCanonicalEvent,
   BatchMatchVerdict,
   GroundedAnswer,
   SearchResult,
@@ -18,6 +19,8 @@ import type {
   PairVerdict,
   MatchDecision,
   AiParseDiagnostics,
+  EvidenceAssessment,
+  SourceBackedAliasEvidence,
 } from "./search/types";
 import {
   ENTITY_MATCH_SYSTEM,
@@ -31,13 +34,19 @@ import { getSearchRouter, type SearchRouter } from "./search/router";
 import { logAiActivity } from "./activity-logger";
 import { bestSim } from "../matching/string-sim";
 import { normalize, normalizeCompetition } from "../matching/normalize";
-import { format, isValid, parseISO } from "date-fns";
+import { isValid, parseISO } from "date-fns";
 
 // DeepSeek v4 currently supports up to 384K output tokens. Keep the app from
 // imposing small local caps; prompt shape + JSON parsing define the response.
 const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
-const ENTITY_MATCH_EVIDENCE_ITEMS = 8;
-const ENTITY_MATCH_EVIDENCE_CHARS = 420;
+const ENTITY_MATCH_QUERY_LIMIT = 10;
+const ENTITY_MATCH_RESULTS_PER_QUERY = 4;
+const ENTITY_MATCH_EVIDENCE_ITEMS = 12;
+const ENTITY_MATCH_EVIDENCE_CHARS = 560;
+const ENTITY_MATCH_MIN_EVIDENCE_RESULTS = 4;
+const ENTITY_MATCH_MIN_EVIDENCE_CHARS = 1_200;
+
+type MatchSide = SourceBackedAliasEvidence["side"];
 
 function getDeepSeekClient(): OpenAI {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -71,9 +80,10 @@ function getGroundingDates(iso: string) {
   try {
     const d = parseISO(iso);
     if (isValid(d)) {
+      const utcParts = datePartsInTimeZone(d, "UTC");
       return {
-        date: format(d, "yyyy-MM-dd"),
-        time: format(d, "HH:mm"),
+        date: utcParts.date,
+        time: utcParts.time,
       };
     }
   } catch {}
@@ -85,18 +95,195 @@ function getGroundingDates(iso: string) {
   };
 }
 
+function datePartsInTimeZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  return {
+    date: `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`,
+    time: `${byType.get("hour")}:${byType.get("minute")}`,
+  };
+}
+
+function textForAliasMatch(value: string): string {
+  let out = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\bhcmc\b/g, "ho chi minh city")
+    .replace(/\bhcm\b/g, "ho chi minh")
+    .replace(/\btp hcm\b/g, "ho chi minh city")
+    .replace(/\btp ho chi minh\b/g, "ho chi minh city")
+    .replace(/\s+/g, " ")
+    .trim();
+  out = out.replace(/\b(fc|cf|sc|club)\b/g, "").replace(/\s+/g, " ").trim();
+  return out;
+}
+
+function aliasSurfaceVariants(surface: string): string[] {
+  const base = textForAliasMatch(surface);
+  const variants = new Set([base]);
+  if (base.includes("ho chi minh city")) {
+    variants.add(base.replace(/\bho chi minh city\b/g, "hcmc"));
+  }
+  if (base.includes("hcmc")) {
+    variants.add(base.replace(/\bhcmc\b/g, "ho chi minh city"));
+  }
+  return [...variants].filter(Boolean);
+}
+
+function containsAliasSurface(text: string, variants: string[]): boolean {
+  const normalizedText = ` ${textForAliasMatch(text)} `;
+  return variants.some((variant) => normalizedText.includes(` ${variant} `));
+}
+
+function sourceLooksLikeOppositionFixture(
+  result: SearchResult,
+  aVariants: string[],
+  bVariants: string[],
+): boolean {
+  const title = textForAliasMatch(result.title);
+  const url = textForAliasMatch(decodeURIComponent(result.url));
+  const haystacks = [title, url];
+  return haystacks.some((haystack) => {
+    const hasA = aVariants.some((variant) => haystack.includes(variant));
+    const hasB = bVariants.some((variant) => haystack.includes(variant));
+    return hasA && hasB && /\b(vs?|versus|x)\b/.test(haystack);
+  });
+}
+
+function sourceBacksAlias(
+  result: SearchResult,
+  eventASurface: string,
+  eventBSurface: string,
+): boolean {
+  const aVariants = aliasSurfaceVariants(eventASurface);
+  const bVariants = aliasSurfaceVariants(eventBSurface);
+  if (sourceLooksLikeOppositionFixture(result, aVariants, bVariants)) {
+    return false;
+  }
+
+  const url = decodeURIComponent(result.url);
+  const title = result.title;
+  const aInUrl = containsAliasSurface(url, aVariants);
+  const bInUrl = containsAliasSurface(url, bVariants);
+  const aInTitle = containsAliasSurface(title, aVariants);
+  const bInTitle = containsAliasSurface(title, bVariants);
+
+  return (aInUrl && bInTitle) || (bInUrl && aInTitle);
+}
+
+function extractAliasEvidenceForSide(
+  side: MatchSide,
+  eventASurface: string,
+  eventBSurface: string,
+  evidence: SearchResult[],
+): SourceBackedAliasEvidence[] {
+  if (textForAliasMatch(eventASurface) === textForAliasMatch(eventBSurface)) {
+    return [];
+  }
+
+  const matches: SourceBackedAliasEvidence[] = [];
+  const seen = new Set<string>();
+  for (const result of evidence) {
+    if (!sourceBacksAlias(result, eventASurface, eventBSurface)) continue;
+    const key = `${side}|${result.url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matches.push({
+      side,
+      eventASurface,
+      eventBSurface,
+      canonicalSurface: result.title,
+      sourceTitle: result.title,
+      sourceUrl: result.url,
+      reason:
+        "Source URL slug contains one provider label while the page title uses the other label.",
+    });
+  }
+  return matches;
+}
+
+function extractSourceBackedAliasEvidence(
+  eventA: EventInfo,
+  eventB: EventInfo,
+  evidence: SearchResult[],
+): SourceBackedAliasEvidence[] {
+  return [
+    ...extractAliasEvidenceForSide(
+      "home",
+      eventA.homeTeam,
+      eventB.homeTeam,
+      evidence,
+    ),
+    ...extractAliasEvidenceForSide(
+      "away",
+      eventA.awayTeam,
+      eventB.awayTeam,
+      evidence,
+    ),
+  ];
+}
+
+function formatAliasEvidence(
+  aliasEvidence: SourceBackedAliasEvidence[],
+): string {
+  if (aliasEvidence.length === 0) return "";
+  return aliasEvidence
+    .map(
+      (e, index) =>
+        `[A${index + 1}] ${e.side.toUpperCase()} alias: "${e.eventASurface}" ~= "${e.eventBSurface}"\n` +
+        `    Source: ${e.sourceTitle}\n` +
+        `    URL: ${e.sourceUrl}\n` +
+        `    Reason: ${e.reason}`,
+    )
+    .join("\n\n");
+}
+
 export function buildMatchQueries(
   eventA: EventInfo,
   eventB: EventInfo,
 ): string[] {
   const queries: string[] = [];
   const { date, time } = getGroundingDates(eventA.startTime);
+  const displayPairA = `${eventA.homeTeam} ${eventA.awayTeam}`;
+  const displayPairB = `${eventB.homeTeam} ${eventB.awayTeam}`;
+  const normalizedPairA = [
+    eventA.normalized?.homeTeam,
+    eventA.normalized?.awayTeam,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const normalizedPairB = [
+    eventB.normalized?.homeTeam,
+    eventB.normalized?.awayTeam,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   queries.push(
-    `${eventA.homeTeam} ${eventA.awayTeam} ${date} ${eventA.competition} football fixture`,
-    `${eventB.homeTeam} ${eventB.awayTeam} ${date} ${eventB.competition} football fixture`,
-    `${eventA.homeTeam} ${eventA.awayTeam} ${eventB.homeTeam} ${eventB.awayTeam} ${date} same football match`,
+    `${displayPairA} ${date} ${eventA.competition} football fixture`,
+    `${displayPairB} ${date} ${eventB.competition} football fixture`,
+    `${displayPairA} ${displayPairB} ${date} same football match`,
   );
+
+  if (normalizedPairA && normalizedPairA !== displayPairA.toLowerCase()) {
+    queries.push(`${normalizedPairA} ${date} ${eventA.competition} fixture`);
+  }
+
+  if (normalizedPairB && normalizedPairB !== displayPairB.toLowerCase()) {
+    queries.push(`${normalizedPairB} ${date} ${eventB.competition} fixture`);
+  }
 
   if (eventA.homeTeam.toLowerCase() !== eventB.homeTeam.toLowerCase()) {
     queries.push(
@@ -117,10 +304,13 @@ export function buildMatchQueries(
   }
 
   queries.push(
-    `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${date} ${time} football match`,
+    `"${eventA.homeTeam}" vs "${eventA.awayTeam}" "${eventB.homeTeam}" vs "${eventB.awayTeam}" ${date} ${time} UTC football match`,
+    `"${eventA.homeTeam}" "${eventA.awayTeam}" ${date} site:espn.com/soccer`,
+    `"${eventA.homeTeam}" "${eventA.awayTeam}" ${date} site:sofascore.com`,
+    `"${eventB.homeTeam}" "${eventB.awayTeam}" ${date} site:flashscore.com`,
   );
 
-  return queries;
+  return uniqueStrings(queries);
 }
 
 export function buildBatchMatchQueries(
@@ -162,6 +352,20 @@ export function buildBatchMatchQueries(
   return queries;
 }
 
+function buildMatchDrilldownQueries(
+  eventA: EventInfo,
+  eventB: EventInfo,
+): string[] {
+  const { date, time } = getGroundingDates(eventA.startTime);
+  return uniqueStrings([
+    `"${eventA.homeTeam}" "${eventA.awayTeam}" "${date}" "${time}" UTC official fixture`,
+    `"${eventB.homeTeam}" "${eventB.awayTeam}" "${date}" "${time}" UTC official fixture`,
+    `"${eventA.homeTeam}" "${eventA.awayTeam}" "${eventA.competition}" "${date}" score`,
+    `"${eventB.homeTeam}" "${eventB.awayTeam}" "${eventB.competition}" "${date}" score`,
+    `"${eventA.homeTeam}" "${eventA.awayTeam}" "${eventB.homeTeam}" "${eventB.awayTeam}" "${date}" same match`,
+  ]);
+}
+
 function compactEventInfo(event: EventInfo) {
   return {
     homeTeam: event.homeTeam,
@@ -169,6 +373,38 @@ function compactEventInfo(event: EventInfo) {
     competition: event.competition,
     startTime: event.startTime,
     provider: event.provider,
+  };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const trimmed = value.replace(/\s+/g, " ").trim();
+    const key = trimmed.toLowerCase();
+    if (!trimmed || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(trimmed);
+  }
+  return unique;
+}
+
+function evidenceQuality(results: SearchResult[]): {
+  strong: boolean;
+  resultCount: number;
+  contentChars: number;
+} {
+  const unique = uniqueSearchResults(results);
+  const contentChars = unique.reduce(
+    (sum, r) => sum + searchResultText(r).trim().length,
+    0,
+  );
+  return {
+    strong:
+      unique.length >= ENTITY_MATCH_MIN_EVIDENCE_RESULTS &&
+      contentChars >= ENTITY_MATCH_MIN_EVIDENCE_CHARS,
+    resultCount: unique.length,
+    contentChars,
   };
 }
 
@@ -188,12 +424,14 @@ function fullSearchResults(results: SearchResult[]) {
 }
 
 function compactChatResponse(resp: unknown) {
-  const choice = (resp as {
-    choices?: Array<{
-      finish_reason?: string;
-      message?: { content?: string | null };
-    }>;
-  })?.choices?.[0];
+  const choice = (
+    resp as {
+      choices?: Array<{
+        finish_reason?: string;
+        message?: { content?: string | null };
+      }>;
+    }
+  )?.choices?.[0];
   const content = choice?.message?.content ?? "";
   const r = resp as {
     id?: string;
@@ -227,12 +465,41 @@ class GroundingEngine {
     const queries = buildMatchQueries(eventA, eventB);
     const allEvidence: SearchResult[] = [];
     const queriesUsed: string[] = [];
+    const searchProvidersUsed: string[] = [];
+    let searchFailureCount = 0;
 
-    for (const q of queries.slice(0, 5)) {
-      const { results } = await this.search.search(q, 3);
+    for (const q of queries.slice(0, ENTITY_MATCH_QUERY_LIMIT)) {
+      const { results, provider } = await this.search.search(
+        q,
+        ENTITY_MATCH_RESULTS_PER_QUERY,
+      );
       allEvidence.push(...results);
       queriesUsed.push(q);
+      searchProvidersUsed.push(provider);
+      if (provider === "none" || results.length === 0) {
+        searchFailureCount++;
+      }
     }
+
+    const initialEvidenceQuality = evidenceQuality(allEvidence);
+    if (!initialEvidenceQuality.strong) {
+      for (const q of buildMatchDrilldownQueries(eventA, eventB).slice(0, 3)) {
+        if (queriesUsed.includes(q)) continue;
+        const { results, provider } = await this.search.fanOutSearch(q, 3, 2);
+        allEvidence.push(...results);
+        queriesUsed.push(q);
+        searchProvidersUsed.push(provider);
+        if (provider === "none" || results.length === 0) {
+          searchFailureCount++;
+        }
+      }
+    }
+    const finalEvidenceQuality = evidenceQuality(allEvidence);
+    const aliasEvidence = extractSourceBackedAliasEvidence(
+      eventA,
+      eventB,
+      allEvidence,
+    );
 
     const evidenceText = formatEvidence(
       allEvidence,
@@ -246,6 +513,9 @@ class GroundingEngine {
         competition: eventA.competition,
         startTime: eventA.startTime,
         provider: eventA.provider,
+        normalized: eventA.normalized,
+        providerMetadata: eventA.providerMetadata,
+        matcherContext: eventA.matcherContext,
       },
       {
         homeTeam: eventB.homeTeam,
@@ -253,8 +523,15 @@ class GroundingEngine {
         competition: eventB.competition,
         startTime: eventB.startTime,
         provider: eventB.provider,
+        normalized: eventB.normalized,
+        providerMetadata: eventB.providerMetadata,
+        matcherContext: eventB.matcherContext,
       },
     );
+    const aliasEvidenceText = formatAliasEvidence(aliasEvidence);
+    if (aliasEvidenceText) {
+      prompt += `\n\nSOURCE-BACKED ALIAS EVIDENCE:\n${aliasEvidenceText}\n\nTreat source-backed alias evidence as stronger than raw provider label differences. If alias evidence covers a team slot, do not classify that slot as a different club solely because the provider labels differ.`;
+    }
     if (evidenceText) {
       prompt += `\n\nWEB SEARCH EVIDENCE:\n${evidenceText}`;
     }
@@ -277,28 +554,37 @@ class GroundingEngine {
           eventA: compactEventInfo(eventA),
           eventB: compactEventInfo(eventB),
           searchQueriesUsed: queriesUsed,
+          searchProvidersUsed,
+          searchFailureCount,
           evidence: fullSearchResults(allEvidence),
+          aliasEvidence,
           evidenceText,
         },
         response: compactChatResponse,
         metadata: {
           promptLength: prompt.length,
           searchQueryCount: queriesUsed.length,
+          searchFailureCount,
           evidenceCount: allEvidence.length,
+          uniqueEvidenceCount: uniqueSearchResults(allEvidence).length,
+          initialEvidenceQuality,
+          finalEvidenceQuality,
           evidenceTextLength: evidenceText.length,
+          aliasEvidenceCount: aliasEvidence.length,
         },
       },
       async () => {
-        const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
-          model,
-          messages: [
-            { role: "system", content: ENTITY_MATCH_SYSTEM },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0,
-          max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
-          response_format: { type: "json_object" },
-        };
+        const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
+          {
+            model,
+            messages: [
+              { role: "system", content: ENTITY_MATCH_SYSTEM },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0,
+            max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+            response_format: { type: "json_object" },
+          };
         const r = await llm.chat.completions.create(params);
         raw = r.choices[0]?.message?.content || "{}";
         return r;
@@ -315,6 +601,11 @@ class GroundingEngine {
       eventA,
       eventB,
       finishReason,
+      {
+        searchFailureCount,
+        searchQueryCount: queriesUsed.length,
+        searchProvidersUsed,
+      },
     );
   }
 
@@ -398,16 +689,17 @@ class GroundingEngine {
         },
       },
       async () => {
-        const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
-          model,
-          messages: [
-            { role: "system", content: ENTITY_MATCH_BATCH_SYSTEM },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0,
-          max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
-          response_format: { type: "json_object" },
-        };
+        const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming =
+          {
+            model,
+            messages: [
+              { role: "system", content: ENTITY_MATCH_BATCH_SYSTEM },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0,
+            max_tokens: DEEPSEEK_MAX_OUTPUT_TOKENS,
+            response_format: { type: "json_object" },
+          };
         const r = await llm.chat.completions.create(params);
         rawBatch = r.choices[0]?.message?.content || "[]";
         return r;
@@ -620,6 +912,7 @@ class GroundingEngine {
     eventA: EventInfo,
     eventB: EventInfo,
     finishReason?: string,
+    searchDiagnostics?: SearchDiagnostics,
   ): MatchVerdict {
     return parseMatchVerdictFromRaw({
       raw,
@@ -629,6 +922,7 @@ class GroundingEngine {
       eventA,
       eventB,
       finishReason,
+      searchDiagnostics,
     });
   }
 
@@ -649,7 +943,6 @@ class GroundingEngine {
       finishReason,
     });
   }
-
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -745,6 +1038,7 @@ function parseMatchVerdictFromRaw(input: {
   eventA: EventInfo;
   eventB: EventInfo;
   finishReason?: string;
+  searchDiagnostics?: SearchDiagnostics;
 }): MatchVerdict {
   const parsed = parseJsonValue(input.raw, input.finishReason);
   const data = objectFromJsonValue(parsed.value) ?? {};
@@ -768,6 +1062,27 @@ function parseMatchVerdictFromRaw(input: {
     (data?.rationale as string) ||
     parsed.warning ||
     "";
+  const confirmedFacts = stringArrayFromJsonValue(
+    data?.confirmedFacts ?? data?.confirmed_facts ?? data?.facts,
+  );
+  const uncertainties = stringArrayFromJsonValue(
+    data?.uncertainties ?? data?.uncertainFacts ?? data?.unknowns,
+  );
+  const evidenceAssessment =
+    evidenceAssessmentFromJsonValue(
+      data?.evidenceAssessment ?? data?.evidence_assessment,
+    ) ?? fallbackEvidenceAssessment(input.evidence, decision);
+  const aliasEvidence = extractSourceBackedAliasEvidence(
+    input.eventA,
+    input.eventB,
+    input.evidence,
+  );
+  const canonicalEvent =
+    decision === "SAME"
+      ? (canonicalEventFromJsonValue(
+          data?.canonicalEvent ?? data?.canonical_event,
+        ) ?? fallbackCanonicalEvent(input.eventA))
+      : null;
 
   if (decision === "UNCERTAIN" && confidence <= 60) {
     const heuristic = heuristicMatchVerdict(input.eventA, input.eventB);
@@ -776,10 +1091,32 @@ function parseMatchVerdictFromRaw(input: {
         decision: heuristic.decision,
         confidence: heuristic.confidence,
         reasoning: heuristic.reasoning,
+        canonicalEvent:
+          heuristic.decision === "SAME"
+            ? fallbackCanonicalEvent(input.eventA)
+            : null,
+        confirmedFacts:
+          heuristic.decision === "SAME"
+            ? [
+                "Deterministic fallback found aligned teams, competition context, and kickoff.",
+              ]
+            : [],
+        uncertainties:
+          heuristic.decision === "SAME"
+            ? []
+            : ["Deterministic fallback did not identify a shared fixture."],
+        evidenceAssessment:
+          heuristic.decision === "SAME"
+            ? {
+                ...evidenceAssessment,
+                sameEvidence: Math.max(1, evidenceAssessment.sameEvidence),
+              }
+            : evidenceAssessment,
+        aliasEvidence,
         sources: resultsToCitations(input.evidence),
         searchQueriesUsed: input.queriesUsed,
         model: input.model,
-        diagnostics: diagnosticsFromParsed(parsed),
+        diagnostics: diagnosticsFromParsed(parsed, input.searchDiagnostics),
       };
     }
   }
@@ -788,10 +1125,15 @@ function parseMatchVerdictFromRaw(input: {
     decision,
     confidence,
     reasoning,
+    canonicalEvent,
+    confirmedFacts,
+    uncertainties,
+    evidenceAssessment,
+    aliasEvidence,
     sources: resultsToCitations(input.evidence),
     searchQueriesUsed: input.queriesUsed,
     model: input.model,
-    diagnostics: diagnosticsFromParsed(parsed),
+    diagnostics: diagnosticsFromParsed(parsed, input.searchDiagnostics),
   };
 }
 
@@ -844,7 +1186,8 @@ function parseBatchVerdictFromRaw(input: {
         decision: "UNCERTAIN",
         confidence: 50,
         reasoning:
-          parsed.warning || "AI response did not include a verdict for this pair.",
+          parsed.warning ||
+          "AI response did not include a verdict for this pair.",
         diagnostics: diagnosticsFromParsed(parsed),
       });
     }
@@ -864,6 +1207,11 @@ type ParsedJsonValue = {
   status: AiParseDiagnostics["parseStatus"];
   finishReason?: string;
   warning?: string;
+};
+type SearchDiagnostics = {
+  searchQueryCount: number;
+  searchFailureCount: number;
+  searchProvidersUsed: string[];
 };
 
 function normalizeDecision(value: unknown): MatchDecision {
@@ -901,17 +1249,122 @@ function objectFromJsonValue(value: unknown): JsonRecord | null {
   return value as JsonRecord;
 }
 
+function stringArrayFromJsonValue(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function stringOrNullFromJsonValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function canonicalEventFromJsonValue(
+  value: unknown,
+): MatchCanonicalEvent | null {
+  const record = objectFromJsonValue(value);
+  if (!record) return null;
+  return {
+    home: stringOrNullFromJsonValue(record.home ?? record.homeTeam),
+    away: stringOrNullFromJsonValue(record.away ?? record.awayTeam),
+    competition: stringOrNullFromJsonValue(record.competition),
+    kickoff: stringOrNullFromJsonValue(record.kickoff ?? record.startTime),
+  };
+}
+
+function evidenceAssessmentFromJsonValue(
+  value: unknown,
+): EvidenceAssessment | null {
+  const record = objectFromJsonValue(value);
+  if (!record) return null;
+  return {
+    sameEvidence: nonNegativeInteger(record.sameEvidence),
+    differentEvidence: nonNegativeInteger(record.differentEvidence),
+    contradiction: record.contradiction === true,
+    noSource: record.noSource === true,
+    notes: stringArrayFromJsonValue(record.notes),
+  };
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const n = typeof value === "number" ? value : parseInt(String(value), 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+function fallbackEvidenceAssessment(
+  evidence: SearchResult[],
+  decision: MatchDecision = "UNCERTAIN",
+): EvidenceAssessment {
+  const sourceCount = uniqueSearchResults(evidence).length;
+  if (sourceCount > 0 && decision === "DIFFERENT") {
+    return {
+      sameEvidence: 0,
+      differentEvidence: 1,
+      contradiction: false,
+      noSource: false,
+      notes: [
+        "Structured evidence assessment was malformed; search-backed DIFFERENT verdict was preserved for policy routing.",
+      ],
+    };
+  }
+
+  return {
+    sameEvidence: 0,
+    differentEvidence: 0,
+    contradiction: false,
+    noSource: sourceCount === 0,
+    notes:
+      sourceCount === 0
+        ? ["No usable search evidence was available."]
+        : ["Structured evidence assessment was not returned by the model."],
+  };
+}
+
+function fallbackCanonicalEvent(event: EventInfo): MatchCanonicalEvent {
+  return {
+    home: event.homeTeam || null,
+    away: event.awayTeam || null,
+    competition: event.competition || null,
+    kickoff: event.startTime || null,
+  };
+}
+
 function diagnosticsFromParsed(
   parsed: ParsedJsonValue,
+  searchDiagnostics?: SearchDiagnostics,
 ): AiParseDiagnostics | undefined {
-  if (parsed.status === "valid" && parsed.finishReason !== "length") {
+  if (
+    parsed.status === "valid" &&
+    parsed.finishReason !== "length" &&
+    !searchDiagnostics
+  ) {
     return undefined;
   }
-  return {
+  const diagnostics: AiParseDiagnostics = {
     parseStatus: parsed.status,
     finishReason: parsed.finishReason,
     warning: parsed.warning,
   };
+  if (searchDiagnostics) {
+    diagnostics.searchQueryCount = searchDiagnostics.searchQueryCount;
+    diagnostics.searchFailureCount = searchDiagnostics.searchFailureCount;
+    diagnostics.searchFailureRate =
+      searchDiagnostics.searchQueryCount > 0
+        ? Number(
+            (
+              searchDiagnostics.searchFailureCount /
+              searchDiagnostics.searchQueryCount
+            ).toFixed(3),
+          )
+        : 0;
+    diagnostics.searchProvidersUsed = [
+      ...new Set(searchDiagnostics.searchProvidersUsed),
+    ];
+  }
+  return diagnostics;
 }
 
 function parseJsonValue(raw: string, finishReason?: string): ParsedJsonValue {
@@ -987,7 +1440,11 @@ function recoverPartialJsonObject(text: string): JsonRecord | null {
   if (decisionMatch) {
     const rawDecision = decisionMatch[2] ?? decisionMatch[1];
     recovered.decision =
-      rawDecision === "true" ? true : rawDecision === "false" ? false : rawDecision;
+      rawDecision === "true"
+        ? true
+        : rawDecision === "false"
+          ? false
+          : rawDecision;
   }
   if (confidenceMatch) {
     recovered.confidence = Number(confidenceMatch[2]);
@@ -1050,7 +1507,9 @@ function uniqueSearchResults(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
   const unique: SearchResult[] = [];
   for (const r of results) {
-    const key = (r.url || `${r.source}:${r.title}`).replace(/\/$/, "").toLowerCase();
+    const key = (r.url || `${r.source}:${r.title}`)
+      .replace(/\/$/, "")
+      .toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
       unique.push(r);
@@ -1175,6 +1634,7 @@ export const grounding = new Proxy({} as GroundingEngine, {
 });
 
 export const __groundingTestHooks = {
+  extractSourceBackedAliasEvidence,
   parseMatchVerdict(
     raw: string,
     opts?: {
@@ -1184,6 +1644,7 @@ export const __groundingTestHooks = {
       eventB?: EventInfo;
       evidence?: SearchResult[];
       queriesUsed?: string[];
+      searchDiagnostics?: SearchDiagnostics;
     },
   ): MatchVerdict {
     return parseMatchVerdictFromRaw({
@@ -1204,6 +1665,7 @@ export const __groundingTestHooks = {
         startTime: "2026-05-23 12:00:00+00",
       },
       finishReason: opts?.finishReason,
+      searchDiagnostics: opts?.searchDiagnostics,
     });
   },
   parseBatchVerdict(

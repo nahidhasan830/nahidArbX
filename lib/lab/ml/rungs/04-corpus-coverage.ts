@@ -47,8 +47,7 @@ export const rung04CorpusCoverage: RungDefinition = {
     {
       id: "reconcile_now",
       label: "Reconcile now",
-      description:
-        "Backfill missing settled examples. Safe to retry.",
+      description: "Backfill missing settled examples. Safe to retry.",
       method: "POST",
       endpoint: "/api/ml/reconcile",
       visibleWhen: (d) => d.dataCollection.uncoveredQualifiedBets > 0,

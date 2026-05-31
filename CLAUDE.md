@@ -121,20 +121,20 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 ## Entity Resolution
 
-Postgres-backed alias system replacing legacy JSON files. 5 tables: `entities`, `entity_names`, `name_observations`, `entity_review_queue`, `entity_resolver_runs`.
+Postgres-backed alias system replacing legacy JSON files. Core tables: `entities`, `entity_names`, `name_observations`, `entity_decision_blocklist`.
 
 **Lookup:** `(provider, surface_normalized, competition_id)` UNIQUE — tournament-scoped. **Ingress:** all writers call `recordObservation` in `lib/matching/entities/observations.ts`.
 
-**4-tier promoter** (`lib/matching/entities/promoter.ts`, every 5 min):
+**Auto-resolver** (`lib/matching/entities/auto-resolve.ts`, triggered by observations):
 
 - **Tier 0** — deterministic gates: gender mismatch, team-variant mismatch (U17/U19/U20/U21/U23/Reserves/Academy/Futsal/etc.), group conflict, competing-candidate
 - **Tier 1** — Bayesian evidence with provider/source weights
-- **Tier 2** — LightGBM + conformal calibration (uncertain band [1.0, 3.0], promote at score ≥ 0.92 AND p-value ≤ 0.05)
-- **Tier 3** — operator review queue
+- **Tier 2** — Vertex embedding cosine for surface/entity similarity
+- **Tier 3** — unresolved candidates stay for operator review
 
-**Weekly cleanup Job** (`services/entity-resolver`): Splink + Leiden community detection. Auto-merges at probability > 0.99, queues rest for review.
+**Event Matcher Lab:** `/matcher-lab` reads the Node event matcher tables (`event_matcher_runs`, `matcher_candidates`, `matcher_decisions`, `matcher_impact_daily`). The old Python-backed `match_pairs`/`matcher_config`/`matcher_runs` lab tables are dropped.
 
-**UI:** `EntityInspector` at `/diagnostics → Entities` — 7 tabs (Overview, Entities, Surface forms, Observations, Review queue, Job runs, Playground), all on `<DataTable>`.
+**UI:** `Matcher Lab` is run-centric and table-first; every decision review table uses `<DataTable>`.
 
 **Env vars:** `ENTITY_CLASSIFIER_URL`, `ENTITY_RESOLVER_JOB_NAME`, `EMBEDDING_LOOKUP_ENABLED`.
 

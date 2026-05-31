@@ -95,9 +95,11 @@ export class SearchRouter {
       reason: string;
     }> = [];
     const successfulResults: SearchResult[] = [];
-    let best:
-      | { results: SearchResult[]; provider: string; quality: SearchQuality }
-      | null = null;
+    let best: {
+      results: SearchResult[];
+      provider: string;
+      quality: SearchQuality;
+    } | null = null;
 
     for (const p of available) {
       try {
@@ -311,7 +313,9 @@ function dedupeSearchResults(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
   const deduped: SearchResult[] = [];
   for (const r of results) {
-    const key = (r.url || `${r.source}:${r.title}`).replace(/\/$/, "").toLowerCase();
+    const key = (r.url || `${r.source}:${r.title}`)
+      .replace(/\/$/, "")
+      .toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(r);

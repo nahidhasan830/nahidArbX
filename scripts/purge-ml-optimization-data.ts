@@ -14,7 +14,12 @@
 
 import "dotenv/config";
 import { ensureDbReady, db } from "@/lib/db/client";
-import { bets, mlModels, mlTrainingExamples } from "@/lib/db/schema";
+import {
+  bets,
+  mlModels,
+  mlPredictionAudit,
+  mlTrainingExamples,
+} from "@/lib/db/schema";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import { FEATURE_NAMES_HASH } from "@/lib/ml/feature-contract";
 import { sql, type SQL } from "drizzle-orm";
@@ -55,6 +60,9 @@ async function main() {
     mlTrainingExamples: await count(
       sql`SELECT count(*)::int AS n FROM ${mlTrainingExamples}`,
     ),
+    mlPredictionAudit: await count(
+      sql`SELECT count(*)::int AS n FROM ${mlPredictionAudit}`,
+    ),
     betsWithMlScores: await count(sql`
       SELECT count(*)::int AS n
       FROM ${bets}
@@ -81,6 +89,7 @@ async function main() {
 
   if (!execute) {
     console.log("Dry run only. Add --execute and CONFIRM_PURGE_ML_DATA=YES.");
+    process.exit(0);
     return;
   }
 
@@ -89,6 +98,7 @@ async function main() {
   }
 
   await db.transaction(async (tx) => {
+    await tx.delete(mlPredictionAudit);
     await tx.delete(mlTrainingExamples);
     await tx.delete(mlModels);
     await tx.execute(sql`
@@ -110,6 +120,7 @@ async function main() {
   });
 
   console.log("ML optimization data purge complete.");
+  process.exit(0);
 }
 
 main().catch((err) => {

@@ -967,8 +967,7 @@ export function BetsHistoryTable({
             </DialogTitle>
             <DialogDescription>
               This will permanently remove the bet and its associated history
-              data.
-              This action cannot be undone.
+              data. This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           {deleteTarget && (

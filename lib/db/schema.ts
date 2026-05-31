@@ -274,7 +274,10 @@ export const mlPredictionAudit = pgTable(
   (t) => [
     index("ml_prediction_audit_scored_idx").on(t.scoredAt.desc()),
     uniqueIndex("ml_prediction_audit_bet_unique").on(t.betId),
-    index("ml_prediction_audit_model_idx").on(t.modelVersion, t.scoredAt.desc()),
+    index("ml_prediction_audit_model_idx").on(
+      t.modelVersion,
+      t.scoredAt.desc(),
+    ),
     index("ml_prediction_audit_decision_idx").on(t.decision, t.scoredAt.desc()),
     index("ml_prediction_audit_market_idx").on(t.marketType, t.scoredAt.desc()),
     index("ml_prediction_audit_event_start_idx").on(t.eventStartTime.desc()),
@@ -358,8 +361,14 @@ export const mlLearningSnapshots = pgTable(
   },
   (t) => [
     index("ml_learning_snapshots_created_idx").on(t.createdAt.desc()),
-    index("ml_learning_snapshots_model_idx").on(t.modelVersion, t.createdAt.desc()),
-    index("ml_learning_snapshots_verdict_idx").on(t.verdict, t.createdAt.desc()),
+    index("ml_learning_snapshots_model_idx").on(
+      t.modelVersion,
+      t.createdAt.desc(),
+    ),
+    index("ml_learning_snapshots_verdict_idx").on(
+      t.verdict,
+      t.createdAt.desc(),
+    ),
   ],
 );
 
@@ -721,10 +730,8 @@ export const entityNames = pgTable(
     provider: text().notNull(),
     surfaceRaw: text().notNull(),
     surfaceNormalized: text().notNull(),
-    // surface_embedding is vector(1024) in PG (BGE-M3 dim) but Drizzle has
-    // no native vector type — we read/write it via raw SQL from the
-    // entity-matcher service and skip it in normal selects. Omitted from
-    // the typed schema on purpose.
+    // surface_embedding is vector(1024) in PG. Drizzle has no native vector
+    // type, so raw SQL reads it only where embedding lookup needs it.
     weight: real().notNull().default(1.0),
     positiveObs: integer("positive_obs").notNull().default(0),
     negativeObs: integer("negative_obs").notNull().default(0),
@@ -833,140 +840,262 @@ export type NewEntityDecisionBlocklistRow =
   typeof entityDecisionBlocklist.$inferInsert;
 
 /**
- * ML-Augmented Matcher Pipeline — event pairs flowing through a 4-stage
- * state machine: inbox → ml_queued → human_review → history.
- *
- * Replaces the file-backed near-matches.json + ai-decision-cache.json.
+ * Event Matcher — Node matcher service tables.
  */
-export const matchPairs = pgTable(
-  "match_pairs",
+export const providerEventSnapshots = pgTable(
+  "provider_event_snapshots",
   {
     id: text().primaryKey(),
-    stage: text().notNull(), // 'inbox' | 'ml_queued' | 'human_review' | 'history'
-
-    // Event A snapshot
-    eventAProvider: text().notNull(),
-    eventAHomeTeam: text().notNull(),
-    eventAAwayTeam: text().notNull(),
-    eventACompetition: text().notNull(),
-    eventAStartTime: ts().notNull(),
-    eventAEventId: text(),
-
-    // Event B snapshot
-    eventBProvider: text().notNull(),
-    eventBHomeTeam: text().notNull(),
-    eventBAwayTeam: text().notNull(),
-    eventBCompetition: text().notNull(),
-    eventBStartTime: ts().notNull(),
-    eventBEventId: text(),
-
-    // String similarity (from sync)
-    stringScore: real().notNull(),
-    stringBreakdown: jsonb(),
-
-    // ML scores (bi-encoder)
-    mlHomeCosine: real(),
-    mlAwayCosine: real(),
-    mlCompCosine: real(),
-    mlCombinedScore: real(),
-    mlScoredAt: ts(),
-    mlModelVersion: text(),
-
-    // Cross-encoder (bi-encoder uncertain band)
-    xeScore: real(),
-    xePvalue: real(),
-    xeScoredAt: ts(),
-
-    // Resolution
-    decision: text(),
-    decidedBy: text(),
-    decidedAt: ts(),
-    decisionReason: text(),
-    resolutionSource: text("resolution_source"),
-
-    // Canonical pair key (dedup + lookup)
-    pairKey: text().notNull().unique(),
-
-    // Timestamps
-    detectedAt: tsNow(),
-    stageChangedAt: tsNow(),
-
-    // Source tracking
-    source: text().notNull(), // 'near-match' | 'unmatched-candidate'
+    provider: text().notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    sport: text().notNull().default("football"),
+    homeTeamRaw: text("home_team_raw").notNull(),
+    awayTeamRaw: text("away_team_raw").notNull(),
+    competitionRaw: text("competition_raw").notNull(),
+    homeTeamNormalized: text("home_team_normalized").notNull(),
+    awayTeamNormalized: text("away_team_normalized").notNull(),
+    competitionNormalized: text("competition_normalized").notNull(),
+    rawStartTime: text("raw_start_time"),
+    parsedKickoff: timestamp("parsed_kickoff", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+    parseStrategy: text("parse_strategy").notNull(),
+    fetchBatchId: text("fetch_batch_id").notNull(),
+    providerMetadata: jsonb("provider_metadata"),
+    rawPayload: jsonb("raw_payload"),
+    capturedAt: tsNow(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
   },
   (t) => [
-    index("match_pairs_stage_idx").on(t.stage),
-    index("match_pairs_stage_detected_idx").on(t.stage, t.detectedAt.desc()),
+    uniqueIndex("provider_event_snapshots_provider_event_uidx").on(
+      t.provider,
+      t.providerEventId,
+    ),
+    index("provider_event_snapshots_provider_idx").on(t.provider),
+    index("provider_event_snapshots_kickoff_idx").on(t.parsedKickoff),
+    index("provider_event_snapshots_batch_idx").on(t.fetchBatchId),
   ],
 );
 
-export type MatchPairRow = typeof matchPairs.$inferSelect;
-export type NewMatchPairRow = typeof matchPairs.$inferInsert;
+export type ProviderEventSnapshotRow =
+  typeof providerEventSnapshots.$inferSelect;
+export type NewProviderEventSnapshotRow =
+  typeof providerEventSnapshots.$inferInsert;
 
-/**
- * matcher_config — singleton config row read by the ML server scheduler.
- * The UI writes config here; the ML server reads it every tick.
- */
-export const matcherConfig = pgTable("matcher_config", {
-  id: text().primaryKey().default("default"),
-  enabled: boolean().notNull().default(false),
-  intervalMs: integer("interval_ms").notNull().default(60000),
-
-  teamMergeThreshold: real("team_merge_threshold").notNull().default(0.9),
-  compMergeThreshold: real("comp_merge_threshold").notNull().default(0.75),
-  teamRejectThreshold: real("team_reject_threshold").notNull().default(0.5),
-  combinedMergeThreshold: real("combined_merge_threshold")
-    .notNull()
-    .default(0.88),
-  combinedRejectThreshold: real("combined_reject_threshold")
-    .notNull()
-    .default(0.5),
-
-  xeEscalationEnabled: boolean("xe_escalation_enabled").notNull().default(true),
-  xeEscalationLow: real("xe_escalation_low").notNull().default(0.7),
-  xeEscalationHigh: real("xe_escalation_high").notNull().default(0.89),
-  xeMergeThreshold: real("xe_merge_threshold").notNull().default(0.9),
-  xePvalueThreshold: real("xe_pvalue_threshold").notNull().default(0.05),
-
-  aiSearchEnabled: boolean("ai_search_enabled").notNull().default(true),
-  aiSearchConfidenceThreshold: integer("ai_search_confidence_threshold")
-    .notNull()
-    .default(70),
-  aiSearchMaxBatchSize: integer("ai_search_max_batch_size")
-    .notNull()
-    .default(20),
-
-  updatedAt: ts().notNull().defaultNow(),
-});
-
-export type MatcherConfigRow = typeof matcherConfig.$inferSelect;
-
-/**
- * matcher_runs — persisted run history written by the ML server scheduler.
- * The UI reads this to show the processing log.
- */
-export const matcherRuns = pgTable(
-  "matcher_runs",
+export const canonicalEvents = pgTable(
+  "canonical_events",
   {
     id: text().primaryKey(),
-    startedAt: ts().notNull().defaultNow(),
-    completedAt: ts(),
-    durationMs: integer("duration_ms"),
-    processed: integer().notNull().default(0),
-    merged: integer().notNull().default(0),
-    rejected: integer().notNull().default(0),
-    escalated: integer().notNull().default(0),
-    aiSearchAttempted: integer("ai_search_attempted").notNull().default(0),
-    aiSearchMerged: integer("ai_search_merged").notNull().default(0),
-    aiSearchRejected: integer("ai_search_rejected").notNull().default(0),
-    status: text().notNull().default("running"),
-    trigger: text().notNull().default("scheduler"),
-    errorMessage: text("error_message"),
+    sport: text().notNull().default("football"),
+    homeTeamCanonical: text("home_team_canonical").notNull(),
+    awayTeamCanonical: text("away_team_canonical").notNull(),
+    competitionCanonical: text("competition_canonical").notNull(),
+    kickoff: ts().notNull(),
+    status: text().notNull().default("active"),
+    createdByRunId: text("created_by_run_id"),
+    createdAt: tsNow(),
+    updatedAt: ts().notNull().defaultNow(),
   },
-  (t) => [index("matcher_runs_started_idx").on(t.startedAt.desc())],
+  (t) => [
+    index("canonical_events_kickoff_idx").on(t.kickoff),
+    index("canonical_events_status_idx").on(t.status),
+  ],
 );
 
-export type MatcherRunRow = typeof matcherRuns.$inferSelect;
+export type CanonicalEventRow = typeof canonicalEvents.$inferSelect;
+export type NewCanonicalEventRow = typeof canonicalEvents.$inferInsert;
+
+export const canonicalEventMembers = pgTable(
+  "canonical_event_members",
+  {
+    id: text().primaryKey(),
+    canonicalEventId: text("canonical_event_id").notNull(),
+    snapshotId: text("snapshot_id").notNull(),
+    provider: text().notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    decisionId: text("decision_id"),
+    joinedAt: tsNow(),
+  },
+  (t) => [
+    uniqueIndex("canonical_event_members_snapshot_uidx").on(t.snapshotId),
+    uniqueIndex("canonical_event_members_provider_event_uidx").on(
+      t.provider,
+      t.providerEventId,
+    ),
+    index("canonical_event_members_canonical_idx").on(t.canonicalEventId),
+  ],
+);
+
+export type CanonicalEventMemberRow = typeof canonicalEventMembers.$inferSelect;
+export type NewCanonicalEventMemberRow =
+  typeof canonicalEventMembers.$inferInsert;
+
+export const matcherCandidates = pgTable(
+  "matcher_candidates",
+  {
+    id: text().primaryKey(),
+    runId: text("run_id").notNull(),
+    snapshotAId: text("snapshot_a_id").notNull(),
+    snapshotBId: text("snapshot_b_id").notNull(),
+    providerA: text("provider_a").notNull(),
+    providerB: text("provider_b").notNull(),
+    candidateKey: text("candidate_key").notNull().unique(),
+    shapeFingerprint: text("shape_fingerprint").notNull(),
+    scoringVersion: text("scoring_version").notNull(),
+    groundingVersion: text("grounding_version").notNull(),
+    status: text().notNull().default("generated"),
+    hardBlockers: jsonb("hard_blockers").notNull(),
+    reasons: jsonb().notNull().default(sql`'[]'::jsonb`),
+    scoreBreakdown: jsonb("score_breakdown"),
+    combinedScore: real("combined_score"),
+    sourceStage: text("source_stage").notNull().default("candidate_generation"),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("matcher_candidates_run_idx").on(t.runId),
+    index("matcher_candidates_status_idx").on(t.status),
+    index("matcher_candidates_provider_pair_idx").on(t.providerA, t.providerB),
+    index("matcher_candidates_shape_idx").on(t.shapeFingerprint),
+  ],
+);
+
+export type MatcherCandidateRow = typeof matcherCandidates.$inferSelect;
+export type NewMatcherCandidateRow = typeof matcherCandidates.$inferInsert;
+
+export const matcherDecisions = pgTable(
+  "matcher_decisions",
+  {
+    id: text().primaryKey(),
+    runId: text("run_id").notNull(),
+    candidateId: text("candidate_id").notNull(),
+    decision: text().notNull(),
+    decisionStage: text("decision_stage").notNull(),
+    confidence: real().notNull(),
+    confidenceBand: text("confidence_band").notNull(),
+    final: boolean().notNull().default(false),
+    dryRun: boolean("dry_run").notNull().default(false),
+    reasonCode: text("reason_code").notNull(),
+    reasonSummary: text("reason_summary").notNull(),
+    groundedDecision: text("grounded_decision"),
+    groundedConfidence: real("grounded_confidence"),
+    hardBlockers: jsonb("hard_blockers").notNull(),
+    scoreBreakdown: jsonb("score_breakdown").notNull(),
+    canonicalEventId: text("canonical_event_id"),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("matcher_decisions_run_idx").on(t.runId),
+    index("matcher_decisions_candidate_idx").on(t.candidateId),
+    index("matcher_decisions_stage_idx").on(t.decisionStage),
+    index("matcher_decisions_created_idx").on(t.createdAt.desc()),
+  ],
+);
+
+export type MatcherDecisionRow = typeof matcherDecisions.$inferSelect;
+export type NewMatcherDecisionRow = typeof matcherDecisions.$inferInsert;
+
+export const matcherImpactDaily = pgTable(
+  "matcher_impact_daily",
+  {
+    id: text().primaryKey(),
+    day: text().notNull(),
+    providerPair: text("provider_pair").notNull(),
+    sourceStage: text("source_stage").notNull(),
+    confidenceBand: text("confidence_band").notNull(),
+    activeMatchedEvents: integer("active_matched_events").notNull().default(0),
+    exactDeterministicMatches: integer("exact_deterministic_matches")
+      .notNull()
+      .default(0),
+    matcherHelpedMatches: integer("matcher_helped_matches")
+      .notNull()
+      .default(0),
+    deepseekResolved: integer("deepseek_resolved").notNull().default(0),
+    reviewAvoided: integer("review_avoided").notNull().default(0),
+    dryRunMatches: integer("dry_run_matches").notNull().default(0),
+    examples: jsonb(),
+    updatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("matcher_impact_daily_rollup_uidx").on(
+      t.day,
+      t.providerPair,
+      t.sourceStage,
+      t.confidenceBand,
+    ),
+    index("matcher_impact_daily_day_idx").on(t.day),
+  ],
+);
+
+export type MatcherImpactDailyRow = typeof matcherImpactDaily.$inferSelect;
+export type NewMatcherImpactDailyRow = typeof matcherImpactDaily.$inferInsert;
+
+export const eventMatcherRunJobs = pgTable(
+  "event_matcher_run_jobs",
+  {
+    id: text().primaryKey(),
+    status: text().notNull().default("queued"),
+    trigger: text().notNull(),
+    mode: text().notNull().default("apply"),
+    decisionIds: jsonb("decision_ids").$type<string[]>().notNull(),
+    useDeepSeek: boolean("use_deepseek"),
+    summary: jsonb().$type<Record<string, unknown> | null>(),
+    errorMessage: text("error_message"),
+    createdAt: tsNow(),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+    finishedAt: timestamp("finished_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    updatedAt: ts().notNull().defaultNow(),
+  },
+  (t) => [
+    index("event_matcher_run_jobs_status_idx").on(t.status),
+    index("event_matcher_run_jobs_created_idx").on(t.createdAt.desc()),
+  ],
+);
+
+export type EventMatcherRunJobRow = typeof eventMatcherRunJobs.$inferSelect;
+export type NewEventMatcherRunJobRow = typeof eventMatcherRunJobs.$inferInsert;
+
+export const eventMatcherRunJobEvents = pgTable(
+  "event_matcher_run_job_events",
+  {
+    id: bigserial({ mode: "number" }).primaryKey(),
+    jobId: text("job_id").notNull(),
+    phase: text().notNull(),
+    event: jsonb().$type<Record<string, unknown>>().notNull(),
+    createdAt: tsNow(),
+  },
+  (t) => [
+    index("event_matcher_run_job_events_job_idx").on(t.jobId),
+    index("event_matcher_run_job_events_created_idx").on(t.createdAt),
+  ],
+);
+
+export type EventMatcherRunJobEventRow =
+  typeof eventMatcherRunJobEvents.$inferSelect;
+export type NewEventMatcherRunJobEventRow =
+  typeof eventMatcherRunJobEvents.$inferInsert;
+
+export const eventMatcherSchedulerSettings = pgTable(
+  "event_matcher_scheduler_settings",
+  {
+    id: integer().primaryKey().default(1),
+    enabled: boolean().notNull().default(true),
+    intervalSeconds: integer("interval_seconds").notNull().default(60),
+    useDeepSeek: boolean("use_deepseek").notNull().default(true),
+    updatedAt: tsNow(),
+  },
+);
+
+export type EventMatcherSchedulerSettingsRow =
+  typeof eventMatcherSchedulerSettings.$inferSelect;
+export type NewEventMatcherSchedulerSettingsRow =
+  typeof eventMatcherSchedulerSettings.$inferInsert;
 
 /**
  * Persistent Telegram command history
@@ -1244,9 +1373,15 @@ export const schema = {
   entityNames,
   nameObservations,
   entityDecisionBlocklist,
-  matchPairs,
-  matcherConfig,
-  matcherRuns,
+  providerEventSnapshots,
+  canonicalEvents,
+  canonicalEventMembers,
+  matcherCandidates,
+  matcherDecisions,
+  matcherImpactDaily,
+  eventMatcherRunJobs,
+  eventMatcherRunJobEvents,
+  eventMatcherSchedulerSettings,
   telegramCommandHistory,
   mlModels,
   aiSearchLogs,

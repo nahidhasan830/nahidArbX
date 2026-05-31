@@ -1,53 +1,69 @@
-/**
- * Matcher Lab API
- *
- * GET  ?stage=inbox|human_review|history  — list pairs by stage
- *      &limit=N &offset=N                          — pagination
- *
- * POST action=decide   { id, decision, decidedBy, reason? }
- *      action=run-ml   {}                          — trigger ML batch on the ML server
- *      action=bulk-decide { items: [{id, decision}], decidedBy }
- *      action=update-scheduler { enabled?, intervalMs? } — write config to Postgres
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import {
-  listByStage,
-  getById,
-  markDecided,
-  type MatchPairStage,
-  type MatchPairDecision,
-  type MatchPairDecidedBy,
-} from "@/lib/db/repositories/match-pairs";
-import { db } from "@/lib/db/client";
-import { matcherConfig } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { getIdToken } from "@/lib/matching/entities/matcher-client";
-import { learnAliasesForMatchPair } from "@/lib/matching/matcher-lab-aliases";
-import { resolveMatcherRunWithAiSearch } from "@/lib/matching/matcher-lab-ai-resolver";
+  countDecisionRows,
+  decisionCountsForDecisionRows,
+  listDecisionRows,
+  markManualDecision,
+  runEventMatcher,
+} from "@/lib/event-matcher";
+import type { EventMatcherRunOptions } from "@/lib/event-matcher/types";
 import { logger } from "@/lib/shared/logger";
 
 const tag = "MatcherLab";
 
-const VALID_STAGES: MatchPairStage[] = ["inbox", "human_review", "history"];
+const DECISIONS = new Set(["auto_merge", "auto_reject", "human_review"]);
+const MANUAL_DECISIONS = new Set(["auto_merge", "auto_reject", "human_review"]);
+
+function parsePositiveInt(value: string | null, fallback: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(Math.floor(parsed), max);
+}
 
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
-    const stage = url.searchParams.get("stage") ?? "human_review";
-    const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 200);
-    const offset = Number(url.searchParams.get("offset")) || 0;
+    const runId = url.searchParams.get("runId") || undefined;
+    const decision = url.searchParams.get("decision") || undefined;
+    const limit = parsePositiveInt(url.searchParams.get("limit"), 200, 500);
+    const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
-    if (!VALID_STAGES.includes(stage as MatchPairStage)) {
+    if (decision && !DECISIONS.has(decision)) {
       return NextResponse.json(
-        { error: `Invalid stage: ${stage}` },
+        { error: `Invalid decision: ${decision}` },
         { status: 400 },
       );
     }
 
-    const rows = await listByStage(stage as MatchPairStage, { limit, offset });
+    const query = {
+      runId,
+      decision,
+      limit,
+      offset,
+    };
+    const countQuery = {
+      runId,
+      decision,
+    };
+    const countByDecisionQuery = {
+      runId,
+    };
 
-    return NextResponse.json({ rows, stage, limit, offset });
+    const [rows, total, decisionCounts] = await Promise.all([
+      listDecisionRows(query),
+      countDecisionRows(countQuery),
+      decisionCountsForDecisionRows(countByDecisionQuery),
+    ]);
+
+    return NextResponse.json({
+      rows,
+      runId,
+      decision,
+      limit,
+      offset,
+      total,
+      decisionCounts,
+    });
   } catch (err) {
     logger.error(tag, `GET failed: ${(err as Error).message}`);
     return NextResponse.json(
@@ -60,187 +76,102 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action } = body;
+    const action = body?.action;
 
     switch (action) {
-      case "decide": {
-        const { id, decision, decidedBy, reason } = body as {
-          id: string;
-          decision: MatchPairDecision;
-          decidedBy: MatchPairDecidedBy;
-          reason?: string;
+      case "run": {
+        const decisionIds = Array.isArray(body.decisionIds)
+          ? body.decisionIds.filter((id: unknown): id is string => {
+              return typeof id === "string" && id.trim().length > 0;
+            })
+          : undefined;
+        const options: EventMatcherRunOptions = {
+          trigger: "manual",
+          mode: "apply",
+          decisionIds,
+          useDeepSeek:
+            typeof body.useDeepSeek === "boolean"
+              ? body.useDeepSeek
+              : undefined,
         };
+        const summary = await runEventMatcher(options);
+        logger.info(
+          tag,
+          `Event matcher run ${summary.id}: ${summary.status}, ${summary.candidateCount} candidates`,
+        );
+        return NextResponse.json(summary, {
+          status: summary.status === "completed" ? 200 : 500,
+        });
+      }
 
-        if (!id || !decision || !decidedBy) {
+      case "manual-decision": {
+        const decisionId =
+          typeof body.decisionId === "string" ? body.decisionId : "";
+        const decision = typeof body.decision === "string" ? body.decision : "";
+        const reason = typeof body.reason === "string" ? body.reason : null;
+
+        if (!decisionId || !MANUAL_DECISIONS.has(decision)) {
           return NextResponse.json(
-            { error: "id, decision, and decidedBy are required" },
+            { error: "decisionId and valid decision are required" },
             { status: 400 },
           );
         }
 
-        const ok = await markDecided(id, decision, decidedBy, reason);
+        const ok = await markManualDecision({
+          decisionId,
+          decision: decision as "auto_merge" | "auto_reject" | "human_review",
+          reason,
+        });
         if (!ok) {
           return NextResponse.json(
-            { error: "Pair not found" },
+            { error: "Decision not found" },
             { status: 404 },
           );
         }
 
-        if (decision === "human-merge" || decision === "ai-merge") {
-          const pair = await getById(id);
-          if (pair) {
-            await learnAliasesForMatchPair(pair);
-          }
-        }
-
-        logger.info(tag, `Decided ${id}: ${decision} by ${decidedBy}`);
-
+        logger.info(tag, `Manual decision ${decisionId}: ${decision}`);
         return NextResponse.json({ success: true });
       }
 
-      case "bulk-decide": {
-        const { items, decidedBy } = body as {
-          items: { id: string; decision: MatchPairDecision; reason?: string }[];
-          decidedBy: MatchPairDecidedBy;
-        };
-
-        if (!items?.length || !decidedBy) {
+      case "manual-decisions": {
+        const items = Array.isArray(body.items) ? body.items : [];
+        if (items.length === 0) {
           return NextResponse.json(
-            { error: "items[] and decidedBy required" },
+            { error: "At least one decision is required" },
             { status: 400 },
           );
         }
 
-        let succeeded = 0;
-        let failed = 0;
-
+        const results: Array<{ decisionId: string; success: boolean }> = [];
         for (const item of items) {
-          const ok = await markDecided(
-            item.id,
-            item.decision,
-            decidedBy,
-            item.reason,
-          );
-          if (ok) {
-            succeeded++;
-            if (
-              item.decision === "human-merge" ||
-              item.decision === "ai-merge"
-            ) {
-              const pair = await getById(item.id);
-              if (pair) {
-                await learnAliasesForMatchPair(pair);
-              }
-            }
-          } else {
-            failed++;
-          }
-        }
+          const decisionId =
+            typeof item?.decisionId === "string" ? item.decisionId : "";
+          const decision =
+            typeof item?.decision === "string" ? item.decision : "";
+          const reason = typeof item?.reason === "string" ? item.reason : null;
 
-        logger.info(tag, `Bulk decide: ${succeeded} ok, ${failed} failed`);
-
-        return NextResponse.json({ succeeded, failed });
-      }
-
-      case "run-ml": {
-        const matcherUrl = process.env.ENTITY_MATCHER_URL;
-        if (!matcherUrl) {
-          return NextResponse.json(
-            { error: "ENTITY_MATCHER_URL not configured" },
-            { status: 503 },
-          );
-        }
-
-        try {
-          const token = await getIdToken();
-          const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-          };
-          if (token) headers.Authorization = `Bearer ${token}`;
-
-          const res = await fetch(
-            `${matcherUrl.replace(/\/$/, "")}/scheduler/run-now`,
-            { method: "POST", headers },
-          );
-          if (!res.ok) {
-            const txt = await res.text().catch(() => "");
+          if (!decisionId || !MANUAL_DECISIONS.has(decision)) {
             return NextResponse.json(
-              { error: `ML server returned ${res.status}: ${txt}` },
-              { status: 502 },
+              { error: "Every item needs a decisionId and valid decision" },
+              { status: 400 },
             );
           }
-          const result = await resolveMatcherRunWithAiSearch(await res.json());
-          logger.info(
-            tag,
-            `ML batch (via server): ${result.processed} processed, ${result.merged} merged, ${result.rejected} rejected, ${result.escalated} escalated, AI Search ${result.aiSearchMerged ?? 0}m/${result.aiSearchRejected ?? 0}r`,
-          );
-          return NextResponse.json(result);
-        } catch (err) {
-          logger.error(tag, `ML server unreachable: ${(err as Error).message}`);
-          return NextResponse.json(
-            { error: `ML server unreachable: ${(err as Error).message}` },
-            { status: 503 },
-          );
-        }
-      }
 
-      case "update-scheduler": {
-        const {
-          enabled,
-          intervalMs,
-          aiSearchEnabled,
-          aiSearchConfidenceThreshold,
-          aiSearchMaxBatchSize,
-        } = body as {
-          enabled?: boolean;
-          intervalMs?: number;
-          aiSearchEnabled?: boolean;
-          aiSearchConfidenceThreshold?: number;
-          aiSearchMaxBatchSize?: number;
-        };
-
-        const updates: Partial<typeof matcherConfig.$inferInsert> = {};
-
-        if (typeof enabled === "boolean") {
-          updates.enabled = enabled;
-        }
-        if (typeof intervalMs === "number") {
-          updates.intervalMs = Math.max(10_000, Math.min(600_000, intervalMs));
-        }
-        if (typeof aiSearchEnabled === "boolean") {
-          updates.aiSearchEnabled = aiSearchEnabled;
-        }
-        if (typeof aiSearchConfidenceThreshold === "number") {
-          updates.aiSearchConfidenceThreshold = Math.max(
-            0,
-            Math.min(100, Math.round(aiSearchConfidenceThreshold)),
-          );
-        }
-        if (typeof aiSearchMaxBatchSize === "number") {
-          updates.aiSearchMaxBatchSize = Math.max(
-            1,
-            Math.min(20, Math.round(aiSearchMaxBatchSize)),
-          );
+          const success = await markManualDecision({
+            decisionId,
+            decision: decision as "auto_merge" | "auto_reject" | "human_review",
+            reason,
+          });
+          results.push({ decisionId, success });
         }
 
-        if (Object.keys(updates).length > 0) {
-          await db
-            .update(matcherConfig)
-            .set({ ...updates, updatedAt: new Date().toISOString() })
-            .where(eq(matcherConfig.id, "default"));
-        }
-
-        logger.info(
-          tag,
-          `Config updated: enabled=${enabled}, intervalMs=${intervalMs}, aiSearch=${aiSearchEnabled}`,
-        );
-
-        return NextResponse.json({ success: true });
+        logger.info(tag, `Manual decisions saved: ${results.length}`);
+        return NextResponse.json({ success: true, results });
       }
 
       default:
         return NextResponse.json(
-          { error: `Unknown action: ${action}` },
+          { error: `Unknown action: ${String(action)}` },
           { status: 400 },
         );
     }

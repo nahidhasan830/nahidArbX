@@ -1,5 +1,8 @@
 import "dotenv/config";
-import { captureSession, shutdownSessionBrowser } from "@/lib/betting/saba/session";
+import {
+  captureSession,
+  shutdownSessionBrowser,
+} from "@/lib/betting/saba/session";
 
 function redact(value: string): string {
   if (value.length <= 16) return value;

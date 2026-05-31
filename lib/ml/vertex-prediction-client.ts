@@ -63,7 +63,9 @@ export function setVertexPredictionEndpoint(endpoint: string | null): void {
 }
 
 export function getVertexPredictionEndpoint(): string | null {
-  return cleanEndpoint(process.env.VERTEX_PREDICTION_ENDPOINT) ?? endpointOverride;
+  return (
+    cleanEndpoint(process.env.VERTEX_PREDICTION_ENDPOINT) ?? endpointOverride
+  );
 }
 
 function toEndpointResourceName(endpoint: string): string | null {

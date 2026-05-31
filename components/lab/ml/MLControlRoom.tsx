@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { format, formatDistanceToNowStrict } from "date-fns";
+import { format } from "date-fns";
 import {
   CartesianGrid,
   Line,
@@ -49,9 +49,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  TabsContent,
-} from "@/components/ui/tabs";
+import { TabsContent } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -143,17 +141,6 @@ const CATEGORY_LABEL: Record<RungCategory, string> = {
   quality: "Money gate",
 };
 
-const TRAINING_STAGES = [
-  "loading",
-  "hpo",
-  "holdout",
-  "cpcv",
-  "final",
-  "gate",
-  "export",
-  "complete",
-] as const;
-
 export const ML_WORKSPACE_TABS = [
   {
     value: "overview",
@@ -198,6 +185,117 @@ const STATUS_COPY: Record<RungStatus, string> = {
 const DSR_EXPLANATION =
   "DSR is Deflated Sharpe Ratio: confidence that the model's betting edge is real after discounting for overfitting and repeated training trials. Deployment requires 0.6 or higher.";
 
+export function MLHeaderSummary({ data, rungs }: Props) {
+  const status = summarizeState(data, rungs);
+  const StatusIcon = status.icon;
+  const corpusPct = pct(
+    data.dataCollection.currentCorpus.currentContractFeatures,
+    data.dataCollection.currentCorpus.collectionTarget,
+  );
+  const coldStartPct = pct(
+    data.dataCollection.currentCorpus.currentContractFeatures,
+    data.dataCollection.currentCorpus.coldStartThreshold,
+  );
+  const blockedCount =
+    countStatus(rungs, "fail") + countStatus(rungs, "blocked");
+  const watchCount = countStatus(rungs, "warn") + countStatus(rungs, "pending");
+  const activeTraining = data.training.activeTraining;
+
+  return (
+    <div className="hidden min-w-0 items-center gap-1.5 md:flex">
+      <HeaderStatPill
+        className={status.badge}
+        icon={<StatusIcon className="size-3" />}
+        label={status.label}
+        hint={status.description}
+      />
+      <span className="hidden lg:inline-flex">
+        <HeaderStatPill
+          label="Corpus"
+          value={`${formatInt(data.dataCollection.currentCorpus.currentContractFeatures)} / ${formatPct(corpusPct, 0)}`}
+          hint="Current feature-contract corpus as a share of the collection target."
+        />
+      </span>
+      <span className="hidden xl:inline-flex">
+        <HeaderStatPill
+          label="Cold"
+          value={formatPct(coldStartPct, 0)}
+          hint={`${formatInt(data.dataCollection.currentCorpus.remainingToColdStart)} current-contract rows remain before the cold-start threshold.`}
+        />
+      </span>
+      <span className="hidden xl:inline-flex">
+        <HeaderStatPill
+          label="Model"
+          value={
+            data.deploymentGate.modelVersion == null
+              ? "None"
+              : `v${data.deploymentGate.modelVersion}`
+          }
+          hint={`Deployment permission: ${formatPermissionLevel(data.deploymentGate.permissionLevel)}.`}
+        />
+      </span>
+      <span className="hidden 2xl:inline-flex">
+        <HeaderStatPill
+          label="Gates"
+          value={`${formatInt(blockedCount)} blocked / ${formatInt(watchCount)} watch`}
+          hint="Failing, blocked, warning, and pending gates across the pipeline."
+        />
+      </span>
+      <span className="hidden 2xl:inline-flex">
+        <HeaderStatPill
+          label="Training"
+          value={
+            activeTraining
+              ? `v${activeTraining.version} ${cleanText(activeTraining.trainingStage)}`
+              : "Idle"
+          }
+          hint={
+            activeTraining
+              ? cleanText(
+                  activeTraining.progressMessage ?? "Training is active.",
+                )
+              : `${formatInt(data.training.examplesUntilRetrain)} examples until retrain.`
+          }
+        />
+      </span>
+    </div>
+  );
+}
+
+function HeaderStatPill({
+  label,
+  value,
+  hint,
+  icon,
+  className,
+}: {
+  label: string;
+  value?: string;
+  hint: React.ReactNode;
+  icon?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "inline-flex min-w-0 cursor-help items-center gap-1.5 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px] leading-5 text-muted-foreground tabular-nums",
+            className,
+          )}
+        >
+          {icon}
+          <span className="shrink-0">{label}</span>
+          {value ? (
+            <span className="truncate text-foreground/80">{value}</span>
+          ) : null}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-[280px] text-sm">{hint}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function MetricHint({
   title,
   children,
@@ -237,15 +335,20 @@ export function MLControlRoom({ data, rungs }: Props) {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
-      <TabsContent value="overview" className="m-0 outline-none">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
+      <TabsContent
+        value="overview"
+        className="m-0 min-h-0 flex-1 overflow-y-auto outline-none"
+      >
         <div className="mx-auto grid w-full max-w-[1760px] gap-3 px-3 py-3 lg:px-5 2xl:px-6">
-          <CommandDeck data={data} rungs={rungs} focusRung={focusRung} />
           <OverviewPanel data={data} rungs={rungs} focusRung={focusRung} />
         </div>
       </TabsContent>
 
-      <TabsContent value="gateboard" className="m-0 min-h-0 outline-none">
+      <TabsContent
+        value="gateboard"
+        className="m-0 min-h-0 flex-1 outline-none"
+      >
         <div className="mx-auto w-full max-w-[1760px] px-3 py-3 lg:px-5 xl:h-full xl:min-h-0 2xl:px-6">
           <GateboardPanel
             data={data}
@@ -257,13 +360,19 @@ export function MLControlRoom({ data, rungs }: Props) {
         </div>
       </TabsContent>
 
-      <TabsContent value="evaluation" className="m-0 outline-none">
+      <TabsContent
+        value="evaluation"
+        className="m-0 min-h-0 flex-1 overflow-y-auto outline-none"
+      >
         <div className="mx-auto w-full max-w-[1760px] px-3 py-3 lg:px-5 2xl:px-6">
           <EvaluationPanel data={data} />
         </div>
       </TabsContent>
 
-      <TabsContent value="learning" className="m-0 outline-none">
+      <TabsContent
+        value="learning"
+        className="m-0 min-h-0 flex-1 overflow-y-auto outline-none"
+      >
         <div className="mx-auto w-full max-w-[1760px] px-3 py-3 lg:px-5 2xl:px-6">
           <MLLearningPanel />
         </div>
@@ -273,141 +382,20 @@ export function MLControlRoom({ data, rungs }: Props) {
         value="predictions"
         className="m-0 flex min-h-0 flex-1 flex-col outline-none"
       >
-        <div className="flex min-h-0 flex-1 px-2 py-2 lg:px-3">
+        <div className="flex min-h-0 flex-1 overflow-hidden px-2 py-2 lg:px-3">
           <PredictionAuditPanel />
         </div>
       </TabsContent>
 
-      <TabsContent value="models" className="m-0 outline-none">
+      <TabsContent
+        value="models"
+        className="m-0 min-h-0 flex-1 overflow-y-auto outline-none"
+      >
         <div className="mx-auto w-full max-w-[1760px] px-3 py-3 lg:px-5 2xl:px-6">
           <ModelsPanel data={data} />
         </div>
       </TabsContent>
     </div>
-  );
-}
-
-function CommandDeck({
-  data,
-  rungs,
-  focusRung,
-}: {
-  data: PipelineData;
-  rungs: EvaluatedRung[];
-  focusRung: EvaluatedRung | undefined;
-}) {
-  const status = summarizeState(data, rungs);
-  const StageIcon = status.icon;
-  const corpusPct = pct(
-    data.dataCollection.currentCorpus.currentContractFeatures,
-    data.dataCollection.currentCorpus.collectionTarget,
-  );
-  const coldStartPct = pct(
-    data.dataCollection.currentCorpus.currentContractFeatures,
-    data.dataCollection.currentCorpus.coldStartThreshold,
-  );
-
-  return (
-    <section className="overflow-hidden rounded-md border border-border bg-card shadow-sm">
-      <div className="grid lg:grid-cols-[minmax(280px,0.9fr)_minmax(460px,1.4fr)_minmax(300px,0.9fr)]">
-        <div className="border-b border-border p-3 lg:border-b-0 lg:border-r">
-          <div className="flex items-start gap-3">
-            <span
-              className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-md border",
-                status.iconClass,
-              )}
-            >
-              <StageIcon className="size-5" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-base font-semibold">ML Optimizer</h1>
-                <Badge
-                  variant="outline"
-                  className={cn("h-5 rounded-md px-1.5 text-xs", status.badge)}
-                >
-                  {status.label}
-                </Badge>
-              </div>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                {status.description}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid border-b border-border sm:grid-cols-4 lg:border-b-0 lg:border-r">
-          <MetricCell
-            label="Corpus"
-            value={formatInt(
-              data.dataCollection.currentCorpus.currentContractFeatures,
-            )}
-            detail={`${formatPct(corpusPct, 0)} of collection target`}
-            tone={corpusPct >= 100 ? "good" : "neutral"}
-          />
-          <MetricCell
-            label="Cold start"
-            value={formatPct(coldStartPct, 0)}
-            detail={`${formatInt(data.dataCollection.currentCorpus.remainingToColdStart)} left`}
-            tone={coldStartPct >= 100 ? "good" : "warn"}
-          />
-          <MetricCell
-            label="Deployed"
-            value={
-              data.deploymentGate.modelVersion == null
-                ? "None"
-                : `v${data.deploymentGate.modelVersion}`
-            }
-            detail={formatPermissionLevel(data.deploymentGate.permissionLevel)}
-            tone={data.deploymentGate.modelVersion == null ? "warn" : "good"}
-          />
-          <MetricCell
-            label="Inference"
-            value={data.inference.modelLoaded ? "Loaded" : "Offline"}
-            detail={`${formatInt(data.inference.totalScored)} scored`}
-            tone={data.inference.modelLoaded ? "good" : "bad"}
-          />
-        </div>
-
-        <div className="p-3">
-          <TrainingSnapshot data={data} />
-        </div>
-      </div>
-
-      <div className="grid gap-3 border-t border-border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Current operator focus
-          </p>
-          <p className="mt-1 text-sm font-medium">
-            {focusRung
-              ? `${gateCode(focusRung.definition.number)} ${cleanText(focusRung.definition.title)}`
-              : "No blocking gate"}
-          </p>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            {focusRung
-              ? cleanText(
-                  focusRung.verdict.action ??
-                    focusRung.verdict.secondary ??
-                    focusRung.definition.evidence.why,
-                )
-              : "All gates are passing. Continue monitoring evaluation and latest prediction drift."}
-          </p>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <CompactCounter label="Pass" value={countStatus(rungs, "pass")} />
-          <CompactCounter
-            label="Watch"
-            value={countStatus(rungs, "warn") + countStatus(rungs, "pending")}
-          />
-          <CompactCounter
-            label="Blocked"
-            value={countStatus(rungs, "fail") + countStatus(rungs, "blocked")}
-          />
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -687,7 +675,9 @@ function GateboardPanel({
                         <StatusBadge status={rung.verdict.status} />
                       </div>
                       <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-                        {cleanText(rung.verdict.secondary ?? rung.verdict.primary)}
+                        {cleanText(
+                          rung.verdict.secondary ?? rung.verdict.primary,
+                        )}
                       </p>
                       {rung.verdict.action ? (
                         <p className="mt-2 line-clamp-1 text-xs font-medium text-foreground">
@@ -739,7 +729,10 @@ function EvaluationPanel({ data }: { data: PipelineData }) {
             description="The ML gate must beat the simple EV core before permissions increase."
           />
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Detected baseline" metric={metrics.detectedBaseline} />
+            <MetricCard
+              label="Detected baseline"
+              metric={metrics.detectedBaseline}
+            />
             <MetricCard label="Simple EV core" metric={metrics.simpleEvCore} />
             <MetricCard label="ML scored" metric={metrics.mlScored} />
             <MetricCard label="ML gate" metric={metrics.mlGate} accent />
@@ -831,7 +824,9 @@ function EvaluationPanel({ data }: { data: PipelineData }) {
           <div className="mt-3 grid gap-2">
             <KeyValue
               label="Enough ML gate samples"
-              value={data.paperEvaluation.verdict.enoughMlGateSamples ? "Yes" : "No"}
+              value={
+                data.paperEvaluation.verdict.enoughMlGateSamples ? "Yes" : "No"
+              }
               tone={
                 data.paperEvaluation.verdict.enoughMlGateSamples
                   ? "good"
@@ -840,15 +835,21 @@ function EvaluationPanel({ data }: { data: PipelineData }) {
             />
             <KeyValue
               label="Beats simple rule"
-              value={data.paperEvaluation.verdict.mlBeatsSimpleRule ? "Yes" : "No"}
+              value={
+                data.paperEvaluation.verdict.mlBeatsSimpleRule ? "Yes" : "No"
+              }
               tone={
                 data.paperEvaluation.verdict.mlBeatsSimpleRule ? "good" : "bad"
               }
             />
             <KeyValue
               label="ML minus simple ROI"
-              value={formatPct(data.paperEvaluation.verdict.mlMinusSimpleRoiPct)}
-              tone={signedTone(data.paperEvaluation.verdict.mlMinusSimpleRoiPct)}
+              value={formatPct(
+                data.paperEvaluation.verdict.mlMinusSimpleRoiPct,
+              )}
+              tone={signedTone(
+                data.paperEvaluation.verdict.mlMinusSimpleRoiPct,
+              )}
             />
           </div>
         </section>
@@ -1223,7 +1224,9 @@ function PredictionAuditPanel() {
                   {row.original.pnl == null ? "-" : row.original.pnl.toFixed(2)}
                 </span>
                 <span>CLV</span>
-                <span className={valueToneClass(signedTone(row.original.clvPct))}>
+                <span
+                  className={valueToneClass(signedTone(row.original.clvPct))}
+                >
                   {formatPct(row.original.clvPct, 2)}
                 </span>
                 <span>Predicted</span>
@@ -1420,7 +1423,10 @@ function ModelsPanel({ data }: { data: PipelineData }) {
           hint: (
             <MetricHint title="AUC">
               <p>Out-of-sample ranking quality for win/loss prediction.</p>
-              <p>0.5 is random. Higher is better, but AUC alone does not prove profitable betting.</p>
+              <p>
+                0.5 is random. Higher is better, but AUC alone does not prove
+                profitable betting.
+              </p>
             </MetricHint>
           ),
         },
@@ -1439,7 +1445,10 @@ function ModelsPanel({ data }: { data: PipelineData }) {
           hint: (
             <MetricHint title="DSR">
               <p>{DSR_EXPLANATION}</p>
-              <p>Low DSR usually means the CPCV policy returns are too weak, too noisy, or too likely to be a lucky HPO result.</p>
+              <p>
+                Low DSR usually means the CPCV policy returns are too weak, too
+                noisy, or too likely to be a lucky HPO result.
+              </p>
             </MetricHint>
           ),
         },
@@ -1449,7 +1458,9 @@ function ModelsPanel({ data }: { data: PipelineData }) {
         header: "PBO",
         cell: ({ row }) => (
           <span className="font-mono text-[11px] tabular-nums">
-            {formatPct(row.original.pbo == null ? null : row.original.pbo * 100)}
+            {formatPct(
+              row.original.pbo == null ? null : row.original.pbo * 100,
+            )}
           </span>
         ),
         meta: {
@@ -1458,7 +1469,10 @@ function ModelsPanel({ data }: { data: PipelineData }) {
           hint: (
             <MetricHint title="PBO">
               <p>Probability of backtest overfitting from CPCV return paths.</p>
-              <p>Lower is better. In the current trainer this is warning-only because the runtime policy uses one fixed threshold.</p>
+              <p>
+                Lower is better. In the current trainer this is warning-only
+                because the runtime policy uses one fixed threshold.
+              </p>
             </MetricHint>
           ),
         },
@@ -1505,7 +1519,9 @@ function ModelsPanel({ data }: { data: PipelineData }) {
           enableColumnResizing
           density="compact"
           persistenceKey="ml-model-history-v2"
-          renderEmpty={() => <EmptyBlock text="No model history is available." />}
+          renderEmpty={() => (
+            <EmptyBlock text="No model history is available." />
+          )}
         />
       </section>
 
@@ -1661,7 +1677,13 @@ function RungInspector({
   );
 }
 
-function RungBrief({ rung, data }: { rung: EvaluatedRung; data: PipelineData }) {
+function RungBrief({
+  rung,
+  data,
+}: {
+  rung: EvaluatedRung;
+  data: PipelineData;
+}) {
   const actions = (rung.definition.actions ?? []).filter(
     (action) => action.visibleWhen?.(data) ?? true,
   );
@@ -1761,7 +1783,9 @@ function ActionButton({
             <Button
               type="button"
               size="sm"
-              variant={action.intent === "destructive" ? "destructive" : "default"}
+              variant={
+                action.intent === "destructive" ? "destructive" : "default"
+              }
               disabled={running}
               onClick={() => void run()}
               className="h-8 shrink-0 text-xs"
@@ -1780,77 +1804,6 @@ function ActionButton({
               : "Run this ML pipeline action."}
           </TooltipContent>
         </Tooltip>
-      </div>
-    </div>
-  );
-}
-
-function TrainingSnapshot({ data }: { data: PipelineData }) {
-  const active = data.training.activeTraining;
-
-  if (!active) {
-    return (
-      <div>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-semibold text-muted-foreground">
-            Training loop
-          </p>
-          <Badge variant="outline" className="h-5 rounded-md px-1.5 text-xs">
-            Idle
-          </Badge>
-        </div>
-        <p className="mt-2 text-sm text-muted-foreground">
-          No model is currently training.
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <MiniStat
-            label="New data"
-            value={formatInt(data.training.newDataSinceLastTrain)}
-          />
-          <MiniStat
-            label="Until retrain"
-            value={formatInt(data.training.examplesUntilRetrain)}
-          />
-        </div>
-      </div>
-    );
-  }
-
-  const activeIndex = Math.max(
-    0,
-    TRAINING_STAGES.findIndex((stage) => stage === active.trainingStage),
-  );
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-muted-foreground">
-          Training loop
-        </p>
-        <Badge
-          variant="outline"
-          className="h-5 rounded-md border-cyan-500/30 bg-cyan-500/10 px-1.5 text-xs text-cyan-700 dark:text-cyan-300"
-        >
-          v{active.version} active
-        </Badge>
-      </div>
-      <p className="mt-2 line-clamp-2 text-sm">
-        {cleanText(active.progressMessage ?? active.trainingStage ?? "Training")}
-      </p>
-      <div className="mt-3 grid grid-cols-4 gap-1">
-        {TRAINING_STAGES.map((stage, index) => (
-          <span
-            key={stage}
-            className={cn(
-              "h-2 rounded-sm",
-              index <= activeIndex ? "bg-cyan-500" : "bg-muted",
-            )}
-          />
-        ))}
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <MiniStat label="Samples" value={formatInt(active.sampleCount)} />
-        <MiniStat label="Heartbeat" value={formatWhen(active.lastHeartbeatAt)} />
       </div>
     </div>
   );
@@ -1932,8 +1885,8 @@ function TrendBars({ data }: { data: PipelineData }) {
             How to read this
           </p>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            ROI is profit divided by stake. Above 0% is profitable, below 0%
-            is losing. The ML gate line shows only bets the model would have
+            ROI is profit divided by stake. Above 0% is profitable, below 0% is
+            losing. The ML gate line shows only bets the model would have
             accepted.
           </p>
           <div className="mt-3 rounded-md border border-border bg-muted/25 p-2">
@@ -1960,7 +1913,10 @@ function TrendBars({ data }: { data: PipelineData }) {
             </Badge>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <MiniStat label="ML gate ROI" value={formatPct(metrics.mlGate.roiPct)} />
+            <MiniStat
+              label="ML gate ROI"
+              value={formatPct(metrics.mlGate.roiPct)}
+            />
             <MiniStat
               label="Simple rule ROI"
               value={formatPct(metrics.simpleEvCore.roiPct)}
@@ -1987,7 +1943,10 @@ function RoiTrendChart({ rows }: { rows: RoiTrendPoint[] }) {
   return (
     <div className="h-[260px] rounded-md border border-border bg-background p-2">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={rows} margin={{ top: 10, right: 12, bottom: 0, left: -6 }}>
+        <LineChart
+          data={rows}
+          margin={{ top: 10, right: 12, bottom: 0, left: -6 }}
+        >
           <CartesianGrid
             stroke="currentColor"
             strokeDasharray="3 3"
@@ -2090,7 +2049,9 @@ function RoiTrendLegend() {
           <TooltipTrigger asChild>
             <div className="min-w-0 cursor-default">
               <div className="flex items-center gap-2">
-                <span className={cn("h-2 w-5 rounded-sm", strategy.className)} />
+                <span
+                  className={cn("h-2 w-5 rounded-sm", strategy.className)}
+                />
                 <p className="text-xs font-semibold text-foreground">
                   {strategy.label}
                 </p>
@@ -2205,48 +2166,6 @@ function SectionHeader({
           {description}
         </p>
       </div>
-    </div>
-  );
-}
-
-function MetricCell({
-  label,
-  value,
-  detail,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone?: "neutral" | "good" | "warn" | "bad";
-}) {
-  return (
-    <div className="min-w-0 border-b border-border p-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          "mt-1 truncate font-mono text-lg font-semibold tabular-nums",
-          tone === "good" && "text-emerald-700 dark:text-emerald-300",
-          tone === "warn" && "text-amber-700 dark:text-amber-300",
-          tone === "bad" && "text-rose-700 dark:text-rose-300",
-        )}
-      >
-        {cleanText(value)}
-      </p>
-      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-        {cleanText(detail)}
-      </p>
-    </div>
-  );
-}
-
-function CompactCounter({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-md border border-border bg-background p-2">
-      <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-      <p className="mt-1 font-mono text-lg font-semibold tabular-nums">
-        {formatInt(value)}
-      </p>
     </div>
   );
 }
@@ -2391,8 +2310,7 @@ function summarizeState(data: PipelineData, rungs: EvaluatedRung[]) {
       label: "Training",
       description: "A model run is active. Watch heartbeat and stage progress.",
       icon: Clock3,
-      badge: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-      iconClass:
+      badge:
         "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
     };
   }
@@ -2401,8 +2319,7 @@ function summarizeState(data: PipelineData, rungs: EvaluatedRung[]) {
       label: "Blocked",
       description: "At least one gate is failing and needs operator attention.",
       icon: AlertTriangle,
-      badge: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-      iconClass:
+      badge:
         "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
     };
   }
@@ -2414,21 +2331,19 @@ function summarizeState(data: PipelineData, rungs: EvaluatedRung[]) {
   ) {
     return {
       label: "Watch",
-      description: "The pipeline is running, but one or more gates are not green.",
+      description:
+        "The pipeline is running, but one or more gates are not green.",
       icon: CircleDashed,
       badge:
-        "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-      iconClass:
         "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
     };
   }
   return {
     label: "Clear",
-    description: "All current gates are passing. Monitor live predictions and ROI.",
+    description:
+      "All current gates are passing. Monitor live predictions and ROI.",
     icon: CheckCircle2,
     badge:
-      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    iconClass:
       "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   };
 }
@@ -2457,7 +2372,8 @@ function statusTone(status: RungStatus) {
   if (status === "fail") {
     return {
       icon: XCircle,
-      badge: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      badge:
+        "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
       bar: "bg-rose-500",
       iconBox:
         "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
@@ -2487,9 +2403,7 @@ function countStatus(rungs: EvaluatedRung[], status: RungStatus) {
 function ProviderOdds({ provider, odds }: { provider: string; odds: number }) {
   return (
     <>
-      <span
-        className={cn("text-[10px] mr-1", getProviderTextInline(provider))}
-      >
+      <span className={cn("text-[10px] mr-1", getProviderTextInline(provider))}>
         {getProviderShortName(provider)}
       </span>
       <span className="font-medium">{odds.toFixed(2)}</span>
@@ -2670,13 +2584,6 @@ function formatDate(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return format(date, "MMM d HH:mm");
-}
-
-function formatWhen(value: string | null | undefined) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return formatDistanceToNowStrict(date, { addSuffix: true });
 }
 
 function cleanText(value: unknown) {

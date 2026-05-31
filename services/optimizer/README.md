@@ -19,10 +19,15 @@ This is the engine behind the ML pipeline at `/lab/ml` in the Next.js app.
    CPCV (Combinatorial Purged Cross-Validation), evaluates deployment-gate
    quality metrics (AUC-ROC, Deflated Sharpe Ratio, score-bucket monotonicity,
    calibration error).
-3. If the model passes quality gates, it's promoted to `deployed` status in
-   `ml_models` and the ONNX artifact is stored as a blob in the `ml_models`
-   table. The engine auto-loads the ONNX artifact via polling.
-4. The Next.js `/api/ml/retrain` endpoint can also trigger training manually.
+3. If the model passes basic model-sanity gates, it is promoted to `deployed`
+   with `permission_level='observe'` at minimum so the engine can collect live
+   prediction audit rows. Economic policy gates (policy sample size, ROI, DSR,
+   and baseline outperformance) are required only before ML can skip bets or
+   change stake sizing.
+4. The ONNX artifact is stored as a blob in `ml_models`, registered with Vertex
+   AI, and served through the shared Vertex prediction endpoint. The engine
+   auto-loads the latest deployed endpoint via polling.
+5. The Next.js `/api/ml/retrain` endpoint can also trigger training manually.
 
 The sidecar is **stateless** — all state lives in shared Postgres.
 
@@ -77,7 +82,7 @@ bash services/optimizer/redeploy.sh
 | CPCV groups          | 10    | `app/cpcv.py`                                        |
 | CPCV test size       | 2     | `app/cpcv.py`                                        |
 | AUC-ROC gate         | 0.55  | `app/deployment_gate.py`                             |
-| DSR gate             | 0.60  | `app/deployment_gate.py`                             |
+| DSR active gate      | 0.60  | `app/deployment_gate.py`                             |
 
 ## Module map
 

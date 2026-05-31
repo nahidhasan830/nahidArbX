@@ -129,7 +129,11 @@ export async function planSearchQueries(
 
   const noSearch = deterministicNoSearchDecision(question);
   const searchNeeded = noSearch ? false : llmDecision?.searchNeeded !== false;
-  const safetyQueries = buildDeterministicQueries(question, context, maxQueries);
+  const safetyQueries = buildDeterministicQueries(
+    question,
+    context,
+    maxQueries,
+  );
   const queries = searchNeeded
     ? mergePlannedQueries(llmQueries, safetyQueries, maxQueries)
     : [];
@@ -276,10 +280,7 @@ Plan search queries now.`;
   return { systemPrompt, userPrompt };
 }
 
-export function buildTemporalContext(
-  now: Date,
-  timeZone = DEFAULT_TIME_ZONE,
-) {
+export function buildTemporalContext(now: Date, timeZone = DEFAULT_TIME_ZONE) {
   const localDate = formatDatePart(now, timeZone);
   const previous = shiftDateUtc(localDate, -1);
   const next = shiftDateUtc(localDate, 1);
@@ -413,9 +414,11 @@ async function callDeepSeekPlanner(input: {
         timeZone: input.context.timeZone,
       },
       response: (raw: unknown) => {
-        const choice = (raw as {
-          choices?: Array<{ message?: { content?: string | null } }>;
-        })?.choices?.[0];
+        const choice = (
+          raw as {
+            choices?: Array<{ message?: { content?: string | null } }>;
+          }
+        )?.choices?.[0];
         return { content: choice?.message?.content ?? "" };
       },
       metadata: {
@@ -527,7 +530,9 @@ function mergePlannedQueries(
   maxQueries: number,
 ): PlannedSearchQuery[] {
   const merged = dedupeQueries([...llmQueries, ...safetyQueries]);
-  const hasFixtureSafety = safetyQueries.some((q) => q.facet === "score_status");
+  const hasFixtureSafety = safetyQueries.some(
+    (q) => q.facet === "score_status",
+  );
   if (!hasFixtureSafety) return merged.slice(0, maxQueries);
 
   const requiredFacets: SearchPlanFacet[] = [
@@ -544,7 +549,8 @@ function mergePlannedQueries(
 
   const out: PlannedSearchQuery[] = [];
   const scoreSafety = safetyQueries.find(
-    (q) => q.facet === "score_status" && /result today full time/i.test(q.query),
+    (q) =>
+      q.facet === "score_status" && /result today full time/i.test(q.query),
   );
   if (scoreSafety) out.push(scoreSafety);
 
@@ -602,11 +608,19 @@ function scoreEvidence(
   const teamCoverage = scoreTeamCoverage(plan.originalQuery, text);
   score += teamCoverage;
 
-  if (/(bbc\.com|espn\.com|sofascore\.com|flashscore\.com|fotmob\.com)/i.test(host)) {
+  if (
+    /(bbc\.com|espn\.com|sofascore\.com|flashscore\.com|fotmob\.com)/i.test(
+      host,
+    )
+  ) {
     score += 10;
   }
   if (/(goal\.com|vavel\.com)/i.test(host)) score -= 5;
-  if (/\b(predictions?|betting tips?|odds|watch|live stream|where to watch)\b/i.test(lower)) {
+  if (
+    /\b(predictions?|betting tips?|odds|watch|live stream|where to watch)\b/i.test(
+      lower,
+    )
+  ) {
     score -= 18;
   }
   if (/\bschedule\b/i.test(lower) && teamCoverage < 20) score -= 25;
@@ -667,7 +681,10 @@ function normalizeQuestionBase(question: string) {
     question
       .replace(/\?+$/g, "")
       .replace(/\b(today|tonight|tomorrow|yesterday|right now|latest)\b/gi, "")
-      .replace(/\b(score|result|finished|full[- ]?time|venue|stadium|kickoff|kick[- ]?off|ko)\b/gi, ""),
+      .replace(
+        /\b(score|result|finished|full[- ]?time|venue|stadium|kickoff|kick[- ]?off|ko)\b/gi,
+        "",
+      ),
   );
 }
 
@@ -762,7 +779,9 @@ function mentionsWrongFixturePair(originalQuery: string, text: string) {
   const home = simplifyTeamName(teams.home);
   const away = simplifyTeamName(teams.away);
   const awayAliases =
-    away === "inter milan" ? ["inter milan", "internazionale", "inter"] : [away];
+    away === "inter milan"
+      ? ["inter milan", "internazionale", "inter"]
+      : [away];
   const simplified = simplifyTeamName(text);
   const vsMatches = simplified.matchAll(
     /\b([a-z0-9 ]{2,40})\s+(?:vs|v|versus)\s+([a-z0-9 ]{2,40})\b/g,
@@ -788,7 +807,10 @@ function mentionsWrongFixturePair(originalQuery: string, text: string) {
 function simplifyTeamName(value: string) {
   return value
     .toLowerCase()
-    .replace(/\b(today|tonight|tomorrow|yesterday|score|result|full time|venue|stadium|kickoff|ko)\b/g, "")
+    .replace(
+      /\b(today|tonight|tomorrow|yesterday|score|result|full time|venue|stadium|kickoff|ko)\b/g,
+      "",
+    )
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 }

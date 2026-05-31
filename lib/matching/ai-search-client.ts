@@ -12,7 +12,12 @@
 import { logger } from "../shared/logger";
 import { recordAiActivity } from "../db/repositories/ai-activity-log";
 import { getGroundingEngine } from "../ai/grounding";
-import type { EventInfo, SourceCitation } from "../ai/search/types";
+import type {
+  EventInfo,
+  EvidenceAssessment,
+  SourceBackedAliasEvidence,
+  SourceCitation,
+} from "../ai/search/types";
 
 const tag = "AiSearchClient";
 
@@ -27,6 +32,18 @@ export interface AiSearchEventInfo {
   competition: string;
   start_time: string; // ISO 8601
   provider?: string;
+  normalized?: {
+    home_team: string;
+    away_team: string;
+    competition: string;
+  };
+  providerMetadata?: Record<string, unknown> | null;
+  matcherContext?: {
+    candidateKey?: string;
+    reasons?: string[];
+    scoreBreakdown?: unknown;
+    canonicalMembership?: unknown;
+  };
 }
 
 export interface AiSearchSourceCitation {
@@ -39,6 +56,16 @@ export interface AiSearchMatchVerdict {
   decision: "SAME" | "DIFFERENT" | "UNCERTAIN";
   confidence: number; // 0-100
   reasoning: string;
+  canonicalEvent: {
+    home: string | null;
+    away: string | null;
+    competition: string | null;
+    kickoff: string | null;
+  } | null;
+  confirmedFacts: string[];
+  uncertainties: string[];
+  evidenceAssessment: EvidenceAssessment | null;
+  aliasEvidence: SourceBackedAliasEvidence[];
   sources: AiSearchSourceCitation[];
   searchQueriesUsed: string[];
   model: string;
@@ -77,6 +104,15 @@ function toEventInfo(e: AiSearchEventInfo): EventInfo {
     competition: e.competition,
     startTime: e.start_time,
     provider: e.provider,
+    normalized: e.normalized
+      ? {
+          homeTeam: e.normalized.home_team,
+          awayTeam: e.normalized.away_team,
+          competition: e.normalized.competition,
+        }
+      : undefined,
+    providerMetadata: e.providerMetadata,
+    matcherContext: e.matcherContext,
   };
 }
 
@@ -92,7 +128,6 @@ function toSnakeCitations(src: SourceCitation[]): AiSearchSourceCitation[] {
 export async function matchSingle(
   eventA: AiSearchEventInfo,
   eventB: AiSearchEventInfo,
-  _opts?: { llmProvider?: string },
 ): Promise<AiSearchMatchVerdict | null> {
   const t0 = Date.now();
   const pairLabel = `${eventA.home_team} v ${eventA.away_team} vs ${eventB.home_team} v ${eventB.away_team}`;
@@ -127,6 +162,11 @@ export async function matchSingle(
       decision: result.decision,
       confidence: result.confidence,
       reasoning: result.reasoning,
+      canonicalEvent: result.canonicalEvent,
+      confirmedFacts: result.confirmedFacts,
+      uncertainties: result.uncertainties,
+      evidenceAssessment: result.evidenceAssessment,
+      aliasEvidence: result.aliasEvidence,
       sources: toSnakeCitations(result.sources),
       searchQueriesUsed: result.searchQueriesUsed,
       model: result.model,

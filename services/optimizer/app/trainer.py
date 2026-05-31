@@ -25,7 +25,6 @@ import lightgbm as lgb
 import numpy as np
 import polars as pl
 from scipy import stats
-from sklearn.calibration import calibration_curve
 from sklearn.metrics import accuracy_score, log_loss, roc_auc_score
 
 from .calibration import (
@@ -931,22 +930,27 @@ def _evaluate_outer_holdout_policy_threshold(
 def _expected_calibration_error(
     y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10,
 ) -> float:
-    try:
-        fraction_of_positives, mean_predicted = calibration_curve(
-            y_true, y_prob, n_bins=n_bins, strategy="uniform",
-        )
-    except ValueError:
+    labels = np.asarray(y_true, dtype=np.float64)
+    probs = np.asarray(y_prob, dtype=np.float64)
+    if labels.size == 0 or labels.size != probs.size or n_bins <= 0:
         return 0.0
 
     bin_edges = np.linspace(0, 1, n_bins + 1)
-    bin_indices = np.digitize(y_prob, bin_edges[1:-1])
-    bin_counts = np.array([np.sum(bin_indices == i) for i in range(n_bins)])
-    n_returned = len(fraction_of_positives)
-    if n_returned == 0:
+    bin_indices = np.digitize(np.clip(probs, 0.0, 1.0), bin_edges[1:-1])
+    total = 0
+    weighted_error = 0.0
+    for i in range(n_bins):
+        mask = bin_indices == i
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        total += count
+        bin_acc = float(labels[mask].mean())
+        bin_conf = float(probs[mask].mean())
+        weighted_error += count * abs(bin_acc - bin_conf)
+    if total == 0:
         return 0.0
-    non_empty = bin_counts[bin_counts > 0][:n_returned]
-    weights = non_empty / non_empty.sum() if non_empty.sum() > 0 else np.ones(n_returned)
-    return float(np.sum(weights * np.abs(fraction_of_positives - mean_predicted)))
+    return float(weighted_error / total)
 
 
 def _compute_shap_importance(

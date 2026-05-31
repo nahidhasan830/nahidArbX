@@ -796,7 +796,12 @@ function runStaleCleanup(): void {
   }
 
   const totalPruned =
-    prunedOdds + prunedHistory + prunedScores + prunedMultiScores + prunedMarketLimits + prunedDedup;
+    prunedOdds +
+    prunedHistory +
+    prunedScores +
+    prunedMultiScores +
+    prunedMarketLimits +
+    prunedDedup;
   if (totalPruned > 0) {
     const histStats = getHistoryStats();
     logger.info(

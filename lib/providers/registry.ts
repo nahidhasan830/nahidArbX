@@ -421,14 +421,13 @@ export function getProviderConcurrency(id: string): number {
 }
 
 export function getProviderTimeoutMs(id: string): number {
-  return (
-    PROVIDER_REGISTRY[id as ProviderKey]?.integration.timeoutMs ??
-    15_000
-  );
+  return PROVIDER_REGISTRY[id as ProviderKey]?.integration.timeoutMs ?? 15_000;
 }
 
 export function getProviderObservationWeight(id: string): number {
-  return PROVIDER_REGISTRY[id as ProviderKey]?.integration.observationWeight ?? 1;
+  return (
+    PROVIDER_REGISTRY[id as ProviderKey]?.integration.observationWeight ?? 1
+  );
 }
 
 export function providerRequiresPlacementConfirmation(id: string): boolean {
@@ -454,15 +453,13 @@ export function getPlaceableProviderIds(): ProviderKey[] {
 }
 
 export function getDataHealthProviderIds(): ProviderKey[] {
-  return PROVIDER_IDS.filter(
-    (id) => {
-      const integration = PROVIDER_REGISTRY[id].integration;
-      return (
-        PROVIDER_REGISTRY[id].enabled &&
-        integration.contributesToDataHealth === true
-      );
-    },
-  );
+  return PROVIDER_IDS.filter((id) => {
+    const integration = PROVIDER_REGISTRY[id].integration;
+    return (
+      PROVIDER_REGISTRY[id].enabled &&
+      integration.contributesToDataHealth === true
+    );
+  });
 }
 
 export function getProviderDataSourceLabels(

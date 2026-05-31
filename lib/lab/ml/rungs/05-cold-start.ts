@@ -38,7 +38,8 @@ export const rung05ColdStart: RungDefinition = {
     },
     {
       label: "remainingToColdStart",
-      value: d.dataCollection.currentCorpus.remainingToColdStart.toLocaleString(),
+      value:
+        d.dataCollection.currentCorpus.remainingToColdStart.toLocaleString(),
     },
     {
       label: "wins / losses",

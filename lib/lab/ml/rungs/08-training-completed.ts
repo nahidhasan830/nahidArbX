@@ -31,7 +31,8 @@ export const rung08TrainingCompleted: RungDefinition = {
         status: "fail",
         primary: `v${lastFailed.version} failed`,
         secondary: `latest run rejected: ${reason}.`,
-        action: "Review the deployment gate result before starting another run.",
+        action:
+          "Review the deployment gate result before starting another run.",
       };
     }
 

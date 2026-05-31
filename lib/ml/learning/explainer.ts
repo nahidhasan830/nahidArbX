@@ -54,7 +54,9 @@ function compactSnapshot(snapshot: LearningSnapshotResponse) {
     quality: m.quality,
     cohorts: m.cohorts,
     scoreBuckets: m.scoreBuckets,
-    calibrationBuckets: m.calibrationBuckets.filter((bucket) => bucket.count > 0),
+    calibrationBuckets: m.calibrationBuckets.filter(
+      (bucket) => bucket.count > 0,
+    ),
     modelHistory: m.modelHistory.slice(-8),
     featureImportance: m.featureImportance.slice(0, 10),
     notes: m.notes,
@@ -77,14 +79,18 @@ function buildPrompt(snapshot: LearningSnapshotResponse): string {
   return `ML_LEARNING_SNAPSHOT:\n${JSON.stringify(compactSnapshot(snapshot), null, 2)}\n\nReturn JSON with keys: summary, verdict, whatImproved, whatRegressed, risks, nextActions, mentalModel. Arrays should contain 3-6 short strings.`;
 }
 
-function fallbackContent(snapshot: LearningSnapshotResponse): LearningExplanationContent {
+function fallbackContent(
+  snapshot: LearningSnapshotResponse,
+): LearningExplanationContent {
   const m = snapshot.metrics;
   return {
     summary: `${m.verdict.label}: ${m.verdict.reason}`,
     verdict: m.verdict.label,
     whatImproved:
       m.quality.roiLiftPct != null && m.quality.roiLiftPct > 0
-        ? [`ML gate is ahead of simple EV by ${m.quality.roiLiftPct.toFixed(2)} ROI points.`]
+        ? [
+            `ML gate is ahead of simple EV by ${m.quality.roiLiftPct.toFixed(2)} ROI points.`,
+          ]
         : [],
     whatRegressed:
       m.quality.roiLiftPct != null && m.quality.roiLiftPct <= 0
@@ -101,7 +107,10 @@ function fallbackContent(snapshot: LearningSnapshotResponse): LearningExplanatio
   };
 }
 
-function parseContent(raw: string, snapshot: LearningSnapshotResponse): LearningExplanationContent {
+function parseContent(
+  raw: string,
+  snapshot: LearningSnapshotResponse,
+): LearningExplanationContent {
   try {
     const parsed = JSON.parse(raw) as Partial<LearningExplanationContent>;
     return {

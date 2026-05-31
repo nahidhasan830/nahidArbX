@@ -7,10 +7,7 @@ import {
   mlPredictionAudit,
   mlTrainingExamples,
 } from "@/lib/db/schema";
-import {
-  ML_FEATURE_COUNT,
-  ML_FEATURE_VERSION,
-} from "@/lib/shared/constants";
+import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";
 import {
   FEATURE_NAMES_HASH,
   FEATURE_SQL_INDEX,
@@ -122,7 +119,11 @@ function buildMetric(label: string, rows: PredictionRow[]): LearningMetric {
     roiPct: round((average(returns) ?? 0) * 100, 4),
     winRatePct:
       settled.length > 0
-        ? round((wins.reduce((sum, value) => sum + value, 0) / settled.length) * 100, 4)
+        ? round(
+            (wins.reduce((sum, value) => sum + value, 0) / settled.length) *
+              100,
+            4,
+          )
         : null,
     avgEvPct: round(average(settled.map((row) => row.baselineEvPct ?? NaN)), 4),
     avgModelEdgePct: round(
@@ -168,10 +169,14 @@ function buildCalibration(rows: PredictionRow[]): {
     return { buckets: [], ece: null, brier: null, logLoss: null, auc: null };
   }
   const labels = settled.map((row) => labelValue(row.outcome));
-  const scores = settled.map((row) => Math.min(1 - 1e-7, Math.max(1e-7, row.mlScore)));
+  const scores = settled.map((row) =>
+    Math.min(1 - 1e-7, Math.max(1e-7, row.mlScore)),
+  );
   const brier =
-    scores.reduce((sum, score, index) => sum + (score - labels[index]) ** 2, 0) /
-    scores.length;
+    scores.reduce(
+      (sum, score, index) => sum + (score - labels[index]) ** 2,
+      0,
+    ) / scores.length;
   const logLoss =
     scores.reduce((sum, score, index) => {
       const y = labels[index];
@@ -191,7 +196,8 @@ function buildCalibration(rows: PredictionRow[]): {
     const predicted = average(bucketRows.map((row) => row.mlScore));
     const actual = average(bucketRows.map((row) => labelValue(row.outcome)));
     if (predicted != null && actual != null && settled.length > 0) {
-      ece += (bucketRows.length / settled.length) * Math.abs(predicted - actual);
+      ece +=
+        (bucketRows.length / settled.length) * Math.abs(predicted - actual);
     }
     buckets.push({
       bucket: `${Math.round(low * 100)}-${Math.round(high * 100)}%`,
@@ -201,7 +207,9 @@ function buildCalibration(rows: PredictionRow[]): {
       predictedPct: round(predicted == null ? null : predicted * 100, 2),
       actualPct: round(actual == null ? null : actual * 100, 2),
       gapPct:
-        predicted == null || actual == null ? null : round((actual - predicted) * 100, 2),
+        predicted == null || actual == null
+          ? null
+          : round((actual - predicted) * 100, 2),
     });
   }
 
@@ -221,7 +229,10 @@ function buildScoreBuckets(
   const settled = rows.filter((row) => isSettled(row.outcome));
   if (settled.length === 0) return [];
   const sorted = [...settled].sort((a, b) => a.mlScore - b.mlScore);
-  const bucketCount = Math.min(6, Math.max(2, Math.floor(Math.sqrt(sorted.length))));
+  const bucketCount = Math.min(
+    6,
+    Math.max(2, Math.floor(Math.sqrt(sorted.length))),
+  );
   const buckets: LearningScoreBucket[] = [];
   for (let i = 0; i < bucketCount; i += 1) {
     const start = Math.floor((i * sorted.length) / bucketCount);
@@ -232,7 +243,8 @@ function buildScoreBuckets(
     const high = slice[slice.length - 1]?.mlScore ?? low;
     buckets.push({
       bucket:
-        i === bucketCount - 1 && thresholdPct > POLICY_EDGE_THRESHOLD_DENY_ALL_PCT
+        i === bucketCount - 1 &&
+        thresholdPct > POLICY_EDGE_THRESHOLD_DENY_ALL_PCT
           ? `Q${i + 1} gate`
           : `Q${i + 1}`,
       low: round(low, 4) ?? 0,
@@ -323,31 +335,41 @@ function classifyVerdict(input: {
   const settlementLagPct = total > 0 ? (input.pending / total) * 100 : 0;
 
   let code: LearningVerdict = "learning";
-  let reason = "Higher-scored settled predictions are beating the simple EV baseline.";
+  let reason =
+    "Higher-scored settled predictions are beating the simple EV baseline.";
 
   if (input.currentContractPredictions === 0) {
     code = "feature_drift";
     reason = "No scored predictions match the current feature contract.";
     blockers.push("Current-contract prediction evidence is missing.");
-  } else if (input.settled < MIN_SETTLED_FOR_VERDICT || input.mlGate.sampleSize < MIN_GATE_FOR_VERDICT) {
+  } else if (
+    input.settled < MIN_SETTLED_FOR_VERDICT ||
+    input.mlGate.sampleSize < MIN_GATE_FOR_VERDICT
+  ) {
     code = "not_enough_settled_evidence";
     reason = `Need at least ${MIN_SETTLED_FOR_VERDICT} settled predictions and ${MIN_GATE_FOR_VERDICT} ML-gate settled rows.`;
     blockers.push("The settled sample is still too small for a hard verdict.");
   } else if (settlementLagPct >= SETTLEMENT_LAG_WARN_PCT) {
     code = "settlement_lag";
     reason = "Too many scored predictions are still pending settlement.";
-    blockers.push("Wait for more prediction rows to settle before trusting ROI.");
+    blockers.push(
+      "Wait for more prediction rows to settle before trusting ROI.",
+    );
   } else if (input.overfitRisk === "high") {
     code = "overfit_risk";
     reason = "Training diagnostics show elevated overfit risk.";
-    blockers.push("PBO or DSR indicates the trained policy may be too lucky in backtest.");
+    blockers.push(
+      "PBO or DSR indicates the trained policy may be too lucky in backtest.",
+    );
   } else if ((input.ece ?? 0) > CALIBRATION_WARN_ECE) {
     code = "calibration_weak";
-    reason = "Predicted probabilities are not matching observed outcomes closely enough.";
+    reason =
+      "Predicted probabilities are not matching observed outcomes closely enough.";
     blockers.push("Calibration error is above the warning threshold.");
   } else if ((input.roiLift ?? Number.NEGATIVE_INFINITY) <= 0) {
     code = "not_beating_baseline";
-    reason = "The ML gate is not outperforming the simple EV baseline on settled rows.";
+    reason =
+      "The ML gate is not outperforming the simple EV baseline on settled rows.";
     blockers.push("ROI lift versus simple EV is not positive.");
   } else if ((input.monotonicity ?? 0) < 0.6) {
     code = "not_beating_baseline";
@@ -381,7 +403,10 @@ function stableHash(metrics: LearningSnapshotMetrics): string {
     modelHistory: metrics.modelHistory.slice(0, 5),
     featureImportance: metrics.featureImportance.slice(0, 10),
   };
-  return crypto.createHash("sha256").update(JSON.stringify(material)).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(material))
+    .digest("hex");
 }
 
 export function toLearningSnapshotResponse(
@@ -415,54 +440,52 @@ export function toLearningSnapshotResponse(
 export async function buildLearningSnapshotMetrics(
   database: DbLike = db,
 ): Promise<LearningSnapshotMetrics> {
-  const [
-    predictionRows,
-    modelRows,
-    featureContractRows,
-    exampleRows,
-  ] = await Promise.all([
-    database
-      .select({
-        id: mlPredictionAudit.id,
-        scoredAt: mlPredictionAudit.scoredAt,
-        modelVersion: mlPredictionAudit.modelVersion,
-        mlScore: mlPredictionAudit.mlScore,
-        modelEdgePct: mlPredictionAudit.modelEdgePct,
-        baselineEvPct: mlPredictionAudit.baselineEvPct,
-        softOdds: mlPredictionAudit.softOdds,
-        softCommissionPct: mlPredictionAudit.softCommissionPct,
-        marketType: mlPredictionAudit.marketType,
-        outcome: mlPredictionAudit.outcome,
-        pnl: mlPredictionAudit.pnl,
-        clvPct: mlPredictionAudit.clvPct,
-        settledAt: mlPredictionAudit.settledAt,
-        placed: sql<boolean>`false`,
-      })
-      .from(mlPredictionAudit)
-      .where(sql`${mlPredictionAudit.mlFeatureVersion} = ${ML_FEATURE_VERSION}
+  const [predictionRows, modelRows, featureContractRows, exampleRows] =
+    await Promise.all([
+      database
+        .select({
+          id: mlPredictionAudit.id,
+          scoredAt: mlPredictionAudit.scoredAt,
+          modelVersion: mlPredictionAudit.modelVersion,
+          mlScore: mlPredictionAudit.mlScore,
+          modelEdgePct: mlPredictionAudit.modelEdgePct,
+          baselineEvPct: mlPredictionAudit.baselineEvPct,
+          softOdds: mlPredictionAudit.softOdds,
+          softCommissionPct: mlPredictionAudit.softCommissionPct,
+          marketType: mlPredictionAudit.marketType,
+          outcome: mlPredictionAudit.outcome,
+          pnl: mlPredictionAudit.pnl,
+          clvPct: mlPredictionAudit.clvPct,
+          settledAt: mlPredictionAudit.settledAt,
+          placed: sql<boolean>`false`,
+        })
+        .from(mlPredictionAudit)
+        .where(sql`${mlPredictionAudit.mlFeatureVersion} = ${ML_FEATURE_VERSION}
         AND ${mlPredictionAudit.mlFeatureCount} = ${ML_FEATURE_COUNT}
         AND ${mlPredictionAudit.mlFeatureNamesHash} = ${FEATURE_NAMES_HASH}`),
-    database
-      .select({
-        version: mlModels.version,
-        status: mlModels.status,
-        trainingSamples: mlModels.trainingSamples,
-        oosAucRoc: mlModels.oosAucRoc,
-        oosLogLoss: mlModels.oosLogLoss,
-        calibrationError: mlModels.calibrationError,
-        deflatedSharpe: mlModels.deflatedSharpe,
-        pbo: mlModels.pbo,
-        featureImportance: mlModels.featureImportance,
-        trainingReport: mlModels.trainingReport,
-        permissionLevel: mlModels.permissionLevel,
-        createdAt: mlModels.createdAt,
-        deployedAt: mlModels.deployedAt,
-      })
-      .from(mlModels)
-      .where(sql`${mlModels.version} > 0 AND ${mlModels.status} <> 'training'`)
-      .orderBy(desc(mlModels.createdAt))
-      .limit(20),
-    database.execute(sql`
+      database
+        .select({
+          version: mlModels.version,
+          status: mlModels.status,
+          trainingSamples: mlModels.trainingSamples,
+          oosAucRoc: mlModels.oosAucRoc,
+          oosLogLoss: mlModels.oosLogLoss,
+          calibrationError: mlModels.calibrationError,
+          deflatedSharpe: mlModels.deflatedSharpe,
+          pbo: mlModels.pbo,
+          featureImportance: mlModels.featureImportance,
+          trainingReport: mlModels.trainingReport,
+          permissionLevel: mlModels.permissionLevel,
+          createdAt: mlModels.createdAt,
+          deployedAt: mlModels.deployedAt,
+        })
+        .from(mlModels)
+        .where(
+          sql`${mlModels.version} > 0 AND ${mlModels.status} <> 'training'`,
+        )
+        .orderBy(desc(mlModels.createdAt))
+        .limit(20),
+      database.execute(sql`
       SELECT
         count(*) FILTER (
           WHERE ml_feature_version = ${ML_FEATURE_VERSION}
@@ -473,16 +496,16 @@ export async function buildLearningSnapshotMetrics(
       FROM ${mlPredictionAudit}
       WHERE ml_score IS NOT NULL
     `),
-    database
-      .select({ count: sql<number>`count(*)::int` })
-      .from(mlTrainingExamples)
-      .where(
-        sql`${mlTrainingExamples.label} IS NOT NULL
+      database
+        .select({ count: sql<number>`count(*)::int` })
+        .from(mlTrainingExamples)
+        .where(
+          sql`${mlTrainingExamples.label} IS NOT NULL
           AND ${mlTrainingExamples.featureVersion} = ${ML_FEATURE_VERSION}
           AND array_length(${mlTrainingExamples.features}, 1) = ${ML_FEATURE_COUNT}
           AND COALESCE((${mlTrainingExamples.features})[${FEATURE_SQL_INDEX.competition_tier}], -1.0) IN (1.0, 2.0, 3.0)`,
-      ),
-  ]);
+        ),
+    ]);
 
   const rows = predictionRows.map((row) => ({
     ...row,
@@ -532,7 +555,10 @@ export async function buildLearningSnapshotMetrics(
       calibrationError: numOrNull(row.calibrationError),
       deflatedSharpe: numOrNull(row.deflatedSharpe),
       pbo: numOrNull(row.pbo),
-      policyRoiMean: extractTrainingReportNumber(row.trainingReport, "policy_roi_mean"),
+      policyRoiMean: extractTrainingReportNumber(
+        row.trainingReport,
+        "policy_roi_mean",
+      ),
       simplePolicyRoiMean: extractTrainingReportNumber(
         row.trainingReport,
         "simple_policy_roi_mean",
@@ -598,7 +624,8 @@ export async function buildLearningSnapshotMetrics(
       .filter(Boolean)
       .sort()
       .at(-1) ?? null;
-  const dataAsOf = latestSettledAt ?? latestScoredAt ?? new Date().toISOString();
+  const dataAsOf =
+    latestSettledAt ?? latestScoredAt ?? new Date().toISOString();
 
   return {
     generatedAt: new Date().toISOString(),
@@ -627,7 +654,9 @@ export async function buildLearningSnapshotMetrics(
       scoreMonotonicity: round(scoreMonotonicity, 4),
       overfitRisk,
       settlementLagPct:
-        rows.length > 0 ? round((pendingRows.length / rows.length) * 100, 2) ?? 0 : 0,
+        rows.length > 0
+          ? (round((pendingRows.length / rows.length) * 100, 2) ?? 0)
+          : 0,
     },
     scoreBuckets,
     calibrationBuckets: calibration.buckets,

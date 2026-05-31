@@ -267,227 +267,227 @@ export function SettlementReviewDialog({
             )}
 
             <div className="flex-1 overflow-auto rounded-md border">
-          {loading && (!response || response.proposals.length === 0) && (
-            <div className="p-4 space-y-2">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-            </div>
-          )}
-          {response && response.proposals.length > 0 && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider">
-                    Event
-                  </TableHead>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider">
-                    Market
-                  </TableHead>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-52">
-                    Settled by
-                  </TableHead>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-20">
-                    Conf.
-                  </TableHead>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
-                    Result
-                  </TableHead>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
-                    Final
-                  </TableHead>
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-12 text-center">
-                    Verify
-                  </TableHead>
-                  {onRerun && (
-                  <TableHead className="h-8 text-[10px] uppercase tracking-wider w-12 text-center">
-                    Recheck
-                    </TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {response.proposals.map((p) => {
-                  const row = rowsById.get(p.id);
-                  if (!row) return null;
-                  if (isError(p)) {
-                    return (
-                      <TableRow key={p.id}>
-                        <TableCell className="py-1.5">
-                          <span className="font-medium text-[12px]">
-                            {row.homeTeam} vs {row.awayTeam}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-[11px] py-1.5">
-                          <MarketDisplay
-                            marketType={row.marketType}
-                            timeScope={row.timeScope}
-                            familyLine={row.familyLine}
-                            selection={row.atomLabel}
-                            className="max-w-[220px] justify-start"
-                          />
-                        </TableCell>
-                        <TableCell
-                          colSpan={4}
-                          className="text-[11px] text-rose-400 py-1.5"
-                        >
-                          Error: {p.error}
-                        </TableCell>
-                        <TableCell className="py-1.5 text-center">
-                          <GoogleAiModeButton row={row} />
-                        </TableCell>
-                        {onRerun && (
-                          <TableCell className="py-1.5 text-center">
-                            <RerunButton
-                              id={p.id}
-                              running={rerunningIds?.has(p.id) ?? false}
-                              onRerun={onRerun}
-                            />
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    );
-                  }
-                  const final = finalOutcome(p);
-                  const changed = final !== p.proposedOutcome;
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell className="py-1.5">
-                        <span className="font-medium text-[12px]">
-                          {row.homeTeam} vs {row.awayTeam}
-                        </span>
-                        {row.competition && (
-                          <div className="text-[10px] text-muted-foreground leading-tight">
-                            {row.competition}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-[11px] py-1.5">
-                        <MarketDisplay
-                          marketType={row.marketType}
-                          timeScope={row.timeScope}
-                          familyLine={row.familyLine}
-                          selection={row.atomLabel}
-                          className="max-w-[220px] justify-start"
-                        />
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] h-5 px-1.5 whitespace-nowrap"
-                          >
-                            {OUTCOME_LABEL[p.proposedOutcome]}
-                          </Badge>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[10px] h-5 px-1.5 whitespace-nowrap font-normal",
-                                  sourceBadgeClass(p.source),
-                                )}
-                              >
-                                {p.tier === "pure"
-                                  ? sourceLabel(p.source)
-                                  : "unresolved"}
-                              </Badge>
-                            </TooltipTrigger>
-                            <TooltipContent side="left">
-                              {p.tier === "pure"
-                                ? `Resolved by ${sourceLabel(p.source)}.`
-                                : "Not resolved by any source."}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-[10px] h-5 px-1.5 tabular-nums",
-                            confidenceClass(p.confidence),
-                          )}
-                        >
-                          {(p.confidence * 100).toFixed(0)}%
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[12px] font-medium tabular-nums">
-                            {p.score || "—"}
-                          </span>
-                          {p.reasoning && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center justify-center size-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
-                                  aria-label="Show reasoning"
-                                >
-                                  <Info className="size-3" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent
-                                side="left"
-                                className="max-w-[320px] text-[11px] leading-snug whitespace-normal"
-                              >
-                                {p.reasoning}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <Select
-                          value={final}
-                          onValueChange={(v) =>
-                            setOverrides({
-                              ...overrides,
-                              [p.id]: v as Outcome,
-                            })
-                          }
-                        >
-                          <SelectTrigger
-                            className={cn(
-                              "h-6 w-[100px] text-[11px] px-2",
-                              changed && "border-amber-500",
-                            )}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {OUTCOME_OPTIONS.map((o) => (
-                              <SelectItem
-                                key={o}
-                                value={o}
-                                className="text-[11px]"
-                              >
-                                {OUTCOME_LABEL[o]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="py-1.5 text-center">
-                        <GoogleAiModeButton row={row} />
-                      </TableCell>
+              {loading && (!response || response.proposals.length === 0) && (
+                <div className="p-4 space-y-2">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              )}
+              {response && response.proposals.length > 0 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider">
+                        Event
+                      </TableHead>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider">
+                        Market
+                      </TableHead>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider w-52">
+                        Settled by
+                      </TableHead>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider w-20">
+                        Conf.
+                      </TableHead>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
+                        Result
+                      </TableHead>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider w-24">
+                        Final
+                      </TableHead>
+                      <TableHead className="h-8 text-[10px] uppercase tracking-wider w-12 text-center">
+                        Verify
+                      </TableHead>
                       {onRerun && (
-                        <TableCell className="py-1.5 text-center">
-                          <RerunButton
-                            id={p.id}
-                            running={rerunningIds?.has(p.id) ?? false}
-                            onRerun={onRerun}
-                          />
-                        </TableCell>
+                        <TableHead className="h-8 text-[10px] uppercase tracking-wider w-12 text-center">
+                          Recheck
+                        </TableHead>
                       )}
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
+                  </TableHeader>
+                  <TableBody>
+                    {response.proposals.map((p) => {
+                      const row = rowsById.get(p.id);
+                      if (!row) return null;
+                      if (isError(p)) {
+                        return (
+                          <TableRow key={p.id}>
+                            <TableCell className="py-1.5">
+                              <span className="font-medium text-[12px]">
+                                {row.homeTeam} vs {row.awayTeam}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-[11px] py-1.5">
+                              <MarketDisplay
+                                marketType={row.marketType}
+                                timeScope={row.timeScope}
+                                familyLine={row.familyLine}
+                                selection={row.atomLabel}
+                                className="max-w-[220px] justify-start"
+                              />
+                            </TableCell>
+                            <TableCell
+                              colSpan={4}
+                              className="text-[11px] text-rose-400 py-1.5"
+                            >
+                              Error: {p.error}
+                            </TableCell>
+                            <TableCell className="py-1.5 text-center">
+                              <GoogleAiModeButton row={row} />
+                            </TableCell>
+                            {onRerun && (
+                              <TableCell className="py-1.5 text-center">
+                                <RerunButton
+                                  id={p.id}
+                                  running={rerunningIds?.has(p.id) ?? false}
+                                  onRerun={onRerun}
+                                />
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        );
+                      }
+                      const final = finalOutcome(p);
+                      const changed = final !== p.proposedOutcome;
+                      return (
+                        <TableRow key={p.id}>
+                          <TableCell className="py-1.5">
+                            <span className="font-medium text-[12px]">
+                              {row.homeTeam} vs {row.awayTeam}
+                            </span>
+                            {row.competition && (
+                              <div className="text-[10px] text-muted-foreground leading-tight">
+                                {row.competition}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-[11px] py-1.5">
+                            <MarketDisplay
+                              marketType={row.marketType}
+                              timeScope={row.timeScope}
+                              familyLine={row.familyLine}
+                              selection={row.atomLabel}
+                              className="max-w-[220px] justify-start"
+                            />
+                          </TableCell>
+                          <TableCell className="py-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] h-5 px-1.5 whitespace-nowrap"
+                              >
+                                {OUTCOME_LABEL[p.proposedOutcome]}
+                              </Badge>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-[10px] h-5 px-1.5 whitespace-nowrap font-normal",
+                                      sourceBadgeClass(p.source),
+                                    )}
+                                  >
+                                    {p.tier === "pure"
+                                      ? sourceLabel(p.source)
+                                      : "unresolved"}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="left">
+                                  {p.tier === "pure"
+                                    ? `Resolved by ${sourceLabel(p.source)}.`
+                                    : "Not resolved by any source."}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-1.5">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[10px] h-5 px-1.5 tabular-nums",
+                                confidenceClass(p.confidence),
+                              )}
+                            >
+                              {(p.confidence * 100).toFixed(0)}%
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="py-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[12px] font-medium tabular-nums">
+                                {p.score || "—"}
+                              </span>
+                              {p.reasoning && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center justify-center size-4 rounded-sm text-muted-foreground hover:text-foreground hover:bg-accent"
+                                      aria-label="Show reasoning"
+                                    >
+                                      <Info className="size-3" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="left"
+                                    className="max-w-[320px] text-[11px] leading-snug whitespace-normal"
+                                  >
+                                    {p.reasoning}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-1.5">
+                            <Select
+                              value={final}
+                              onValueChange={(v) =>
+                                setOverrides({
+                                  ...overrides,
+                                  [p.id]: v as Outcome,
+                                })
+                              }
+                            >
+                              <SelectTrigger
+                                className={cn(
+                                  "h-6 w-[100px] text-[11px] px-2",
+                                  changed && "border-amber-500",
+                                )}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {OUTCOME_OPTIONS.map((o) => (
+                                  <SelectItem
+                                    key={o}
+                                    value={o}
+                                    className="text-[11px]"
+                                  >
+                                    {OUTCOME_LABEL[o]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell className="py-1.5 text-center">
+                            <GoogleAiModeButton row={row} />
+                          </TableCell>
+                          {onRerun && (
+                            <TableCell className="py-1.5 text-center">
+                              <RerunButton
+                                id={p.id}
+                                running={rerunningIds?.has(p.id) ?? false}
+                                onRerun={onRerun}
+                              />
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </div>
 
             {response && (

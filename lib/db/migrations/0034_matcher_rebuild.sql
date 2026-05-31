@@ -14,7 +14,7 @@
 --      a much smaller weekly trainer Job tracked in `entity_trainer_runs`).
 --   3. Migrates `entity_names.surface_embedding` from vector(384) (LaBSE) to
 --      vector(1024) (BGE-M3) — drops the old data because the dimensions
---      don't align; the new entity-matcher service repopulates them on demand.
+--      don't align; the Vertex embedding path repopulates them on demand.
 --   4. Creates `entity_trainer_runs` to track weekly fine-tuning of the
 --      cross-encoder, with shadow-mode tracking columns for Layer 3 of the
 --      error-mitigation strategy.

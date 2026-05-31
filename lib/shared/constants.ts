@@ -14,6 +14,7 @@ export const FIXTURE_INTERVAL_MS = 120000; // 2 minutes - fixtures + matching
 export const HEARTBEAT_INTERVAL_MS = 30_000; // 30s safety-net heartbeat (detection is event-driven)
 export const DEFAULT_TIMEOUT_MS = 15000;
 export const PINNACLE_TIMEOUT_MS = 30000;
+export const MATCHER_LAB_AUTO_REFRESH_MS = 15_000;
 
 // Odds freshness
 export const MAX_ODDS_AGE_MS = 90_000; // 90 seconds - odds older than this are stale

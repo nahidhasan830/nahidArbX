@@ -10,11 +10,7 @@ export const rung02FeatureContract: RungDefinition = {
     const sc = fc.semanticChecks;
     const totalCurrent = sc.betsWithCurrentFeatures;
 
-    if (
-      fc.allVersionsMatch &&
-      fc.allLengthsMatch &&
-      fc.allSemanticChecksPass
-    ) {
+    if (fc.allVersionsMatch && fc.allLengthsMatch && fc.allSemanticChecksPass) {
       return {
         status: "pass",
         primary: `${totalCurrent.toLocaleString()} bets`,
@@ -32,7 +28,8 @@ export const rung02FeatureContract: RungDefinition = {
         primary: `${staleCount.toLocaleString()} stale`,
         secondary:
           "older feature contracts present in the bets table — loaders skip them but the dashboard reports it.",
-        action: "Rebuild the stale feature vectors before the next training run.",
+        action:
+          "Rebuild the stale feature vectors before the next training run.",
       };
     }
 

@@ -265,10 +265,9 @@ async function runResolveSteps(opts: {
 
 // ── Embedding bridge ──────────────────────────────────────────────────
 //
-// Delegates to the entity-matcher Cloud Run Service via its typed client.
-// The matcher service hosts BGE-M3 (1024-dim multilingual). The trainer
-// Job populates `entity_names.surface_embedding` in batch; this runtime
-// path only embeds the incoming surface to compare against existing rows.
+// Delegates to the Vertex embedding client. Batch jobs populate
+// `entity_names.surface_embedding`; this runtime path embeds the incoming
+// surface to compare against existing rows.
 async function embedSurface(surface: string): Promise<number[] | null> {
   return embedViaMatcher(surface);
 }

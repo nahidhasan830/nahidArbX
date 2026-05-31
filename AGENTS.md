@@ -57,4 +57,4 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 
 ## Entity Resolution
 
-Postgres-backed alias system (5 tables). Tournament-scoped lookup `(provider, surface_normalized, competition_id)`. Single ingress: `recordObservation`. 4-tier promoter (deterministic gates → Bayesian → LightGBM → operator review). Weekly Splink+Leiden cleanup Job. UI: `EntityInspector` at `/diagnostics → Entities` (7 tabs on `<DataTable>`). See CLAUDE.md §Entity Resolution.
+Postgres-backed alias system. Tournament-scoped lookup `(provider, surface_normalized, competition_id)`. Single ingress: `recordObservation`. Auto-resolver: deterministic gates → Bayesian → Vertex embedding cosine → operator review. Matcher Lab uses Node event matcher tables (`event_matcher_runs`, `matcher_candidates`, `matcher_decisions`, `matcher_impact_daily`); legacy Python-backed `match_pairs`/`matcher_config`/`matcher_runs` tables are dropped. See CLAUDE.md §Entity Resolution.

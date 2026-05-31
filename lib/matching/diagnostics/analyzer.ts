@@ -21,12 +21,6 @@ import {
   applyCompetitionAlias,
   type PreNormalizedNames,
 } from "../normalize";
-import { computePairKey } from "../pair-key";
-import {
-  upsertMatchPair,
-  getByPairKey,
-} from "../../db/repositories/match-pairs";
-import { logger as log } from "../../shared/logger";
 
 // ============================================
 // Score Computation
@@ -173,7 +167,7 @@ export function analyzeFailureReasons(
 // ============================================
 
 /**
- * Check if a pair qualifies as a near-match and persist it to Postgres.
+ * Check if a pair qualifies as a near-match.
  * Called when events don't meet the match threshold.
  */
 export async function detectAndStoreNearMatch(
@@ -214,17 +208,6 @@ export async function detectAndStoreNearMatch(
     return null;
   }
 
-  const pairKey = computePairKey(eventA, eventB, {
-    team: applyTeamAlias,
-    competition: applyCompetitionAlias,
-  });
-
-  // Skip if this pair already exists in the ML pipeline with a decision
-  const existing = await getByPairKey(pairKey);
-  if (existing?.decision) {
-    return null;
-  }
-
   const nearMatch: NearMatch = {
     id: `nm-${eventA.id}-${eventB.id}`,
     eventA: {
@@ -248,36 +231,6 @@ export async function detectAndStoreNearMatch(
     detectedAt: new Date(),
     status: "pending",
   };
-
-  try {
-    await upsertMatchPair({
-      pairKey,
-      source: "near-match",
-      stringScore: breakdown.finalScore,
-      stringBreakdown: breakdown,
-      eventA: {
-        provider: providerA,
-        homeTeam: eventA.homeTeam,
-        awayTeam: eventA.awayTeam,
-        competition: eventA.competition,
-        startTime: eventA.startTime,
-        eventId: eventA.providers[providerA]?.eventId,
-      },
-      eventB: {
-        provider: providerB,
-        homeTeam: eventB.homeTeam,
-        awayTeam: eventB.awayTeam,
-        competition: eventB.competition,
-        startTime: eventB.startTime,
-        eventId: eventB.providers[providerB]?.eventId,
-      },
-    });
-  } catch (err) {
-    log.warn(
-      "Diagnostics",
-      `upsertMatchPair failed: ${(err as Error).message}`,
-    );
-  }
 
   return nearMatch;
 }

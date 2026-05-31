@@ -97,7 +97,9 @@ async function fetchJson<T>(
   const res = await fetch(url, init);
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`[SABA] ${label} HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(
+      `[SABA] ${label} HTTP ${res.status}: ${text.slice(0, 200)}`,
+    );
   }
   return assertJsonResponse(label, text) as T;
 }
@@ -129,7 +131,9 @@ export async function getSabaApiToken(): Promise<string> {
 
   const token = json.Data?.Token;
   if (!token) {
-    throw new Error("[SABA] ReGenerateToken response did not include Data.Token");
+    throw new Error(
+      "[SABA] ReGenerateToken response did not include Data.Token",
+    );
   }
   return token;
 }

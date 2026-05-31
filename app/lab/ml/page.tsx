@@ -15,6 +15,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 import {
   MLControlRoom,
+  MLHeaderSummary,
   ML_WORKSPACE_TABS,
 } from "@/components/lab/ml/MLControlRoom";
 import { MLPageSkeleton } from "@/components/lab/ml/MLPageSkeleton";
@@ -110,6 +111,7 @@ export default function MLLabPage() {
     <TooltipProvider delayDuration={150}>
       <AppShell
         title="ML Optimizer"
+        titleBadge={<MLHeaderSummary data={data} rungs={rungs} />}
         edgeToEdge
         tabs={ML_WORKSPACE_TABS}
         activeTab={activeTab}

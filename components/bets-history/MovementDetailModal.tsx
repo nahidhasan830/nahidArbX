@@ -13,7 +13,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { MarketDisplay, inferMarketScope } from "@/components/ui/market-display";
+import {
+  MarketDisplay,
+  inferMarketScope,
+} from "@/components/ui/market-display";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { Sparkles } from "lucide-react";

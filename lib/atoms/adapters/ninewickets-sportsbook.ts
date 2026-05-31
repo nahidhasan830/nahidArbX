@@ -281,17 +281,12 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
       // by (provider, event, atom). The UI uses this directly — no
       // second call to the book.
       if (typeof market.min === "number" && typeof market.max === "number") {
-        setMarketLimits(
-          this.providerId,
-          ctx.normalizedEventId,
-          entry.atom_id,
-          {
-            minBet: market.min,
-            maxBet: market.max,
-            marketId: String(market.id),
-            timestamp,
-          },
-        );
+        setMarketLimits(this.providerId, ctx.normalizedEventId, entry.atom_id, {
+          minBet: market.min,
+          maxBet: market.max,
+          marketId: String(market.id),
+          timestamp,
+        });
       }
     }
 

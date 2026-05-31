@@ -86,8 +86,7 @@ function computeBaseline(row: BetRow): {
   const edge = adjustedSoftOdds * sharpTrueProb - 1;
   return {
     evPct: edge * 100,
-    kellyFraction:
-      edge > 0 ? Math.max(0, edge / (adjustedSoftOdds - 1)) : 0,
+    kellyFraction: edge > 0 ? Math.max(0, edge / (adjustedSoftOdds - 1)) : 0,
   };
 }
 
@@ -839,7 +838,7 @@ export async function updateHistoricalMlFeatures(
     featureVersion: number;
     featureCount: number;
     featureNamesHash: string;
-}>,
+  }>,
 ): Promise<number> {
   if (updates.length === 0) return 0;
 

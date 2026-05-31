@@ -213,7 +213,9 @@ describe("decideRetrain", () => {
             status: "failed",
             trainingSamples: 4821,
             featureNamesHash: HASH_A,
-            rejectionReasons: ["Cloud Build + Run pipeline failed (exit code 1)"],
+            rejectionReasons: [
+              "Cloud Build + Run pipeline failed (exit code 1)",
+            ],
           },
         }),
       );

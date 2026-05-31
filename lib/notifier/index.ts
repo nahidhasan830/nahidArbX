@@ -47,6 +47,10 @@ function summarizeEvent(e: NotificationEvent): string {
 }
 
 export async function notify(event: NotificationEvent): Promise<void> {
+  if (event.type === "ml:run_completed" && event.escalated <= 0) {
+    return;
+  }
+
   recordNotification({
     at: new Date().toISOString(),
     type: event.type,

@@ -10,6 +10,7 @@
 
 # Local Python venvs — bulk of the 640 MiB upload we saw 2026-04-25.
 .venv/
+venv/
 services/optimizer/.venv/
 services/optimizer/**/__pycache__/
 **/__pycache__/
@@ -29,10 +30,14 @@ node_modules/
 # Local sessions + rawData — gitignored too, keep out of builds.
 sessions/
 rawData/
+logs/
+data/
+scratch/
 .playwright-mcp/
 
 # Claude harness notes — never ship.
 .claude/
+.codex/
 
 # Git metadata not needed by Cloud Build.
 .git/

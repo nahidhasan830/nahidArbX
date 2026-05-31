@@ -132,7 +132,10 @@ function makePassingData(): PipelineData {
         badLabeledNonPositiveEv: 0,
         semanticPass: true,
       },
-      simpleRule: { minEvPct: 3, marketTypes: ["ASIAN_HANDICAP", "MATCH_RESULT"] },
+      simpleRule: {
+        minEvPct: 3,
+        marketTypes: ["ASIAN_HANDICAP", "MATCH_RESULT"],
+      },
       mlMinScore: 0.4,
       mlModelEdgeThresholdPct: 1.5,
       metrics: {
@@ -220,7 +223,9 @@ describe("ML pipeline ladder rungs", () => {
   });
 
   it("all green baseline produces 13 pass verdicts", () => {
-    const verdicts = evaluateRungs(makePassingData()).map((r) => r.verdict.status);
+    const verdicts = evaluateRungs(makePassingData()).map(
+      (r) => r.verdict.status,
+    );
     expect(verdicts).toEqual(Array(13).fill("pass"));
   });
 
@@ -460,7 +465,9 @@ describe("ML pipeline ladder rungs", () => {
       const data = makePassingData();
       for (const def of RUNG_REGISTRY) {
         const rows = def.inputs!(data);
-        expect(rows.length, `rung ${def.id} produced 0 inputs`).toBeGreaterThan(0);
+        expect(rows.length, `rung ${def.id} produced 0 inputs`).toBeGreaterThan(
+          0,
+        );
         for (const row of rows) {
           expect(typeof row.label).toBe("string");
           expect(row.label.length).toBeGreaterThan(0);

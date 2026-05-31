@@ -8,13 +8,11 @@ export const rung09DeploymentGate: RungDefinition = {
   title: "Latest run cleared the deployment gate",
   prereqs: ["training_completed"],
   evaluate: (d) => {
-    const deployed = d.training.deployedModel as
-      | {
-          version: number;
-          trainingSamples: number;
-          permissionLevel: string | null;
-        }
-      | null;
+    const deployed = d.training.deployedModel as {
+      version: number;
+      trainingSamples: number;
+      permissionLevel: string | null;
+    } | null;
     const rejected = d.rejectedModels?.[0];
 
     if (deployed) {
@@ -44,19 +42,20 @@ export const rung09DeploymentGate: RungDefinition = {
     };
   },
   inputs: (d) => {
-    const deployed = d.training.deployedModel as
-      | {
-          version: number;
-          trainingSamples: number;
-          permissionLevel: string | null;
-        }
-      | null;
+    const deployed = d.training.deployedModel as {
+      version: number;
+      trainingSamples: number;
+      permissionLevel: string | null;
+    } | null;
     const rejected = d.rejectedModels?.[0];
     const candidates = (d.modelHistory ?? []).filter(
       (m) => m.status === "validated" || m.status === "deployed",
     );
     const inputs = [
-      { label: "deployedVersion", value: deployed ? `v${deployed.version}` : "—" },
+      {
+        label: "deployedVersion",
+        value: deployed ? `v${deployed.version}` : "—",
+      },
       {
         label: "permissionLevel",
         value: deployed?.permissionLevel ?? "—",
@@ -71,7 +70,8 @@ export const rung09DeploymentGate: RungDefinition = {
       },
       {
         label: "candidateModels",
-        value: candidates.map((m) => `v${m.version}/${m.status}`).join(", ") || "—",
+        value:
+          candidates.map((m) => `v${m.version}/${m.status}`).join(", ") || "—",
       },
     ];
     return inputs;
@@ -112,7 +112,9 @@ export const rung09DeploymentGate: RungDefinition = {
             m.version !==
               (d.training.deployedModel as { version: number } | null)?.version,
         );
-        return previouslyDeployed.length > 0 && d.training.deployedModel != null;
+        return (
+          previouslyDeployed.length > 0 && d.training.deployedModel != null
+        );
       },
     },
   ],

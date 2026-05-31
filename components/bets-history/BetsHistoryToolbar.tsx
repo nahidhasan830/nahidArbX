@@ -1396,14 +1396,14 @@ export function BetsHistoryToolbar({
             selected
           </span>
 
-            <Button
-              size="sm"
-              className={cn(
-                BTN_BASE,
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-              )}
-              disabled={settleRunning}
-              onClick={onBulkSettle}
+          <Button
+            size="sm"
+            className={cn(
+              BTN_BASE,
+              "bg-primary text-primary-foreground hover:bg-primary/90",
+            )}
+            disabled={settleRunning}
+            onClick={onBulkSettle}
           >
             {settleRunning ? (
               <Loader2 className="size-3.5 animate-spin" />

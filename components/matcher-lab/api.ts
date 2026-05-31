@@ -1,15 +1,12 @@
 import type {
-  ListResponse,
-  MatchPairDecidedBy,
-  MatchPairDecision,
-  MatchPairStage,
-  MlBatchResult,
-  MlProgressEvent,
-  StatsResponse,
-} from "./types";
-import type {
-  AiVerificationJobSnapshot,
-  StartAiVerificationJobResponse,
+  MatcherListResponse,
+  MatcherManualDecision,
+  MatcherRunJobResponse,
+  MatcherRunProgressEvent,
+  MatcherRunRequest,
+  MatcherRunResponse,
+  MatcherSchedulerSettingsResponse,
+  MatcherStatsResponse,
 } from "./types";
 
 async function unwrap<T>(res: Response): Promise<T> {
@@ -20,207 +17,131 @@ async function unwrap<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function fetchPairsByStage(
-  stage: MatchPairStage,
-  opts?: { limit?: number; offset?: number },
-): Promise<ListResponse> {
-  const params = new URLSearchParams({ stage });
+export async function fetchMatcherStats(): Promise<MatcherStatsResponse> {
+  return unwrap(await fetch("/api/matcher-lab/stats"));
+}
+
+export async function fetchMatcherDecisions(opts?: {
+  runId?: string;
+  decision?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<MatcherListResponse> {
+  const params = new URLSearchParams();
+  if (opts?.runId) params.set("runId", opts.runId);
+  if (opts?.decision && opts.decision !== "all") {
+    params.set("decision", opts.decision);
+  }
   if (opts?.limit) params.set("limit", String(opts.limit));
   if (opts?.offset) params.set("offset", String(opts.offset));
-  return unwrap(await fetch(`/api/matcher-lab?${params}`));
+  return unwrap(await fetch(`/api/matcher-lab?${params.toString()}`));
 }
 
-export async function fetchStats(opts?: {
-  historyLimit?: number;
-}): Promise<StatsResponse> {
-  const params = new URLSearchParams();
-  if (opts?.historyLimit) params.set("historyLimit", String(opts.historyLimit));
-  const qs = params.toString();
-  return unwrap(await fetch(`/api/matcher-lab/stats${qs ? `?${qs}` : ""}`));
-}
-
-export async function decidePair(
-  id: string,
-  decision: MatchPairDecision,
-  decidedBy: MatchPairDecidedBy,
-  reason?: string,
-): Promise<{ success: boolean }> {
-  const res = await fetch("/api/matcher-lab", {
+export async function streamMatcherRun(
+  input: MatcherRunRequest,
+  onEvent: (event: MatcherRunProgressEvent) => void,
+): Promise<MatcherRunResponse> {
+  const res = await fetch("/api/matcher-lab/run-stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "decide", id, decision, decidedBy, reason }),
-  });
-  return unwrap(res);
-}
-
-export async function bulkDecide(
-  items: { id: string; decision: MatchPairDecision; reason?: string }[],
-  decidedBy: MatchPairDecidedBy,
-): Promise<{ succeeded: number; failed: number }> {
-  const res = await fetch("/api/matcher-lab", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "bulk-decide", items, decidedBy }),
-  });
-  return unwrap(res);
-}
-
-export async function runMlNow(): Promise<MlBatchResult> {
-  const res = await fetch("/api/matcher-lab", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "run-ml" }),
-  });
-  return unwrap(res);
-}
-
-export async function updateScheduler(opts: {
-  enabled?: boolean;
-  intervalMs?: number;
-  aiSearchEnabled?: boolean;
-  aiSearchConfidenceThreshold?: number;
-  aiSearchMaxBatchSize?: number;
-}): Promise<{ success: boolean }> {
-  const res = await fetch("/api/matcher-lab", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "update-scheduler", ...opts }),
-  });
-  return unwrap(res);
-}
-
-export async function runMlStream(
-  pairIds: string[],
-  onEvent: (event: MlProgressEvent) => void,
-): Promise<void> {
-  const res = await fetch("/api/matcher-lab/run-ml-stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pairIds }),
+    body: JSON.stringify(input),
   });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${txt}`);
+  if (!res.ok || !res.body) {
+    return unwrap(res);
   }
 
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error("No stream body");
-
+  const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let summary: MatcherRunResponse | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6)) as MlProgressEvent;
-          onEvent(event);
-        } catch {
-          // Skip malformed lines
-        }
-      }
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const event = JSON.parse(trimmed) as MatcherRunProgressEvent;
+      onEvent(event);
+      if (event.summary) summary = event.summary;
     }
   }
-}
 
-export async function verifyAiMatch(
-  id: string,
-  opts?: {
-    engine?: "ai-search" | "deepseek";
-    model?: "flash";
-  },
-): Promise<{
-  decision: string;
-  confidence: number;
-  model: string;
-  engine: string;
-  reasoning?: string;
-  sources?: { url: string; title: string; snippet: string }[];
-  searchQueriesUsed?: string[];
-}> {
-  const res = await fetch("/api/matcher-lab/verify-ai", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id, model: opts?.model, engine: opts?.engine }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || "Failed to verify match");
+  const trailing = buffer.trim();
+  if (trailing) {
+    const event = JSON.parse(trailing) as MatcherRunProgressEvent;
+    onEvent(event);
+    if (event.summary) summary = event.summary;
   }
-  return data.result;
+
+  if (!summary) {
+    throw new Error("Matcher stream ended without a run summary");
+  }
+  if (summary.status === "failed") {
+    throw new Error(summary.errorMessage ?? "Matcher run failed");
+  }
+  return summary;
 }
 
-export async function startAiVerificationJob(
-  pairIds: string[],
-  opts?: {
-    engine?: "ai-search" | "deepseek";
-    model?: "flash";
-  },
-): Promise<StartAiVerificationJobResponse> {
-  const res = await fetch("/api/matcher-lab/verify-ai", {
+export async function startMatcherRunJob(
+  input: MatcherRunRequest,
+): Promise<MatcherRunJobResponse> {
+  const res = await fetch("/api/matcher-lab/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action: "start-bulk",
-      pairIds,
-      model: opts?.model,
-      engine: opts?.engine,
-    }),
+    body: JSON.stringify(input),
   });
   return unwrap(res);
 }
 
-export async function fetchAiVerificationJob(
-  jobId?: string | null,
-): Promise<AiVerificationJobSnapshot | null> {
-  const params = new URLSearchParams();
-  if (jobId) params.set("jobId", jobId);
-  const qs = params.toString();
-  const data = await unwrap<{ job: AiVerificationJobSnapshot | null }>(
-    await fetch(`/api/matcher-lab/verify-ai${qs ? `?${qs}` : ""}`, {
-      cache: "no-store",
-    }),
-  );
-  return data.job;
+export async function fetchMatcherRunJob(
+  jobId: string,
+): Promise<MatcherRunJobResponse> {
+  return unwrap(await fetch(`/api/matcher-lab/jobs/${jobId}`));
 }
 
-export async function clearAiVerificationJob(
-  jobId?: string | null,
-): Promise<void> {
+export async function fetchLatestMatcherRunJob(opts?: {
+  activeOnly?: boolean;
+}): Promise<MatcherRunJobResponse> {
   const params = new URLSearchParams();
-  if (jobId) params.set("jobId", jobId);
+  if (opts?.activeOnly) params.set("active", "1");
   const qs = params.toString();
-  await unwrap<{ success: boolean }>(
-    await fetch(`/api/matcher-lab/verify-ai${qs ? `?${qs}` : ""}`, {
-      method: "DELETE",
-    }),
-  );
+  return unwrap(await fetch(`/api/matcher-lab/jobs${qs ? `?${qs}` : ""}`));
 }
 
-export async function checkAiSearchHealth(): Promise<{
-  ok: boolean;
-  model?: string;
-} | null> {
-  try {
-    const res = await fetch("/api/ai-search/healthz", {
-      cache: "no-store",
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return { ok: false };
-    const data = await res.json();
-    return {
-      ok: data.status === "ok",
-      model: data.llmEngine?.model,
-    };
-  } catch {
-    return null;
-  }
+export async function sendManualMatcherDecisions(input: {
+  items: Array<{
+    decisionId: string;
+    decision: MatcherManualDecision;
+    reason?: string;
+  }>;
+}): Promise<{ success: boolean }> {
+  const res = await fetch("/api/matcher-lab", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "manual-decisions", ...input }),
+  });
+  return unwrap(res);
+}
+
+export async function fetchMatcherSchedulerSettings(): Promise<MatcherSchedulerSettingsResponse> {
+  return unwrap(await fetch("/api/matcher-lab/scheduler"));
+}
+
+export async function updateMatcherSchedulerSettings(input: {
+  enabled?: boolean;
+  intervalSeconds?: number;
+  useDeepSeek?: boolean;
+}): Promise<MatcherSchedulerSettingsResponse> {
+  const res = await fetch("/api/matcher-lab/scheduler", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return unwrap(res);
 }

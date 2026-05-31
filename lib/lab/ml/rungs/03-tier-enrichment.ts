@@ -46,7 +46,10 @@ export const rung03TierEnrichment: RungDefinition = {
     return [
       { label: "windowHours", value: String(h.windowHours) },
       { label: "betsWithFeatures", value: h.betsWithFeatures.toLocaleString() },
-      { label: "betsWithValidTier", value: h.betsWithValidTier.toLocaleString() },
+      {
+        label: "betsWithValidTier",
+        value: h.betsWithValidTier.toLocaleString(),
+      },
       {
         label: "validTierPct",
         value: h.validTierPct == null ? "n/a" : `${h.validTierPct.toFixed(2)}%`,

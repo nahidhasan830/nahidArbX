@@ -92,7 +92,9 @@ const WORD_OVERRIDES: Record<string, string> = {
 
 function titleCaseToken(token: string): string {
   const lower = token.toLowerCase();
-  return WORD_OVERRIDES[lower] ?? lower.charAt(0).toUpperCase() + lower.slice(1);
+  return (
+    WORD_OVERRIDES[lower] ?? lower.charAt(0).toUpperCase() + lower.slice(1)
+  );
 }
 
 function humanizeKey(key: string): string {
@@ -114,7 +116,9 @@ export function formatRungInputLabel(label: string): string {
   return humanizeKey(label);
 }
 
-export function formatPermissionLevel(level: string | null | undefined): string {
+export function formatPermissionLevel(
+  level: string | null | undefined,
+): string {
   if (!level) return "Observe only";
   return PERMISSION_LABELS[level] ?? humanizeKey(level);
 }

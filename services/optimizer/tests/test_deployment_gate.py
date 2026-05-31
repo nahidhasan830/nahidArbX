@@ -138,10 +138,23 @@ class TestDeploymentGateRejection:
         assert any("AUC-ROC too low" in r for r in result.rejection_reasons)
 
     def test_severe_calibration_error(self):
-        metrics = _make_metrics(calibration_error=0.25)
+        metrics = _make_metrics(calibration_error=0.35)
         result = evaluate_deployment_gate(metrics)
         assert not result.approved
         assert any("calibration failure" in r for r in result.rejection_reasons)
+
+    def test_marginal_calibration_error_blocks_active_only(self):
+        metrics = _make_metrics(
+            calibration_error=MAX_CALIBRATION_ERROR + 0.01,
+            auc_roc=GATE_ONLY_MIN_AUC + 0.05,
+            n_samples=GATE_ONLY_MIN_EXAMPLES + 100,
+            dsr=GATE_ONLY_MIN_DSR + 0.05,
+        )
+        result = evaluate_deployment_gate(metrics)
+        assert result.approved
+        assert result.permission_level == "observe"
+        assert not result.rejection_reasons
+        assert any("Calibration error too high for active ML" in w for w in result.warnings)
 
     def test_high_log_loss(self):
         metrics = _make_metrics(log_loss_val=0.90)
@@ -162,11 +175,34 @@ class TestDeploymentGateRejection:
         assert not result.approved
         assert any("profit monotonicity" in r for r in result.rejection_reasons)
 
-    def test_low_dsr(self):
+    def test_low_dsr_blocks_active_permissions_only(self):
         metrics = _make_metrics(dsr=0.4)
         result = evaluate_deployment_gate(metrics)
-        assert not result.approved
-        assert any("Deflated Sharpe" in r for r in result.rejection_reasons)
+        assert result.approved
+        assert result.permission_level == "observe"
+        assert not result.rejection_reasons
+        assert any("Deflated Sharpe" in w for w in result.warnings)
+
+    def test_small_losing_policy_deploys_observe_only(self):
+        """Small data should still produce live predictions, not betting authority."""
+        metrics = _make_metrics(
+            auc_roc=0.587,
+            n_samples=209,
+            n_positive=82,
+            n_negative=127,
+            policy_sample_size=43,
+            policy_roi_mean=-26.7442,
+            simple_policy_sample_size=82,
+            dsr=0.0,
+            pbo=0.79,
+        )
+        result = evaluate_deployment_gate(metrics)
+        assert result.approved
+        assert result.permission_level == "observe"
+        assert not result.rejection_reasons
+        assert any("Insufficient ML-gated policy sample" in w for w in result.warnings)
+        assert any("ML-gated policy ROI is negative" in w for w in result.warnings)
+        assert any("Deflated Sharpe" in w for w in result.warnings)
 
     def test_high_pbo(self):
         """PBO is now a warning, not a hard rejection gate."""

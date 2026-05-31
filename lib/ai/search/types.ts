@@ -26,6 +26,18 @@ export interface EventInfo {
   competition: string;
   startTime: string;
   provider?: string;
+  normalized?: {
+    homeTeam: string;
+    awayTeam: string;
+    competition: string;
+  };
+  providerMetadata?: Record<string, unknown> | null;
+  matcherContext?: {
+    candidateKey?: string;
+    reasons?: string[];
+    scoreBreakdown?: unknown;
+    canonicalMembership?: unknown;
+  };
 }
 
 export interface SourceCitation {
@@ -34,18 +46,52 @@ export interface SourceCitation {
   snippet: string;
 }
 
+export interface EvidenceAssessment {
+  sameEvidence: number;
+  differentEvidence: number;
+  contradiction: boolean;
+  noSource: boolean;
+  notes: string[];
+}
+
+export interface SourceBackedAliasEvidence {
+  side: "home" | "away";
+  eventASurface: string;
+  eventBSurface: string;
+  canonicalSurface: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  reason: string;
+}
+
 export type MatchDecision = "SAME" | "DIFFERENT" | "UNCERTAIN";
+
+export interface MatchCanonicalEvent {
+  home: string | null;
+  away: string | null;
+  competition: string | null;
+  kickoff: string | null;
+}
 
 export interface AiParseDiagnostics {
   parseStatus: "valid" | "recovered" | "invalid";
   finishReason?: string;
   warning?: string;
+  searchQueryCount?: number;
+  searchFailureCount?: number;
+  searchFailureRate?: number;
+  searchProvidersUsed?: string[];
 }
 
 export interface MatchVerdict {
   decision: MatchDecision;
   confidence: number;
   reasoning: string;
+  canonicalEvent: MatchCanonicalEvent | null;
+  confirmedFacts: string[];
+  uncertainties: string[];
+  evidenceAssessment: EvidenceAssessment | null;
+  aliasEvidence: SourceBackedAliasEvidence[];
   sources: SourceCitation[];
   searchQueriesUsed: string[];
   model: string;

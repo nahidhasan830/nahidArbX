@@ -38,12 +38,7 @@ import { format, formatDistanceToNowStrict } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -166,9 +161,7 @@ export function MLLearningPanel() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       toast.success(
-        modelTier === "pro"
-          ? "Deep review stored"
-          : "Learning read stored",
+        modelTier === "pro" ? "Deep review stored" : "Learning read stored",
       );
       void qc.invalidateQueries({ queryKey: ["ml", "learning"] });
     } catch (err) {
@@ -210,7 +203,9 @@ export function MLLearningPanel() {
         )}
       >
         <div className="grid xl:grid-cols-[minmax(360px,0.95fr)_minmax(0,1.35fr)]">
-          <div className={cn("border-b p-4 xl:border-b-0 xl:border-r", tone.wash)}>
+          <div
+            className={cn("border-b p-4 xl:border-b-0 xl:border-r", tone.wash)}
+          >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Badge
                 variant="outline"
@@ -278,16 +273,28 @@ export function MLLearningPanel() {
 
       <Tabs defaultValue="evidence" className="gap-3">
         <div className="flex flex-col gap-2 rounded-md border border-border bg-card p-2 shadow-sm md:flex-row md:items-center md:justify-between">
-          <TabsList variant="line" className="h-9 w-full justify-start md:w-fit">
-            <TabsTrigger value="evidence" className="flex-1 text-xs md:flex-none">
+          <TabsList
+            variant="line"
+            className="h-9 w-full justify-start md:w-fit"
+          >
+            <TabsTrigger
+              value="evidence"
+              className="flex-1 text-xs md:flex-none"
+            >
               <ShieldCheck className="size-3.5" />
               Evidence
             </TabsTrigger>
-            <TabsTrigger value="deepseek" className="flex-1 text-xs md:flex-none">
+            <TabsTrigger
+              value="deepseek"
+              className="flex-1 text-xs md:flex-none"
+            >
               <BrainCircuit className="size-3.5" />
               DeepSeek read
             </TabsTrigger>
-            <TabsTrigger value="features" className="flex-1 text-xs md:flex-none">
+            <TabsTrigger
+              value="features"
+              className="flex-1 text-xs md:flex-none"
+            >
               <BarChart3 className="size-3.5" />
               Features
             </TabsTrigger>
@@ -363,12 +370,20 @@ export function MLLearningPanel() {
                     />
                     <XAxis
                       dataKey="bucket"
-                      tick={{ fill: "currentColor", fontSize: 10, opacity: 0.62 }}
+                      tick={{
+                        fill: "currentColor",
+                        fontSize: 10,
+                        opacity: 0.62,
+                      }}
                       tickLine={false}
                       axisLine={{ stroke: "currentColor", opacity: 0.16 }}
                     />
                     <YAxis
-                      tick={{ fill: "currentColor", fontSize: 10, opacity: 0.62 }}
+                      tick={{
+                        fill: "currentColor",
+                        fontSize: 10,
+                        opacity: 0.62,
+                      }}
                       tickLine={false}
                       axisLine={false}
                       tickFormatter={(value: number) => `${value}%`}
@@ -766,7 +781,10 @@ function LearningChartCard({
 function CalibrationChart({ rows }: { rows: LearningCalibrationBucket[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={rows} margin={{ left: -4, right: 12, top: 10, bottom: 0 }}>
+      <LineChart
+        data={rows}
+        margin={{ left: -4, right: 12, top: 10, bottom: 0 }}
+      >
         <CartesianGrid
           stroke="currentColor"
           strokeDasharray="3 3"
@@ -787,7 +805,9 @@ function CalibrationChart({ rows }: { rows: LearningCalibrationBucket[] }) {
           tickFormatter={(value: number) => `${value}%`}
           width={42}
         />
-        <RechartsTooltip content={(props) => <CalibrationTooltip {...props} />} />
+        <RechartsTooltip
+          content={(props) => <CalibrationTooltip {...props} />}
+        />
         <Line
           type="monotone"
           dataKey="predictedPct"
@@ -812,7 +832,10 @@ function CalibrationChart({ rows }: { rows: LearningCalibrationBucket[] }) {
 function ModelHistoryChart({ rows }: { rows: LearningModelHistoryRow[] }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={rows} margin={{ left: -4, right: 12, top: 10, bottom: 0 }}>
+      <LineChart
+        data={rows}
+        margin={{ left: -4, right: 12, top: 10, bottom: 0 }}
+      >
         <CartesianGrid
           stroke="currentColor"
           strokeDasharray="3 3"
@@ -831,7 +854,9 @@ function ModelHistoryChart({ rows }: { rows: LearningModelHistoryRow[] }) {
           axisLine={false}
           width={42}
         />
-        <RechartsTooltip content={(props) => <ModelHistoryTooltip {...props} />} />
+        <RechartsTooltip
+          content={(props) => <ModelHistoryTooltip {...props} />}
+        />
         <ReferenceLine
           y={0}
           stroke="currentColor"
@@ -925,7 +950,9 @@ function LearningExplanationCard({
       {content ? (
         <div className="mt-3 grid gap-3">
           <div className="rounded-md border border-border bg-background p-3">
-            <p className="text-sm font-semibold">{cleanText(content.verdict)}</p>
+            <p className="text-sm font-semibold">
+              {cleanText(content.verdict)}
+            </p>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {cleanText(content.summary)}
             </p>
@@ -949,7 +976,8 @@ function LearningExplanationCard({
             </p>
           </div>
           <p className="font-mono text-[11px] text-muted-foreground">
-            {cleanText(explanation.model)} - {formatWhen(explanation.generatedAt)}
+            {cleanText(explanation.model)} -{" "}
+            {formatWhen(explanation.generatedAt)}
           </p>
         </div>
       ) : (
@@ -1118,7 +1146,10 @@ function FeatureImportanceCard({
 }: {
   features: LearningFeatureImportance[];
 }) {
-  const maxImportance = Math.max(...features.map((feature) => feature.importance), 0);
+  const maxImportance = Math.max(
+    ...features.map((feature) => feature.importance),
+    0,
+  );
 
   return (
     <section className="rounded-md border border-border bg-card p-3 shadow-sm">
@@ -1283,22 +1314,16 @@ function buildProofState(metrics: LearningSnapshotMetrics) {
 
   return {
     sample: {
-      status:
-        settled >= 100 ? "pass" : settled >= 30 ? "warn" : "fail",
+      status: settled >= 100 ? "pass" : settled >= 30 ? "warn" : "fail",
       value: `${formatInt(settled)} settled`,
     },
     lift: {
-      status:
-        lift == null ? "warn" : lift > 0 ? "pass" : "fail",
+      status: lift == null ? "warn" : lift > 0 ? "pass" : "fail",
       value: formatPct(lift),
     },
     ranking: {
       status:
-        monotonicity == null
-          ? "warn"
-          : monotonicity >= 0.6
-            ? "pass"
-            : "warn",
+        monotonicity == null ? "warn" : monotonicity >= 0.6 ? "pass" : "warn",
       value: formatPct(monotonicity == null ? null : monotonicity * 100),
     },
     trust: {

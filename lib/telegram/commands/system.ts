@@ -253,7 +253,8 @@ registerCommand({
 registerCommand({
   name: "spend",
   usage: "/spend",
-  description: "Settlement-pipeline fallback usage this month + tier-hit breakdown.",
+  description:
+    "Settlement-pipeline fallback usage this month + tier-hit breakdown.",
   explanation:
     "Aggregates settlement_runs since the 1st of this month so you can inspect fallback usage and any legacy estimated spend. Current settlement is deterministic/free; non-zero estimated spend should only come from old rows.",
   group: "read",
@@ -280,7 +281,10 @@ registerCommand({
       };
       const spend = Number(row.spend ?? 0);
       const lines = [
-        header("💵", `Settlement source usage (since ${startIso.slice(0, 10)})`),
+        header(
+          "💵",
+          `Settlement source usage (since ${startIso.slice(0, 10)})`,
+        ),
         "",
         `• ${b("Total")}: ${signedMoney(-spend, "USD").replace("−", "")}  <i>(estimate)</i>`,
         `• Ticks: ${num(row.ticks ?? 0)}`,

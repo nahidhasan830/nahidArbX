@@ -166,17 +166,12 @@ export class VelkiSportsbookAtomsAdapter extends BaseAtomsAdapter {
       // Stash min/max stake limits keyed by atom — placement modal
       // reads these directly without a second round-trip.
       if (typeof market.min === "number" && typeof market.max === "number") {
-        setMarketLimits(
-          this.providerId,
-          ctx.normalizedEventId,
-          entry.atom_id,
-          {
-            minBet: market.min,
-            maxBet: market.max,
-            marketId: String(market.id),
-            timestamp,
-          },
-        );
+        setMarketLimits(this.providerId, ctx.normalizedEventId, entry.atom_id, {
+          minBet: market.min,
+          maxBet: market.max,
+          marketId: String(market.id),
+          timestamp,
+        });
       }
     }
 

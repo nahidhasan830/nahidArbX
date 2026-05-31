@@ -102,12 +102,10 @@ export async function triggerCloudTraining(
   // against the current trainer sample count. Stamp the placeholder before
   // spawning Cloud Build so infrastructure/export failures still carry the
   // input fingerprint and cannot retrigger the same failed run every tick.
-  const { reconcileMissingSettledExamples } = await import(
-    "@/lib/ml/training-example-writer"
-  );
-  const { getCurrentCorpusAccounting } = await import(
-    "@/lib/ml/training-sample-accounting"
-  );
+  const { reconcileMissingSettledExamples } =
+    await import("@/lib/ml/training-example-writer");
+  const { getCurrentCorpusAccounting } =
+    await import("@/lib/ml/training-sample-accounting");
   await reconcileMissingSettledExamples(500);
   const accounting = await getCurrentCorpusAccounting(db);
 

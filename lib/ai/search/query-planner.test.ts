@@ -165,7 +165,10 @@ describe("search query planner", () => {
 
   it("demotes stale and wrong-opponent full-time pages", async () => {
     const { __queryPlannerTestHooks } = await getPlanner();
-    const context = __queryPlannerTestHooks.buildTemporalContext(NOW, TIME_ZONE);
+    const context = __queryPlannerTestHooks.buildTemporalContext(
+      NOW,
+      TIME_ZONE,
+    );
     const plan = {
       originalQuery: "bologna vs inter milan today",
       timeZone: TIME_ZONE,

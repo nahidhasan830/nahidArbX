@@ -172,7 +172,9 @@ function startModelWatcher(): void {
   }, MODEL_WATCH_INTERVAL_MS);
 }
 
-async function refreshDeployedModelState(force = false): Promise<string | null> {
+async function refreshDeployedModelState(
+  force = false,
+): Promise<string | null> {
   const { refreshPermissionLevel } = await import("./deployment-gate");
   await refreshPermissionLevel(force);
 

@@ -212,11 +212,14 @@ export function registerEngineRoutes() {
     const { getEvents, getValueBets } = await import("../store");
     const { getStoreStats } = await import("../atoms/store");
     const { getHistoryStats } = await import("../atoms/odds-history");
-    const { getScoreCount, getCornersScoreCount } = await import("../scores/store");
+    const { getScoreCount, getCornersScoreCount } =
+      await import("../scores/store");
     const { getMultiScoreCount } = await import("../scores/multi-source-store");
-    const { marketLimitsStoreSize } = await import("../atoms/market-limits-store");
+    const { marketLimitsStoreSize } =
+      await import("../atoms/market-limits-store");
     const { getMatchCacheStats } = await import("../matching");
-    const { getCacheStats: getAIDecisionCacheStats } = await import("../matching/ai-decision-cache");
+    const { getCacheStats: getAIDecisionCacheStats } =
+      await import("../matching/ai-decision-cache");
     const { getAllSessionDiagnostics } = await import("./session-diagnostics");
     const { getDeltaStats } = await import("../cache/delta");
 
@@ -229,7 +232,10 @@ export function registerEngineRoutes() {
     const deltaStats = getDeltaStats();
 
     const sessionDiagEntries = Object.keys(sessionDiags).length;
-    const totalSteps = Object.values(sessionDiags).reduce((sum, d) => sum + d.steps.length, 0);
+    const totalSteps = Object.values(sessionDiags).reduce(
+      (sum, d) => sum + d.steps.length,
+      0,
+    );
 
     const response = {
       timestamp: new Date().toISOString(),
@@ -243,7 +249,9 @@ export function registerEngineRoutes() {
         oddsHistory: {
           trackedAtoms: historyStats.trackedAtoms,
           totalTicks: historyStats.totalTicksRecorded,
-          estimatedMB: Math.round((historyStats.memoryEstimateBytes / 1024 / 1024) * 100) / 100,
+          estimatedMB:
+            Math.round((historyStats.memoryEstimateBytes / 1024 / 1024) * 100) /
+            100,
         },
         atomsOdds: {
           events: atomsStats.eventCount,

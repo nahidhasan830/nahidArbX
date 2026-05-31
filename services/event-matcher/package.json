@@ -1,0 +1,10 @@
+{
+  "name": "event-matcher",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json"
+  }
+}
