@@ -222,6 +222,7 @@ export async function runPersistedEventMatcherJob(jobId: string) {
     const summary = await runEventMatcher({
       trigger: "manual",
       mode: "apply",
+      applyMerges: true,
       decisionIds: job.decisionIds,
       useDeepSeek: job.useDeepSeek ?? undefined,
       onProgress: (event) => appendJobEvent(jobId, event),

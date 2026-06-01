@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
   const options: Omit<EventMatcherRunOptions, "onProgress"> = {
     trigger: "manual",
     mode: "apply",
+    applyMerges: true,
     decisionIds,
     useDeepSeek:
       typeof body.useDeepSeek === "boolean" ? body.useDeepSeek : undefined,

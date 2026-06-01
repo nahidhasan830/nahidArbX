@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts";
 import {
+  Activity,
   AlertTriangle,
   BarChart3,
   BrainCircuit,
@@ -411,6 +412,8 @@ function OverviewPanel({
   return (
     <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
       <main className="grid gap-3">
+        <TrainingOperationsPanel data={data} />
+
         <section className="rounded-md border border-border bg-card p-3 shadow-sm">
           <SectionHeader
             icon={Database}
@@ -520,6 +523,255 @@ function OverviewPanel({
           )}
         </section>
       </aside>
+    </div>
+  );
+}
+
+function TrainingOperationsPanel({ data }: { data: PipelineData }) {
+  const active = data.training.activeTraining;
+
+  return (
+    <section className="rounded-md border border-border bg-card p-3 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <SectionHeader
+          icon={Activity}
+          title="Training operations"
+          description={
+            active
+              ? "Live run feedback from the training row the engine polls."
+              : "Automatic retraining threshold, scheduler health, and run readiness."
+          }
+        />
+        <TrainingStatusBadge data={data} />
+      </div>
+
+      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)]">
+        <AutoRetrainCard data={data} />
+        <LiveTrainingCard data={data} />
+      </div>
+    </section>
+  );
+}
+
+function TrainingStatusBadge({ data }: { data: PipelineData }) {
+  const active = data.training.activeTraining;
+  const tone = active
+    ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300"
+    : data.training.readyToRetrain
+      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+      : data.scheduler.active
+        ? "border-border bg-background text-muted-foreground"
+        : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn("h-6 w-fit rounded-md px-2 text-xs", tone)}
+    >
+      {active
+        ? "Training running"
+        : data.training.readyToRetrain
+          ? "Queued on next tick"
+          : data.scheduler.active
+            ? "Watching corpus"
+            : "Scheduler stopped"}
+    </Badge>
+  );
+}
+
+function AutoRetrainCard({ data }: { data: PipelineData }) {
+  const state = getAutoRetrainState(data);
+  const schedulerTone = data.scheduler.active
+    ? data.scheduler.lastError
+      ? "warn"
+      : "good"
+    : "bad";
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">Next automatic retrain</p>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            {state.message}
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn("h-5 shrink-0 rounded-md text-xs", state.badge)}
+        >
+          {state.label}
+        </Badge>
+      </div>
+
+      <div className="mt-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold text-muted-foreground">
+            {state.railLabel}
+          </p>
+          <p className="font-mono text-xs text-muted-foreground tabular-nums">
+            {formatInt(state.value)} / {formatInt(state.target)}
+          </p>
+        </div>
+        <div className="mt-2 h-2 overflow-hidden rounded-sm bg-muted">
+          <div
+            className={cn("h-full rounded-sm transition-all", state.bar)}
+            style={{ width: `${Math.min(100, state.progress)}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <MiniStat
+          label="New examples"
+          value={formatInt(data.training.newDataSinceLastTrain)}
+        />
+        <MiniStat
+          label="Remaining"
+          value={formatInt(state.remaining)}
+          tone={state.remaining === 0 ? "good" : "neutral"}
+        />
+        <MiniStat label="Step" value={formatInt(data.training.retrainStep)} />
+        <MiniStat
+          label="Scheduler"
+          value={data.scheduler.active ? "Active" : "Stopped"}
+          tone={schedulerTone}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <KeyValue
+          label="Last tick"
+          value={
+            data.scheduler.lastTickAt == null
+              ? "No tick"
+              : formatAge(data.generatedAtMs - data.scheduler.lastTickAt)
+          }
+          tone={schedulerLastTickTone(
+            data.scheduler.lastTickAt,
+            data.generatedAtMs,
+          )}
+        />
+        <KeyValue
+          label="Triggers since boot"
+          value={formatInt(data.scheduler.totalRetrainTriggers)}
+        />
+      </div>
+      {data.scheduler.lastError ? (
+        <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm leading-relaxed text-amber-800 dark:text-amber-200">
+          {cleanText(data.scheduler.lastError)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function LiveTrainingCard({ data }: { data: PipelineData }) {
+  const active = data.training.activeTraining;
+
+  if (!active) {
+    return (
+      <div className="rounded-md border border-border bg-background p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Live training feedback</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              No model is training right now. This panel switches to heartbeat,
+              stage, elapsed time, and ETA as soon as a row enters training.
+            </p>
+          </div>
+          <CircleDashed className="mt-0.5 size-4 text-muted-foreground" />
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <KeyValue
+            label="Active runs"
+            value={formatInt(data.training.modelsInTraining)}
+          />
+          <KeyValue
+            label="Auto-refresh"
+            value={data.training.modelsInTraining ? "3 sec" : "15 sec"}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const stage = normalizeTrainingStage(active.trainingStage);
+  const stageIndex = TRAINING_STAGES.findIndex((item) => item.id === stage);
+  const heartbeatAgeMs = active.lastHeartbeatAt
+    ? data.generatedAtMs - new Date(active.lastHeartbeatAt).getTime()
+    : null;
+  const staleHeartbeat =
+    heartbeatAgeMs != null && Number.isFinite(heartbeatAgeMs)
+      ? heartbeatAgeMs > 10 * 60_000
+      : false;
+
+  return (
+    <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Loader2 className="size-4 animate-spin text-cyan-600 dark:text-cyan-300" />
+            <p className="text-sm font-semibold">
+              {formatTrainingRunLabel(active)}
+            </p>
+          </div>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+            {cleanText(active.progressMessage ?? stage)}
+          </p>
+        </div>
+        <Badge
+          variant="outline"
+          className="h-5 shrink-0 rounded-md border-cyan-500/30 bg-cyan-500/10 text-xs text-cyan-700 dark:text-cyan-300"
+        >
+          {cleanText(stage)}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid grid-cols-8 gap-1">
+        {TRAINING_STAGES.map((item, index) => (
+          <Tooltip key={item.id}>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  "h-2 rounded-sm",
+                  index <= stageIndex
+                    ? "bg-cyan-500"
+                    : "bg-muted-foreground/20",
+                )}
+                aria-label={`${item.label} stage ${index <= stageIndex ? "reached" : "pending"}`}
+              />
+            </TooltipTrigger>
+            <TooltipContent className="text-sm">{item.label}</TooltipContent>
+          </Tooltip>
+        ))}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <MiniStat label="Samples" value={formatInt(active.sampleCount)} />
+        <MiniStat
+          label="Elapsed"
+          value={formatDurationMs(active.elapsedMs)}
+        />
+        <MiniStat
+          label="Heartbeat"
+          value={heartbeatAgeMs == null ? "-" : formatAge(heartbeatAgeMs)}
+          tone={staleHeartbeat ? "warn" : "good"}
+        />
+        <MiniStat
+          label="ETA"
+          value={formatDurationMs(active.estimatedRemainingMs)}
+        />
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <KeyValue label="Started" value={formatDate(active.startedAt)} />
+        <KeyValue
+          label="Last heartbeat"
+          value={formatDate(active.lastHeartbeatAt)}
+          tone={staleHeartbeat ? "warn" : "good"}
+        />
+      </div>
     </div>
   );
 }
@@ -1845,6 +2097,17 @@ const ROI_TREND_STRATEGIES: {
   },
 ];
 
+const TRAINING_STAGES = [
+  { id: "loading", label: "Loading" },
+  { id: "hpo", label: "HPO" },
+  { id: "holdout", label: "Holdout" },
+  { id: "cpcv", label: "CPCV" },
+  { id: "final", label: "Final fit" },
+  { id: "gate", label: "Gate" },
+  { id: "export", label: "Export" },
+  { id: "complete", label: "Complete" },
+] as const;
+
 const ROI_TREND_KEYS: Record<
   RoiTrendStrategy,
   { roi: keyof RoiTrendRow; count: keyof RoiTrendRow }
@@ -2144,6 +2407,77 @@ function TargetRail({
       </p>
     </div>
   );
+}
+
+function getAutoRetrainState(data: PipelineData) {
+  const active = data.training.activeTraining;
+  const qualified = data.dataCollection.qualifiedForTraining;
+  const coldStart = data.dataCollection.coldStartThreshold;
+
+  if (active) {
+    const samples = Math.max(1, active.sampleCount);
+    return {
+      label: "Running",
+      message:
+        "A training run is active. The automatic queue waits for this row to finish before it can fire again.",
+      railLabel: "Training sample set",
+      value: samples,
+      target: samples,
+      remaining: 0,
+      progress: 100,
+      bar: "bg-cyan-500",
+      badge:
+        "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+    };
+  }
+
+  if (qualified < coldStart) {
+    const remaining = Math.max(0, coldStart - qualified);
+    return {
+      label: "Cold-start",
+      message: `${formatInt(remaining)} trainer-ready examples before automatic training can start.`,
+      railLabel: "Cold-start progress",
+      value: qualified,
+      target: coldStart,
+      remaining,
+      progress: pct(qualified, coldStart),
+      bar: "bg-amber-500",
+      badge:
+        "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    };
+  }
+
+  if (data.training.readyToRetrain) {
+    return {
+      label: "Queued",
+      message: data.training.deployedModel
+        ? "The growth threshold is met. The engine starts training on the next scheduler tick."
+        : "Cold-start is satisfied and no model is deployed. The first training run starts on the next scheduler tick.",
+      railLabel: "Retrain threshold",
+      value: data.training.retrainStep,
+      target: data.training.retrainStep,
+      remaining: 0,
+      progress: 100,
+      bar: "bg-emerald-500",
+      badge:
+        "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    };
+  }
+
+  return {
+    label: "Waiting",
+    message: `${formatInt(data.training.examplesUntilRetrain)} more trainer-ready examples until the next automatic retrain.`,
+    railLabel: "New examples since baseline",
+    value: data.training.newDataSinceLastTrain,
+    target: data.training.retrainStep,
+    remaining: data.training.examplesUntilRetrain,
+    progress: pct(
+      data.training.newDataSinceLastTrain,
+      data.training.retrainStep,
+    ),
+    bar: "bg-cyan-500",
+    badge: "border-border bg-muted text-muted-foreground",
+  };
 }
 
 function SectionHeader({
@@ -2584,6 +2918,50 @@ function formatDate(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
   return format(date, "MMM d HH:mm");
+}
+
+function formatDurationMs(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const ms = Math.max(0, value);
+  if (ms < 1_000) return "0s";
+  const seconds = Math.round(ms / 1_000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+function formatAge(value: number) {
+  if (!Number.isFinite(value) || value < 0) return "-";
+  return `${formatDurationMs(value)} ago`;
+}
+
+function normalizeTrainingStage(stage: string | null) {
+  const normalized = String(stage ?? "loading").toLowerCase();
+  if (TRAINING_STAGES.some((item) => item.id === normalized)) {
+    return normalized;
+  }
+  if (normalized === "failed" || normalized === "rejected") return "gate";
+  return "loading";
+}
+
+function schedulerLastTickTone(
+  lastTickAt: number | null,
+  generatedAtMs: number,
+): ValueTone {
+  if (lastTickAt == null) return "warn";
+  const age = generatedAtMs - lastTickAt;
+  if (!Number.isFinite(age)) return "warn";
+  return age > 5 * 60_000 ? "bad" : "good";
+}
+
+function formatTrainingRunLabel(
+  active: NonNullable<PipelineData["training"]["activeTraining"]>,
+) {
+  if (active.version > 0) return `Candidate v${active.version}`;
+  return cleanText(active.modelId);
 }
 
 function cleanText(value: unknown) {

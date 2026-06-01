@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
         const options: EventMatcherRunOptions = {
           trigger: "manual",
           mode: "apply",
+          applyMerges: true,
           decisionIds,
           useDeepSeek:
             typeof body.useDeepSeek === "boolean"

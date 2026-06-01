@@ -226,6 +226,43 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("grounded_llm_different_match");
   });
 
+  it("auto-rejects separate fixtures when the source text says teams differ", () => {
+    const different = residual(95);
+    different.reasoning =
+      "Teams differ: Strommen vs Sogndal and Egersund vs Stromsgodset are separate fixtures same date.";
+    different.evidenceAssessment = {
+      sameEvidence: 1,
+      differentEvidence: 3,
+      contradiction: false,
+      noSource: false,
+      notes: ["The shared kickoff date is the only same-event signal."],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.5,
+        away: 0.67,
+        swappedHome: 0.85,
+        swappedAway: 0.6,
+        sameOrientationTeam: 0.59,
+        swappedOrientationTeam: 0.73,
+        bestTeam: 0.73,
+        orientation: "swapped",
+        competition: 1,
+        embeddingTeam: 0.83,
+        embeddingCompetition: 1,
+        combined: 0.84,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
   it("keeps DIFFERENT in review when source-backed aliases cover the differing team slots", () => {
     const different = residual(95);
     different.reasoning =

@@ -3,6 +3,7 @@
  */
 
 export interface PipelineData {
+  generatedAtMs: number;
   dataCollection: {
     totalBets: number;
     betsWithFeatures: number;
@@ -51,6 +52,7 @@ export interface PipelineData {
   scheduler: {
     active: boolean;
     lastTickAt: number | null;
+    lastError: string | null;
     totalRetrainTriggers: number;
     /** Auto-retrain absolute step in new training examples (e.g. 200 ⇒ retrain fires after +200 since last deploy). */
     retrainStep: number;

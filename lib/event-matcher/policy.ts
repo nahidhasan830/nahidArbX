@@ -71,8 +71,12 @@ export function decideCandidate(
     score.orientation === "same"
       ? Math.min(score.home, score.away)
       : Math.min(score.swappedHome, score.swappedAway);
+  const weakBothTeamSlots =
+    weakerAlignedTeam <= config.teamAutoRejectCeiling &&
+    score.bestTeam <= config.teamAutoRejectCeiling + 0.07;
   if (
     score.combined <= config.combinedAutoRejectThreshold ||
+    weakBothTeamSlots ||
     (score.bestTeam <= config.teamAutoRejectCeiling &&
       score.competition <= config.competitionRejectCeiling &&
       !hasMatchMetadataRescue) ||
@@ -89,7 +93,7 @@ export function decideCandidate(
       final: true,
       reasonCode: "low_team_competition_similarity",
       reasonSummary:
-        "Exact kickoff is shared, but team and competition signals are too weak and no match-level metadata rescue is present.",
+        "Exact kickoff is shared, but team identity signals are too weak and no match-level metadata rescue is present.",
     };
   }
 

@@ -176,6 +176,15 @@ function aliasEvidenceCoversDifferentTeamSlots(
   );
 }
 
+function aliasesCanExplainTeamMismatch(score: ScoreBreakdown): boolean {
+  const weakerAlignedTeam =
+    score.orientation === "same"
+      ? Math.min(score.home, score.away)
+      : Math.min(score.swappedHome, score.swappedAway);
+
+  return weakerAlignedTeam >= 0.7 && score.bestTeam >= 0.78;
+}
+
 function hasMaterialTeamMismatch(score: ScoreBreakdown): boolean {
   const weakerAlignedTeam =
     score.orientation === "same"
@@ -212,6 +221,9 @@ function hasSeparateFixtureEvidenceText(
       haystack,
     ) ||
     /\bseparate\s+(teams|clubs|opponents|leagues|competitions|tournaments)\b/.test(
+      haystack,
+    ) ||
+    /\b(teams|clubs|opponents|leagues|competitions|tournaments)\s+differ\b/.test(
       haystack,
     );
 
@@ -268,7 +280,8 @@ export function policyFromDeepSeek(
   const sourceAliasConflict =
     residual.decision === "DIFFERENT" &&
     score.kickoffExact &&
-    aliasEvidenceCoversDifferentTeamSlots(residual, score);
+    aliasEvidenceCoversDifferentTeamSlots(residual, score) &&
+    aliasesCanExplainTeamMismatch(score);
   const sourceBackedDifferent =
     sourceOnlySupportsDifferent ||
     (residual.decision === "DIFFERENT" &&

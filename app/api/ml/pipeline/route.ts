@@ -66,6 +66,7 @@ type EngineScorerStatus = ScorerStatus & {
 interface SchedulerStatus {
   active: boolean;
   lastTickAt: number | null;
+  lastError: string | null;
   totalRetrainTriggers: number;
   /** Absolute step (in training examples) that triggers an auto-retrain since the last deployed model. */
   retrainStep: number;
@@ -103,6 +104,7 @@ function intOrZero(value: unknown): number {
 
 export async function GET() {
   try {
+    const generatedAtMs = Date.now();
     // ── Reusable SQL expressions ─────────────────────────────────────
     // Defined up front so wave 1 and wave 2 queries can share them.
     // Use unit returns instead of null pnl for unplaced bets.
@@ -696,7 +698,7 @@ export async function GET() {
           sampleCount: activeTrainingModel.trainingSamples,
           startedAt: activeTrainingModel.trainingStartedAt,
           elapsedMs: activeTrainingModel.trainingStartedAt
-            ? Date.now() -
+            ? generatedAtMs -
               new Date(activeTrainingModel.trainingStartedAt).getTime()
             : null,
         }
@@ -792,13 +794,16 @@ export async function GET() {
     let scheduler: SchedulerStatus = {
       active: false,
       lastTickAt: null,
+      lastError: null,
       totalRetrainTriggers: 0,
       retrainStep: ML_RETRAIN_GROWTH_STEP,
     };
     if (schedulerResult) {
-      const { lastError: _lastError, ...schedulerFields } = schedulerResult;
       scheduler = {
-        ...schedulerFields,
+        active: schedulerResult.active,
+        lastTickAt: schedulerResult.lastTickAt,
+        lastError: schedulerResult.lastError ?? null,
+        totalRetrainTriggers: schedulerResult.totalRetrainTriggers,
         // Engine may run an older build without retrainStep — fall back
         // to the canonical constant so the UI can still display it.
         retrainStep: schedulerResult.retrainStep ?? ML_RETRAIN_GROWTH_STEP,
@@ -818,6 +823,7 @@ export async function GET() {
       : "Pass-through (no model)";
 
     return NextResponse.json({
+      generatedAtMs,
       dataCollection: {
         totalBets,
         betsWithFeatures,

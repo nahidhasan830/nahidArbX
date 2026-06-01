@@ -14,11 +14,10 @@ import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/nav/AppShell";
 import {
   OverviewTab,
-  formatApiError,
   type StatsData,
   type HealthData,
 } from "./OverviewTab";
-import { useAiProviders, type AiProvider } from "./useAiProviders";
+import { useAiProviders } from "./useAiProviders";
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -28,7 +27,6 @@ const POLL_MS = 3_000;
 
 export default function AiSearchDashboard() {
   const [health, setHealth] = useState<HealthData | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -42,6 +40,7 @@ export default function AiSearchDashboard() {
     refresh,
     toggleProvider,
     isToggling,
+    error: providerError,
   } = useAiProviders({ pollMs: POLL_MS });
 
   // Health check (separate since different endpoint)
@@ -56,7 +55,6 @@ export default function AiSearchDashboard() {
   }, []);
 
   const load = useCallback(async () => {
-    setError(null);
     setIsRefreshing(true);
     try {
       await Promise.all([refresh(), loadHealth()]);
@@ -110,29 +108,29 @@ export default function AiSearchDashboard() {
   })();
 
   // Convert hook data to StatsData format for OverviewTab
-  const statsData: StatsData | null =
-    searchProviders.length > 0
-      ? {
-          providers: searchProviders.map((p) => ({
-            name: p.name,
-            healthy: p.enabled,
-            enabled: p.enabled,
-            requestsUsed: p.monthlyUsageCount,
-            quotaLimit: p.monthlyLimit,
-            quotaRemaining: p.monthlyRemaining,
-            quotaSource:
-              p.monthlyLimit !== null ? ("live" as const) : ("none" as const),
-            lastError: p.disabledReason,
-            lastUsedAt: null,
-          })),
-          totalSearches: searchProviders.reduce(
-            (sum, p) => sum + p.monthlyUsageCount,
-            0,
-          ),
-          llmEngine: "deepseek-v4-flash",
-          llmHealthy: true,
-        }
-      : null;
+  const hasLoadedProviderState = !isLoading || searchProviders.length > 0;
+  const statsData: StatsData | null = hasLoadedProviderState
+    ? {
+        providers: searchProviders.map((p) => ({
+          name: p.name,
+          healthy: p.enabled,
+          enabled: p.enabled,
+          requestsUsed: p.monthlyUsageCount,
+          quotaLimit: p.monthlyLimit,
+          quotaRemaining: p.monthlyRemaining,
+          quotaSource:
+            p.monthlyLimit !== null ? ("live" as const) : ("none" as const),
+          lastError: p.disabledReason,
+          lastUsedAt: null,
+        })),
+        totalSearches: searchProviders.reduce(
+          (sum, p) => sum + p.monthlyUsageCount,
+          0,
+        ),
+        llmEngine: "deepseek-v4-flash",
+        llmHealthy: true,
+      }
+    : null;
 
   const llmStats =
     llmProviders.length > 0
@@ -190,23 +188,23 @@ export default function AiSearchDashboard() {
           <Badge
             variant="secondary"
             className={cn(
-              "text-[10px] font-medium tracking-wider px-2.5 py-0.5 backdrop-blur-sm transition-all duration-500",
+              "h-6 gap-1.5 rounded-md border px-2 text-[11px] font-semibold tracking-normal backdrop-blur-sm transition-all duration-300",
               serviceBadge.loading
-                ? "bg-muted/20 text-muted-foreground border-border/30 animate-pulse"
+                ? "border-border/35 bg-muted/20 text-muted-foreground animate-pulse"
                 : serviceBadge.online
-                  ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
-                  : "bg-red-500/10 text-red-400 border-red-500/20",
+                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+                  : "border-red-500/20 bg-red-500/10 text-red-300",
             )}
           >
-            <span className="relative flex size-2 mr-1.5">
+            <span className="relative flex size-3 items-center justify-center">
               {serviceBadge.online && (
-                <span className="absolute inline-flex size-full rounded-full opacity-75 animate-ping bg-emerald-400" />
+                <span className="absolute inline-flex size-2 rounded-full bg-emerald-400 opacity-70 motion-safe:animate-ping" />
               )}
               <RadioReceiver
                 className={cn(
-                  "w-2.5 h-2.5",
+                  "size-3",
                   serviceBadge.loading && "animate-pulse",
-                  serviceBadge.online ? "text-emerald-400" : "text-red-400",
+                  serviceBadge.online ? "text-emerald-300" : "text-red-300",
                 )}
               />
             </span>
@@ -237,7 +235,7 @@ export default function AiSearchDashboard() {
           <OverviewTab
             stats={statsData}
             health={health}
-            error={error}
+            error={providerError}
             isRefreshing={isRefreshing}
             lastLoadedAt={lastLoadedAt}
             onToggleProvider={handleToggleProvider}

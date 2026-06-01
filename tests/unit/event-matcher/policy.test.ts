@@ -83,6 +83,30 @@ describe("event matcher policy", () => {
     expect(decision.final).toBe(false);
   });
 
+  it("rejects weak team identity even when generic competition text overlaps", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 0.39,
+        away: 0.59,
+        swappedHome: 0.52,
+        swappedAway: 0.51,
+        sameOrientationTeam: 0.49,
+        swappedOrientationTeam: 0.52,
+        bestTeam: 0.52,
+        orientation: "swapped",
+        competition: 0.71,
+        embeddingTeam: 0.7,
+        embeddingCompetition: 0.82,
+        combined: 0.704,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("low_team_competition_similarity");
+  });
+
   it("routes high-confidence merge-gate failures to DeepSeek", () => {
     const decision = decideCandidate(
       [],

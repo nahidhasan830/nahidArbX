@@ -25,6 +25,7 @@ import type { PipelineData } from "@/components/lab/ml/types";
  */
 function makePassingData(): PipelineData {
   return {
+    generatedAtMs: Date.now(),
     dataCollection: {
       totalBets: 5000,
       betsWithFeatures: 4900,
@@ -72,6 +73,7 @@ function makePassingData(): PipelineData {
     scheduler: {
       active: true,
       lastTickAt: Date.now() - 30_000,
+      lastError: null,
       totalRetrainTriggers: 1,
       retrainStep: 200,
     },

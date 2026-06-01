@@ -130,6 +130,7 @@ describe("Matcher Lab API routes", () => {
     expect(eventMatcher.runEventMatcher).toHaveBeenCalledWith({
       trigger: "manual",
       mode: "apply",
+      applyMerges: true,
       decisionIds: ["d1", "d2"],
       useDeepSeek: false,
     });
@@ -213,6 +214,7 @@ describe("Matcher Lab API routes", () => {
       expect.objectContaining({
         trigger: "manual",
         mode: "apply",
+        applyMerges: true,
         decisionIds: ["d1", "d2"],
         useDeepSeek: true,
       }),
