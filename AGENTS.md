@@ -40,7 +40,12 @@ Terse index for agents. [`CLAUDE.md`](CLAUDE.md) is the full reference — keep 
 - **Tailwind only — no custom CSS.** Extract React components, not CSS classes. See CLAUDE.md §Styling.
 - **Every table uses `<DataTable>`** (`components/ui/data-table.tsx`). Pass `getRowId` for polled queries. Exception: `ValueBetSpreadsheet.tsx`.
 - **Typography:** Prose → `text-sm` (14px min). Chrome → `text-[11px]`/`text-xs`. Never full sentences at `text-[11px]`.
-- **Tooltips on every control.** `<Tooltip>`/`<TooltipTrigger>`/`<TooltipContent>` — never plain `title=""`.
+- **Tooltips on every control.** `<Tooltip>`/`<TooltipTrigger>`/`<TooltipContent>` — never plain `title=""`. `TooltipTrigger` should be `asChild` wrapping a real interactive element (`<button>`, `<span>`, etc.) — never a raw text node.
+- **Sections over cards.** For density > 7 surfaces (operational dashboards, monitor pages), prefer `<section className="rounded-md border border-border bg-card p-3 shadow-sm">` with a `SectionHeader` (icon square + title + description) over shadcn `<Card>` primitives. Tiles are flat `rounded-md border border-border bg-background p-3` blocks, not cards.
+- **Tone-coded outline badges.** Status pills use the `border-…/30 bg-…/10 text-…-700 dark:text-…-300` pattern (emerald / amber / rose / cyan). Never `<Badge variant="destructive">` / `variant="success">` for in-page status.
+- **Numbers:** `font-mono … tabular-nums`. Big values → `text-2xl font-semibold` (never `font-bold`). Inline → `text-xs font-semibold`.
+- **Custom progress bar.** Two-div bar inside `h-1.5 overflow-hidden rounded-sm bg-muted` — do not use the shadcn `<Progress>` primitive in operational dashboards.
+- **Polled pages pattern.** Page wraps `AppShell` in a page-level `TooltipProvider` and wires `titleBadge` (live stat pills) + `actions` (auto-refresh indicator + Refresh button) into the shell. Skeleton is a dedicated `*PageSkeleton.tsx` component, not inline. Error state is a centered `border-rose-500/30 bg-rose-500/10` backdrop-blur block, not a `Card`. See `/lab/ml` and `/logs/memory` for the canonical wiring.
 
 ## Workflow & Infrastructure
 
