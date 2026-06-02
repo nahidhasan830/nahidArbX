@@ -15,7 +15,6 @@ import { addDays, endOfDay } from "date-fns";
 import { config } from "../config";
 import { deduplicateById } from "../shared/deduplication";
 import { formatError } from "../shared/errors";
-import { logger } from "../shared/logger";
 import {
   fetchRealSoccerEvents,
   fetchSoccerShowAllOdds,
@@ -26,6 +25,7 @@ import type { DebugFixturesFetchResult } from "./debug-fetch";
 
 const PROVIDER_NAME: Provider = "saba-sportsbook";
 
+const SABA_FOOTBALL_GAME_ID = 1;
 const VIRTUAL_SOCCER_LEAGUE_GROUP_IDS = new Set([42, 113, 252]);
 const SABA_KICKOFF_OFFSET_MS = 4 * 60 * 60 * 1000;
 const SPECIAL_SOCCER_LEAGUE_SUFFIX_RE =
@@ -71,6 +71,8 @@ function transformMatch(
   match: SabaMatch,
   data: SabaShowAllOddsData,
 ): NormalizedEvent | null {
+  if (match.GameID !== SABA_FOOTBALL_GAME_ID) return null;
+
   const homeTeam = cleanName(data.TeamN?.[String(match.TeamId1)]);
   const awayTeam = cleanName(data.TeamN?.[String(match.TeamId2)]);
   const competition = cleanName(data.LeagueN?.[String(match.LeagueId)]);
@@ -115,19 +117,14 @@ export const sabaSportsbookAdapter: ProviderAdapter = {
   name: PROVIDER_NAME,
 
   async fetchEvents(): Promise<NormalizedEvent[]> {
-    try {
-      const { upcoming, today, live } = await fetchRealSoccerEvents();
-      return filterToConfiguredFixtureWindow(
-        deduplicateById([
-          ...transformResponse(upcoming),
-          ...transformResponse(today),
-          ...transformResponse(live),
-        ]),
-      );
-    } catch (err) {
-      logger.warn("SABA", `fetchEvents error: ${formatError(err)}`);
-      return [];
-    }
+    const { upcoming, today, live } = await fetchRealSoccerEvents();
+    return filterToConfiguredFixtureWindow(
+      deduplicateById([
+        ...transformResponse(upcoming),
+        ...transformResponse(today),
+        ...transformResponse(live),
+      ]),
+    );
   },
 };
 

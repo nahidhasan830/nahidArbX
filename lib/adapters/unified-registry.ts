@@ -68,6 +68,7 @@ import { NineWicketsExchangeAtomsAdapter } from "../atoms/adapters/ninewickets-e
 import { NineWicketsSportsbookAtomsAdapter } from "../atoms/adapters/ninewickets-sportsbook";
 import { BetConstructAtomsAdapter } from "../atoms/adapters/betconstruct";
 import { VelkiSportsbookAtomsAdapter } from "../atoms/adapters/velki-sportsbook";
+import { SabaSportsbookAtomsAdapter } from "../atoms/adapters/saba-sportsbook";
 
 // ============================================
 // Adapter Instances
@@ -78,6 +79,7 @@ const nwExchangeAtomsAdapter = new NineWicketsExchangeAtomsAdapter();
 const nwSportsbookAtomsAdapter = new NineWicketsSportsbookAtomsAdapter();
 const betconstructAtomsAdapter = new BetConstructAtomsAdapter();
 const velkiSportsbookAtomsAdapter = new VelkiSportsbookAtomsAdapter();
+const sabaSportsbookAtomsAdapter = new SabaSportsbookAtomsAdapter();
 
 // ============================================
 // Registry
@@ -111,6 +113,7 @@ const ADAPTERS: Partial<Record<ProviderKey, ProviderAdapters>> = {
   },
   "saba-sportsbook": {
     events: sabaSportsbookAdapter,
+    atoms: sabaSportsbookAtomsAdapter,
   },
 };
 

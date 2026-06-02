@@ -71,6 +71,12 @@ export async function embedBatch(
 ): Promise<(number[] | null)[]> {
   if (texts.length === 0) return [];
 
+  const normalizedTexts = texts.map((text) => text.trim());
+  const nonEmptyIndexes = normalizedTexts
+    .map((text, index) => ({ text, index }))
+    .filter(({ text }) => text.length > 0);
+  if (nonEmptyIndexes.length === 0) return texts.map(() => null);
+
   const project = getProjectId();
   const region = getRegion();
 
@@ -83,10 +89,10 @@ export async function embedBatch(
   }
 
   const BATCH_LIMIT = 250;
-  if (texts.length > BATCH_LIMIT) {
+  if (nonEmptyIndexes.length > BATCH_LIMIT) {
     logger.warn(
       tag,
-      `Batch size ${texts.length} exceeds limit ${BATCH_LIMIT} — splitting`,
+      `Batch size ${nonEmptyIndexes.length} exceeds limit ${BATCH_LIMIT} — splitting`,
     );
     const chunks: (number[] | null)[][] = [];
     for (let i = 0; i < texts.length; i += BATCH_LIMIT) {
@@ -108,7 +114,7 @@ export async function embedBatch(
 
   try {
     // Vertex AI text embeddings API format
-    const instances = texts.map((text) => ({ content: text }));
+    const instances = nonEmptyIndexes.map(({ text }) => ({ content: text }));
 
     const res = await fetch(url, {
       method: "POST",
@@ -132,21 +138,26 @@ export async function embedBatch(
       predictions?: Array<{ embeddings?: { values?: number[] } }>;
     };
 
-    if (!data.predictions || data.predictions.length !== texts.length) {
+    if (
+      !data.predictions ||
+      data.predictions.length !== nonEmptyIndexes.length
+    ) {
       logger.warn(
         tag,
-        `Expected ${texts.length} predictions, got ${data.predictions?.length || 0}`,
+        `Expected ${nonEmptyIndexes.length} predictions, got ${data.predictions?.length || 0}`,
       );
       return texts.map(() => null);
     }
 
-    return data.predictions.map((pred) => {
+    const output = texts.map((): number[] | null => null);
+    data.predictions.forEach((pred, predictionIndex) => {
       const values = pred.embeddings?.values;
       if (!values || values.length !== EMBEDDING_DIM) {
-        return null;
+        return;
       }
-      return values;
+      output[nonEmptyIndexes[predictionIndex].index] = values;
     });
+    return output;
   } catch (err) {
     logger.warn(tag, `Embedding batch failed: ${(err as Error).message}`);
     return texts.map(() => null);

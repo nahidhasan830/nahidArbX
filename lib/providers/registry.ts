@@ -270,7 +270,7 @@ export const PROVIDER_REGISTRY = {
       chartHex: "#2dd4bf",
     },
     requiresAuth: true,
-    enabled: false,
+    enabled: true,
     commissionPct: 0,
     fetch: { concurrency: 30 },
   },

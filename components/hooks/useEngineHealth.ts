@@ -11,6 +11,19 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+export interface ProviderRuntimeHealth {
+  enabled: boolean;
+  kind: "polling" | "websocket" | "managed" | string;
+  platform: string | null;
+  status: string;
+  lastFetch: string | null;
+  error: string | null;
+  connected: boolean | null;
+  activeEvents: number | null;
+  pendingRequests: number | null;
+  circuitBreaker: { state: string; failures: number } | null;
+}
+
 export interface EngineStatus {
   pinnacleWs: {
     connected: boolean;
@@ -19,7 +32,15 @@ export interface EngineStatus {
   pollingLoops: {
     ninewickets: number;
     velki: number;
+    saba?: number;
+    [providerId: string]: number | undefined;
   };
+  saba?: {
+    connected: boolean;
+    activeEvents: number;
+    pendingRequests: number;
+  };
+  providerRuntime?: Record<string, ProviderRuntimeHealth>;
   detector: {
     running: boolean;
     totalPasses: number;

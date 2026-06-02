@@ -39,6 +39,31 @@ function vectorScore(a: number[] | null, b: number[] | null): number | null {
   return clamp01((cosineSimilarity(a, b) + 1) / 2);
 }
 
+function embeddingText(value: string): string | null {
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
+async function scoreEmbeddingPairs(
+  pairs: Array<[string | null, string | null]>,
+): Promise<Array<number | null> | null> {
+  const texts = [
+    ...new Set(
+      pairs.flatMap(([a, b]) => (a && b ? [a, b] : [])),
+    ),
+  ];
+  if (texts.length === 0) return null;
+
+  const embeddings = await embedBatch(texts);
+  if (!embeddings) return null;
+
+  return pairs.map(([a, b]) =>
+    a && b
+      ? vectorScore(embeddings.get(a) ?? null, embeddings.get(b) ?? null)
+      : null,
+  );
+}
+
 function providerPair(a: string, b: string): string {
   return [a, b].sort().join("__");
 }
@@ -131,39 +156,24 @@ export async function scoreCandidate(
   let embeddingTeam: number | null = null;
   let embeddingCompetition: number | null = null;
   if (config.embeddingEnabled) {
-    const texts =
+    const pairs: Array<[string | null, string | null]> =
       orientation === "same"
         ? [
-            a.homeTeamRaw,
-            b.homeTeamRaw,
-            a.awayTeamRaw,
-            b.awayTeamRaw,
-            a.competitionRaw,
-            b.competitionRaw,
+            [embeddingText(a.homeTeamRaw), embeddingText(b.homeTeamRaw)],
+            [embeddingText(a.awayTeamRaw), embeddingText(b.awayTeamRaw)],
+            [embeddingText(a.competitionRaw), embeddingText(b.competitionRaw)],
           ]
         : [
-            a.homeTeamRaw,
-            b.awayTeamRaw,
-            a.awayTeamRaw,
-            b.homeTeamRaw,
-            a.competitionRaw,
-            b.competitionRaw,
+            [embeddingText(a.homeTeamRaw), embeddingText(b.awayTeamRaw)],
+            [embeddingText(a.awayTeamRaw), embeddingText(b.homeTeamRaw)],
+            [embeddingText(a.competitionRaw), embeddingText(b.competitionRaw)],
           ];
-    const embeddings = await embedBatch(texts);
-    if (embeddings) {
-      const h = vectorScore(
-        embeddings.get(texts[0]) ?? null,
-        embeddings.get(texts[1]) ?? null,
-      );
-      const aw = vectorScore(
-        embeddings.get(texts[2]) ?? null,
-        embeddings.get(texts[3]) ?? null,
-      );
+    const scores = await scoreEmbeddingPairs(pairs);
+    if (scores) {
+      const h = scores[0];
+      const aw = scores[1];
       if (h !== null && aw !== null) embeddingTeam = (h + aw) / 2;
-      embeddingCompetition = vectorScore(
-        embeddings.get(texts[4]) ?? null,
-        embeddings.get(texts[5]) ?? null,
-      );
+      embeddingCompetition = scores[2];
     }
   }
 

@@ -206,6 +206,16 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
       [], // Empty = all soft providers
     );
 
+  useEffect(() => {
+    if (selectedSoftProvidersArray.length === 0) return;
+    const missing = PROVIDER_IDS.filter(
+      (id) => !selectedSoftProvidersArray.includes(id),
+    );
+    if (missing.length > 0) {
+      setSelectedSoftProvidersArray((prev) => [...prev, ...missing]);
+    }
+  }, [selectedSoftProvidersArray, setSelectedSoftProvidersArray]);
+
   // User-saved defaults (null = use system defaults)
   const [savedDefaults, setSavedDefaults] =
     useLocalStorage<SavedDefaults | null>("bulk-analysis-user-defaults", null);

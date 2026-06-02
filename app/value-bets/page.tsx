@@ -5,7 +5,12 @@ import { useDebouncedValue } from "@/components/hooks/useDebouncedValue";
 import { ValueBetSpreadsheet } from "@/components/spreadsheet/ValueBetSpreadsheet";
 import { useBulkAnalysisPreferences } from "@/components/hooks/useBulkAnalysisPreferences";
 import { useInfiniteEvents } from "@/components/hooks/useInfiniteEvents";
-import { PROVIDER_IDS } from "@/lib/providers/registry";
+import {
+  PROVIDER_IDS,
+  PROVIDER_REGISTRY,
+  type ProviderMetadata,
+  type ProviderKey,
+} from "@/lib/providers/registry";
 import { useEventStream } from "@/components/hooks/useEventStream";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,6 +31,7 @@ import { useAuth, Feature } from "@/components/auth/AuthProvider";
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
 import {
   useEngineHealth,
+  type ConnectionHealth,
   type EngineStatus,
 } from "@/components/hooks/useEngineHealth";
 import { AppShell } from "@/components/nav/AppShell";
@@ -36,6 +42,225 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+type ProviderHealthEntry = {
+  status?: string;
+  error?: string | null;
+};
+
+type ProviderCircuitBreaker = {
+  state: string;
+  failures: number;
+};
+
+type ProviderRuntimeView = {
+  id: ProviderKey;
+  enabled: boolean;
+  connected: boolean | null;
+  activeEvents: number | null;
+  pendingRequests: number | null;
+  status: string;
+  error: string | null;
+  circuitBreaker: ProviderCircuitBreaker | null;
+};
+
+function providerMeta(id: ProviderKey): ProviderMetadata {
+  return PROVIDER_REGISTRY[id] as ProviderMetadata;
+}
+
+function providerStatusEntry(
+  connectionHealth: ConnectionHealth | null | undefined,
+  id: ProviderKey,
+): ProviderHealthEntry | undefined {
+  return connectionHealth?.[id] as ProviderHealthEntry | undefined;
+}
+
+function legacyActiveEvents(
+  engine: EngineStatus | undefined,
+  id: ProviderKey,
+): number | null {
+  if (!engine) return null;
+  if (id === "pinnacle") return engine.pinnacleWs?.subscribedEvents ?? null;
+  if (id === "ninewickets-sportsbook") {
+    return engine.pollingLoops?.ninewickets ?? null;
+  }
+  if (id === "velki-sportsbook") return engine.pollingLoops?.velki ?? null;
+  if (id === "saba-sportsbook") {
+    return engine.pollingLoops?.saba ?? engine.saba?.activeEvents ?? null;
+  }
+  return null;
+}
+
+function legacyConnected(
+  engine: EngineStatus | undefined,
+  connectionHealth: ConnectionHealth | null | undefined,
+  id: ProviderKey,
+  activeEvents: number | null,
+): boolean | null {
+  if (id === "pinnacle") return engine?.pinnacleWs?.connected ?? null;
+  if (id === "betconstruct") {
+    return connectionHealth?.betconstruct?.connected ?? null;
+  }
+  if (id === "saba-sportsbook") return engine?.saba?.connected ?? null;
+  if (activeEvents !== null) return activeEvents > 0;
+  return null;
+}
+
+function getProviderRuntimeView(
+  id: ProviderKey,
+  engine: EngineStatus | undefined,
+  connectionHealth: ConnectionHealth | null | undefined,
+  isRuntimeEnabled?: (id: ProviderKey) => boolean,
+): ProviderRuntimeView {
+  const runtime = engine?.providerRuntime?.[id];
+  const statusEntry = providerStatusEntry(connectionHealth, id);
+  const activeEvents =
+    runtime?.activeEvents ?? legacyActiveEvents(engine, id);
+  const connected =
+    runtime?.connected ??
+    legacyConnected(engine, connectionHealth, id, activeEvents);
+  const circuitBreaker =
+    runtime?.circuitBreaker ?? engine?.circuitBreakers?.[id] ?? null;
+  const error =
+    runtime?.error ??
+    (statusEntry?.status === "error" ? statusEntry.error ?? "Error" : null);
+
+  return {
+    id,
+    enabled: runtime?.enabled ?? isRuntimeEnabled?.(id) ?? true,
+    connected,
+    activeEvents,
+    pendingRequests: runtime?.pendingRequests ?? null,
+    status: runtime?.status ?? statusEntry?.status ?? "unknown",
+    error,
+    circuitBreaker,
+  };
+}
+
+function providerNetworkAction(id: ProviderKey): string {
+  if (id.includes("ninewickets") || id.includes("velki")) {
+    return "Check Bangladesh VPN/network — this provider requires Bangladesh IP";
+  }
+  return "Check provider credentials and network connectivity";
+}
+
+function providerStatusText(view: ProviderRuntimeView): string {
+  const meta = providerMeta(view.id);
+  const cbOpen = view.circuitBreaker?.state === "open";
+  const activeEvents = view.activeEvents ?? 0;
+  const source = meta.integration.dataSourceLabel ?? meta.displayName;
+  const unit = activeEvents === 1 ? "event" : "events";
+
+  if (cbOpen) {
+    return `${meta.displayName} circuit breaker OPEN — ${view.error ?? "fetching blocked"}. Click Reset to retry.`;
+  }
+  if (view.error) return `${meta.displayName} error — ${view.error}`;
+
+  if (meta.integration.kind === "websocket") {
+    if (view.connected) {
+      return activeEvents > 0
+        ? `${source} connected — ${activeEvents} ${unit} subscribed`
+        : `${source} connected`;
+    }
+    return `${source} connecting…`;
+  }
+
+  if (meta.integration.kind === "managed") {
+    if (view.connected) return `${meta.displayName} session active`;
+    return `${meta.displayName} session connecting…`;
+  }
+
+  if (activeEvents > 0) {
+    return `${source} — ${activeEvents} active ${unit}`;
+  }
+  if (view.connected) return `${source} connected — waiting for matched fixtures`;
+  return `${meta.displayName} waiting for matched fixtures…`;
+}
+
+function ProviderStatusChip({
+  view,
+  resetting,
+  onReset,
+}: {
+  view: ProviderRuntimeView;
+  resetting: boolean;
+  onReset: (providerId: ProviderKey) => void;
+}) {
+  const meta = providerMeta(view.id);
+  const cbOpen = view.circuitBreaker?.state === "open";
+  const hasError = view.status === "error" || view.error !== null;
+  const activeEvents = view.activeEvents ?? 0;
+  const healthy =
+    !cbOpen &&
+    !hasError &&
+    (view.connected === true || activeEvents > 0 || view.status === "ok");
+  const waiting = !cbOpen && !hasError && !healthy;
+  const isWebSocket = meta.integration.kind === "websocket";
+  const statusColor = cbOpen || hasError ? "red" : healthy ? "green" : "amber";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
+          {isWebSocket ? (
+            healthy ? (
+              <Wifi className="w-3 h-3 text-green-500" />
+            ) : (
+              <WifiOff
+                className={cn(
+                  "w-3 h-3",
+                  statusColor === "red"
+                    ? "text-red-500 animate-pulse"
+                    : "text-amber-400 animate-pulse",
+                )}
+              />
+            )
+          ) : (
+            <span
+              className={cn(
+                "w-1.5 h-1.5 rounded-full",
+                statusColor === "green" && "bg-green-500",
+                statusColor === "red" && "bg-red-500 animate-pulse",
+                statusColor === "amber" && "bg-amber-400 animate-pulse",
+              )}
+            />
+          )}
+          <span
+            className={cn(
+              "text-[10px] tabular-nums min-w-[3ch]",
+              cbOpen || hasError ? "text-red-400" : "text-muted-foreground",
+            )}
+          >
+            {meta.shortName}
+          </span>
+          {cbOpen ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onReset(view.id);
+              }}
+              disabled={resetting}
+              className="text-[9px] px-1 py-px rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+            >
+              {resetting ? "…" : "Reset"}
+            </button>
+          ) : activeEvents > 0 ? (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              ({activeEvents})
+            </span>
+          ) : waiting && view.pendingRequests && view.pendingRequests > 0 ? (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              ({view.pendingRequests})
+            </span>
+          ) : null}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{providerStatusText(view)}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 // ============================================
 // Engine Status Bar — top-right header strip
 // ============================================
@@ -44,35 +269,15 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
   const { data: connectionHealth, refetch: refetchHealth } = useEngineHealth();
   const providerRuntime = useProviderRuntimeState();
   const engine = connectionHealth?.engine as EngineStatus | undefined;
-  const [resetting, setResetting] = useState<string | null>(null);
+  const [resetting, setResetting] = useState<ProviderKey | null>(null);
 
   // Don't evaluate provider-specific indicators while provider state is loading
   // — otherwise all providers appear "enabled" before the real state arrives.
   const providerStateReady = !providerRuntime.isLoading;
 
-  // Pinnacle WS status
-  const pinnacleEnabled =
-    providerStateReady && providerRuntime.isEnabled("pinnacle");
-  const wsConnected = engine?.pinnacleWs?.connected ?? false;
-  const wsEvents = engine?.pinnacleWs?.subscribedEvents ?? 0;
-
-  // Circuit breaker lookup helper
-  const cbState = (id: string): string =>
-    engine?.circuitBreakers?.[id]?.state ?? "closed";
-
-  // Provider error status from connectionHealth (top-level per-provider entries)
-  const providerError = (id: string): string | null => {
-    const entry = connectionHealth?.[id] as
-      | { status?: string; error?: string | null }
-      | undefined;
-    if (!entry) return null;
-    if (entry.status === "error") return entry.error ?? "Error";
-    return null;
-  };
-
   // Reset a circuit breaker via POST /api/health
   const resetCb = useCallback(
-    async (providerId: string) => {
+    async (providerId: ProviderKey) => {
       setResetting(providerId);
       try {
         await fetch("/api/health", {
@@ -94,26 +299,20 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
     [refetchHealth],
   );
 
-  // 9W/Velki polling loop counts + circuit breaker health
-  const nwEnabled =
-    providerStateReady && providerRuntime.isEnabled("ninewickets-sportsbook");
-  const velkiEnabled =
-    providerStateReady && providerRuntime.isEnabled("velki-sportsbook");
-  const nwLoops = engine?.pollingLoops?.ninewickets ?? 0;
-  const velkiLoops = engine?.pollingLoops?.velki ?? 0;
-  const nwCbOpen = cbState("ninewickets-sportsbook") === "open";
-  const velkiCbOpen = cbState("velki-sportsbook") === "open";
-  const nwError = providerError("ninewickets-sportsbook");
-  const velkiError = providerError("velki-sportsbook");
-
-  // Determine 9W/VK health: circuit-breaker-open or provider-error → unhealthy
-  const nwHealthy = nwLoops > 0 && !nwCbOpen && !nwError;
-  const velkiHealthy = velkiLoops > 0 && !velkiCbOpen && !velkiError;
-
-  // BetConstruct session health
-  const bcEnabled =
-    providerStateReady && providerRuntime.isEnabled("betconstruct");
-  const bcConnected = connectionHealth?.betconstruct?.connected ?? false;
+  const providerViews = providerStateReady
+    ? PROVIDER_IDS.map((id) =>
+        getProviderRuntimeView(
+          id,
+          engine,
+          connectionHealth,
+          providerRuntime.isEnabled,
+        ),
+      ).filter(
+        (view) =>
+          view.enabled &&
+          providerMeta(view.id).integration.contributesToDataHealth !== false,
+      )
+    : [];
 
   // Reactive detector
   const detectorRunning = engine?.detector?.running ?? false;
@@ -171,163 +370,14 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
 
         <Separator />
 
-        {/* Pinnacle WebSocket */}
-        {pinnacleEnabled && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
-                {wsConnected ? (
-                  <Wifi className="w-3 h-3 text-green-500" />
-                ) : (
-                  <WifiOff className="w-3 h-3 text-amber-400 animate-pulse" />
-                )}
-                <span className="text-[10px] text-muted-foreground tabular-nums min-w-[3ch]">
-                  PIN
-                </span>
-                {wsConnected && (
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    ({wsEvents})
-                  </span>
-                )}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {wsConnected
-                ? `Pinnacle WebSocket connected — ${wsEvents} events subscribed`
-                : "Pinnacle WebSocket connecting…"}
-            </TooltipContent>
-          </Tooltip>
-        )}
-
-        {/* BetConstruct */}
-        {bcEnabled && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
-                <span
-                  className={cn(
-                    "w-1.5 h-1.5 rounded-full",
-                    bcConnected ? "bg-green-500" : "bg-amber-400 animate-pulse",
-                  )}
-                />
-                <span className="text-[10px] text-muted-foreground">BC</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {bcConnected
-                ? "BetConstruct session active"
-                : "BetConstruct session connecting…"}
-            </TooltipContent>
-          </Tooltip>
-        )}
-
-        {/* 9W Polling */}
-        {nwEnabled && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
-                <span
-                  className={cn(
-                    "w-1.5 h-1.5 rounded-full",
-                    nwHealthy
-                      ? "bg-green-500"
-                      : nwCbOpen
-                        ? "bg-red-500 animate-pulse"
-                        : "bg-amber-400 animate-pulse",
-                  )}
-                />
-                <span
-                  className={cn(
-                    "text-[10px] tabular-nums min-w-[3ch]",
-                    nwCbOpen ? "text-red-400" : "text-muted-foreground",
-                  )}
-                >
-                  9W
-                </span>
-                {nwCbOpen ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      resetCb("ninewickets-sportsbook");
-                    }}
-                    disabled={resetting === "ninewickets-sportsbook"}
-                    className="text-[9px] px-1 py-px rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
-                  >
-                    {resetting === "ninewickets-sportsbook" ? "…" : "Reset"}
-                  </button>
-                ) : nwLoops > 0 ? (
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    ({nwLoops})
-                  </span>
-                ) : null}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {nwCbOpen
-                ? `NineWickets circuit breaker OPEN — ${nwError ?? "fetching blocked"}. Click Reset to retry.`
-                : nwError
-                  ? `NineWickets error — ${nwError}`
-                  : nwLoops > 0
-                    ? `NineWickets polling — ${nwLoops} active loops (1.5s interval)`
-                    : "NineWickets waiting for matched fixtures…"}
-            </TooltipContent>
-          </Tooltip>
-        )}
-
-        {/* Velki Polling */}
-        {velkiEnabled && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
-                <span
-                  className={cn(
-                    "w-1.5 h-1.5 rounded-full",
-                    velkiHealthy
-                      ? "bg-green-500"
-                      : velkiCbOpen
-                        ? "bg-red-500 animate-pulse"
-                        : "bg-amber-400 animate-pulse",
-                  )}
-                />
-                <span
-                  className={cn(
-                    "text-[10px] tabular-nums min-w-[3ch]",
-                    velkiCbOpen ? "text-red-400" : "text-muted-foreground",
-                  )}
-                >
-                  VK
-                </span>
-                {velkiCbOpen ? (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      resetCb("velki-sportsbook");
-                    }}
-                    disabled={resetting === "velki-sportsbook"}
-                    className="text-[9px] px-1 py-px rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
-                  >
-                    {resetting === "velki-sportsbook" ? "…" : "Reset"}
-                  </button>
-                ) : velkiLoops > 0 ? (
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    ({velkiLoops})
-                  </span>
-                ) : null}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {velkiCbOpen
-                ? `Velki circuit breaker OPEN — ${velkiError ?? "fetching blocked"}. Click Reset to retry.`
-                : velkiError
-                  ? `Velki error — ${velkiError}`
-                  : velkiLoops > 0
-                    ? `Velki polling — ${velkiLoops} active loops (1.5s interval)`
-                    : "Velki waiting for matched fixtures…"}
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {providerViews.map((view) => (
+          <ProviderStatusChip
+            key={view.id}
+            view={view}
+            resetting={resetting === view.id}
+            onReset={resetCb}
+          />
+        ))}
 
         <Separator />
 
@@ -386,7 +436,7 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 {matchedDegraded
-                  ? `No matched events — ${totalEvents} events from Pinnacle only, no cross-provider odds available. Check 9W/VK connections.`
+                  ? `No matched events — ${totalEvents} events loaded, no cross-provider odds available. Check enabled soft-provider connections.`
                   : `${matchedCount} of ${totalEvents} events matched across multiple providers`}
               </TooltipContent>
             </Tooltip>
@@ -420,10 +470,22 @@ function EngineBootStatus() {
   const elapsed = elapsedSec > 0 ? `${elapsedSec}s` : "";
 
   // Determine boot stage from engine telemetry
-  const wsConnected = engine?.pinnacleWs?.connected ?? false;
-  const wsEvents = engine?.pinnacleWs?.subscribedEvents ?? 0;
-  const nwLoops = engine?.pollingLoops?.ninewickets ?? 0;
-  const velkiLoops = engine?.pollingLoops?.velki ?? 0;
+  const providerViews = engine
+    ? PROVIDER_IDS.map((id) =>
+        getProviderRuntimeView(id, engine, connectionHealth),
+      ).filter(
+        (view) =>
+          view.enabled &&
+          providerMeta(view.id).integration.contributesToDataHealth !== false,
+      )
+    : [];
+  const activeProviderViews = providerViews.filter(
+    (view) =>
+      view.connected === true ||
+      (view.activeEvents ?? 0) > 0 ||
+      view.status === "ok",
+  );
+  const hasActiveDataSource = activeProviderViews.length > 0;
   const detectorRunning = engine?.detector?.running ?? false;
   const totalPasses = engine?.detector?.totalPasses ?? 0;
 
@@ -447,12 +509,7 @@ function EngineBootStatus() {
       subtitle: "Starting sync services and data sources",
       detail: elapsed,
     };
-  } else if (
-    !wsConnected &&
-    wsEvents === 0 &&
-    nwLoops === 0 &&
-    velkiLoops === 0
-  ) {
+  } else if (!hasActiveDataSource) {
     stage = {
       icon: <Database className="w-6 h-6 text-primary animate-pulse" />,
       title: "Fetching fixtures",
@@ -461,10 +518,13 @@ function EngineBootStatus() {
       detail: `This usually takes 1–2 minutes · ${elapsed}`,
     };
   } else if (!detectorRunning) {
-    const sources: string[] = [];
-    if (wsConnected) sources.push(`WS (${wsEvents} events)`);
-    if (nwLoops > 0) sources.push(`9W (${nwLoops} loops)`);
-    if (velkiLoops > 0) sources.push(`VK (${velkiLoops} loops)`);
+    const sources = activeProviderViews.map((view) => {
+      const activeEvents = view.activeEvents ?? 0;
+      if (activeEvents > 0) {
+        return `${providerMeta(view.id).shortName} (${activeEvents})`;
+      }
+      return providerMeta(view.id).shortName;
+    });
     stage = {
       icon: <Activity className="w-6 h-6 text-amber-400 animate-pulse" />,
       title: "Starting reactive detector",
@@ -504,31 +564,28 @@ function EngineBootStatus() {
 
         {/* Mini subsystem dots during boot */}
         {connectionHealth && engine && (
-          <div className="flex items-center justify-center gap-3 pt-2">
-            <SubsystemDot
-              label="WS"
-              ok={wsConnected}
-              detail={wsConnected ? `${wsEvents} events` : "connecting"}
-            />
-            <SubsystemDot
-              label="BC"
-              ok={connectionHealth.betconstruct?.connected ?? false}
-              detail={
-                connectionHealth.betconstruct?.connected
-                  ? "active"
-                  : "connecting"
-              }
-            />
-            <SubsystemDot
-              label="9W"
-              ok={nwLoops > 0}
-              detail={nwLoops > 0 ? `${nwLoops} loops` : "waiting"}
-            />
-            <SubsystemDot
-              label="VK"
-              ok={velkiLoops > 0}
-              detail={velkiLoops > 0 ? `${velkiLoops} loops` : "waiting"}
-            />
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            {providerViews.map((view) => {
+              const activeEvents = view.activeEvents ?? 0;
+              const ok =
+                view.connected === true ||
+                activeEvents > 0 ||
+                view.status === "ok";
+              const detail =
+                activeEvents > 0
+                  ? `${activeEvents} events`
+                  : ok
+                    ? "active"
+                    : "waiting";
+              return (
+                <SubsystemDot
+                  key={view.id}
+                  label={providerMeta(view.id).shortName}
+                  ok={ok}
+                  detail={detail}
+                />
+              );
+            })}
             <SubsystemDot
               label="Detector"
               ok={detectorRunning}
@@ -705,40 +762,29 @@ export default function AdminPage() {
   // Degraded providers: circuit breaker open or provider status=error.
   // This tells the spreadsheet empty state WHY there's no data.
   const degradedProviders = useMemo(() => {
-    if (!engineStatus?.circuitBreakers || !engineHealth) return [];
+    if (!engineStatus || !engineHealth) return [];
     const result: {
       id: string;
       label: string;
       reason: string;
       action: string;
     }[] = [];
-    const cbMap: Record<string, string> = {
-      "ninewickets-sportsbook": "9Wickets",
-      "velki-sportsbook": "Velki",
-      pinnacle: "Pinnacle",
-      betconstruct: "BetConstruct",
-    };
-    for (const [id, label] of Object.entries(cbMap)) {
-      const cb = engineStatus.circuitBreakers?.[id];
-      const provEntry = engineHealth[id] as
-        | { status?: string; error?: string | null }
-        | undefined;
-      if (cb?.state === "open") {
-        const errorMsg = provEntry?.error ?? "Too many consecutive failures";
+    for (const id of PROVIDER_IDS) {
+      const view = getProviderRuntimeView(id, engineStatus, engineHealth);
+      if (!view.enabled) continue;
+
+      if (view.circuitBreaker?.state === "open") {
         result.push({
           id,
-          label,
-          reason: errorMsg,
-          action:
-            id.includes("ninewickets") || id.includes("velki")
-              ? "Check Bangladesh VPN/network — these providers require Bangladesh IP"
-              : "Check provider credentials and network connectivity",
+          label: providerMeta(id).displayName,
+          reason: view.error ?? "Too many consecutive failures",
+          action: providerNetworkAction(id),
         });
-      } else if (provEntry?.status === "error" && provEntry.error) {
+      } else if (view.status === "error" && view.error) {
         result.push({
           id,
-          label,
-          reason: provEntry.error,
+          label: providerMeta(id).displayName,
+          reason: view.error,
           action: "Check engine logs for details",
         });
       }

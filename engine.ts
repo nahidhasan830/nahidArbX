@@ -68,6 +68,7 @@ async function main() {
     { startResolverCacheListener, isResolverCacheListenerActive },
     { pinnacleSyncService },
     { geniusSportsSyncService },
+    { sabaSyncService },
     { betconstructSyncService },
     { startReactiveDetector, stopReactiveDetector },
     { getRuntimeEnabledProviderIds, isProviderRuntimeEnabled },
@@ -82,6 +83,7 @@ async function main() {
     import("./lib/matching/entities/resolver"),
     import("./lib/services/pinnacle-sync-service"),
     import("./lib/services/genius-sports-sync-service"),
+    import("./lib/services/saba-sync-service"),
     import("./lib/services/betconstruct-sync-service"),
     import("./lib/background/reactive-detector"),
     import("./lib/providers/runtime-state"),
@@ -149,6 +151,13 @@ async function main() {
 
   geniusSportsSyncService.start();
   logger.info("Boot", "Genius Sports continuous polling sync service started");
+
+  if (isProviderRuntimeEnabled("saba-sportsbook")) {
+    sabaSyncService.start();
+    logger.info("Boot", "SABA Socket.IO odds sync service started");
+  } else {
+    logger.info("Boot", "SABA provider disabled — skipping odds sync service");
+  }
 
   if (isProviderRuntimeEnabled("betconstruct")) {
     betconstructSyncService.start();
@@ -294,6 +303,7 @@ async function main() {
       }
       pinnacleSyncService.stop();
       geniusSportsSyncService.stop();
+      sabaSyncService.stop();
       if (isProviderRuntimeEnabled("betconstruct")) {
         betconstructSyncService.stop();
       }

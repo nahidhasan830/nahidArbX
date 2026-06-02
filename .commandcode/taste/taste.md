@@ -44,3 +44,31 @@
 - npm run dev:all must start both the Next.js dev server and the engine background process together. Confidence: 0.80
 - Prefer aggressive refactoring: when stale code or files are found during cleanup, delete them entirely rather than preserving them. Confidence: 0.75
 - No database backups needed before destructive operations — clean everything directly. Solo developer workflow on main branch only. Confidence: 0.80
+- Execute tasks autonomously without asking for confirmation on every step. When given authority to "do yourself" or "go implement", proceed with full implementation including restarts, migrations, and testing. Confidence: 0.70
+
+# communication
+
+- Provide visual explanations (mermaid diagrams, text-based flowcharts) for complex system flows. When user asks to "visualize" or understand flow, create clear step-by-step diagrams. Confidence: 0.80
+- Use skills $design-taste-frontend and $redesign-existing-projects for all UI/UX design and redesign tasks. Do not design UI without invoking these skills first. Confidence: 0.85
+
+# ui-ux
+See [ui-ux/taste.md](ui-ux/taste.md)
+# event-matcher
+
+- Use DeepSeek with search grounding as the primary AI approach for fixture matching decisions. Pass full search results to DeepSeek without truncation for residual review. Confidence: 0.80
+- Require exact kickoff time matching (not windows) for fixture matching candidates. Kickoff times must match precisely to be considered for review. Confidence: 0.85
+- Apply strict matching criteria: exact kickoff time PLUS at least 2 of 3 similarities (league name, team A, team B) required for candidate consideration. Confidence: 0.75
+
+# architecture
+
+- For ML dashboard: use panels/ and tabs/ architecture. Preserve AnalysisModal and related analysis components when refactoring; do not delete entire dashboard/ directory blindly. Confidence: 0.80
+- Eliminate Python service dependencies — build services in Node.js and use cloud-managed inference (Vertex AI, DeepSeek API) instead of self-hosted Python. Confidence: 0.75
+- Use a central single source of truth for provider configuration so that adding a new provider auto-reflects everywhere (appshell, value bets, dashboards, etc.) without manual updates in each consumer. Confidence: 0.80
+
+# mcp-management
+
+- Remove MCP servers globally from all configurations when they're no longer needed (puppeteer, magic, memory, postgres). Clean up all references in global config files, not just local project. Confidence: 0.85
+
+# testing
+
+- Never open a browser for testing. Use direct API calls from client-side for debugging data issues. Avoid Playwright/Puppeteer for testing purposes. Confidence: 0.80

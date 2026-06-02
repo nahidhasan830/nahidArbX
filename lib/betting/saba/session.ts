@@ -3,8 +3,7 @@
  *
  * SABA uses the same BetConstruct-style login envelope as 9W:
  * POST /api/bt/v2_1/user/login returns a main-site accessToken. The
- * provider launch/JSESSIONID step is intentionally left for the next
- * integration phase.
+ * provider launch URL opens SABA's football board.
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -27,17 +26,24 @@ const REFRESH_BUFFER_MS = 10 * 60 * 1000;
 const SABA_SITE_URL = "https://fwjili.com/bd/bn";
 const SABA_LOGIN_URL = "https://fwjili.com/api/bt/v2_1/user/login";
 
+function readFancyWinCredentials(): { username: string; password: string } {
+  const username = process.env.FANCYWIN_USERNAME ?? process.env.SABA_USERNAME;
+  const password = process.env.FANCYWIN_PASSWORD ?? process.env.SABA_PASSWORD;
+  if (!username || !password) {
+    throw new Error(
+      "FANCYWIN_USERNAME / FANCYWIN_PASSWORD missing from .env",
+    );
+  }
+  return { username, password };
+}
+
 const bridge = createCloudflareBridge({
   browserKey: "saba.session",
   siteUrl: SABA_SITE_URL,
   loginUrl: SABA_LOGIN_URL,
 
   buildLoginBody: () => {
-    const userId = process.env.SABA_USERNAME;
-    const password = process.env.SABA_PASSWORD;
-    if (!userId || !password) {
-      throw new Error("SABA_USERNAME / SABA_PASSWORD missing from .env");
-    }
+    const { username: userId, password } = readFancyWinCredentials();
     return buildBetconstructLoginBody({
       languageTypeId: 8,
       currencyTypeId: 8,
@@ -56,8 +62,8 @@ const bridge = createCloudflareBridge({
     gameTypeId: 64,
     vendorCode: "Saba",
     isDesktop: 1,
-    gameCode: "161",
-    extraData: "161",
+    gameCode: "1",
+    extraData: "1",
   }),
 
   processGameUrlResult: async (json) => {
@@ -97,10 +103,7 @@ export async function shutdownSessionBrowser(): Promise<void> {
 }
 
 export async function captureSession(): Promise<SabaSession> {
-  const username = process.env.SABA_USERNAME;
-  if (!username) {
-    throw new Error("SABA_USERNAME missing from .env");
-  }
+  const { username } = readFancyWinCredentials();
 
   const result: CaptureResult = await bridge.capture();
   const providerData = result.providerData as { gameUrl: string };
