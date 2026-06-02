@@ -41,6 +41,13 @@ function decimalValue(value: unknown): number | null {
   return Number(n.toFixed(3));
 }
 
+function sabaHomeHandicapLine(row: SabaDecodedRow): number | null {
+  const hdp1 = asNumber(row.hdp1);
+  if (hdp1 === null) return null;
+  const hdp2 = asNumber(row.hdp2) ?? 0;
+  return hdp2 - hdp1;
+}
+
 function rowMatchId(row: SabaDecodedRow): string | null {
   const value = row.matchid;
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -91,12 +98,12 @@ function handicapEntries(
   eventId: string,
   timestamp: number,
 ): NormalizedOddsEntry[] {
-  const line = asNumber(row.hdp1);
-  if (line === null) return [];
+  const homeRawLine = sabaHomeHandicapLine(row);
+  if (homeRawLine === null) return [];
 
   const suspended = isSuspended(row);
-  const homeLine = formatHandicapLine(-line);
-  const awayLine = formatHandicapLine(line);
+  const homeLine = formatHandicapLine(homeRawLine);
+  const awayLine = formatHandicapLine(-homeRawLine);
   const entries: NormalizedOddsEntry[] = [];
 
   pushEntry(

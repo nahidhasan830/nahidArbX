@@ -105,6 +105,80 @@ describe("SabaSportsbookAtomsAdapter", () => {
     ).toBeCloseTo(2.887, 3);
   });
 
+  it("does not collapse Saba away-favorite alternate handicaps into AH0", () => {
+    const adapter = new SabaSportsbookAtomsAdapter();
+
+    const count = adapter.processRawOdds(
+      {
+        rows: [
+          {
+            type: "o",
+            matchid: 128101855,
+            bettype: 1,
+            hdp1: 0,
+            hdp2: 0,
+            oddsstatus: "running",
+            enable: 1,
+            odds1a: 0.99,
+            odds2a: 0.91,
+          },
+          {
+            type: "o",
+            matchid: 128101855,
+            bettype: 1,
+            hdp1: 0,
+            hdp2: 0.5,
+            oddsstatus: "running",
+            enable: 1,
+            odds1a: 0.7,
+            odds2a: -0.8,
+          },
+        ],
+      },
+      {
+        providerEventId: "128101855",
+        normalizedEventId: "event-barracas-huracan",
+        homeTeam: "Barracas Central",
+        awayTeam: "Huracan",
+        options: {},
+      },
+    );
+
+    expect(count).toBe(4);
+    expect(
+      getOdds(
+        "event-barracas-huracan",
+        "ft_ah_0",
+        "ft_home_ah_0",
+        "saba-sportsbook",
+      )?.odds,
+    ).toBe(1.99);
+    expect(
+      getOdds(
+        "event-barracas-huracan",
+        "ft_ah_0",
+        "ft_away_ah_0",
+        "saba-sportsbook",
+      )?.odds,
+    ).toBe(1.91);
+    expect(
+      getOdds(
+        "event-barracas-huracan",
+        "ft_ah_p0_5",
+        "ft_home_ah_p0_5",
+        "saba-sportsbook",
+      )?.odds,
+    ).toBe(1.7);
+    expect(
+      getOdds(
+        "event-barracas-huracan",
+        "ft_ah_p0_5",
+        "ft_away_ah_m0_5",
+        "saba-sportsbook",
+      )?.odds,
+    ).toBe(2.25);
+  });
+
   it("maps each supported Saba football market to the expected atom family", () => {
     const adapter = new SabaSportsbookAtomsAdapter();
     const eventId = "event-supported-markets";
