@@ -1074,10 +1074,13 @@ function parseMatchVerdictFromRaw(input: {
   const uncertainties = stringArrayFromJsonValue(
     data?.uncertainties ?? data?.uncertainFacts ?? data?.unknowns,
   );
-  const evidenceAssessment =
-    evidenceAssessmentFromJsonValue(
-      data?.evidenceAssessment ?? data?.evidence_assessment,
-    ) ?? fallbackEvidenceAssessment(input.evidence, decision);
+  const rawEvidenceAssessment =
+    data?.evidenceAssessment ?? data?.evidence_assessment;
+  const evidenceAssessment = normalizeEvidenceAssessment(
+    evidenceAssessmentFromJsonValue(rawEvidenceAssessment) ??
+      fallbackEvidenceAssessment(input.evidence, decision, rawEvidenceAssessment),
+    input.evidence,
+  );
   const aliasEvidence = extractSourceBackedAliasEvidence(
     input.eventA,
     input.eventB,
@@ -1294,6 +1297,29 @@ function evidenceAssessmentFromJsonValue(
   };
 }
 
+function normalizeEvidenceAssessment(
+  assessment: EvidenceAssessment,
+  evidence: SearchResult[],
+): EvidenceAssessment {
+  const sourceCount = uniqueSearchResults(evidence).length;
+  if (
+    sourceCount === 0 ||
+    assessment.noSource !== true ||
+    assessment.sameEvidence + assessment.differentEvidence === 0
+  ) {
+    return assessment;
+  }
+
+  return {
+    ...assessment,
+    noSource: false,
+    notes: [
+      ...assessment.notes,
+      "Model marked noSource despite source-backed evidence counts; normalized for policy routing.",
+    ],
+  };
+}
+
 function nonNegativeInteger(value: unknown): number {
   const n = typeof value === "number" ? value : parseInt(String(value), 10);
   if (!Number.isFinite(n) || n < 0) return 0;
@@ -1303,6 +1329,7 @@ function nonNegativeInteger(value: unknown): number {
 function fallbackEvidenceAssessment(
   evidence: SearchResult[],
   decision: MatchDecision = "UNCERTAIN",
+  rawAssessment?: unknown,
 ): EvidenceAssessment {
   const sourceCount = uniqueSearchResults(evidence).length;
   if (sourceCount > 0 && decision === "DIFFERENT") {
@@ -1313,6 +1340,31 @@ function fallbackEvidenceAssessment(
       noSource: false,
       notes: [
         "Structured evidence assessment was malformed; search-backed DIFFERENT verdict was preserved for policy routing.",
+      ],
+    };
+  }
+
+  if (sourceCount > 0 && decision === "SAME") {
+    const assessmentText =
+      typeof rawAssessment === "string" ? rawAssessment.toLowerCase() : "";
+    const sourceBackedSame =
+      /\b(source|sources|evidence|web|search)\b/.test(assessmentText) &&
+      /\b(confirm|confirms|support|supports|same fixture|same match|identical|one fixture|same opponents|same teams)\b/.test(
+        assessmentText,
+      ) &&
+      !/\b(no usable source|no source|without source|missing source|too thin|not enough evidence)\b/.test(
+        assessmentText,
+      );
+
+    return {
+      sameEvidence: sourceBackedSame ? 1 : 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: [
+        sourceBackedSame
+          ? "Structured evidence assessment was malformed; source-backed SAME verdict text was recovered for policy routing."
+          : "Structured evidence assessment was malformed; search-backed SAME verdict stayed conservative.",
       ],
     };
   }

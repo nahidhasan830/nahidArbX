@@ -41,6 +41,7 @@ export async function GET(request: Request) {
           storedTotal: 0,
         },
         connectionHealth: null,
+        providerAlerts: [],
         providerStatus: {},
         syncStatus: null,
         _engineError: "Engine unreachable",

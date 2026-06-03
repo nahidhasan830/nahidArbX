@@ -327,6 +327,7 @@ export async function analyzeAndSerialize(
     },
     providerStatus,
     connectionHealth,
+    providerAlerts: connectionHealth.providerAlerts,
     lastUpdate: getLastUpdate()?.toISOString() || null,
     syncStatus: serializeSyncStatus(syncStatus),
     _etag: getResponseETag(),

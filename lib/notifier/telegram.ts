@@ -31,6 +31,7 @@ import type {
   MatchScoreInfo,
   NotificationChannel,
   NotificationEvent,
+  ProviderHealthEvent,
   MlRunCompletedEvent,
   MlTrainingStartedEvent,
   MlTrainingCompletedEvent,
@@ -268,6 +269,8 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
       return formatError(event);
     case "system":
       return formatSystem(event);
+    case "provider:health":
+      return formatProviderHealth(event);
     case "system:boot":
       return formatBoot(event);
     case "system:unified_boot":
@@ -582,6 +585,26 @@ function formatSystem(e: SystemEvent): FormattedMessage {
   lines.push(`${severityIcon} <b>${esc(severityLabel)}</b>`);
   lines.push(`📝 ${esc(e.message)}`);
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+  return { text: lines.join("\n") };
+}
+
+function formatProviderHealth(e: ProviderHealthEvent): FormattedMessage {
+  const down = e.state === "down";
+  const lines: string[] = [];
+
+  lines.push(`${down ? "🚨" : "✅"} <b>Provider ${down ? "Down" : "Recovered"}</b>`);
+  lines.push(`🏦 ${esc(e.displayName)}`);
+  if (e.status) lines.push(`📡 Status <b>${esc(e.status)}</b>`);
+  if (e.consecutiveFailures > 0) {
+    lines.push(`🔁 Failures <b>${e.consecutiveFailures}</b>`);
+  }
+  if (e.lastSuccessAt) {
+    lines.push(`✅ Last success ${esc(formatAbsoluteTime(e.lastSuccessAt))}`);
+  }
+  lines.push(`${down ? "❌" : "📝"} ${esc(truncate(e.reason, 360))}`);
+  lines.push(`🛠 ${esc(e.action)}`);
+  lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
+
   return { text: lines.join("\n") };
 }
 

@@ -197,6 +197,71 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("grounded_llm_same_match");
   });
 
+  it("auto-merges recovered SAME evidence when score agreement is strong", () => {
+    const same = sourcedSame({
+      sameEvidence: 1,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: [
+        "Structured evidence assessment was malformed; source-backed SAME verdict text was recovered for policy routing.",
+      ],
+    });
+    same.confidence = 85;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.8346491228070176,
+        away: 1,
+        sameOrientationTeam: 0.9173245614035088,
+        bestTeam: 0.9173245614035088,
+        competition: 1,
+        embeddingTeam: 0.8608330809087646,
+        embeddingCompetition: 0.9324411557313903,
+        combined: 0.904701754385965,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("does not treat negated contradiction wording as evidence conflict", () => {
+    const same = sourcedSame({
+      sameEvidence: 2,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: [],
+    });
+    same.reasoning =
+      "Both entries have identical UTC kickoff, same teams, and same competition. Web evidence does not contradict.";
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.8235294117647058,
+        away: 1,
+        sameOrientationTeam: 0.9117647058823529,
+        bestTeam: 0.9117647058823529,
+        competition: 0.9714285714285714,
+        embeddingTeam: 0.9522466983145339,
+        embeddingCompetition: 0.9695574109964538,
+        combined: 0.9186295796275675,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
   it("keeps bookmaker abbreviations in review without strong embedding support", () => {
     const same = sourcedSame({
       sameEvidence: 0,

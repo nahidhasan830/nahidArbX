@@ -122,6 +122,7 @@ function hasContradiction(residual: DeepSeekResidualDecision): boolean {
       : [JSON.stringify(residual.diagnostics ?? "")]),
   ]
     .join(" ")
+    .replace(/\b(?:does|do|did|is|are|was|were|not|no|without)\s+(?:not\s+)?(?:contradict|conflict|inconsistent|disagree)\w*\b/gi, "")
     .toLowerCase();
   return /\b(contradict|conflict|inconsistent|disagree)\w*\b/.test(haystack);
 }
@@ -271,6 +272,27 @@ function scoreSupportsGroundedSame(score: ScoreBreakdown): boolean {
   );
 }
 
+function scoreStronglySupportsGroundedSame(score: ScoreBreakdown): boolean {
+  const alignedTeam =
+    score.orientation === "same"
+      ? Math.min(score.home, score.away)
+      : Math.min(score.swappedHome, score.swappedAway);
+  const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+
+  return (
+    score.kickoffExact &&
+    score.combined >= 0.9 &&
+    alignedTeam >= 0.82 &&
+    score.bestTeam >= 0.9 &&
+    teamConsensus >= 0.9 &&
+    competitionConsensus >= 0.9
+  );
+}
+
 function reasonCodeForUnresolvedResidual(
   residual: DeepSeekResidualDecision,
   input: {
@@ -393,7 +415,26 @@ export function policyFromDeepSeek(
       !contradictory &&
       !materialUncertainty &&
       scoreSupportsGroundedSame(score);
+    const strongConsensusPositiveEvidence =
+      config.deepseekAutoMergeEnabled &&
+      residual.confidence >= config.deepseekConsensusAutoMergeConfidence - 5 &&
+      safePositiveEvidence &&
+      !materialUncertainty &&
+      scoreStronglySupportsGroundedSame(score);
     if (consensusPositiveEvidence) {
+      return {
+        decision: "auto_merge",
+        stage: "deepseek",
+        confidence: normalizedConfidence,
+        confidenceBand: confidenceBand(normalizedConfidence),
+        final: true,
+        reasonCode: "grounded_llm_same_match",
+        reasonSummary: residual.reasoning,
+        groundedDecision: residual.decision,
+        groundedConfidence: normalizedConfidence,
+      };
+    }
+    if (strongConsensusPositiveEvidence) {
       return {
         decision: "auto_merge",
         stage: "deepseek",

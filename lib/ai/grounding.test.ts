@@ -227,6 +227,102 @@ describe("grounding entity-match parsing", () => {
     });
   });
 
+  it("recovers malformed source-backed SAME evidence for matcher policy", async () => {
+    const hooks = await getHooks();
+    const verdict = hooks.parseMatchVerdict(
+      JSON.stringify({
+        decision: "SAME",
+        confidence: 95,
+        reasoning:
+          "Exact same date/kickoff, same opponents, same league. Team name variant.",
+        canonicalEvent: {
+          homeTeam: "Hassania Agadir",
+          awayTeam: "FUS Rabat",
+          competition: "Botola Pro",
+          kickoff: "2026-06-04T18:00:00Z",
+        },
+        confirmedFacts: [
+          "Same kickoff UTC timestamp",
+          "Same opponents (Hassania Agadir vs FUS Rabat)",
+          "Same competition (Botola Pro)",
+        ],
+        uncertainties: [],
+        evidenceAssessment:
+          "Multiple sources (LiveScore, Flashscore, FotMob) confirm the fixture on June 4, 2026 at 18:00 UTC.",
+      }),
+      {
+        evidence: [
+          {
+            title: "Football Live Scores & Fixtures | 4 June 2026",
+            url: "https://www.livescore.com/en/football/2026-06-04/",
+            snippet: "Botola Pro. Hassania Agadir. FUS Rabat.",
+            source: "test",
+          },
+          {
+            title: "Hassania Agadir v FUS Rabat fixtures",
+            url: "https://www.flashscore.com/match/example/",
+            snippet: "Hassania Agadir v FUS Rabat 04.06.2026.",
+            source: "test",
+          },
+        ],
+      },
+    );
+
+    assert.equal(verdict.decision, "SAME");
+    assert.deepEqual(verdict.evidenceAssessment, {
+      sameEvidence: 1,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: [
+        "Structured evidence assessment was malformed; source-backed SAME verdict text was recovered for policy routing.",
+      ],
+    });
+  });
+
+  it("normalizes noSource=false when evidence counts are present", async () => {
+    const hooks = await getHooks();
+    const verdict = hooks.parseMatchVerdict(
+      JSON.stringify({
+        decision: "SAME",
+        confidence: 95,
+        reasoning:
+          "Same teams, same kickoff, and same competition. Web evidence does not contradict.",
+        canonicalEvent: {
+          homeTeam: "Club Atletico Juventud",
+          awayTeam: "Club Sportivo Limpeno",
+          competition: "Paraguayan Cup",
+          kickoff: "2026-06-04T21:00:00Z",
+        },
+        confirmedFacts: ["Both events on 04 Jun 2026 at 21:00 UTC"],
+        uncertainties: [],
+        evidenceAssessment: {
+          sameEvidence: 2,
+          differentEvidence: 0,
+          contradiction: false,
+          noSource: true,
+          notes: [],
+        },
+      }),
+      {
+        evidence: [
+          {
+            title: "Juventud vs Sportivo Limpeno",
+            url: "https://example.com/juventud-limpeno",
+            snippet: "Paraguayan Cup fixture",
+            source: "test",
+          },
+        ],
+      },
+    );
+
+    assert.equal(verdict.evidenceAssessment?.noSource, false);
+    assert.equal(verdict.evidenceAssessment?.sameEvidence, 2);
+    assert.deepEqual(verdict.evidenceAssessment?.notes, [
+      "Model marked noSource despite source-backed evidence counts; normalized for policy routing.",
+    ]);
+  });
+
   it("extracts source-backed aliases from old source slugs and current titles", async () => {
     const hooks = await getHooks();
     const eventA = {

@@ -73,6 +73,7 @@ import { BrandLogo } from "@/components/ui/BrandLogo";
 import { SessionPill } from "./SessionPill";
 import { ProfileMenu } from "@/components/auth/ProfileMenu";
 import { UserManagementModal } from "@/components/auth/UserManagementModal";
+import { ProviderHealthBanner } from "./ProviderHealthBanner";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -397,6 +398,7 @@ export function AppShell({
             <div className="ml-auto flex items-center gap-2">{actions}</div>
           </div>
         </header>
+        <ProviderHealthBanner />
 
         {tabs && tabs.length > 0 ? (
           <Tabs

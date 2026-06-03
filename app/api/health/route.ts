@@ -44,6 +44,7 @@ export async function GET(request: Request) {
       status: "degraded",
       engineConnected: false,
       timestamp: new Date().toISOString(),
+      providerAlerts: [],
       error: "Engine process unreachable — in-memory data unavailable",
     },
     { status: 200 },

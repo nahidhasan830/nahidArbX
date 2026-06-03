@@ -1625,22 +1625,15 @@ function DetailDialog({
         <DialogFooter>
           {row && (
             <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={manualDecisionSaving}
-                    onClick={() => openGoogleAiMode(row)}
-                  >
-                    <Search className="size-4" />
-                    Google AI Mode
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Open manual Google AI Mode verification
-                </TooltipContent>
-              </Tooltip>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={manualDecisionSaving}
+                onClick={() => openGoogleAiMode(row)}
+              >
+                <Search className="size-4" />
+                Google AI Mode
+              </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button

@@ -13,6 +13,7 @@ export type NotificationEvent =
   | SystemEvent
   | SystemBootEvent
   | UnifiedBootEvent
+  | ProviderHealthEvent
   | AiEngineStateEvent
   | AiModelStateEvent
   | MlRunCompletedEvent
@@ -255,6 +256,21 @@ export interface SystemEvent {
   at: string;
   severity: "info" | "warn" | "error";
   message: string;
+}
+
+export interface ProviderHealthEvent {
+  type: "provider:health";
+  at: string;
+  state: "down" | "recovered";
+  provider: string;
+  displayName: string;
+  severity?: "degraded" | "down";
+  status?: "pending" | "degraded" | "down" | "ok";
+  reason: string;
+  action: string;
+  lastSuccessAt: string | null;
+  consecutiveFailures: number;
+  fingerprint: string;
 }
 
 /**

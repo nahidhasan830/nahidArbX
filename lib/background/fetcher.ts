@@ -7,6 +7,7 @@ import {
   setValueBets,
   getMatchedEvents,
   getAllProviderStatus,
+  markProviderAttempt,
 } from "../store";
 import { matchEvents } from "../matching";
 
@@ -18,6 +19,7 @@ import {
   FIXTURE_INTERVAL_MS,
   HEARTBEAT_INTERVAL_MS,
 } from "../shared/constants";
+import { buildConnectionHealth } from "../shared/engine-health-builder";
 import { triggerDetection } from "./reactive-detector";
 import { invalidateResponseCache } from "../cache/response-cache";
 import { signalFixturesChanged } from "../cache/delta";
@@ -57,6 +59,7 @@ import {
   readReliabilityStats,
   runEventMatcher,
 } from "../event-matcher";
+import { notifyProviderHealthTransitions } from "../providers/health-telegram";
 
 /**
  * How often to poll the book's myBets feed for pending-bet
@@ -164,6 +167,7 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     const results = await Promise.allSettled(
       adapters.map(async (adapter) => {
         const policy = getProviderPolicy(adapter.name);
+        markProviderAttempt(adapter.name);
         try {
           const events = await policy.execute(() => adapter.fetchEvents());
 
@@ -234,6 +238,16 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
         phaseProgress: null,
         lastSyncEnd: new Date(),
         lastSyncDuration: Date.now() - startTime,
+      });
+      notifyProviderHealthTransitions(
+        buildConnectionHealth().providerAlerts,
+      ).catch((err) => {
+        logger.warn(
+          "ProviderHealth",
+          `Provider health notification pass failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
       });
       return getMatchedEvents();
     }
@@ -314,7 +328,7 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     const inPlayOddsWindowMs = 3 * 60 * 60 * 1000;
     const { row: bettingSettings } = await getBettingSettings();
     const detectionPhases = bettingSettings.valueDetectionPhases;
-    return matchedEvents
+    const filteredEvents = matchedEvents
       .filter((e) => Object.keys(e.providers).length > 1)
       .filter((e) => {
         const startMs = new Date(e.startTime).getTime();
@@ -332,6 +346,24 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
           startMs > nowMs - inPlayOddsWindowMs
         );
       });
+    setSyncStatus({
+      isSyncing: false,
+      currentPhase: "idle",
+      phaseProgress: null,
+      lastSyncEnd: new Date(),
+      lastSyncDuration: Date.now() - startTime,
+    });
+    notifyProviderHealthTransitions(
+      buildConnectionHealth().providerAlerts,
+    ).catch((err) => {
+      logger.warn(
+        "ProviderHealth",
+        `Provider health notification pass failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    });
+    return filteredEvents;
   } finally {
     sch.fixturesSyncing = false;
 

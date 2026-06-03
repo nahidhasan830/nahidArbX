@@ -77,8 +77,17 @@ export function registerEngineRoutes() {
     if (fieldsParam) {
       const fields = new Set(fieldsParam.split(",").map((f) => f.trim()));
       const response: Record<string, unknown> = {};
+      const needsConnectionHealth = fields.has("connectionHealth");
+      const needsProviderAlerts = fields.has("providerAlerts");
+      const connectionHealth =
+        needsConnectionHealth || needsProviderAlerts
+          ? buildConnectionHealth()
+          : null;
       if (fields.has("connectionHealth")) {
-        response.connectionHealth = buildConnectionHealth();
+        response.connectionHealth = connectionHealth;
+      }
+      if (fields.has("providerAlerts")) {
+        response.providerAlerts = connectionHealth?.providerAlerts ?? [];
       }
       if (fields.has("syncStatus")) {
         const ss = getSyncStatus();
@@ -144,11 +153,13 @@ export function registerEngineRoutes() {
     const matchCacheStats = getMatchCacheStats();
     const similarityCacheStats = getSimilarityCacheStats();
 
+    const connectionHealth = buildConnectionHealth();
     const response = {
       status: systemHealth.status,
       uptime: getUptimeString(),
       timestamp: new Date().toISOString(),
-      connectionHealth: buildConnectionHealth(),
+      connectionHealth,
+      providerAlerts: connectionHealth.providerAlerts,
       components: {
         scheduler: {
           status: isSchedulerRunning() ? "healthy" : "stopped",

@@ -16,12 +16,19 @@ import { sabaSyncService } from "../services/saba-sync-service";
 import { getReactiveDetectorStats } from "../background/reactive-detector";
 import { getAllCircuitBreakerStats } from "./circuit-breaker";
 import { getAllSessionDiagnostics } from "./session-diagnostics";
+import {
+  buildProviderAlerts,
+  type ProviderAlert,
+  type ProviderRuntimeSnapshot,
+} from "../providers/health-alerts";
 
 function providerMeta(id: ProviderKey): ProviderMetadata {
   return PROVIDER_REGISTRY[id] as ProviderMetadata;
 }
 
-export function buildConnectionHealth(): Record<string, unknown> {
+export function buildConnectionHealth(): Record<string, unknown> & {
+  providerAlerts: ProviderAlert[];
+} {
   const ps = getAllProviderStatus();
   const bcHealth = getBCConnectionHealth();
   const pinnacleTokenTTL = getTokenTTL();
@@ -95,18 +102,7 @@ export function buildConnectionHealth(): Record<string, unknown> {
   };
   const providerRuntime: Record<
     string,
-    {
-      enabled: boolean;
-      kind: string;
-      platform: string | null;
-      status: string;
-      lastFetch: string | null;
-      error: string | null;
-      connected: boolean | null;
-      activeEvents: number | null;
-      pendingRequests: number | null;
-      circuitBreaker: { state: string; failures: number } | null;
-    }
+    ProviderRuntimeSnapshot
   > = {};
   for (const id of PROVIDER_IDS) {
     const s = ps[id];
@@ -118,7 +114,12 @@ export function buildConnectionHealth(): Record<string, unknown> {
       platform: meta.integration.platform ?? null,
       status: s?.status ?? "unknown",
       lastFetch: s?.lastFetch?.toISOString() ?? null,
+      lastAttemptAt: s?.lastAttemptAt?.toISOString() ?? null,
+      lastSuccessAt: s?.lastSuccessAt?.toISOString() ?? null,
+      lastErrorAt: s?.lastErrorAt?.toISOString() ?? null,
       error: s?.error ?? null,
+      lastError: s?.lastError ?? null,
+      consecutiveFailures: s?.consecutiveFailures ?? 0,
       connected: connectedByProvider[id] ?? null,
       activeEvents: activeEventsByProvider[id] ?? null,
       pendingRequests: pendingRequestsByProvider[id] ?? null,
@@ -130,6 +131,22 @@ export function buildConnectionHealth(): Record<string, unknown> {
 
   // Session capture diagnostics — per-provider step-level status
   const sessionCapture = getAllSessionDiagnostics();
+  const providerAlerts = buildProviderAlerts(
+    PROVIDER_IDS.map((id) => {
+      const meta = providerMeta(id);
+      const runtime = providerRuntime[id];
+      return {
+        provider: id,
+        meta,
+        enabled: runtime.enabled,
+        status: ps[id],
+        circuitBreaker: runtime.circuitBreaker,
+        connected: runtime.connected,
+        activeEvents: runtime.activeEvents,
+        firstSyncCompletedAt: currentSyncStatus.firstSyncCompletedAt,
+      };
+    }),
+  );
 
   health.engine = {
     pinnacleWs: {
@@ -160,6 +177,7 @@ export function buildConnectionHealth(): Record<string, unknown> {
     circuitBreakers,
     sessionCapture,
   };
+  health.providerAlerts = providerAlerts;
 
-  return health;
+  return health as Record<string, unknown> & { providerAlerts: ProviderAlert[] };
 }

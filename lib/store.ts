@@ -9,7 +9,15 @@ export interface ProviderStatus {
   status: "ok" | "error" | "pending";
   lastFetch: Date | null;
   error?: string;
+  lastAttemptAt: Date | null;
+  lastSuccessAt: Date | null;
+  lastErrorAt: Date | null;
+  consecutiveFailures: number;
+  lastError?: string;
 }
+
+export type ProviderStatusUpdate = Pick<ProviderStatus, "status"> &
+  Partial<Omit<ProviderStatus, "status">>;
 
 // Sync phase tracking
 export type SyncPhase = "idle" | "fixtures" | "matching" | "markets";
@@ -26,6 +34,7 @@ export interface SyncStatus {
   isSyncing: boolean; // Currently pulling data from providers
   lastSyncStart: Date | null;
   lastSyncEnd: Date | null;
+  firstSyncCompletedAt: Date | null;
   syncInterval: number; // ms between syncs
   lastSyncDuration: number | null; // ms
   lastMarketsCount: number; // Total markets fetched
@@ -45,9 +54,58 @@ interface Store {
 function initializeProviderStatus(): Record<Provider, ProviderStatus> {
   const status = {} as Record<Provider, ProviderStatus>;
   for (const id of Object.keys(PROVIDER_REGISTRY) as Provider[]) {
-    status[id] = { status: "pending", lastFetch: null };
+    status[id] = {
+      status: "pending",
+      lastFetch: null,
+      lastAttemptAt: null,
+      lastSuccessAt: null,
+      lastErrorAt: null,
+      consecutiveFailures: 0,
+    };
   }
   return status;
+}
+
+function emptyProviderStatus(): ProviderStatus {
+  return {
+    status: "pending",
+    lastFetch: null,
+    lastAttemptAt: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+    consecutiveFailures: 0,
+  };
+}
+
+function normalizeProviderStatus(status: ProviderStatusUpdate): ProviderStatus {
+  const lastAttemptAt = status.lastAttemptAt ?? status.lastFetch ?? null;
+  const lastSuccessAt =
+    status.lastSuccessAt ??
+    (status.status === "ok" ? (status.lastFetch ?? lastAttemptAt) : null);
+  const lastError =
+    status.lastError ?? (status.status === "error" ? status.error : undefined);
+  const lastErrorAt =
+    status.lastErrorAt ??
+    (status.status === "error" ? (status.lastFetch ?? lastAttemptAt) : null);
+
+  return {
+    status: status.status,
+    lastFetch: status.lastFetch ?? lastAttemptAt,
+    error: status.status === "error" ? status.error : undefined,
+    lastAttemptAt,
+    lastSuccessAt,
+    lastErrorAt,
+    consecutiveFailures:
+      status.consecutiveFailures ?? (status.status === "error" ? 1 : 0),
+    lastError,
+  };
+}
+
+function ensureProviderStatus(provider: Provider): ProviderStatus {
+  const existing = store.providerStatus[provider];
+  const normalized = normalizeProviderStatus(existing ?? emptyProviderStatus());
+  store.providerStatus[provider] = normalized;
+  return normalized;
 }
 
 // Track raw event count before matching
@@ -85,6 +143,7 @@ function initRoot() {
       isSyncing: false,
       lastSyncStart: null,
       lastSyncEnd: null,
+      firstSyncCompletedAt: null,
       syncInterval: 30000,
       lastSyncDuration: null,
       lastMarketsCount: 0,
@@ -200,16 +259,55 @@ export function getValueBetsByEvent(): Map<string, ValueBet[]> {
 // Provider Status
 export function setProviderStatus(
   provider: Provider,
-  status: ProviderStatus,
+  status: ProviderStatusUpdate,
 ): void {
-  store.providerStatus[provider] = status;
+  const prev = ensureProviderStatus(provider);
+  const now = new Date();
+  const lastAttemptAt = status.lastAttemptAt ?? status.lastFetch ?? now;
+  const lastSuccessAt =
+    status.status === "ok"
+      ? (status.lastSuccessAt ?? status.lastFetch ?? lastAttemptAt)
+      : (status.lastSuccessAt ?? prev?.lastSuccessAt ?? null);
+  const lastErrorAt =
+    status.status === "error"
+      ? (status.lastErrorAt ?? status.lastFetch ?? lastAttemptAt)
+      : (status.lastErrorAt ?? prev?.lastErrorAt ?? null);
+  const lastError =
+    status.status === "error"
+      ? (status.lastError ?? status.error ?? prev?.lastError)
+      : undefined;
+
+  store.providerStatus[provider] = {
+    ...status,
+    lastFetch: status.lastFetch ?? lastAttemptAt,
+    error: status.status === "error" ? status.error : undefined,
+    lastAttemptAt,
+    lastSuccessAt,
+    lastErrorAt,
+    consecutiveFailures:
+      status.status === "error"
+        ? (status.consecutiveFailures ?? prev.consecutiveFailures + 1)
+        : (status.consecutiveFailures ?? 0),
+    lastError,
+  };
+}
+
+export function markProviderAttempt(provider: Provider, at = new Date()): void {
+  const prev = ensureProviderStatus(provider);
+  store.providerStatus[provider] = {
+    ...prev,
+    lastAttemptAt: at,
+  };
 }
 
 export function getProviderStatus(provider: Provider): ProviderStatus {
-  return store.providerStatus[provider];
+  return ensureProviderStatus(provider);
 }
 
 export function getAllProviderStatus(): Record<Provider, ProviderStatus> {
+  for (const id of Object.keys(PROVIDER_REGISTRY) as Provider[]) {
+    ensureProviderStatus(id);
+  }
   return store.providerStatus;
 }
 
@@ -240,6 +338,9 @@ export function getMatchingStats() {
 
 // Sync Status
 export function setSyncStatus(status: Partial<SyncStatus>): void {
+  if (status.lastSyncEnd && !syncStatus.firstSyncCompletedAt) {
+    status.firstSyncCompletedAt = status.lastSyncEnd;
+  }
   Object.assign(syncStatus, status);
 }
 
