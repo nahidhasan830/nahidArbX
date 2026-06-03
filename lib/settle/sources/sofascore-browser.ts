@@ -1,5 +1,5 @@
 /**
- * SofaScore TLS-impersonation transport — curl_cffi via Python subprocess.
+ * SofaScore transport — curl_cffi direct, Scrape.do fallback on 403.
  *
  * SofaScore's API is blocked by Cloudflare's TLS fingerprint detection
  * (JA3/JA4 check rejects non-browser clients like Node.js's undici/OpenSSL).
@@ -10,12 +10,14 @@
  * fingerprint identical to real Chrome.
  *
  * Architecture:
- *   - Each `fetchViaBrowser()` call spawns `python3 -c` with an inline script
+ *   - Each direct `fetchViaBrowser()` call spawns `python3 -c` with an inline script
  *   - The Python process makes a single HTTP GET with `impersonate="chrome120"`
  *   - Response JSON is piped back via stdout
+ *   - If SofaScore returns a Cloudflare 403 challenge, retry that request
+ *     through Scrape.do and briefly skip direct attempts on later calls
  *   - No persistent process, no browser, no memory leak
  *
- * Cost: $0 — no API key, no proxy, no browser, no credits.
+ * Cost: $0 direct; Scrape.do credits only after direct 403.
  * Memory: ~15MB per request (Python process, immediately freed).
  * Latency: ~300-500ms per request (Python startup + HTTP).
  *
@@ -25,6 +27,12 @@
 import { execFile } from "node:child_process";
 import { singleton } from "../../util/singleton";
 import { logger } from "../../shared/logger";
+import {
+  fetchViaScrapeDoProxy,
+  getProxyStats,
+  isDirectOnCooldown,
+  reportDirect403,
+} from "./scrapedo-proxy";
 
 const LOG_TAG = "SofaScoreCurl";
 
@@ -33,12 +41,16 @@ const LOG_TAG = "SofaScoreCurl";
 interface TransportState {
   lastUsedAt: number;
   requestCount: number;
+  directRequestCount: number;
+  proxyRequestCount: number;
   consecutiveFailures: number;
 }
 
 const state = singleton<TransportState>("settle:sofascore-curl", () => ({
   lastUsedAt: 0,
   requestCount: 0,
+  directRequestCount: 0,
+  proxyRequestCount: 0,
   consecutiveFailures: 0,
 }));
 
@@ -107,7 +119,12 @@ export async function fetchViaBrowser<T>(apiPath: string): Promise<T | null> {
   const url = `${SOFASCORE_API_BASE}${apiPath}`;
   state.requestCount++;
 
+  if (isDirectOnCooldown()) {
+    return fetchViaProxy<T>(url, apiPath, "direct cooldown active");
+  }
+
   try {
+    state.directRequestCount++;
     const raw = await execPython(url);
     const parsed = JSON.parse(raw);
 
@@ -117,21 +134,57 @@ export async function fetchViaBrowser<T>(apiPath: string): Promise<T | null> {
         LOG_TAG,
         `API call failed: ${apiPath} → ${errResult.status ?? errResult.message}`,
       );
-      state.consecutiveFailures++;
+      if (errResult.status === 403) {
+        reportDirect403();
+        return fetchViaProxy<T>(url, apiPath, "direct 403 challenge");
+      }
+      markFailure();
       return null;
     }
 
-    state.consecutiveFailures = 0;
-    state.lastUsedAt = Date.now();
+    markSuccess();
     return parsed as T;
   } catch (err) {
-    state.consecutiveFailures++;
+    markFailure();
     logger.warn(
       LOG_TAG,
       `Fetch failed for ${apiPath}: ${(err as Error).message.slice(0, 200)}`,
     );
     return null;
   }
+}
+
+function markSuccess(): void {
+  state.consecutiveFailures = 0;
+  state.lastUsedAt = Date.now();
+}
+
+function markFailure(): void {
+  state.consecutiveFailures++;
+}
+
+async function fetchViaProxy<T>(
+  url: string,
+  apiPath: string,
+  reason: string,
+): Promise<T | null> {
+  state.proxyRequestCount++;
+  logger.info(LOG_TAG, `Routing ${apiPath} through Scrape.do (${reason}).`);
+
+  const proxied = await fetchViaScrapeDoProxy<T>(url);
+  if (proxied && !isSofaScoreError(proxied)) {
+    markSuccess();
+    return proxied;
+  }
+
+  markFailure();
+  return null;
+}
+
+function isSofaScoreError(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const maybe = value as { error?: { code?: number; reason?: string } };
+  return typeof maybe.error?.code === "number";
 }
 
 /**
@@ -148,14 +201,29 @@ export function isBrowserSessionAlive(): boolean {
 export function getBrowserSessionStats(): {
   alive: boolean;
   requestCount: number;
+  directRequestCount: number;
+  proxyRequestCount: number;
+  consecutiveFailures: number;
   lastUsedAt: number;
   idleMs: number;
+  directOnCooldown: boolean;
+  directCooldownRemainingMs: number;
+  proxyMonthlyLimit: number;
+  proxyRemainingCredits: number;
 } {
+  const proxy = getProxyStats();
   return {
     alive: isBrowserSessionAlive(),
     requestCount: state.requestCount,
+    directRequestCount: state.directRequestCount,
+    proxyRequestCount: state.proxyRequestCount,
+    consecutiveFailures: state.consecutiveFailures,
     lastUsedAt: state.lastUsedAt,
     idleMs: state.lastUsedAt > 0 ? Date.now() - state.lastUsedAt : 0,
+    directOnCooldown: proxy.directOnCooldown,
+    directCooldownRemainingMs: proxy.directCooldownRemainingMs,
+    proxyMonthlyLimit: proxy.monthlyLimit,
+    proxyRemainingCredits: proxy.remainingCredits,
   };
 }
 

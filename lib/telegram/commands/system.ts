@@ -307,9 +307,10 @@ registerCommand({
 registerCommand({
   name: "proxy",
   usage: "/proxy",
-  description: "Data-source health: API-Football quota + SofaScore curl_cffi.",
+  description:
+    "Data-source health: API-Football quota + SofaScore transport/proxy.",
   explanation:
-    "Shows API-Football quota (Tier 2b, 100 req/day free) and SofaScore curl_cffi transport status (Tier 2c). SofaScore uses Python curl_cffi to impersonate Chrome's TLS fingerprint and bypass Cloudflare.",
+    "Shows API-Football quota (Tier 2b, 100 req/day free) and SofaScore transport status (Tier 2c). SofaScore tries Python curl_cffi direct first, then Scrape.do after Cloudflare 403.",
   group: "read",
   async handler({ reply }) {
     const apiFb = getApiFootballQuota();
@@ -332,10 +333,28 @@ registerCommand({
         ],
       ]),
       "",
-      b("SofaScore (Tier 2c — curl_cffi TLS impersonation)"),
+      b("SofaScore (Tier 2c — curl_cffi + Scrape.do fallback)"),
       kvList([
-        ["Status", sofa.alive ? "🟢 healthy" : "🔴 degraded (5+ failures)"],
-        ["Requests served", num(sofa.requestCount)],
+        [
+          "Status",
+          sofa.alive
+            ? "🟢 healthy"
+            : `🔴 degraded (${num(sofa.consecutiveFailures)} failures)`,
+        ],
+        [
+          "Requests served",
+          `${num(sofa.requestCount)} (${num(sofa.directRequestCount)} direct, ${num(sofa.proxyRequestCount)} proxy)`,
+        ],
+        [
+          "Direct cooldown",
+          sofa.directOnCooldown
+            ? durationLabel(sofa.directCooldownRemainingMs)
+            : "none",
+        ],
+        [
+          "Proxy credits",
+          `${num(sofa.proxyRemainingCredits)}/${num(sofa.proxyMonthlyLimit)} remaining`,
+        ],
         [
           "Idle",
           sofa.lastUsedAt > 0 ? durationLabel(sofa.idleMs) : "never used",
@@ -345,13 +364,13 @@ registerCommand({
     if (apiFb.remaining === 0) {
       lines.push(
         "",
-        "⚠️ <i>API-Football daily limit exhausted — niche leagues will fall through to SofaScore/AI.</i>",
+        "⚠️ <i>API-Football daily limit exhausted — niche leagues will fall through to SofaScore.</i>",
       );
     }
     if (!sofa.alive) {
       lines.push(
         "",
-        "ℹ️ <i>SofaScore session will auto-start on next settlement tick.</i>",
+        "ℹ️ <i>SofaScore direct/proxy transport is degraded; the next settlement tick will retry.</i>",
       );
     }
     await reply(lines.join("\n"));

@@ -5,6 +5,7 @@ import {
   providerEventSnapshots,
   type NewProviderEventSnapshotRow,
 } from "../db/schema";
+import { isSabaSyntheticMarketFixture } from "../adapters/saba-filters";
 import { normalize, normalizeCompetition } from "../matching/normalize";
 import type { ProviderEventSnapshot, ProviderSnapshotInput } from "./types";
 
@@ -51,7 +52,18 @@ export async function captureProviderSnapshots(
   inputs: ProviderSnapshotInput[],
 ): Promise<number> {
   if (inputs.length === 0) return 0;
-  const rows = inputs.map((input): NewProviderEventSnapshotRow => {
+  const filteredInputs = inputs.filter(
+    (input) =>
+      !isSabaSyntheticMarketFixture({
+        provider: input.provider,
+        homeTeam: input.event.homeTeam,
+        awayTeam: input.event.awayTeam,
+        competition: input.event.competition,
+      }),
+  );
+  if (filteredInputs.length === 0) return 0;
+
+  const rows = filteredInputs.map((input): NewProviderEventSnapshotRow => {
     const s = toSnapshotInput(input);
     return {
       id: s.id,

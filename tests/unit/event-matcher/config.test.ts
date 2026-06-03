@@ -21,6 +21,7 @@ describe("event matcher config", () => {
     vi.stubEnv("EVENT_MATCHER_RESIDUAL_LOW", "0.66");
     vi.stubEnv("EVENT_MATCHER_RESIDUAL_HIGH", "0.88");
     vi.stubEnv("EVENT_MATCHER_DEEPSEEK_AUTO_MERGE_CONFIDENCE", "97");
+    vi.stubEnv("EVENT_MATCHER_DEEPSEEK_CONSENSUS_AUTO_MERGE_CONFIDENCE", "92");
     vi.stubEnv("EVENT_MATCHER_DEEPSEEK_AUTO_REJECT_CONFIDENCE", "91");
 
     const config = getEventMatcherConfig();
@@ -33,6 +34,7 @@ describe("event matcher config", () => {
     expect(config.residualHigh).toBe(0.88);
     expect(config.deepseekAutoMergeEnabled).toBe(true);
     expect(config.deepseekAutoMergeConfidence).toBe(97);
+    expect(config.deepseekConsensusAutoMergeConfidence).toBe(92);
     expect(config.deepseekAutoRejectConfidence).toBe(91);
   });
 });

@@ -16,6 +16,7 @@ export const DEFAULT_EVENT_MATCHER_CONFIG: EventMatcherConfig = {
   deepseekEnabled: true,
   deepseekAutoMergeEnabled: true,
   deepseekAutoMergeConfidence: 94,
+  deepseekConsensusAutoMergeConfidence: 90,
   deepseekAutoRejectConfidence: 86,
   embeddingEnabled: true,
 };
@@ -91,6 +92,10 @@ export function getEventMatcherConfig(): EventMatcherConfig {
     deepseekAutoMergeConfidence: readNumber(
       "EVENT_MATCHER_DEEPSEEK_AUTO_MERGE_CONFIDENCE",
       DEFAULT_EVENT_MATCHER_CONFIG.deepseekAutoMergeConfidence,
+    ),
+    deepseekConsensusAutoMergeConfidence: readNumber(
+      "EVENT_MATCHER_DEEPSEEK_CONSENSUS_AUTO_MERGE_CONFIDENCE",
+      DEFAULT_EVENT_MATCHER_CONFIG.deepseekConsensusAutoMergeConfidence,
     ),
     deepseekAutoRejectConfidence: readNumber(
       "EVENT_MATCHER_DEEPSEEK_AUTO_REJECT_CONFIDENCE",

@@ -6,6 +6,7 @@ export interface SearchResult {
   content?: string;
   source: string;
   score?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ProviderStats {

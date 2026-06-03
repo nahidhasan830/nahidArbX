@@ -48,6 +48,10 @@ vi.mock("../../../lib/event-matcher/repository", () => ({
     providers: [],
   })),
   rebuildImpactForRun: vi.fn(),
+  supersedeClusterResolvedHumanReviewDecisions: vi.fn(async () => ({
+    superseded: 0,
+    currentRunSuperseded: 0,
+  })),
 }));
 
 vi.mock("../../../lib/event-matcher/deepseek", async (importOriginal) => {

@@ -15,6 +15,7 @@ import { addDays, endOfDay } from "date-fns";
 import { config } from "../config";
 import { deduplicateById } from "../shared/deduplication";
 import { formatError } from "../shared/errors";
+import { isSabaSyntheticMarketFixture } from "./saba-filters";
 import {
   fetchRealSoccerEvents,
   fetchSoccerShowAllOdds,
@@ -28,8 +29,6 @@ const PROVIDER_NAME: Provider = "saba-sportsbook";
 const SABA_FOOTBALL_GAME_ID = 1;
 const VIRTUAL_SOCCER_LEAGUE_GROUP_IDS = new Set([42, 113, 252]);
 const SABA_KICKOFF_OFFSET_MS = 4 * 60 * 60 * 1000;
-const SPECIAL_SOCCER_LEAGUE_SUFFIX_RE =
-  /\s-\s(?:1st HALF vs 2nd HALF|BOOKING|CORNERS|EXTRA TIME|FREE KICK|GOAL KICK|OFFSIDE|OWN GOAL|PENALTY|RED CARD|SINGLE TEAM OVER\/UNDER|SUBSTITUTION|THROW IN|WHICH TEAM WILL ADVANCE TO NEXT ROUND|WINNER)$/i;
 
 function cleanName(value: string | undefined): string {
   return String(value ?? "")
@@ -43,15 +42,6 @@ function isVirtualSoccer(match: SabaMatch, leagueName: string): boolean {
   return /\bvirtual\b|\bsaba\b|\bpingoal\b|\bmarble\b|\bpes\b|\bfc\s*\d{2}\b|penalty shootout/i.test(
     leagueName,
   );
-}
-
-function isSyntheticMarketFixture(
-  homeTeam: string,
-  awayTeam: string,
-  competition: string,
-): boolean {
-  if (SPECIAL_SOCCER_LEAGUE_SUFFIX_RE.test(competition)) return true;
-  return [homeTeam, awayTeam].some((team) => /\s-vs-\s|\svs\s/i.test(team));
 }
 
 function parseStartTime(match: SabaMatch): Date {
@@ -79,7 +69,16 @@ function transformMatch(
 
   if (!homeTeam || !awayTeam) return null;
   if (isVirtualSoccer(match, competition)) return null;
-  if (isSyntheticMarketFixture(homeTeam, awayTeam, competition)) return null;
+  if (
+    isSabaSyntheticMarketFixture({
+      provider: PROVIDER_NAME,
+      homeTeam,
+      awayTeam,
+      competition,
+    })
+  ) {
+    return null;
+  }
 
   const eventId = String(match.MatchId);
   return {

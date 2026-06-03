@@ -68,6 +68,37 @@ function providerPair(a: string, b: string): string {
   return [a, b].sort().join("__");
 }
 
+function teamNameVariants(value: string): string[] {
+  const variants = new Set([value]);
+  if (/^man\s+/.test(value)) {
+    variants.add(value.replace(/^man\s+/, "manchester "));
+  }
+  if (/^ny\s+/.test(value)) {
+    variants.add(value.replace(/^ny\s+/, "new york "));
+  }
+  if (/\byouth\b/.test(value)) {
+    for (const age of ["u19", "u20", "u21", "u23"]) {
+      variants.add(value.replace(/\byouth\b/g, age));
+    }
+  }
+  if (/\sy$/.test(value)) {
+    for (const age of ["u19", "u20", "u21", "u23"]) {
+      variants.add(value.replace(/\sy$/, ` ${age}`));
+    }
+  }
+  return [...variants];
+}
+
+function teamNameSim(a: string, b: string): number {
+  let best = 0;
+  for (const av of teamNameVariants(a)) {
+    for (const bv of teamNameVariants(b)) {
+      best = Math.max(best, bestSim(av, bv));
+    }
+  }
+  return best;
+}
+
 const STRONG_MATCH_METADATA_KEYS = new Set([
   "eventId",
   "event_id",
@@ -134,10 +165,10 @@ export async function scoreCandidate(
 ): Promise<ScoreBreakdown> {
   const a = candidate.snapshotA;
   const b = candidate.snapshotB;
-  const home = bestSim(a.homeTeamNormalized, b.homeTeamNormalized);
-  const away = bestSim(a.awayTeamNormalized, b.awayTeamNormalized);
-  const swappedHome = bestSim(a.homeTeamNormalized, b.awayTeamNormalized);
-  const swappedAway = bestSim(a.awayTeamNormalized, b.homeTeamNormalized);
+  const home = teamNameSim(a.homeTeamNormalized, b.homeTeamNormalized);
+  const away = teamNameSim(a.awayTeamNormalized, b.awayTeamNormalized);
+  const swappedHome = teamNameSim(a.homeTeamNormalized, b.awayTeamNormalized);
+  const swappedAway = teamNameSim(a.awayTeamNormalized, b.homeTeamNormalized);
   const sameOrientationTeam = (home + away) / 2;
   const swappedOrientationTeam = (swappedHome + swappedAway) / 2;
   const orientation =

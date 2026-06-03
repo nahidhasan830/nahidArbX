@@ -414,8 +414,8 @@ export async function readReliabilityStats(
   let groundedReviewDisabled = 0;
   let groundedReviewDegraded = 0;
   let groundedReviewCapReached = 0;
-  const searchFailure = 0;
-  const noSource = 0;
+  let searchFailure = 0;
+  let noSource = 0;
   let contradictorySource = 0;
   let uncertain = 0;
   let autoMerge = 0;
@@ -447,6 +447,8 @@ export async function readReliabilityStats(
       row.reasonCode.startsWith("grounded_llm_") ||
       row.reasonCode === "llm_uncertain" ||
       row.reasonCode === "llm_evidence_conflict" ||
+      row.reasonCode === "llm_no_source" ||
+      row.reasonCode === "llm_search_failure" ||
       row.reasonCode === "deepseek_unavailable";
     if (!touchedDeepSeek) continue;
 
@@ -455,6 +457,8 @@ export async function readReliabilityStats(
     if (row.reasonCode === "deepseek_unavailable") deepseekUnavailable++;
     if (row.reasonCode === "llm_uncertain") uncertain++;
     if (row.reasonCode === "llm_evidence_conflict") contradictorySource++;
+    if (row.reasonCode === "llm_no_source") noSource++;
+    if (row.reasonCode === "llm_search_failure") searchFailure++;
   }
 
   const noSourceRate =
@@ -473,14 +477,18 @@ export async function readReliabilityStats(
       : 0;
   const humanFallbackRate =
     rows.length > 0 ? Number((humanFallback / rows.length).toFixed(3)) : 0;
-  const degradationReason =
-    deepseekReviewed >= 5 && unavailableRate >= 0.5
-      ? "DeepSeek unavailable rate is high"
-      : deepseekReviewed >= 5 && contradictorySourceRate >= 0.3
-        ? "DeepSeek decisions have too many conflicts"
-        : clusterConflicts >= 3
-          ? "Recent canonical cluster conflicts need operator review"
-          : null;
+  let degradationReason: string | null = null;
+  if (deepseekReviewed >= 5 && unavailableRate >= 0.5) {
+    degradationReason = "DeepSeek unavailable rate is high";
+  } else if (deepseekReviewed >= 5 && searchFailureRate >= 0.5) {
+    degradationReason = "Search failure rate is high";
+  } else if (deepseekReviewed >= 5 && noSourceRate >= 0.5) {
+    degradationReason = "Grounded review returned too many no-source decisions";
+  } else if (deepseekReviewed >= 5 && contradictorySourceRate >= 0.3) {
+    degradationReason = "DeepSeek decisions have too many conflicts";
+  } else if (clusterConflicts >= 3) {
+    degradationReason = "Recent canonical cluster conflicts need operator review";
+  }
 
   return {
     windowSize: rows.length,
@@ -704,6 +712,152 @@ export async function insertDecision(input: {
   };
   const inserted = await db.insert(matcherDecisions).values(row).returning();
   return inserted[0];
+}
+
+export async function supersedeStaleHumanReviewDecisions(input: {
+  decisionIds: string[];
+  runId: string;
+  generatedCandidateKeys: Set<string>;
+}): Promise<number> {
+  const uniqueDecisionIds = [...new Set(input.decisionIds)].filter(Boolean);
+  if (uniqueDecisionIds.length === 0) return 0;
+
+  const rows = await db
+    .select({
+      decisionId: matcherDecisions.id,
+      decision: matcherDecisions.decision,
+      candidateId: matcherDecisions.candidateId,
+      candidateKey: matcherCandidates.candidateKey,
+      scoreBreakdown: matcherDecisions.scoreBreakdown,
+    })
+    .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .where(inArray(matcherDecisions.id, uniqueDecisionIds));
+
+  const staleRows = rows.filter(
+    (row) =>
+      row.decision === "human_review" &&
+      !input.generatedCandidateKeys.has(row.candidateKey),
+  );
+  if (staleRows.length === 0) return 0;
+
+  const inserted = await db
+    .insert(matcherDecisions)
+    .values(
+      staleRows.map((row): NewMatcherDecisionRow => ({
+        id: randomUUID(),
+        runId: input.runId,
+        candidateId: row.candidateId,
+        decision: "auto_reject",
+        decisionStage: "deterministic",
+        confidence: 1,
+        confidenceBand: "very_high",
+        final: true,
+        dryRun: false,
+        reasonCode: "stale_candidate_not_regenerated",
+        reasonSummary:
+          "Selected review row no longer forms an admissible current candidate, so the stale review decision was superseded.",
+        hardBlockers: ["stale_candidate_not_regenerated"],
+        scoreBreakdown: row.scoreBreakdown,
+        groundedDecision: null,
+        groundedConfidence: null,
+        canonicalEventId: null,
+      })),
+    )
+    .returning({ id: matcherDecisions.id });
+
+  return inserted.length;
+}
+
+export interface ClusterResolvedReviewSupersedeResult {
+  superseded: number;
+  currentRunSuperseded: number;
+}
+
+export async function supersedeClusterResolvedHumanReviewDecisions(input: {
+  runId: string;
+}): Promise<ClusterResolvedReviewSupersedeResult> {
+  const memberA = alias(canonicalEventMembers, "cluster_member_a");
+  const memberB = alias(canonicalEventMembers, "cluster_member_b");
+  const rows = await db
+    .select({
+      previousRunId: matcherDecisions.runId,
+      candidateId: matcherDecisions.candidateId,
+      scoreBreakdown: matcherDecisions.scoreBreakdown,
+      hardBlockers: matcherDecisions.hardBlockers,
+      groundedDecision: matcherDecisions.groundedDecision,
+      groundedConfidence: matcherDecisions.groundedConfidence,
+      canonicalEventId: memberA.canonicalEventId,
+    })
+    .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .innerJoin(memberA, eq(memberA.snapshotId, matcherCandidates.snapshotAId))
+    .innerJoin(
+      memberB,
+      and(
+        eq(memberB.snapshotId, matcherCandidates.snapshotBId),
+        eq(memberB.canonicalEventId, memberA.canonicalEventId),
+      ),
+    )
+    .innerJoin(
+      canonicalEvents,
+      and(
+        eq(canonicalEvents.id, memberA.canonicalEventId),
+        eq(canonicalEvents.status, "active"),
+      ),
+    )
+    .where(
+      and(
+        eq(matcherDecisions.decision, "human_review"),
+        sql`${matcherDecisions.id} in (
+          select distinct on (candidate_id) id
+          from matcher_decisions
+          order by candidate_id, created_at desc
+        )`,
+        sql`coalesce(jsonb_array_length(${matcherDecisions.hardBlockers}), 0) = 0`,
+        sql`${matcherDecisions.reasonCode} not in ('manual_review', 'cluster_conflict')`,
+      ),
+    );
+
+  if (rows.length === 0) {
+    return { superseded: 0, currentRunSuperseded: 0 };
+  }
+
+  const inserted = await db
+    .insert(matcherDecisions)
+    .values(
+      rows.map((row): NewMatcherDecisionRow => ({
+        id: randomUUID(),
+        runId: input.runId,
+        candidateId: row.candidateId,
+        decision: "auto_merge",
+        decisionStage: "deterministic",
+        confidence: 1,
+        confidenceBand: "very_high",
+        final: true,
+        dryRun: false,
+        reasonCode: "canonical_cluster_already_matched",
+        reasonSummary: `Both provider snapshots are already members of canonical event ${row.canonicalEventId}, so the stale review row was superseded.`,
+        hardBlockers: row.hardBlockers,
+        scoreBreakdown: row.scoreBreakdown,
+        groundedDecision: row.groundedDecision,
+        groundedConfidence: row.groundedConfidence,
+        canonicalEventId: row.canonicalEventId,
+      })),
+    )
+    .returning({ id: matcherDecisions.id });
+
+  return {
+    superseded: inserted.length,
+    currentRunSuperseded: rows.filter((row) => row.previousRunId === input.runId)
+      .length,
+  };
 }
 
 async function loadMembersForSnapshots(

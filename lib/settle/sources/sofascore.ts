@@ -15,7 +15,7 @@
  *   covers hundreds of matches), then fuzzy-match our events against it
  *   by team names + kickoff window. No per-event lookup needed.
  *
- * Cost: $0 — no API key, no proxy credits, no browser, no external services.
+ * Cost: $0 direct; Scrape.do credits only after direct 403.
  */
 
 import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";

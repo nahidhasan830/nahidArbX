@@ -726,6 +726,8 @@ class GroundingEngine {
     opts?: {
       provider?: "deepseek" | "gemini";
       model?: string;
+      searchQuery?: string;
+      searchProviders?: string[];
       /**
        * When true, skip the engine's internal web search and use only the
        * `context.web_search_results` array (if present) as evidence.
@@ -745,7 +747,11 @@ class GroundingEngine {
     // evidence and didn't explicitly opt out.
     let internalResults: SearchResult[] = [];
     if (!skipSearch && callerResults.length === 0) {
-      const r = await this.search.search(question, 8);
+      const r = await this.search.search(
+        opts?.searchQuery ?? question,
+        8,
+        opts?.searchProviders,
+      );
       internalResults = r.results;
     }
 

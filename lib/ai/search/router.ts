@@ -2,6 +2,7 @@ import { type SearchResult, type ProviderStats } from "./types";
 import { VertexSearchProvider } from "./providers/vertex";
 import { BraveSearchProvider } from "./providers/brave";
 import { TavilySearchProvider } from "./providers/tavily";
+import { isStrongVertexSearchResult } from "./quality";
 import { logger } from "@/lib/shared/logger";
 import { logAiActivity } from "@/lib/ai/activity-logger";
 import {
@@ -131,6 +132,7 @@ export class SearchRouter {
                   content: r.content ?? r.snippet,
                   source: r.source,
                   score: r.score ?? null,
+                  metadata: r.metadata ?? null,
                 })),
               };
             },
@@ -297,12 +299,14 @@ function scoreSearchQuality(
     (sum, r) => sum + (r.content || r.snippet || "").trim().length,
     0,
   );
-  const enoughResults = resultCount >= Math.min(3, requestedResults);
-  const enoughText = contentChars >= 300;
-  const strong = enoughResults && enoughText;
+  const strong = isStrongVertexSearchResult(
+    resultCount,
+    contentChars,
+    requestedResults,
+  );
   const reason = strong
     ? "enough-results-and-text"
-    : !enoughResults
+    : resultCount < Math.min(2, requestedResults)
       ? "too-few-results"
       : "too-little-text";
 

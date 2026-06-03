@@ -26,6 +26,7 @@ export {
   readDecisionRow,
   readImpact,
   readReliabilityStats,
+  supersedeClusterResolvedHumanReviewDecisions,
 } from "./repository";
 export type {
   EventMatcherConfig,

@@ -30,6 +30,7 @@ export interface EventMatcherConfig {
   deepseekEnabled: boolean;
   deepseekAutoMergeEnabled: boolean;
   deepseekAutoMergeConfidence: number;
+  deepseekConsensusAutoMergeConfidence: number;
   deepseekAutoRejectConfidence: number;
   embeddingEnabled: boolean;
 }

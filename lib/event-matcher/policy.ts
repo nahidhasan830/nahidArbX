@@ -42,10 +42,43 @@ export function decideCandidate(
     };
   }
 
-  const teamPassesMerge = score.bestTeam >= config.teamAutoMergeFloor;
+  const weakerAlignedTeam =
+    score.orientation === "same"
+      ? Math.min(score.home, score.away)
+      : Math.min(score.swappedHome, score.swappedAway);
+  const teamPassesMerge =
+    score.bestTeam >= config.teamAutoMergeFloor &&
+    weakerAlignedTeam >= config.teamAutoMergeFloor;
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+  const exactAlignedTeams =
+    score.orientation === "same" &&
+    score.home >= 0.98 &&
+    score.away >= 0.98 &&
+    score.sameOrientationTeam >= 0.98 &&
+    score.bestTeam >= 0.98;
   const compPassesMerge =
     score.competition >= config.competitionAutoMergeFloor ||
     (score.embeddingCompetition ?? 0) >= config.competitionAutoMergeFloor;
+  if (exactAlignedTeams && competitionConsensus >= 0.5) {
+    const confidence = Math.max(score.combined, 0.9);
+    return {
+      decision: "auto_merge",
+      stage:
+        score.embeddingTeam !== null || score.embeddingCompetition !== null
+          ? "embedding"
+          : "deterministic",
+      confidence,
+      confidenceBand: confidenceBand(confidence),
+      final: true,
+      reasonCode: "exact_team_kickoff_match",
+      reasonSummary:
+        "Both team slots and kickoff match exactly; competition text is plausible and no hard blockers are present.",
+    };
+  }
+
   if (
     score.combined >= config.combinedAutoMergeThreshold &&
     teamPassesMerge &&
@@ -67,16 +100,12 @@ export function decideCandidate(
   }
 
   const hasMatchMetadataRescue = score.metadata > 0;
-  const weakerAlignedTeam =
-    score.orientation === "same"
-      ? Math.min(score.home, score.away)
-      : Math.min(score.swappedHome, score.swappedAway);
   const weakBothTeamSlots =
     weakerAlignedTeam <= config.teamAutoRejectCeiling &&
     score.bestTeam <= config.teamAutoRejectCeiling + 0.07;
   if (
     score.combined <= config.combinedAutoRejectThreshold ||
-    weakBothTeamSlots ||
+    (weakBothTeamSlots && !hasMatchMetadataRescue) ||
     (score.bestTeam <= config.teamAutoRejectCeiling &&
       score.competition <= config.competitionRejectCeiling &&
       !hasMatchMetadataRescue) ||
@@ -97,7 +126,10 @@ export function decideCandidate(
     };
   }
 
-  if (config.deepseekEnabled && score.combined >= config.residualLow) {
+  if (
+    config.deepseekEnabled &&
+    (score.combined >= config.residualLow || hasMatchMetadataRescue)
+  ) {
     const reasonCode =
       score.metadata > 0
         ? "alias_or_metadata_needs_grounding"

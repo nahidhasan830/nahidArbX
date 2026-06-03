@@ -113,7 +113,7 @@ describe("policyFromDeepSeek", () => {
 
     expect(decision.decision).toBe("human_review");
     expect(decision.stage).toBe("human_review");
-    expect(decision.reasonCode).toBe("llm_uncertain");
+    expect(decision.reasonCode).toBe("llm_evidence_conflict");
   });
 
   it("allows auto-merge only when structured source evidence supports SAME alone", () => {
@@ -132,6 +132,182 @@ describe("policyFromDeepSeek", () => {
 
     expect(decision.decision).toBe("auto_merge");
     expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("auto-merges high-confidence grounded SAME when score and sources agree despite weak structured assessment", () => {
+    const same = sourcedSame({
+      sameEvidence: 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Structured evidence counts were not populated."],
+    });
+    same.confidence = 92;
+    same.uncertainties = ["Competition label naming differs by provider."];
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 1,
+        sameOrientationTeam: 1,
+        bestTeam: 1,
+        competition: 0.5,
+        embeddingTeam: 1,
+        embeddingCompetition: 0.74,
+        combined: 0.88,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("auto-merges bookmaker abbreviations when DeepSeek and embeddings agree", () => {
+    const same = sourcedSame({
+      sameEvidence: 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Structured evidence counts were not populated."],
+    });
+    same.confidence = 95;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.8128571428571428,
+        away: 1,
+        sameOrientationTeam: 0.9064285714285714,
+        bestTeam: 0.9064285714285714,
+        competition: 0.9213818860877684,
+        embeddingTeam: 0.9499352600224079,
+        embeddingCompetition: 0.9110606832433741,
+        combined: 0.9043230359953681,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("keeps bookmaker abbreviations in review without strong embedding support", () => {
+    const same = sourcedSame({
+      sameEvidence: 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Structured evidence counts were not populated."],
+    });
+    same.confidence = 95;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.78,
+        away: 1,
+        sameOrientationTeam: 0.89,
+        bestTeam: 0.89,
+        competition: 0.93,
+        embeddingTeam: 0.89,
+        embeddingCompetition: 0.93,
+        combined: 0.9,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+  });
+
+  it("keeps grounded SAME in review when structured sources include different evidence", () => {
+    const same = sourcedSame({
+      sameEvidence: 1,
+      differentEvidence: 1,
+      contradiction: false,
+      noSource: false,
+      notes: ["One source supports a different fixture."],
+    });
+    same.confidence = 95;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 1,
+        sameOrientationTeam: 1,
+        bestTeam: 1,
+        competition: 0.9,
+        embeddingTeam: 1,
+        embeddingCompetition: 0.9,
+        combined: 0.9,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+  });
+
+  it("keeps grounded SAME in review when material uncertainty remains", () => {
+    const same = sourcedSame({
+      sameEvidence: 1,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Source supports same teams."],
+    });
+    same.confidence = 95;
+    same.uncertainties = ["Could not verify the away team identity."];
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 1,
+        sameOrientationTeam: 1,
+        bestTeam: 1,
+        competition: 0.9,
+        embeddingTeam: 1,
+        embeddingCompetition: 0.9,
+        combined: 0.9,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("classifies no-source residuals explicitly", () => {
+    const same = sourcedSame({
+      sameEvidence: 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: true,
+      notes: ["No usable source evidence."],
+    });
+    same.sources = [];
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      score(),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("llm_no_source");
   });
 
   it("keeps kickoff-conflict DIFFERENT decisions in human review when parsed kickoff is exact", () => {
@@ -155,6 +331,40 @@ describe("policyFromDeepSeek", () => {
 
     expect(decision.decision).toBe("human_review");
     expect(decision.reasonCode).toBe("llm_time_zone_uncertain");
+  });
+
+  it("does not mistake team mismatch evidence for a kickoff conflict", () => {
+    const different = residual(95);
+    different.reasoning =
+      "Away team mismatch: Canada vs Croatia. Evidence confirms England U20 vs Canada U20.";
+    different.confirmedFacts = [
+      "Both provider rows have exact kickoff 2026-06-03T16:00:00.000Z.",
+    ];
+    different.evidenceAssessment = {
+      sameEvidence: 0,
+      differentEvidence: 2,
+      contradiction: false,
+      noSource: false,
+      notes: ["Sources identify different away teams."],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 0.62,
+        sameOrientationTeam: 0.81,
+        bestTeam: 0.81,
+        competition: 0.95,
+        combined: 0.84,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
   });
 
   it("auto-rejects clean DIFFERENT decisions that only mention the same kickoff time", () => {

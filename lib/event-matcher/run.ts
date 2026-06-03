@@ -12,6 +12,8 @@ import {
   loadSnapshotsForDecisionIds,
   planCanonicalMerge,
   rebuildImpactForRun,
+  supersedeClusterResolvedHumanReviewDecisions,
+  supersedeStaleHumanReviewDecisions,
 } from "./repository";
 import { scoreCandidate } from "./scoring";
 import type {
@@ -153,6 +155,23 @@ export async function runEventMatcher(
     const candidates = generateCandidates(snapshots, config, runId);
     generatedCandidateCount = candidates.length;
     counters.generatedCandidates = generatedCandidateCount;
+    if (scopedDecisionIds.length > 0) {
+      const staleSuperseded = await supersedeStaleHumanReviewDecisions({
+        decisionIds: scopedDecisionIds,
+        runId,
+        generatedCandidateKeys: new Set(
+          candidates.map((candidate) => candidate.candidateKey),
+        ),
+      });
+      if (staleSuperseded > 0) {
+        autoRejected += staleSuperseded;
+        counters.autoRejected = autoRejected;
+        await emit(
+          "filtering_candidates",
+          `${staleSuperseded.toLocaleString()} stale review rows no longer regenerated as candidates and were superseded`,
+        );
+      }
+    }
     await emit(
       "filtering_candidates",
       `Generated ${generatedCandidateCount.toLocaleString()} candidate pairs. Removing pairs already scored`,
@@ -298,6 +317,22 @@ export async function runEventMatcher(
         humanReview++;
         counters.humanReview = humanReview;
       }
+    }
+
+    const clusterSuperseded =
+      await supersedeClusterResolvedHumanReviewDecisions({ runId });
+    if (clusterSuperseded.superseded > 0) {
+      autoMerged += clusterSuperseded.superseded;
+      humanReview = Math.max(
+        0,
+        humanReview - clusterSuperseded.currentRunSuperseded,
+      );
+      counters.autoMerged = autoMerged;
+      counters.humanReview = humanReview;
+      await emit(
+        "filtering_candidates",
+        `${clusterSuperseded.superseded.toLocaleString()} review rows already resolved by canonical clusters were superseded`,
+      );
     }
 
     await emit("rebuilding_impact", "Rebuilding matcher impact rollups");

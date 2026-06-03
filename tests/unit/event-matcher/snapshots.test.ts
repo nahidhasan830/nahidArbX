@@ -1,5 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const dbMock = vi.hoisted(() => {
+  const insertValues = vi.fn();
+  const insert = vi.fn(() => ({
+    values: insertValues,
+  }));
+  insertValues.mockReturnValue({
+    onConflictDoUpdate: vi.fn(),
+  });
+  return { insert, insertValues };
+});
+
+vi.mock("../../../lib/db/client", () => ({
+  db: {
+    insert: dbMock.insert,
+  },
+}));
+
 import {
+  captureProviderSnapshots,
   snapshotIdFor,
   toSnapshotInput,
 } from "../../../lib/event-matcher/snapshots";
@@ -44,5 +63,57 @@ describe("event matcher snapshots", () => {
       fetchBatchId: "batch-b",
     });
     expect(second).toBe(first);
+  });
+
+  it("does not persist Saba fantasy and synthetic market snapshots", async () => {
+    const realEvent: NormalizedEvent = {
+      id: "real",
+      sport: "football",
+      homeTeam: "Poland",
+      awayTeam: "Nigeria",
+      competition: "International - Friendlies",
+      startTime: new Date("2026-06-03T18:45:00Z"),
+      providers: {
+        "saba-sportsbook": {
+          eventId: "real",
+          fetchedAt: new Date("2026-06-03T10:00:00Z"),
+        },
+      },
+    };
+    const fantasyEvent: NormalizedEvent = {
+      id: "fantasy",
+      sport: "football",
+      homeTeam: "Albania + Italy",
+      awayTeam: "Israel + Luxembourg",
+      competition: "FANTASY MATCH",
+      startTime: new Date("2026-06-03T18:00:00Z"),
+      providers: {
+        "saba-sportsbook": {
+          eventId: "fantasy",
+          fetchedAt: new Date("2026-06-03T10:00:00Z"),
+        },
+      },
+    };
+
+    await captureProviderSnapshots([
+      {
+        event: fantasyEvent,
+        provider: "saba-sportsbook",
+        providerEventId: "fantasy",
+        fetchBatchId: "batch",
+      },
+      {
+        event: realEvent,
+        provider: "saba-sportsbook",
+        providerEventId: "real",
+        fetchBatchId: "batch",
+      },
+    ]);
+
+    const rows = dbMock.insertValues.mock.calls[0][0] as Array<{
+      providerEventId: string;
+    }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].providerEventId).toBe("real");
   });
 });

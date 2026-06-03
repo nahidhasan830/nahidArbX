@@ -67,6 +67,7 @@ import {
   startMatcherRunJob,
   updateMatcherSchedulerSettings,
 } from "./api";
+import { buildManualDecisionOverrides } from "./manual-overrides";
 import {
   DECISION_META,
   PROVIDER_BADGE,
@@ -1484,10 +1485,17 @@ function DetailDialog({
   row,
   open,
   onOpenChange,
+  manualDecisionSaving,
+  onManualDecision,
 }: {
   row: MatcherDecisionRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  manualDecisionSaving: boolean;
+  onManualDecision: (
+    row: MatcherDecisionRow,
+    decision: MatcherManualDecision,
+  ) => void;
 }) {
   const score = row?.scoreBreakdown;
   return (
@@ -1616,14 +1624,63 @@ function DetailDialog({
 
         <DialogFooter>
           {row && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => openGoogleAiMode(row)}
-            >
-              <Search className="size-4" />
-              Google AI Mode
-            </Button>
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={manualDecisionSaving}
+                    onClick={() => openGoogleAiMode(row)}
+                  >
+                    <Search className="size-4" />
+                    Google AI Mode
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Open manual Google AI Mode verification
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={
+                      manualDecisionSaving || row.decision === "auto_reject"
+                    }
+                    onClick={() => onManualDecision(row, "auto_reject")}
+                  >
+                    <XCircle className="size-4" />
+                    Not a match
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Mark these provider rows as separate matches
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    disabled={
+                      manualDecisionSaving || row.decision === "auto_merge"
+                    }
+                    onClick={() => onManualDecision(row, "auto_merge")}
+                  >
+                    {manualDecisionSaving ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <GitMerge className="size-4" />
+                    )}
+                    Match
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Mark these provider rows as the same match
+                </TooltipContent>
+              </Tooltip>
+            </>
           )}
           <Button onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
@@ -1653,6 +1710,11 @@ export function MatcherLab() {
   >({});
   const [savingResults, setSavingResults] = useState(false);
   const [detailRow, setDetailRow] = useState<MatcherDecisionRow | null>(null);
+  const [manualDecisionSavingId, setManualDecisionSavingId] = useState<
+    string | null
+  >(null);
+  const [bulkDecisionSaving, setBulkDecisionSaving] =
+    useState<MatcherManualDecision | null>(null);
   const [runMonitorOpen, setRunMonitorOpen] = useState(false);
   const [runEvents, setRunEvents] = useState<MatcherRunProgressEvent[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -1913,18 +1975,19 @@ export function MatcherLab() {
   const saveResultDecisions = async () => {
     setSavingResults(true);
     try {
-      await sendManualMatcherDecisions({
-        items: resultRows.map((row) => ({
-          decisionId: row.decisionId,
-          decision: resultDecisions[row.decisionId] ?? "human_review",
-          reason: `Operator saved this selected result as ${
-            MANUAL_DECISION_LABELS[
-              resultDecisions[row.decisionId] ?? "human_review"
-            ]
-          }.`,
-        })),
-      });
-      toast.success("Matcher outcomes applied");
+      const items = buildManualDecisionOverrides(
+        resultRows,
+        resultDecisions,
+        MANUAL_DECISION_LABELS,
+      );
+      if (items.length > 0) {
+        await sendManualMatcherDecisions({ items });
+        toast.success("Manual overrides applied");
+      } else {
+        toast.success("Matcher outcomes already applied", {
+          description: "No manual overrides were changed.",
+        });
+      }
       setRunMonitorOpen(false);
       setCurrentRunJob(null);
       setResultRows([]);
@@ -1939,6 +2002,77 @@ export function MatcherLab() {
       setSavingResults(false);
     }
   };
+
+  const saveDirectManualDecision = useCallback(
+    async (row: MatcherDecisionRow, decision: MatcherManualDecision) => {
+      if (row.decision === decision) {
+        toast.success("Matcher outcome already applied");
+        return;
+      }
+
+      setManualDecisionSavingId(row.decisionId);
+      try {
+        await sendManualMatcherDecisions({
+          items: [
+            {
+              decisionId: row.decisionId,
+              decision,
+              reason: `Operator changed this result to ${MANUAL_DECISION_LABELS[decision]}.`,
+            },
+          ],
+        });
+        toast.success(`Marked as ${MANUAL_DECISION_LABELS[decision]}`);
+        setDetailRow(null);
+        await refresh();
+      } catch (err) {
+        toast.error("Failed to save matcher result", {
+          description: (err as Error).message,
+        });
+      } finally {
+        setManualDecisionSavingId(null);
+      }
+    },
+    [refresh],
+  );
+
+  const saveBulkManualDecision = useCallback(
+    async (decision: MatcherManualDecision) => {
+      if (selectedRows.length === 0) {
+        toast.error("Select matcher rows first");
+        return;
+      }
+
+      const items = selectedRows
+        .filter((row) => row.decision !== decision)
+        .map((row) => ({
+          decisionId: row.decisionId,
+          decision,
+          reason: `Operator bulk changed this result to ${MANUAL_DECISION_LABELS[decision]}.`,
+        }));
+
+      if (items.length === 0) {
+        toast.success("Selected matcher outcomes already applied");
+        return;
+      }
+
+      setBulkDecisionSaving(decision);
+      try {
+        await sendManualMatcherDecisions({ items });
+        toast.success(
+          `Marked ${items.length.toLocaleString()} rows as ${MANUAL_DECISION_LABELS[decision]}`,
+        );
+        setRowSelection({});
+        await refresh();
+      } catch (err) {
+        toast.error("Failed to save matcher results", {
+          description: (err as Error).message,
+        });
+      } finally {
+        setBulkDecisionSaving(null);
+      }
+    },
+    [refresh, selectedRows],
+  );
 
   const columns = useMemo(
     () =>
@@ -2062,7 +2196,7 @@ export function MatcherLab() {
                     </span>{" "}
                     selected for matching
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -2071,7 +2205,7 @@ export function MatcherLab() {
                           size="sm"
                           className="h-7"
                           onClick={() => setRowSelection({})}
-                          disabled={running}
+                          disabled={running || bulkDecisionSaving !== null}
                         >
                           Clear
                         </Button>
@@ -2084,10 +2218,62 @@ export function MatcherLab() {
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() =>
+                            void saveBulkManualDecision("auto_reject")
+                          }
+                          disabled={running || bulkDecisionSaving !== null}
+                        >
+                          {bulkDecisionSaving === "auto_reject" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <XCircle className="size-3.5" />
+                          )}
+                          Not a match
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Mark all selected rows as separate matches
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() =>
+                            void saveBulkManualDecision("auto_merge")
+                          }
+                          disabled={running || bulkDecisionSaving !== null}
+                        >
+                          {bulkDecisionSaving === "auto_merge" ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <GitMerge className="size-3.5" />
+                          )}
+                          Match
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Mark all selected rows as the same match
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
                           size="sm"
                           className="h-7"
                           onClick={runSelected}
-                          disabled={running || selectedRows.length === 0}
+                          disabled={
+                            running ||
+                            selectedRows.length === 0 ||
+                            bulkDecisionSaving !== null
+                          }
                         >
                           {running ? (
                             <Loader2 className="size-3.5 animate-spin" />
@@ -2153,6 +2339,10 @@ export function MatcherLab() {
         row={detailRow}
         open={detailRow !== null}
         onOpenChange={(open) => !open && setDetailRow(null)}
+        manualDecisionSaving={
+          detailRow?.decisionId === manualDecisionSavingId
+        }
+        onManualDecision={saveDirectManualDecision}
       />
       <RunProgressModal
         open={runMonitorOpen}

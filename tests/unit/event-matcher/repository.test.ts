@@ -118,4 +118,47 @@ describe("event matcher repository", () => {
     expect(stats.groundedReviewCapReached).toBe(1);
     expect(stats.humanFallback).toBe(3);
   });
+
+  it("counts no-source and search-failure DeepSeek fallbacks explicitly", async () => {
+    rows.mockResolvedValue([
+      {
+        decision: "human_review",
+        decisionStage: "human_review",
+        reasonCode: "llm_no_source",
+      },
+      {
+        decision: "human_review",
+        decisionStage: "human_review",
+        reasonCode: "llm_search_failure",
+      },
+      {
+        decision: "human_review",
+        decisionStage: "human_review",
+        reasonCode: "llm_uncertain",
+      },
+    ]);
+
+    const stats = await readReliabilityStats();
+
+    expect(stats.deepseekReviewed).toBe(3);
+    expect(stats.noSource).toBe(1);
+    expect(stats.searchFailure).toBe(1);
+    expect(stats.noSourceRate).toBeCloseTo(0.333, 3);
+    expect(stats.searchFailureRate).toBeCloseTo(0.333, 3);
+  });
+
+  it("marks reliability degraded when grounded search failures are high", async () => {
+    rows.mockResolvedValue(
+      Array.from({ length: 5 }, () => ({
+        decision: "human_review",
+        decisionStage: "human_review",
+        reasonCode: "llm_search_failure",
+      })),
+    );
+
+    const stats = await readReliabilityStats();
+
+    expect(stats.healthy).toBe(false);
+    expect(stats.degradationReason).toContain("Search failure");
+  });
 });

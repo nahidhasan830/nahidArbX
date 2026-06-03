@@ -443,7 +443,7 @@ export async function resolveScores(
   const apiFbQuota = getApiFootballQuota();
   if (apiFbQuota.remaining === 0) {
     telemetry.sourceIssues.push(
-      `API-Football daily limit exhausted (${apiFbQuota.used}/${apiFbQuota.dailyLimit}). Niche-league fallback unavailable until midnight UTC.`,
+      `API-Football daily limit exhausted (${apiFbQuota.used}/${apiFbQuota.dailyLimit}). Official niche-league fallback is unavailable until midnight UTC; settlement will fall through to SofaScore where available.`,
     );
   } else if (apiFbQuota.remaining <= 10) {
     telemetry.sourceIssues.push(
@@ -454,7 +454,7 @@ export async function resolveScores(
   const sofaSession = getBrowserSessionStats();
   if (!sofaSession.alive) {
     telemetry.sourceIssues.push(
-      `SofaScore browser session is not active. It will auto-start on next settlement tick.`,
+      `SofaScore transport is degraded after ${sofaSession.consecutiveFailures} consecutive direct/proxy failures. It will retry on next settlement tick.`,
     );
   }
 

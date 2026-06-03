@@ -63,6 +63,85 @@ describe("event matcher policy", () => {
     expect(decision.reasonCode).toBe("high_confidence_text_match");
   });
 
+  it("auto-merges exact team and kickoff matches even when competition labels are generic", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 1,
+        away: 1,
+        sameOrientationTeam: 1,
+        bestTeam: 1,
+        competition: 0.501,
+        embeddingTeam: 1,
+        embeddingCompetition: 0.739,
+        combined: 0.878,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("exact_team_kickoff_match");
+  });
+
+  it("does not auto-merge exact teams when competition agreement is implausible", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 1,
+        away: 1,
+        sameOrientationTeam: 1,
+        bestTeam: 1,
+        competition: 0.42,
+        embeddingTeam: 1,
+        embeddingCompetition: 0.49,
+        combined: 0.878,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.stage).toBe("deepseek");
+  });
+
+  it("does not auto-merge when one aligned team slot is below the merge floor", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 0.84,
+        away: 1,
+        sameOrientationTeam: 0.92,
+        bestTeam: 0.92,
+        competition: 1,
+        combined: 0.91,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.stage).toBe("deepseek");
+  });
+
+  it("routes weak teams with shared match metadata to DeepSeek instead of auto-rejecting", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 0.51,
+        away: 0.57,
+        sameOrientationTeam: 0.54,
+        bestTeam: 0.54,
+        competition: 1,
+        alias: 0.57,
+        metadata: 1,
+        combined: 0.7,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.stage).toBe("deepseek");
+    expect(decision.reasonCode).toBe("alias_or_metadata_needs_grounding");
+  });
+
   it("keeps sub-90 confidence candidates in the residual lane", () => {
     const decision = decideCandidate(
       [],

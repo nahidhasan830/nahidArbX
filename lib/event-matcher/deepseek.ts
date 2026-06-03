@@ -127,20 +127,39 @@ function hasContradiction(residual: DeepSeekResidualDecision): boolean {
 }
 
 function allegesKickoffConflict(residual: DeepSeekResidualDecision): boolean {
-  const haystack = [
+  const fragments = [
     residual.reasoning,
     ...residual.confirmedFacts,
     ...residual.uncertainties,
     ...(residual.evidenceAssessment?.notes ?? []),
   ]
     .join(" ")
-    .toLowerCase();
-  return (
-    /\b(kickoff|kick[- ]?off|start time|time)\b/.test(haystack) &&
-    /\b(mismatch|difference|differs|apart|conflict\w*|contradict\w*|timezone|time zone)\b/.test(
-      haystack,
-    )
+    .toLowerCase()
+    .split(/[.;\n]+/)
+    .map((fragment) => fragment.trim())
+    .filter(Boolean);
+
+  return fragments.some(
+    (fragment) =>
+      /\b(kickoff|kick[- ]?off|start time|time)\b/.test(fragment) &&
+      /\b(mismatch|difference|differs|apart|conflict\w*|contradict\w*|timezone|time zone)\b/.test(
+        fragment,
+      ),
   );
+}
+
+function hasMaterialUncertainty(residual: DeepSeekResidualDecision): boolean {
+  if (residual.uncertainties.length === 0) return false;
+  return residual.uncertainties.some((uncertainty) => {
+    const text = uncertainty.toLowerCase();
+    const harmlessCompetitionNaming =
+      /\b(competition|league|tournament)\s+(name|label|naming)\b/.test(text);
+    const unresolvedSignal =
+      /\b(no source|not found|missing|contradict|conflict|different|uncertain|could not|cannot|ambiguous)\b/.test(
+        text,
+      );
+    return unresolvedSignal && !harmlessCompetitionNaming;
+  });
 }
 
 function buildConfirmedFacts(
@@ -230,6 +249,58 @@ function hasSeparateFixtureEvidenceText(
   return separateFixture && materialDifference;
 }
 
+function scoreSupportsGroundedSame(score: ScoreBreakdown): boolean {
+  const alignedTeam =
+    score.orientation === "same"
+      ? Math.min(score.home, score.away)
+      : Math.min(score.swappedHome, score.swappedAway);
+  const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+  const strongTeamText =
+    alignedTeam >= 0.8 && score.bestTeam >= 0.88 && teamConsensus >= 0.9;
+  const strongAliasEmbedding =
+    alignedTeam >= 0.78 && score.bestTeam >= 0.83 && teamConsensus >= 0.94;
+
+  return (
+    score.kickoffExact &&
+    (strongTeamText || strongAliasEmbedding) &&
+    competitionConsensus >= 0.62
+  );
+}
+
+function reasonCodeForUnresolvedResidual(
+  residual: DeepSeekResidualDecision,
+  input: {
+    kickoffConflictDespiteExactParse: boolean;
+    sourceAliasConflict: boolean;
+    contradictory: boolean;
+    hasSources: boolean;
+  },
+): EventMatcherPolicyDecision["reasonCode"] {
+  const diagnostics = residual.diagnostics as
+    | {
+        searchFailureRate?: number;
+        searchFailureCount?: number;
+      }
+    | undefined;
+  if (input.kickoffConflictDespiteExactParse) return "llm_time_zone_uncertain";
+  if (input.sourceAliasConflict) return "source_alias_conflict";
+  if (input.contradictory) return "llm_evidence_conflict";
+  if (!input.hasSources || residual.evidenceAssessment?.noSource === true) {
+    return "llm_no_source";
+  }
+  if (
+    (diagnostics?.searchFailureRate ?? 0) >= 0.5 ||
+    (diagnostics?.searchFailureCount ?? 0) >= 3
+  ) {
+    return "llm_search_failure";
+  }
+  return "llm_uncertain";
+}
+
 export function policyFromDeepSeek(
   residual: DeepSeekResidualDecision | null,
   hardBlockers: string[],
@@ -273,6 +344,7 @@ export function policyFromDeepSeek(
   const sourceOnlySupportsDifferent =
     sourceSupportsDifferent && (!assessment || assessment.sameEvidence === 0);
   const contradictory = hasContradiction(residual);
+  const materialUncertainty = hasMaterialUncertainty(residual);
   const kickoffConflictDespiteExactParse =
     score.kickoffExact &&
     residual.decision === "DIFFERENT" &&
@@ -294,7 +366,7 @@ export function policyFromDeepSeek(
     residual.confidence >= config.deepseekAutoMergeConfidence &&
     hasSources &&
     sourceOnlySupportsSame &&
-    residual.uncertainties.length === 0 &&
+    !materialUncertainty &&
     !contradictory
   ) {
     return {
@@ -313,6 +385,28 @@ export function policyFromDeepSeek(
   if (residual.decision === "SAME") {
     const safePositiveEvidence =
       hasSources && sourceOnlySupportsSame && !contradictory;
+    const consensusPositiveEvidence =
+      config.deepseekAutoMergeEnabled &&
+      residual.confidence >= config.deepseekConsensusAutoMergeConfidence &&
+      hasSources &&
+      (!assessment || assessment.differentEvidence === 0) &&
+      !contradictory &&
+      !materialUncertainty &&
+      scoreSupportsGroundedSame(score);
+    if (consensusPositiveEvidence) {
+      return {
+        decision: "auto_merge",
+        stage: "deepseek",
+        confidence: normalizedConfidence,
+        confidenceBand: confidenceBand(normalizedConfidence),
+        final: true,
+        reasonCode: "grounded_llm_same_match",
+        reasonSummary: residual.reasoning,
+        groundedDecision: residual.decision,
+        groundedConfidence: normalizedConfidence,
+      };
+    }
+
     return {
       decision: "human_review",
       stage: safePositiveEvidence ? "deepseek" : "human_review",
@@ -321,7 +415,12 @@ export function policyFromDeepSeek(
       final: false,
       reasonCode: safePositiveEvidence
         ? "grounded_llm_same_match"
-        : "llm_uncertain",
+        : reasonCodeForUnresolvedResidual(residual, {
+            kickoffConflictDespiteExactParse: false,
+            sourceAliasConflict: false,
+            contradictory,
+            hasSources,
+          }),
       reasonSummary:
         safePositiveEvidence
           ? residual.reasoning
@@ -359,13 +458,12 @@ export function policyFromDeepSeek(
     confidence: normalizedConfidence,
     confidenceBand: confidenceBand(normalizedConfidence),
     final: false,
-    reasonCode: kickoffConflictDespiteExactParse
-      ? "llm_time_zone_uncertain"
-      : sourceAliasConflict
-        ? "source_alias_conflict"
-      : contradictory
-        ? "llm_evidence_conflict"
-        : "llm_uncertain",
+    reasonCode: reasonCodeForUnresolvedResidual(residual, {
+      kickoffConflictDespiteExactParse,
+      sourceAliasConflict,
+      contradictory,
+      hasSources,
+    }),
     reasonSummary: residual.reasoning,
     groundedDecision: residual.decision,
     groundedConfidence: normalizedConfidence,

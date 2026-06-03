@@ -52,6 +52,11 @@ vi.mock("../../../lib/event-matcher/repository", () => ({
     providers: [],
   })),
   rebuildImpactForRun: vi.fn(),
+  supersedeClusterResolvedHumanReviewDecisions: vi.fn(async () => ({
+    superseded: 0,
+    currentRunSuperseded: 0,
+  })),
+  supersedeStaleHumanReviewDecisions: vi.fn(async () => 0),
 }));
 
 vi.mock("../../../lib/event-matcher/scoring", () => ({
@@ -151,6 +156,66 @@ describe("runEventMatcher", () => {
     expect(summary.generatedCandidateCount).toBe(2);
     expect(summary.candidateCount).toBe(1);
     expect(summary.skippedCandidateCount).toBe(1);
+  });
+
+  it("supersedes selected stale review rows that no longer generate candidates", async () => {
+    vi.mocked(repository.supersedeStaleHumanReviewDecisions).mockResolvedValueOnce(
+      2,
+    );
+
+    const summary = await runEventMatcher({
+      trigger: "test",
+      mode: "apply",
+      useDeepSeek: false,
+      decisionIds: ["decision-a", "decision-b"],
+    });
+
+    expect(repository.supersedeStaleHumanReviewDecisions).toHaveBeenCalledWith({
+      decisionIds: ["decision-a", "decision-b"],
+      runId: summary.id,
+      generatedCandidateKeys: new Set(["key-old", "key-new"]),
+    });
+    expect(summary.autoRejected).toBe(2);
+  });
+
+  it("supersedes review rows already resolved by canonical clusters", async () => {
+    vi.mocked(
+      repository.supersedeClusterResolvedHumanReviewDecisions,
+    ).mockResolvedValueOnce({
+      superseded: 2,
+      currentRunSuperseded: 0,
+    });
+
+    const summary = await runEventMatcher({
+      trigger: "test",
+      mode: "apply",
+      useDeepSeek: false,
+    });
+
+    expect(
+      repository.supersedeClusterResolvedHumanReviewDecisions,
+    ).toHaveBeenCalledWith({ runId: summary.id });
+    expect(summary.autoMerged).toBe(3);
+    expect(summary.humanReview).toBe(0);
+  });
+
+  it("removes same-run review debt when canonical cleanup supersedes it", async () => {
+    vi.mocked(scoring.scoreCandidate).mockResolvedValueOnce(residualScore());
+    vi.mocked(
+      repository.supersedeClusterResolvedHumanReviewDecisions,
+    ).mockResolvedValueOnce({
+      superseded: 1,
+      currentRunSuperseded: 1,
+    });
+
+    const summary = await runEventMatcher({
+      trigger: "test",
+      mode: "apply",
+      useDeepSeek: false,
+    });
+
+    expect(summary.autoMerged).toBe(1);
+    expect(summary.humanReview).toBe(0);
   });
 
   it("marks routed grounded review as disabled when DeepSeek is off", async () => {

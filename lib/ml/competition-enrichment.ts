@@ -119,6 +119,22 @@ function defaultEnrichment(name: string): CompetitionEnrichment {
   };
 }
 
+function placeholderEnrichment(name: string): CompetitionEnrichment {
+  return {
+    ...defaultEnrichment(name),
+    confidence: 100,
+    provider: "deterministic",
+    rawResponse: { reason: "non-informative competition placeholder" },
+    classifiedAt: new Date().toISOString(),
+  };
+}
+
+function isNonInformativeCompetition(name: string): boolean {
+  return /^(fantasy match|other competitions soccer|other soccer|unknown|n\/a)$/i.test(
+    normalizeCompetitionName(name),
+  );
+}
+
 function extractJsonObject(text: string): Record<string, unknown> | null {
   const cleaned = text
     .trim()
@@ -153,6 +169,10 @@ function buildPrompt(name: string): string {
     "",
     "Use conservative defaults when uncertain. Do not invent specificity.",
   ].join("\n");
+}
+
+function buildSearchQuery(name: string): string {
+  return `${name} football competition league country market efficiency`;
 }
 
 function fromParsed(
@@ -329,10 +349,17 @@ async function enrichWithGroundedFallback(
   name: string,
 ): Promise<CompetitionEnrichment> {
   const engine = getGroundingEngine();
-  const result = await engine.query(buildPrompt(name), {
-    service: "CompetitionEnrichment",
-    prompt_version: PROMPT_VERSION,
-  });
+  const result = await engine.query(
+    buildPrompt(name),
+    {
+      service: "CompetitionEnrichment",
+      prompt_version: PROMPT_VERSION,
+    },
+    {
+      searchQuery: buildSearchQuery(name),
+      searchProviders: ["vertex"],
+    },
+  );
 
   return fromParsed(name, extractJsonObject(result.answer), {
     provider: "deepseek", // Default provider for grounding
@@ -351,6 +378,7 @@ export async function classifyCompetitionEnrichment(
 ): Promise<CompetitionEnrichment> {
   const clean = name.trim();
   if (!clean) return defaultEnrichment(clean);
+  if (isNonInformativeCompetition(clean)) return placeholderEnrichment(clean);
 
   // Use grounded fallback (DeepSeek/Gemini via Node.js)
   try {
