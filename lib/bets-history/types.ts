@@ -92,6 +92,14 @@ export type ValueBetRow = {
   lastSeenAt: string;
   tickCount: number;
 
+  placedAt?: string | null;
+  provider?: string | null;
+  stake?: number | null;
+  odds?: number | null;
+  currency?: string | null;
+  providerTicketId?: string | null;
+  mode?: string | null;
+
   closingSharpOdds: number | null;
 
   outcome: Outcome | string;
@@ -99,6 +107,8 @@ export type ValueBetRow = {
   settledBySource: string | null;
   /** When the outcome was resolved — null while pending. */
   settledAt: string | null;
+  pnl?: number | null;
+  clvPct?: number | null;
   /** Count of settlement-pipeline ticks that touched this row. */
   settleAttempts: number;
   lastSettleAttemptAt: string | null;
@@ -116,6 +126,12 @@ export type ValueBetRow = {
   mlFeatureNamesHash?: string | null;
   mlScore?: number | null;
   mlStakeFraction?: number | null;
+
+  placedMlScore?: number | null;
+  placedMlModelEdgePct?: number | null;
+  placedMlDecision?: string | null;
+  placedMlKellyMultiplier?: number | null;
+  placedMlModelVersion?: number | null;
 
   /** Cached final score from match_scores. Populated server-side by listBets
    *  when the event has a resolved score; null while the match is still

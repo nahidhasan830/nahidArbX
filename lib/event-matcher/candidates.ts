@@ -193,14 +193,6 @@ function textAnchorEvaluationForCandidate(
 ): TextAnchorEvaluation {
   const homeSimilarity = bestSim(a.homeTeamNormalized, b.homeTeamNormalized);
   const awaySimilarity = bestSim(a.awayTeamNormalized, b.awayTeamNormalized);
-  const swappedHomeSimilarity = bestSim(
-    a.homeTeamNormalized,
-    b.awayTeamNormalized,
-  );
-  const swappedAwaySimilarity = bestSim(
-    a.awayTeamNormalized,
-    b.homeTeamNormalized,
-  );
   const competitionSimilarity = bestSim(
     a.competitionNormalized,
     b.competitionNormalized,
@@ -217,18 +209,6 @@ function textAnchorEvaluationForCandidate(
     GENERIC_TEAM_TOKENS,
     TEAM_ANCHOR_SIMILARITY_FLOOR,
   );
-  const swappedHome = hasMeaningfulSimilarity(
-    a.homeTeamNormalized,
-    b.awayTeamNormalized,
-    GENERIC_TEAM_TOKENS,
-    TEAM_ANCHOR_SIMILARITY_FLOOR,
-  );
-  const swappedAway = hasMeaningfulSimilarity(
-    a.awayTeamNormalized,
-    b.homeTeamNormalized,
-    GENERIC_TEAM_TOKENS,
-    TEAM_ANCHOR_SIMILARITY_FLOOR,
-  );
   const competition = hasMeaningfulSimilarity(
     a.competitionNormalized,
     b.competitionNormalized,
@@ -238,38 +218,26 @@ function textAnchorEvaluationForCandidate(
 
   const sameCount =
     (sameHome ? 1 : 0) + (sameAway ? 1 : 0) + (competition ? 1 : 0);
-  const swappedCount =
-    (swappedHome ? 1 : 0) + (swappedAway ? 1 : 0) + (competition ? 1 : 0);
-  const orientation = swappedCount > sameCount ? "swapped" : "same";
-  const home = orientation === "same" ? sameHome : swappedHome;
-  const away = orientation === "same" ? sameAway : swappedAway;
+  const orientation = "same";
+  const home = sameHome;
+  const away = sameAway;
   const sameTeamSimilarity = (homeSimilarity + awaySimilarity) / 2;
-  const swappedTeamSimilarity =
-    (swappedHomeSimilarity + swappedAwaySimilarity) / 2;
   const reasons: string[] = [];
 
   if (home) {
-    reasons.push(
-      orientation === "same"
-        ? "home_team_text_anchor"
-        : "swapped_home_team_text_anchor",
-    );
+    reasons.push("home_team_text_anchor");
   }
   if (away) {
-    reasons.push(
-      orientation === "same"
-        ? "away_team_text_anchor"
-        : "swapped_away_team_text_anchor",
-    );
+    reasons.push("away_team_text_anchor");
   }
   if (competition) reasons.push("competition_text_anchor");
 
   return {
     orientation,
-    anchorCount: Math.max(sameCount, swappedCount),
+    anchorCount: sameCount,
     teamAnchorCount: (home ? 1 : 0) + (away ? 1 : 0),
     hasCompetitionAnchor: competition,
-    bestTeamSimilarity: Math.max(sameTeamSimilarity, swappedTeamSimilarity),
+    bestTeamSimilarity: sameTeamSimilarity,
     competitionSimilarity,
     reasons,
   };

@@ -42,6 +42,19 @@ export function decideCandidate(
     };
   }
 
+  if (score.orientation === "swapped") {
+    return {
+      decision: "human_review",
+      stage: "human_review",
+      confidence: score.combined,
+      confidenceBand: confidenceBand(score.combined),
+      final: false,
+      reasonCode: "swapped_orientation_needs_review",
+      reasonSummary:
+        "Provider team slots are swapped. Keep this out of automatic merge paths until odds ingestion can preserve and apply provider orientation.",
+    };
+  }
+
   const weakerAlignedTeam =
     score.orientation === "same"
       ? Math.min(score.home, score.away)
@@ -90,10 +103,7 @@ export function decideCandidate(
       confidence: score.combined,
       confidenceBand: confidenceBand(score.combined),
       final: true,
-      reasonCode:
-        score.orientation === "swapped"
-          ? "swapped_orientation_match"
-          : "high_confidence_text_match",
+      reasonCode: "high_confidence_text_match",
       reasonSummary:
         "No hard blockers and team, competition, and provider signals align at the exact kickoff.",
     };
@@ -135,11 +145,9 @@ export function decideCandidate(
         ? "alias_or_metadata_needs_grounding"
         : score.competition < config.competitionAutoMergeFloor
           ? "weak_competition_needs_grounding"
-          : score.orientation === "swapped"
-            ? "swapped_orientation_match"
-            : score.combined >= config.residualHigh
-              ? "merge_gate_uncertain"
-              : "residual_uncertain";
+          : score.combined >= config.residualHigh
+            ? "merge_gate_uncertain"
+            : "residual_uncertain";
     return {
       decision: "human_review",
       stage: "deepseek",

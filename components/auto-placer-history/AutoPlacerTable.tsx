@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils";
 import { fmtDateTime, fmtSeen, fmtMoney } from "@/lib/formatting/helpers";
 import type { AutoPlacerLogRow } from "@/lib/db/schema";
 
-const PERSISTENCE_KEY = "auto-placer-log-table:layout:v1";
+const PERSISTENCE_KEY = "auto-placer-log-table:layout:v2";
 
 // ── Status styling ──
 
@@ -49,6 +49,30 @@ const STATUS_LABEL: Record<string, string> = {
   rejected: "Rejected",
   error: "Error",
 };
+
+const ML_DECISION_PILL: Record<string, string> = {
+  boost:
+    "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  agree:
+    "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+  shrink:
+    "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  skip: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+};
+
+function cleanDecision(value: string | null | undefined) {
+  return value ? value.replace(/_/g, " ") : "—";
+}
+
+function formatSignedPct(value: number | null | undefined, digits = 1) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
+function formatMultiplier(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(2)}x`;
+}
 
 // ── Gate styling ──
 
@@ -360,6 +384,60 @@ export function AutoPlacerLogTable({
           hint: "Expected value % at decision time.",
           align: "center" as const,
           initialSize: 65,
+        },
+      },
+      {
+        id: "mlDecision",
+        header: "ML",
+        accessorKey: "mlDecision",
+        cell: ({ row }) => {
+          const decision = row.original.mlDecision;
+          if (!decision) {
+            return <span className="text-muted-foreground/40">—</span>;
+          }
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    "inline-flex h-5 cursor-help items-center gap-1 rounded-md border px-1.5 text-[10px] font-semibold tabular-nums",
+                    ML_DECISION_PILL[decision] ??
+                      "border-border bg-muted text-muted-foreground",
+                  )}
+                >
+                  <span className="capitalize">{cleanDecision(decision)}</span>
+                  <span>{formatSignedPct(row.original.mlModelEdgePct)}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[280px] p-2.5">
+                <div className="grid grid-cols-[82px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                  <span>Decision</span>
+                  <span className="capitalize text-foreground">
+                    {cleanDecision(decision)}
+                  </span>
+                  <span>Model EV</span>
+                  <span className="font-mono text-foreground">
+                    {formatSignedPct(row.original.mlModelEdgePct, 2)}
+                  </span>
+                  <span>Multiplier</span>
+                  <span className="font-mono text-foreground">
+                    {formatMultiplier(row.original.mlKellyMultiplier)}
+                  </span>
+                  <span>Score</span>
+                  <span className="font-mono text-foreground">
+                    {row.original.mlScore == null
+                      ? "—"
+                      : row.original.mlScore.toFixed(3)}
+                  </span>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
+        meta: {
+          hint: "ML decision, model EV, and Kelly multiplier logged for this decision event.",
+          align: "center" as const,
+          initialSize: 108,
         },
       },
       // ── Stake ──

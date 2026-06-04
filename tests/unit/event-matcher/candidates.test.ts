@@ -141,7 +141,7 @@ describe("event matcher candidate generation", () => {
     );
   });
 
-  it("generates candidates when two swapped team anchors are similar", () => {
+  it("does not generate candidates when only swapped team anchors are similar", () => {
     const kickoff = new Date("2026-05-28T07:00:00Z");
     const candidates = generateCandidates(
       [
@@ -165,16 +165,7 @@ describe("event matcher candidate generation", () => {
       DEFAULT_EVENT_MATCHER_CONFIG,
       "run",
     );
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0].admission).toBe("hard_admit");
-    expect(candidates[0].reasons).toEqual(
-      expect.arrayContaining([
-        "text_anchor_orientation:swapped",
-        "text_anchor_count:2",
-        "swapped_home_team_text_anchor",
-        "swapped_away_team_text_anchor",
-      ]),
-    );
+    expect(candidates).toHaveLength(0);
   });
 
   it("LLM-admits exact-kickoff pairs with one strong team anchor", () => {

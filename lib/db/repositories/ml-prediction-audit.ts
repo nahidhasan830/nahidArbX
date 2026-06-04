@@ -4,9 +4,10 @@
  * Write side is deliberately tolerant: audit failures must never block live
  * value detection, scoring, settlement, or placement.
  */
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
 import {
+  bets,
   mlPredictionAudit,
   type MlPredictionAuditRow,
   type NewMlPredictionAuditRow,
@@ -42,6 +43,21 @@ export type SettlementMirrorInput = {
   pnl: number | null;
   clvPct: number | null;
   settledAt: string | null;
+};
+
+export type PredictionAuditRowWithPlacement = MlPredictionAuditRow & {
+  placementPlacedAt: string | null;
+  placementStake: number | null;
+  placementOdds: number | null;
+  placementProviderTicketId: string | null;
+  placementMode: string | null;
+  placementPnl: number | null;
+  placementClvPct: number | null;
+  placementMlScore: number | null;
+  placementMlModelEdgePct: number | null;
+  placementMlDecision: string | null;
+  placementMlKellyMultiplier: number | null;
+  placementMlModelVersion: number | null;
 };
 
 const tag = "MLPredictionAudit";
@@ -186,13 +202,29 @@ function buildFilterClauses(filters: PredictionAuditFilters) {
 
 export async function listPredictionAuditRows(
   filters: PredictionAuditFilters = {},
-): Promise<{ rows: MlPredictionAuditRow[]; total: number }> {
+): Promise<{ rows: PredictionAuditRowWithPlacement[]; total: number }> {
   const clauses = buildFilterClauses(filters);
   const where = clauses.length ? and(...clauses) : undefined;
+  const predictionColumns = getTableColumns(mlPredictionAudit);
 
   const rows = await db
-    .select()
+    .select({
+      ...predictionColumns,
+      placementPlacedAt: bets.placedAt,
+      placementStake: bets.stake,
+      placementOdds: bets.odds,
+      placementProviderTicketId: bets.providerTicketId,
+      placementMode: bets.mode,
+      placementPnl: bets.pnl,
+      placementClvPct: bets.clvPct,
+      placementMlScore: bets.placedMlScore,
+      placementMlModelEdgePct: bets.placedMlModelEdgePct,
+      placementMlDecision: bets.placedMlDecision,
+      placementMlKellyMultiplier: bets.placedMlKellyMultiplier,
+      placementMlModelVersion: bets.placedMlModelVersion,
+    })
     .from(mlPredictionAudit)
+    .leftJoin(bets, eq(bets.id, mlPredictionAudit.betId))
     .where(where)
     .orderBy(desc(mlPredictionAudit.scoredAt), desc(mlPredictionAudit.id))
     .limit(filters.limit ?? 200)

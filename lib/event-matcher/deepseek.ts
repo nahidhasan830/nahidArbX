@@ -323,6 +323,33 @@ function reasonCodeForUnresolvedResidual(
   return "llm_uncertain";
 }
 
+function sameReviewReasonSummary(
+  residual: DeepSeekResidualDecision,
+  input: {
+    contradictory: boolean;
+    hasSources: boolean;
+  },
+): string {
+  const assessment = residual.evidenceAssessment;
+  if (!input.hasSources || assessment?.noSource === true) {
+    return "DeepSeek returned SAME, but no usable source citations were available.";
+  }
+  if (input.contradictory) {
+    return "DeepSeek returned SAME, but source evidence contains conflicting signals.";
+  }
+  if (assessment && assessment.differentEvidence > 0) {
+    return "DeepSeek returned SAME, but structured source evidence also includes DIFFERENT support.";
+  }
+  if (
+    assessment &&
+    assessment.sameEvidence === 0 &&
+    assessment.differentEvidence === 0
+  ) {
+    return "DeepSeek returned SAME with sources, but structured source evidence did not identify a one-way SAME signal.";
+  }
+  return "DeepSeek returned SAME, but source evidence was not decisive enough for auto-merge.";
+}
+
 export function policyFromDeepSeek(
   residual: DeepSeekResidualDecision | null,
   hardBlockers: string[],
@@ -338,6 +365,21 @@ export function policyFromDeepSeek(
       final: true,
       reasonCode: hardBlockers[0],
       reasonSummary: `DeepSeek result ignored because hard blockers exist: ${hardBlockers.join(", ")}`,
+    };
+  }
+
+  if (score.orientation === "swapped") {
+    return {
+      decision: "human_review",
+      stage: "human_review",
+      confidence: score.combined,
+      confidenceBand: confidenceBand(score.combined),
+      final: false,
+      reasonCode: "swapped_orientation_needs_review",
+      reasonSummary:
+        "Provider team slots are swapped. Grounded review is not allowed to auto-merge swapped-orientation rows until odds ingestion is orientation-aware.",
+      groundedDecision: residual?.decision ?? null,
+      groundedConfidence: residual ? residual.confidence / 100 : null,
     };
   }
 
@@ -465,7 +507,10 @@ export function policyFromDeepSeek(
       reasonSummary:
         safePositiveEvidence
           ? residual.reasoning
-          : "DeepSeek recommended a match without one-way, non-conflicting source evidence.",
+          : sameReviewReasonSummary(residual, {
+              contradictory,
+              hasSources,
+            }),
       groundedDecision: residual.decision,
       groundedConfidence: normalizedConfidence,
     };

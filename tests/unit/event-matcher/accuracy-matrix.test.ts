@@ -131,10 +131,8 @@ const mergeCases: Scenario[] = [
       competition: "England Premier League",
     },
     {
-      expectedCandidate: true,
-      expectedAdmission: "hard_admit",
-      expectedDecision: "auto_merge",
-      expectedReasonCode: "swapped_orientation_match",
+      expectedCandidate: false,
+      forbiddenDecision: "auto_merge",
     },
   ),
   scenario(
@@ -675,8 +673,7 @@ const reviewCases: Scenario[] = [
       competition: "Spanish La Liga",
     },
     {
-      expectedCandidate: true,
-      expectedDecision: "human_review",
+      expectedCandidate: false,
       forbiddenDecision: "auto_merge",
     },
   ),

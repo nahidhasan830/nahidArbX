@@ -402,7 +402,7 @@ export type ListFilters = {
   readyToSettle?: boolean;
   /** Bets the pipeline tried to settle but couldn't (`outcome='pending' AND settle_attempts > 0`). */
   needsReview?: boolean;
-  /** Only include bets that have been placed. */
+  /** True = placed rows only; false = detected-only rows. */
   placedOnly?: boolean;
   /**
    * When true, exclude historical in-play pollution — rows where the bet was
@@ -466,8 +466,10 @@ const buildFilterClauses = (filters: ListFilters) => {
     clauses.push(eq(bets.outcome, "pending"));
     clauses.push(sql`${bets.settleAttempts} > 0`);
   }
-  if (filters.placedOnly) {
+  if (filters.placedOnly === true) {
     clauses.push(sql`${bets.placedAt} IS NOT NULL`);
+  } else if (filters.placedOnly === false) {
+    clauses.push(sql`${bets.placedAt} IS NULL`);
   }
   if (filters.minEv !== undefined) {
     clauses.push(sql`${evExpr} >= ${filters.minEv}`);

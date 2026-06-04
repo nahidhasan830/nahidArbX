@@ -112,6 +112,41 @@ describe("event matcher scoring", () => {
     );
   });
 
+  it("ignores FK club prefixes on stored normalized provider text", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "saba-sportsbook",
+          homeTeamRaw: "Shurtan Guzar",
+          homeTeamNormalized: "shurtan guzar",
+          awayTeamRaw: "Metallurg Bekabad",
+          awayTeamNormalized: "metallurg bekabad",
+          competitionRaw: "UZBEKISTAN PRO LEAGUE",
+          competitionNormalized: "uzbekistan pro league",
+        }),
+        snapshot("b", {
+          provider: "ninewickets-sportsbook",
+          homeTeamRaw: "FK Shortan Guzor",
+          homeTeamNormalized: "fk shortan guzor",
+          awayTeamRaw: "Metalourg Bekabad",
+          awayTeamNormalized: "metalourg bekabad",
+          competitionRaw: "Uzbekistan 1st Division",
+          competitionNormalized: "uzbekistan 1st division",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.orientation).toBe("same");
+    expect(score.home).toBeGreaterThan(
+      DEFAULT_EVENT_MATCHER_CONFIG.teamAutoMergeFloor,
+    );
+    expect(score.bestTeam).toBeGreaterThan(0.94);
+  });
+
   it("expands generic youth labels without aliasing specific age groups directly", async () => {
     const genericYouth = await scoreCandidate(
       candidate(

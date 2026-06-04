@@ -83,6 +83,29 @@ describe("event matcher policy", () => {
     expect(decision.reasonCode).toBe("exact_team_kickoff_match");
   });
 
+  it("keeps swapped team slots out of automatic merge paths", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 0.42,
+        away: 0.47,
+        swappedHome: 1,
+        swappedAway: 1,
+        sameOrientationTeam: 0.445,
+        swappedOrientationTeam: 1,
+        bestTeam: 1,
+        orientation: "swapped",
+        competition: 0.95,
+        combined: 0.96,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.stage).toBe("human_review");
+    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
+  });
+
   it("does not auto-merge exact teams when competition agreement is implausible", () => {
     const decision = decideCandidate(
       [],
@@ -182,8 +205,8 @@ describe("event matcher policy", () => {
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
 
-    expect(decision.decision).toBe("auto_reject");
-    expect(decision.reasonCode).toBe("low_team_competition_similarity");
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
   });
 
   it("routes high-confidence merge-gate failures to DeepSeek", () => {

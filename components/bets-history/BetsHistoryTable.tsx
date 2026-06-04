@@ -92,7 +92,7 @@ type SortKey =
   | "eventStartTime";
 type SortDir = "asc" | "desc" | "none";
 
-const PERSISTENCE_KEY = "bets-history-table:layout:v4";
+const PERSISTENCE_KEY = "bets-history-table:layout:v5";
 
 const OUTCOME_PILL: Record<Outcome, string> = {
   pending: "bg-muted text-muted-foreground border border-border",
@@ -113,6 +113,42 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
 };
 
 type Decorated = ValueBetRow & { _evPctMax: number; _kellyFraction: number };
+
+const ML_DECISION_PILL: Record<string, string> = {
+  boost:
+    "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  agree:
+    "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+  shrink:
+    "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  skip: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  none: "border-border bg-muted text-muted-foreground",
+};
+
+function cleanDecision(value: string | null | undefined) {
+  if (value === "none") return "No ML";
+  return value ? value.replace(/_/g, " ") : "No ML";
+}
+
+function formatSignedPct(value: number | null | undefined, digits = 2) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
+function formatScore(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value.toFixed(3);
+}
+
+function formatMultiplier(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(2)}x`;
+}
+
+function formatStakePct(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${(value * 100).toFixed(2)}%`;
+}
 
 export type BacktestTableProps = {
   rows: ValueBetRow[];
@@ -619,6 +655,106 @@ export function BetsHistoryTable({
           <span>{(row.original._kellyFraction * 100).toFixed(2)}%</span>
         ),
         meta: { align: "center", initialSize: 85 },
+      },
+      {
+        id: "mlAtPlace",
+        header: () => (
+          <StaticHeader
+            label="ML@Place"
+            hint="Frozen placement-time ML decision. Latest ML changes stay separate in the tooltip."
+          />
+        ),
+        accessorFn: (row) => row.placedMlModelEdgePct,
+        cell: ({ row }) => {
+          const r = row.original;
+          if (!r.placedAt) {
+            return <span className="text-muted-foreground/40">—</span>;
+          }
+
+          const decision = r.placedMlDecision ?? "none";
+          const hasSnapshot =
+            r.placedMlScore != null ||
+            r.placedMlModelEdgePct != null ||
+            r.placedMlDecision != null ||
+            r.placedMlKellyMultiplier != null;
+
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    "inline-flex h-5 cursor-help items-center gap-1 rounded-md border px-1.5 text-[10px] font-semibold tabular-nums",
+                    ML_DECISION_PILL[decision] ?? ML_DECISION_PILL.none,
+                  )}
+                >
+                  <span className="capitalize">{cleanDecision(decision)}</span>
+                  {r.placedMlModelEdgePct != null && (
+                    <span>{formatSignedPct(r.placedMlModelEdgePct, 1)}</span>
+                  )}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[320px] p-2.5">
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <p className="mb-1 font-medium text-foreground">
+                      Placement ML
+                    </p>
+                    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-muted-foreground">
+                      <span>Score</span>
+                      <span className="font-mono text-foreground">
+                        {formatScore(r.placedMlScore)}
+                      </span>
+                      <span>Decision</span>
+                      <span className="capitalize text-foreground">
+                        {hasSnapshot
+                          ? cleanDecision(r.placedMlDecision)
+                          : "No snapshot"}
+                      </span>
+                      <span>Multiplier</span>
+                      <span className="font-mono text-foreground">
+                        {formatMultiplier(r.placedMlKellyMultiplier)}
+                      </span>
+                      <span>Model EV</span>
+                      <span className="font-mono text-foreground">
+                        {formatSignedPct(r.placedMlModelEdgePct, 2)}
+                      </span>
+                      <span>Booked odds</span>
+                      <span className="font-mono text-foreground">
+                        {r.odds == null ? "—" : r.odds.toFixed(2)}
+                      </span>
+                      <span>Model</span>
+                      <span className="font-mono text-foreground">
+                        {r.placedMlModelVersion == null
+                          ? "—"
+                          : `v${r.placedMlModelVersion}`}
+                      </span>
+                      <span>Placed</span>
+                      <span className="text-foreground">
+                        {format(parseISO(r.placedAt), "MMM d, yyyy HH:mm:ss")}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="border-t border-border pt-2">
+                    <p className="mb-1 font-medium text-foreground">
+                      Latest ML
+                    </p>
+                    <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-muted-foreground">
+                      <span>Score</span>
+                      <span className="font-mono text-foreground">
+                        {formatScore(r.mlScore)}
+                      </span>
+                      <span>Stake</span>
+                      <span className="font-mono text-foreground">
+                        {formatStakePct(r.mlStakeFraction)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
+        meta: { align: "center", initialSize: 112 },
       },
       {
         id: "tickCount",

@@ -59,7 +59,7 @@ const COUNTRY_PREFIX_REGEXES = ALL_COUNTRIES.map(
 );
 
 const CLUB_TOKEN_STRIP_RE =
-  /(^|\s)(fc|sc|cf|ac|as|ss|sv|us|aek|vfb|vfl|tsv|bk|if|kv|sk|rc|rcd|psc|dsc)(?=$|\s)/g;
+  /(^|\s)(fc|sc|cf|ac|as|ss|sv|us|aek|vfb|vfl|tsv|bk|if|kv|sk|rc|rcd|psc|dsc|afc|pfc|cfc|fk)(?=$|\s)/g;
 
 const SHORT_FORM_MAP: Array<[RegExp, string]> = [
   [/\butd\b/g, "united"],

@@ -94,6 +94,7 @@ type ValueTone = "neutral" | "good" | "bad" | "warn";
 
 type PredictionAuditRow = {
   id: number;
+  betId: string;
   scoredAt: string;
   homeTeam: string;
   awayTeam: string;
@@ -121,6 +122,18 @@ type PredictionAuditRow = {
   pnl: number | null;
   clvPct: number | null;
   settledAt: string | null;
+  placementPlacedAt: string | null;
+  placementStake: number | null;
+  placementOdds: number | null;
+  placementProviderTicketId: string | null;
+  placementMode: string | null;
+  placementPnl: number | null;
+  placementClvPct: number | null;
+  placementMlScore: number | null;
+  placementMlModelEdgePct: number | null;
+  placementMlDecision: string | null;
+  placementMlKellyMultiplier: number | null;
+  placementMlModelVersion: number | null;
 };
 
 type PredictionAuditResponse = {
@@ -1436,6 +1449,117 @@ function PredictionAuditPanel() {
           align: "center",
           initialSize: 118,
           hint: "Gate decision and model version used for this prediction.",
+        },
+      },
+      {
+        id: "placement",
+        header: "Placement",
+        accessorKey: "placementMlDecision",
+        cell: ({ row }) => {
+          const r = row.original;
+          if (!r.placementPlacedAt) {
+            return <span className="text-muted-foreground/40">—</span>;
+          }
+
+          const decision = r.placementMlDecision ?? "none";
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="inline-flex cursor-help items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "h-5 rounded-md px-1.5 text-xs capitalize tabular-nums",
+                      decisionTone(decision),
+                    )}
+                  >
+                    {cleanText(decision)}
+                  </Badge>
+                  <span
+                    className={cn(
+                      "font-mono text-[10px] tabular-nums",
+                      valueToneClass(signedTone(r.placementMlModelEdgePct)),
+                    )}
+                  >
+                    {formatPct(r.placementMlModelEdgePct, 1)}
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[320px] p-2.5">
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <p className="mb-1 font-medium text-foreground">
+                      Placement ML
+                    </p>
+                    <div className="grid grid-cols-[86px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-muted-foreground">
+                      <span>Decision</span>
+                      <span className="capitalize text-foreground">
+                        {cleanText(r.placementMlDecision ?? "no snapshot")}
+                      </span>
+                      <span>Score</span>
+                      <span className="font-mono text-foreground">
+                        {formatDecimal(r.placementMlScore, 3)}
+                      </span>
+                      <span>Model EV</span>
+                      <span className="font-mono text-foreground">
+                        {formatPct(r.placementMlModelEdgePct, 2)}
+                      </span>
+                      <span>Multiplier</span>
+                      <span className="font-mono text-foreground">
+                        {formatMultiplier(r.placementMlKellyMultiplier)}
+                      </span>
+                      <span>Model</span>
+                      <span className="font-mono text-foreground">
+                        {r.placementMlModelVersion == null
+                          ? "-"
+                          : `v${r.placementMlModelVersion}`}
+                      </span>
+                      <span>Booked</span>
+                      <span className="font-mono text-foreground">
+                        {r.placementOdds == null
+                          ? "-"
+                          : r.placementOdds.toFixed(2)}
+                      </span>
+                      <span>Stake</span>
+                      <span className="font-mono text-foreground">
+                        {r.placementStake == null
+                          ? "-"
+                          : r.placementStake.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="border-t border-border pt-2">
+                    <p className="mb-1 font-medium text-foreground">
+                      Latest ML
+                    </p>
+                    <div className="grid grid-cols-[86px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-muted-foreground">
+                      <span>Decision</span>
+                      <span className="capitalize text-foreground">
+                        {cleanText(r.decision)}
+                      </span>
+                      <span>Score</span>
+                      <span className="font-mono text-foreground">
+                        {formatDecimal(r.mlScore, 3)}
+                      </span>
+                      <span>Model EV</span>
+                      <span className="font-mono text-foreground">
+                        {formatPct(r.modelEdgePct, 2)}
+                      </span>
+                      <span>Stake</span>
+                      <span className="font-mono text-foreground">
+                        {formatStake(r.mlStakeFraction)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        },
+        meta: {
+          align: "center",
+          initialSize: 118,
+          hint: "Frozen placement-time ML snapshot from bets, separate from latest prediction columns.",
         },
       },
       {

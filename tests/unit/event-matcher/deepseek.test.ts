@@ -134,6 +134,37 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("grounded_llm_same_match");
   });
 
+  it("keeps swapped team slots in review even when grounded review says SAME", () => {
+    const decision = policyFromDeepSeek(
+      sourcedSame({
+        sameEvidence: 2,
+        differentEvidence: 0,
+        contradiction: false,
+        noSource: false,
+        notes: ["Sources [1] and [2] support SAME."],
+      }),
+      [],
+      {
+        ...score(),
+        home: 0.45,
+        away: 0.5,
+        swappedHome: 1,
+        swappedAway: 1,
+        sameOrientationTeam: 0.475,
+        swappedOrientationTeam: 1,
+        bestTeam: 1,
+        orientation: "swapped",
+        combined: 0.95,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.stage).toBe("human_review");
+    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
+    expect(decision.groundedDecision).toBe("SAME");
+  });
+
   it("auto-merges high-confidence grounded SAME when score and sources agree despite weak structured assessment", () => {
     const same = sourcedSame({
       sameEvidence: 0,
@@ -189,6 +220,39 @@ describe("policyFromDeepSeek", () => {
         embeddingTeam: 0.9499352600224079,
         embeddingCompetition: 0.9110606832433741,
         combined: 0.9043230359953681,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("auto-merges FK-prefixed bookmaker names when DeepSeek agrees and sources do not conflict", () => {
+    const same = sourcedSame({
+      sameEvidence: 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Structured evidence counts were not populated."],
+    });
+    same.confidence = 95;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.917948717948718,
+        away: 0.9764705882352941,
+        sameOrientationTeam: 0.947209653092006,
+        bestTeam: 0.947209653092006,
+        competition: 0.8214683866857779,
+        embeddingTeam: 0.8809725707677006,
+        embeddingCompetition: 0.8483556996641434,
+        alias: 0.9764705882352941,
+        providerReliability: 0.77,
+        combined: 0.874181221948267,
       },
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
@@ -534,8 +598,8 @@ describe("policyFromDeepSeek", () => {
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
 
-    expect(decision.decision).toBe("auto_reject");
-    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
   });
 
   it("keeps DIFFERENT in review when source-backed aliases cover the differing team slots", () => {

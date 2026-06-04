@@ -350,6 +350,14 @@ async function findMatchesInGroup(
         preNormalized.get(sorted[i].id),
         preNormalized.get(sorted[j].id),
       );
+
+      // Side-specific odds are keyed to the canonical home/away slots. Until
+      // provider orientation is persisted and applied during odds ingestion,
+      // swapped provider listings must not be merged automatically.
+      if (breakdown.bestOrientation === "swapped") {
+        continue;
+      }
+
       const score = breakdown.finalScore;
 
       // Competition hard gate: reject if competitions are wildly different

@@ -1,6 +1,6 @@
 /**
  * Locate an event in the current store that matches one side of a UI pair.
- * Tolerates home/away swaps and internal-ID rotation between syncs by using
+ * Requires home/away slot alignment while tolerating internal-ID rotation via
  * aliased team names + time-bucket minute for identity.
  *
  * Shared between the match-review route (approve/reject flow, AI auto-merge)
@@ -31,9 +31,6 @@ export function locateEventBySide(
     if (eMinute !== minute) return false;
     const eHome = applyTeamAlias(e.homeTeam);
     const eAway = applyTeamAlias(e.awayTeam);
-    return (
-      (eHome === canonHome && eAway === canonAway) ||
-      (eHome === canonAway && eAway === canonHome)
-    );
+    return eHome === canonHome && eAway === canonAway;
   });
 }

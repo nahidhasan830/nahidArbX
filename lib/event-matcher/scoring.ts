@@ -70,6 +70,16 @@ function providerPair(a: string, b: string): string {
 
 function teamNameVariants(value: string): string[] {
   const variants = new Set([value]);
+  const strippedClubTokens = value
+    .replace(
+      /(^|\s)(fc|sc|cf|ac|as|ss|sv|us|aek|vfb|vfl|tsv|bk|if|kv|sk|rc|rcd|psc|dsc|afc|pfc|cfc|fk)(?=$|\s)/g,
+      "$1",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+  if (strippedClubTokens && strippedClubTokens !== value) {
+    variants.add(strippedClubTokens);
+  }
   if (/^man\s+/.test(value)) {
     variants.add(value.replace(/^man\s+/, "manchester "));
   }
