@@ -117,6 +117,23 @@ export const bets = pgTable(
     mlFeatureVersion: integer(), // Feature contract version at extraction time
     mlFeatureCount: integer(), // Feature vector length at extraction time
     mlFeatureNamesHash: text(), // SHA-256 of feature names for drift detection
+
+    // Frozen ML execution snapshot — populated only when a bet is placed.
+    // These columns preserve the model's placement-time reason even if later
+    // ticks update the latest ML opinion above.
+    placedMlScore: real("placed_ml_score"),
+    placedMlModelEdgePct: numeric("placed_ml_model_edge_pct", {
+      precision: 8,
+      scale: 3,
+      mode: "number",
+    }),
+    placedMlDecision: text("placed_ml_decision"), // 'skip' | 'shrink' | 'agree' | 'boost'
+    placedMlKellyMultiplier: real("placed_ml_kelly_multiplier"),
+    placedMlModelVersion: integer("placed_ml_model_version"),
+    placedMlFeatures: real("placed_ml_features").array(),
+    placedMlFeatureVersion: integer("placed_ml_feature_version"),
+    placedMlFeatureCount: integer("placed_ml_feature_count"),
+    placedMlFeatureNamesHash: text("placed_ml_feature_names_hash"),
   },
   (t) => [
     index("bets_first_seen_idx").on(t.firstSeenAt.desc()),
@@ -185,6 +202,13 @@ export const autoPlacerLog = pgTable(
     evPct: numeric({ precision: 6, scale: 2, mode: "number" }),
     /** ML context (null when no model loaded). */
     mlScore: real(),
+    mlModelEdgePct: numeric("ml_model_edge_pct", {
+      precision: 8,
+      scale: 3,
+      mode: "number",
+    }),
+    mlDecision: text("ml_decision"),
+    mlKellyMultiplier: real("ml_kelly_multiplier"),
     /** Stake attempted (null when skipped before sizing). */
     stake: numeric({ precision: 10, scale: 2, mode: "number" }),
     /** Balance at decision time (null when skipped before balance check). */

@@ -35,6 +35,7 @@ import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { computeStake, deriveEdge } from "./sizing";
 import { MIN_EV_PCT } from "@/lib/shared/constants";
 import { recordDecision } from "@/lib/db/repositories/auto-placer-log";
+import { computeModelEdgePctAtOdds } from "@/lib/ml/staker";
 import {
   newPlacementId,
   registerPendingConfirmation as nwRegisterPendingConfirmation,
@@ -113,6 +114,13 @@ export interface PlaceForValueBetArgs {
   mlKellyMultiplier?: number | null;
   /** Raw ML score used by the auto-placer gate; logged for audit. */
   mlScore?: number | null;
+  /** Deployed model version that produced `mlScore`, if known. */
+  mlModelVersion?: number | null;
+  /** Feature vector used for the placement-time ML score. */
+  mlFeatures?: number[] | null;
+  mlFeatureVersion?: number | null;
+  mlFeatureCount?: number | null;
+  mlFeatureNamesHash?: string | null;
   /**
    * Optional pre-resolved provider refs (book-native marketId /
    * selectionId / etc.). When omitted the placer calls
@@ -122,6 +130,20 @@ export interface PlaceForValueBetArgs {
    */
   providerRefs?: Record<string, string | number>;
   mode: "auto" | "manual";
+}
+
+type PlacementMlDecision = "skip" | "shrink" | "agree" | "boost";
+
+interface PlacementMlSnapshot {
+  placedMlScore: number | null;
+  placedMlModelEdgePct: number | null;
+  placedMlDecision: PlacementMlDecision | null;
+  placedMlKellyMultiplier: number | null;
+  placedMlModelVersion: number | null;
+  placedMlFeatures: number[] | null;
+  placedMlFeatureVersion: number | null;
+  placedMlFeatureCount: number | null;
+  placedMlFeatureNamesHash: string | null;
 }
 
 /**
@@ -217,6 +239,15 @@ function logAutoPlacerOutcome(
     sharpOdds: Number(vb.sharpOdds) || null,
     evPct,
     mlScore: args.mlScore ?? null,
+    mlModelEdgePct: buildPlacementMlSnapshot(
+      args,
+      "bookedOdds" in outcome && outcome.bookedOdds != null
+        ? outcome.bookedOdds
+        : Number(vb.softOdds),
+      Number(vb.softCommissionPct ?? 0),
+    ).placedMlModelEdgePct,
+    mlDecision: classifyPlacementMlDecision(args.mlKellyMultiplier),
+    mlKellyMultiplier: args.mlKellyMultiplier ?? null,
     stake: logStake,
     balance: logBalance,
     bookedOdds: "bookedOdds" in outcome ? outcome.bookedOdds : null,
@@ -247,6 +278,56 @@ function inferGate(outcome: PlacementOutcome): string {
   if (rl.includes("kelly stake") || rl.includes("below book minimum"))
     return "stake_min";
   return "unknown";
+}
+
+function classifyPlacementMlDecision(
+  multiplier: number | null | undefined,
+): PlacementMlDecision | null {
+  if (multiplier == null || !Number.isFinite(multiplier)) return null;
+  if (multiplier < 0.1) return "skip";
+  if (multiplier < 0.95) return "shrink";
+  if (multiplier > 1.05) return "boost";
+  return "agree";
+}
+
+function buildPlacementMlSnapshot(
+  args: Pick<
+    PlaceForValueBetArgs,
+    | "mlScore"
+    | "mlKellyMultiplier"
+    | "mlModelVersion"
+    | "mlFeatures"
+    | "mlFeatureVersion"
+    | "mlFeatureCount"
+    | "mlFeatureNamesHash"
+  >,
+  bookedOdds: number,
+  commissionPct: number,
+): PlacementMlSnapshot {
+  const mlScore =
+    args.mlScore != null && Number.isFinite(args.mlScore)
+      ? Number(args.mlScore)
+      : null;
+  const modelEdgePct =
+    mlScore == null
+      ? null
+      : computeModelEdgePctAtOdds(mlScore, bookedOdds, commissionPct);
+
+  return {
+    placedMlScore: mlScore,
+    placedMlModelEdgePct: modelEdgePct,
+    placedMlDecision: classifyPlacementMlDecision(args.mlKellyMultiplier),
+    placedMlKellyMultiplier:
+      args.mlKellyMultiplier != null &&
+      Number.isFinite(args.mlKellyMultiplier)
+        ? Number(args.mlKellyMultiplier)
+        : null,
+    placedMlModelVersion: args.mlModelVersion ?? null,
+    placedMlFeatures: args.mlFeatures ?? null,
+    placedMlFeatureVersion: args.mlFeatureVersion ?? null,
+    placedMlFeatureCount: args.mlFeatureCount ?? null,
+    placedMlFeatureNamesHash: args.mlFeatureNamesHash ?? null,
+  };
 }
 
 async function placeBetForValueBetImpl(
@@ -612,6 +693,13 @@ async function placeBetForValueBetImpl(
 
   // 7. Persist + notify — DB write ONLY when the book accepts the bet.
   if (attempt.status === "placed" || attempt.status === "pending") {
+    const bookedOdds = attempt.bookedOdds ?? odds;
+    const placementMl = buildPlacementMlSnapshot(
+      args,
+      bookedOdds,
+      Number(valueBet.softCommissionPct ?? 0),
+    );
+
     // 7a. Confirmation-required providers (9W Sportsbook):
     //     DON'T persist to the DB yet. Hand off to the confirmation
     //     tracker — it polls the book's bet-history feed every 30s for
@@ -641,8 +729,9 @@ async function placeBetForValueBetImpl(
         currency: adapter.currency,
         mode,
         stake,
-        bookedOdds: attempt.bookedOdds ?? odds,
-        evPct: computeEvPctSafe(valueBet, attempt.bookedOdds ?? odds),
+        bookedOdds,
+        evPct: computeEvPctSafe(valueBet, bookedOdds),
+        softCommissionPct: Number(valueBet.softCommissionPct ?? 0),
         marketId: extractRefString(providerRefs, "marketId"),
         selectionId: extractRefNumber(providerRefs, "selectionId"),
         betfairEventId: extractRefNumber(providerRefs, "betfairEventId"),
@@ -654,6 +743,7 @@ async function placeBetForValueBetImpl(
         dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
         ticketIdHint: attempt.ticketId ?? null,
         balanceAtSubmit: accountInfo.balance,
+        ...placementMl,
       } as const;
       if (isVelki) {
         velkiRegisterPendingConfirmation(confirmPayload);
@@ -663,7 +753,7 @@ async function placeBetForValueBetImpl(
       return {
         status: "pending",
         placedBetId: placementId,
-        bookedOdds: attempt.bookedOdds ?? odds,
+        bookedOdds,
         stake,
         ticketId: attempt.ticketId,
       };
@@ -696,10 +786,11 @@ async function placeBetForValueBetImpl(
 
         provider: baseInsert.provider,
         stake,
-        odds: attempt.bookedOdds ?? odds,
+        odds: bookedOdds,
         currency: baseInsert.currency,
         providerTicketId: attempt.ticketId ?? null,
         mode,
+        ...placementMl,
       });
     } catch (err) {
       // UNIQUE-index collision on (event_id, family_id, atom_id): another

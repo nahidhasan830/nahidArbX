@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/repositories/bets";
 import { notify } from "@/lib/notifier";
 import { logger } from "@/lib/shared/logger";
+import { computeModelEdgePctAtOdds } from "@/lib/ml/staker";
 import { queryPlayerInfo } from "./client";
 import { fetchUnMatchedTickets } from "./reconciler";
 import type { GeniusSportsUnMatchTicket } from "../ninewickets/types";
@@ -46,8 +47,18 @@ export interface PendingConfirmation {
   mode: "auto" | "manual";
   stake: number;
   bookedOdds: number;
+  softCommissionPct: number;
   evPct?: number;
   kellyFraction?: number;
+  placedMlScore: number | null;
+  placedMlModelEdgePct: number | null;
+  placedMlDecision: string | null;
+  placedMlKellyMultiplier: number | null;
+  placedMlModelVersion: number | null;
+  placedMlFeatures: number[] | null;
+  placedMlFeatureVersion: number | null;
+  placedMlFeatureCount: number | null;
+  placedMlFeatureNamesHash: string | null;
   marketId: string | null;
   selectionId: number | null;
   betfairEventId: number | null;
@@ -280,6 +291,14 @@ async function finaliseConfirmed(
   const ticketId = String(ticket.id);
   const authoritativeStake = ticket.initPrice;
   const authoritativeOdds = ticket.odds;
+  const placedMlModelEdgePct =
+    attempt.placedMlScore == null
+      ? null
+      : computeModelEdgePctAtOdds(
+          attempt.placedMlScore,
+          authoritativeOdds,
+          attempt.softCommissionPct,
+        );
   const oddsDrift = Math.abs(authoritativeOdds - attempt.bookedOdds);
   const stakeDrift = Math.abs(authoritativeStake - attempt.stake);
   const driftAlert =
@@ -311,7 +330,7 @@ async function finaliseConfirmed(
     sharpOdds: attempt.bookedOdds,
     sharpTrueProb: 0.5,
     softProvider: attempt.provider,
-    softCommissionPct: 0,
+    softCommissionPct: attempt.softCommissionPct,
     softOdds: authoritativeOdds,
     provider: attempt.provider,
     stake: authoritativeStake,
@@ -319,6 +338,15 @@ async function finaliseConfirmed(
     currency: attempt.currency,
     providerTicketId: ticketId,
     mode: attempt.mode,
+    placedMlScore: attempt.placedMlScore,
+    placedMlModelEdgePct,
+    placedMlDecision: attempt.placedMlDecision,
+    placedMlKellyMultiplier: attempt.placedMlKellyMultiplier,
+    placedMlModelVersion: attempt.placedMlModelVersion,
+    placedMlFeatures: attempt.placedMlFeatures,
+    placedMlFeatureVersion: attempt.placedMlFeatureVersion,
+    placedMlFeatureCount: attempt.placedMlFeatureCount,
+    placedMlFeatureNamesHash: attempt.placedMlFeatureNamesHash,
   };
 
   try {

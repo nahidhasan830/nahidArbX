@@ -1,0 +1,29 @@
+[
+  {
+    "name": "keep-live-packages",
+    "action": { "type": "Keep" },
+    "mostRecentVersions": {
+      "packageNamePrefixes": [
+        "nahidarbx-optimizer",
+        "entity-classifier",
+        "entity-matcher",
+        "entity-resolver"
+      ],
+      "keepCount": 2
+    }
+  },
+  {
+    "name": "delete-old-packages",
+    "action": { "type": "Delete" },
+    "condition": {
+      "tagState": "any",
+      "packageNamePrefixes": [
+        "nahidarbx-optimizer",
+        "entity-classifier",
+        "entity-matcher",
+        "entity-resolver"
+      ],
+      "olderThan": "14d"
+    }
+  }
+]

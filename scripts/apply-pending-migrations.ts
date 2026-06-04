@@ -71,6 +71,7 @@ const MIGRATIONS = [
   "0080_drop_matcher_decision_grounded_evidence.sql",
   "0081_event_matcher_run_jobs.sql",
   "0082_matcher_grounded_decision.sql",
+  "0084_placement_ml_snapshot.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;
@@ -470,6 +471,27 @@ async function main() {
                 HAVING count(*) > 1
               ) dupes`,
       expect: 0,
+    },
+    {
+      what: "bets.placed_ml_score column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'placed_ml_score'`,
+      expect: 1,
+    },
+    {
+      what: "bets.placed_ml_model_edge_pct column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'bets'
+                AND column_name = 'placed_ml_model_edge_pct'`,
+      expect: 1,
+    },
+    {
+      what: "auto_placer_log.ml_decision column",
+      sql: `SELECT count(*)::int AS n FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'auto_placer_log'
+                AND column_name = 'ml_decision'`,
+      expect: 1,
     },
     {
       what: "ml_learning_snapshots table",

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeKellyMultiplier,
   computeModelEdgePct,
+  computeModelEdgePctAtOdds,
   computeScoredStake,
 } from "@/lib/ml/staker";
 import { FEATURE_COUNT, FEATURE_INDEX } from "@/lib/ml/feature-contract";
@@ -169,5 +170,10 @@ describe("computeModelEdgePct", () => {
   it("converts calibrated win probability into offered-odds EV", () => {
     expect(computeModelEdgePct(0.5, makeFeatures())).toBeCloseTo(7.5, 6);
     expect(computeModelEdgePct(0.4, makeFeatures())).toBeLessThan(0);
+  });
+
+  it("computes placement EV from concrete booked odds", () => {
+    expect(computeModelEdgePctAtOdds(0.5, 2.1, 0)).toBeCloseTo(5, 6);
+    expect(computeModelEdgePctAtOdds(0.5, 2.1, 5)).toBeCloseTo(2.25, 6);
   });
 });

@@ -338,6 +338,7 @@ async function runDetectionPass(): Promise<void> {
         const kellyMap = new Map<string, number | null>();
         const kellyMultiplierMap = new Map<string, number | null>();
         const rawMultiplierMap = new Map<string, number | null>();
+        const scorerStatus = getScorerStatus();
         try {
           const featureArrays: number[][] = [];
           const betIds: string[] = [];
@@ -389,7 +390,6 @@ async function runDetectionPass(): Promise<void> {
               }
             }
 
-            const scorerStatus = getScorerStatus();
             const scoredAt = new Date().toISOString();
             const auditRows = betIds.flatMap((betId) => {
               const vb = valueBetById.get(betId);
@@ -579,6 +579,11 @@ async function runDetectionPass(): Promise<void> {
           maybeAutoPlace(vb, {
             mlScore: rawScore ?? null,
             mlKellyMultiplier: multiplierForPlacer,
+            mlModelVersion: scorerStatus.modelVersion,
+            mlFeatures: featuresMap.get(vb.id) ?? null,
+            mlFeatureVersion: FEATURE_VERSION,
+            mlFeatureCount: FEATURE_COUNT,
+            mlFeatureNamesHash: FEATURE_NAMES_HASH,
             permissionLevel,
           }).catch((err) =>
             logger.error(

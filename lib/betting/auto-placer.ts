@@ -44,6 +44,13 @@ export interface MaybeAutoPlaceOptions {
    * 0 = skip; 1 = pass-through; 0<x<1 = reduce; x>1 = increase).
    */
   mlKellyMultiplier?: number | null;
+  /** Deployed model version that produced this score, if known. */
+  mlModelVersion?: number | null;
+  /** Feature vector used for the placement-time score. */
+  mlFeatures?: number[] | null;
+  mlFeatureVersion?: number | null;
+  mlFeatureCount?: number | null;
+  mlFeatureNamesHash?: string | null;
   /** Current deployed model permission. Defaults to shadow to fail closed. */
   permissionLevel?: MLPermissionLevel;
 }
@@ -187,6 +194,11 @@ export async function maybeAutoPlace(
     kellyStake: vb.kellyStake,
     mlScore,
     mlKellyMultiplier: permissionLevel === "observe" ? null : mlMultiplier,
+    mlModelVersion: options.mlModelVersion ?? null,
+    mlFeatures: options.mlFeatures ?? null,
+    mlFeatureVersion: options.mlFeatureVersion ?? null,
+    mlFeatureCount: options.mlFeatureCount ?? null,
+    mlFeatureNamesHash: options.mlFeatureNamesHash ?? null,
     mode: "auto",
   });
 

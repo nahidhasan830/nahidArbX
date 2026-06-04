@@ -186,9 +186,19 @@ describe("maybeAutoPlace — ML Kelly multiplier pass-through", () => {
     await maybeAutoPlace(vb as never, {
       ...ML_ALLOWED,
       mlKellyMultiplier: 0.7,
+      mlModelVersion: 12,
+      mlFeatures: [0.1, 2.15],
+      mlFeatureVersion: 1,
+      mlFeatureCount: 2,
+      mlFeatureNamesHash: "feature-hash",
     });
     const args = vi.mocked(placeBetForValueBet).mock.calls[0][0];
     expect(args.mlKellyMultiplier).toBe(0.7);
+    expect(args.mlModelVersion).toBe(12);
+    expect(args.mlFeatures).toEqual([0.1, 2.15]);
+    expect(args.mlFeatureVersion).toBe(1);
+    expect(args.mlFeatureCount).toBe(2);
+    expect(args.mlFeatureNamesHash).toBe("feature-hash");
     // kellyStake should be the base value, not ML-adjusted
     expect(args.kellyStake).toBe(vb.kellyStake);
   });

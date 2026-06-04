@@ -990,6 +990,15 @@ export interface NewPlacedBetInput {
   currency: string;
   providerTicketId: string | null;
   mode: "auto" | "manual";
+  placedMlScore?: number | null;
+  placedMlModelEdgePct?: number | null;
+  placedMlDecision?: string | null;
+  placedMlKellyMultiplier?: number | null;
+  placedMlModelVersion?: number | null;
+  placedMlFeatures?: number[] | null;
+  placedMlFeatureVersion?: number | null;
+  placedMlFeatureCount?: number | null;
+  placedMlFeatureNamesHash?: string | null;
 }
 
 /**
@@ -1040,6 +1049,15 @@ export async function insertPlacedBet(
       currency: input.currency,
       providerTicketId: input.providerTicketId,
       mode: input.mode,
+      placedMlScore: input.placedMlScore ?? null,
+      placedMlModelEdgePct: input.placedMlModelEdgePct ?? null,
+      placedMlDecision: input.placedMlDecision ?? null,
+      placedMlKellyMultiplier: input.placedMlKellyMultiplier ?? null,
+      placedMlModelVersion: input.placedMlModelVersion ?? null,
+      placedMlFeatures: input.placedMlFeatures ?? null,
+      placedMlFeatureVersion: input.placedMlFeatureVersion ?? null,
+      placedMlFeatureCount: input.placedMlFeatureCount ?? null,
+      placedMlFeatureNamesHash: input.placedMlFeatureNamesHash ?? null,
     })
     .where(and(eq(bets.id, input.id), sql`${bets.placedAt} IS NOT NULL`))
     .returning();

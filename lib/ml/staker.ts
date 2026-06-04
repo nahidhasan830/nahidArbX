@@ -222,10 +222,36 @@ export function computeModelEdgePct(
   const adjustedSoftOdds = features[F.adjusted_soft_odds] ?? 0;
   const softOdds = features[F.soft_odds] ?? 0;
   const odds = adjustedSoftOdds > 1.01 ? adjustedSoftOdds : softOdds;
-  if (!Number.isFinite(mlScore) || !Number.isFinite(odds) || odds <= 1.01) {
+  return computeModelEdgePctAtEffectiveOdds(mlScore, odds);
+}
+
+/**
+ * Compute model EV at a concrete book price. Used for placement-time audit
+ * because the final accepted/booked odds may differ from the detected odds
+ * that were present in the feature vector.
+ */
+export function computeModelEdgePctAtOdds(
+  mlScore: number,
+  softOdds: number,
+  commissionPct = 0,
+): number {
+  const adjustedOdds =
+    1 + (softOdds - 1) * (1 - Math.max(0, commissionPct) / 100);
+  return computeModelEdgePctAtEffectiveOdds(mlScore, adjustedOdds);
+}
+
+function computeModelEdgePctAtEffectiveOdds(
+  mlScore: number,
+  effectiveOdds: number,
+): number {
+  if (
+    !Number.isFinite(mlScore) ||
+    !Number.isFinite(effectiveOdds) ||
+    effectiveOdds <= 1.01
+  ) {
     return -100;
   }
-  return (mlScore * odds - 1) * 100;
+  return (mlScore * effectiveOdds - 1) * 100;
 }
 
 function passesSimpleEvOverlay(features: number[]): boolean {
