@@ -9,6 +9,7 @@ import {
   PROVIDER_IDS,
   type ProviderKey,
 } from "./registry";
+import { isProviderHealthTelegramEnabled } from "./health-telegram-settings";
 
 interface ProviderIncidentState {
   down: boolean;
@@ -65,6 +66,7 @@ export async function notifyProviderHealthTransitions(
   alerts: readonly ProviderAlert[],
   now = new Date(),
 ): Promise<void> {
+  const telegramEnabled = isProviderHealthTelegramEnabled();
   const downAlertsByProvider = new Map<ProviderKey, ProviderAlert>();
   for (const alert of alerts) {
     if (alert.severity === "down") {
@@ -81,6 +83,7 @@ export async function notifyProviderHealthTransitions(
         nowMs: now.getTime(),
       });
       if (!decision) return;
+      if (!telegramEnabled) return;
 
       const event: ProviderHealthEvent =
         decision === "down"

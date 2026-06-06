@@ -1,9 +1,21 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/notifier", () => ({
+  notify: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/providers/health-telegram-settings", () => ({
+  isProviderHealthTelegramEnabled: vi.fn(),
+}));
+
+import { notify } from "@/lib/notifier";
 import {
   getProviderHealthTelegramDecision,
+  notifyProviderHealthTransitions,
   resetProviderHealthTelegramState,
 } from "@/lib/providers/health-telegram";
 import type { ProviderAlert } from "@/lib/providers/health-alerts";
+import { isProviderHealthTelegramEnabled } from "@/lib/providers/health-telegram-settings";
 
 const nowMs = Date.parse("2026-06-04T12:00:00.000Z");
 const cooldownMs = 15 * 60 * 1000;
@@ -25,6 +37,8 @@ function downAlert(fingerprint = "pinnacle|down|down|reason|never") {
 describe("provider health Telegram dedupe", () => {
   beforeEach(() => {
     resetProviderHealthTelegramState();
+    vi.mocked(notify).mockClear();
+    vi.mocked(isProviderHealthTelegramEnabled).mockReturnValue(true);
   });
 
   it("sends the first down alert and suppresses repeats within cooldown", () => {
@@ -95,7 +109,7 @@ describe("provider health Telegram dedupe", () => {
   it("suppresses changed down fingerprints within provider cooldown", () => {
     getProviderHealthTelegramDecision({
       provider: "pinnacle",
-        alert: downAlert("pinnacle|down|down|first|never"),
+      alert: downAlert("pinnacle|down|down|first|never"),
       nowMs,
       cooldownMs,
     });
@@ -108,5 +122,30 @@ describe("provider health Telegram dedupe", () => {
         cooldownMs,
       }),
     ).toBeNull();
+  });
+
+  it("does not send provider health Telegram events when the dashboard switch is off", async () => {
+    vi.mocked(isProviderHealthTelegramEnabled).mockReturnValue(false);
+
+    await notifyProviderHealthTransitions([downAlert()], new Date(nowMs));
+    await notifyProviderHealthTransitions([], new Date(nowMs + 1_000));
+
+    expect(notify).not.toHaveBeenCalled();
+
+    vi.mocked(isProviderHealthTelegramEnabled).mockReturnValue(true);
+    await notifyProviderHealthTransitions([], new Date(nowMs + 2_000));
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("sends provider health Telegram events when the dashboard switch is on", async () => {
+    await notifyProviderHealthTransitions([downAlert()], new Date(nowMs));
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(notify).mock.calls[0][0]).toMatchObject({
+      type: "provider:health",
+      state: "down",
+      provider: "pinnacle",
+    });
   });
 });

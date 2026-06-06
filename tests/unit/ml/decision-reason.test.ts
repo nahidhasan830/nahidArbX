@@ -37,7 +37,7 @@ describe("buildDecisionReason", () => {
 
     it("mentions expected loss in explanation", () => {
       const result = buildDecisionReason(0.45, makeFeatures(), 0);
-      const combined = result.explanation.join(" ");
+      const combined = result.explanation.map((p) => p.text).join(" ");
       expect(combined).toContain("break even");
     });
   });
@@ -74,7 +74,7 @@ describe("buildDecisionReason", () => {
         [IDX_STEAM_SHARP]: 5,
       });
       const result = buildDecisionReason(0.95, features, 1.87);
-      const combined = result.explanation.join(" ").toLowerCase();
+      const combined = result.explanation.map((p) => p.text).join(" ").toLowerCase();
       expect(combined).toContain("pinnacle");
       expect(combined).toContain("persist");
     });
@@ -86,7 +86,7 @@ describe("buildDecisionReason", () => {
       const result = buildDecisionReason(0.55, features, 0.8);
       expect(result.decision).toBe("shrink");
 
-      const combined = result.explanation.join(" ").toLowerCase();
+      const combined = result.explanation.map((p) => p.text).join(" ").toLowerCase();
       expect(combined).toContain("closing");
 
       const convTech = result.technical.find((f) => f.label === "Convergence");
@@ -104,14 +104,14 @@ describe("buildDecisionReason", () => {
   });
 
   describe("agree case", () => {
-    it("explanation mentions nothing unusual and Steam not in technical", () => {
+    it("explanation mentions baseline value and Steam not in technical", () => {
       const features = makeFeatures();
       const result = buildDecisionReason(0.55, features, 1.0);
       expect(result.decision).toBe("agree");
 
-      const combined = result.explanation.join(" ").toLowerCase();
+      const combined = result.explanation.map((p) => p.text).join(" ").toLowerCase();
       expect(combined).toContain("value");
-      expect(combined).toContain("nothing flagged");
+      expect(combined).toContain("no risk factors");
 
       const steamTech = result.technical.find((f) => f.label === "Steam");
       expect(steamTech).toBeUndefined();

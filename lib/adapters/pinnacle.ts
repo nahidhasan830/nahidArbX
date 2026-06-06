@@ -115,12 +115,13 @@ async function fetchWithToken(token: string): Promise<NormalizedEvent[]> {
     PinnacleEventsResponseSchema,
     "[pinnacle] events",
   );
-  if (!parsed) return [];
+  if (!parsed) {
+    throw new Error("Pinnacle events response failed schema validation");
+  }
 
   // Check API response code
   if (parsed.code !== 200) {
-    logger.error("Pinnacle", `API error: ${parsed.message}`);
-    return [];
+    throw new Error(`Pinnacle API error ${parsed.code}: ${parsed.message}`);
   }
 
   const events = parseResponse(parsed);
@@ -134,13 +135,14 @@ export const pinnacleAdapter: ProviderAdapter = {
     // Get token (auto-refreshes if expired)
     const token = await getPinnacleToken();
     if (!token) {
-      logger.warn("Pinnacle", "No valid token - skipping fetchEvents");
-      return [];
+      throw new Error("No valid Pinnacle token available");
     }
 
     try {
       return await fetchWithToken(token);
     } catch (error) {
+      let finalError = error;
+
       // On 401, clear invalid token and force refresh
       if (axios.isAxiosError(error) && error.response?.status === 401) {
         clearStoredToken(); // Clear the invalid cached token
@@ -149,6 +151,7 @@ export const pinnacleAdapter: ProviderAdapter = {
           try {
             return await fetchWithToken(freshToken);
           } catch (retryError) {
+            finalError = retryError;
             if (
               axios.isAxiosError(retryError) &&
               retryError.response?.status === 401
@@ -163,22 +166,21 @@ export const pinnacleAdapter: ProviderAdapter = {
             }
           }
         } else {
-          logger.error(
-            "Pinnacle",
+          finalError = new Error(
             "Token refresh returned null - browser capture failed",
           );
         }
       }
 
-      if (axios.isAxiosError(error)) {
+      if (axios.isAxiosError(finalError)) {
         logger.error(
           "Pinnacle",
-          `API request failed: ${error.response?.status} ${error.message}`,
+          `API request failed: ${finalError.response?.status} ${finalError.message}`,
         );
       } else {
-        logger.error("Pinnacle", "fetchEvents error", error);
+        logger.error("Pinnacle", "fetchEvents error", finalError);
       }
-      return [];
+      throw finalError;
     }
   },
 };

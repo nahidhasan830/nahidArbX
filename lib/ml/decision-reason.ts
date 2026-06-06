@@ -42,10 +42,23 @@ export interface SimilarBetsContext {
   unitPnl: number;
 }
 
+export interface DecisionContext {
+  homeTeam?: string;
+  awayTeam?: string;
+  marketType?: string;
+  atomLabel?: string;
+}
+
+export interface ExplanationPoint {
+  heading: string;
+  text: string;
+}
+
 export interface DecisionReason {
   decision: "boost" | "shrink" | "skip" | "agree";
   multiplier: number;
-  explanation: string[];
+  summary: string;
+  explanation: ExplanationPoint[];
   technical: DecisionReasonTechnical[];
   multiplierChain: string;
   similar?: {
@@ -144,6 +157,7 @@ export function buildDecisionReason(
   features: number[],
   multiplier: number,
   similarContext?: SimilarBetsContext | null,
+  context?: DecisionContext,
 ): DecisionReason {
   const modelEdgePct = computeModelEdgePct(mlScore, features);
   const scoreVal = mlScore != null && Number.isFinite(mlScore) ? mlScore : 0;
@@ -161,7 +175,7 @@ export function buildDecisionReason(
   const steamBonus = steamSharp > 0 ? 1.3 : 1;
 
   const decision = classifyModelStance(multiplier);
-  const explanation = buildExplanation(
+  const { summary, points } = buildExplanation(
     decision,
     modelEdgePct,
     scoreVal,
@@ -170,6 +184,7 @@ export function buildDecisionReason(
     convergence,
     features,
     multiplier,
+    context,
   );
   const technical = buildTechnical(
     modelEdgePct,
@@ -199,7 +214,8 @@ export function buildDecisionReason(
   return {
     decision,
     multiplier,
-    explanation,
+    summary,
+    explanation: points,
     technical,
     multiplierChain,
     similar,
@@ -228,122 +244,113 @@ function buildExplanation(
   convergence: number,
   features: number[],
   multiplier: number,
-): string[] {
-  const lines: string[] = [];
+  context?: DecisionContext,
+): { summary: string; points: ExplanationPoint[] } {
   const confidence = scoreConfidence(scoreVal);
+  const odds = getOdds(features);
+  const impliedProb = odds > 1.01 ? Math.round((1 / odds) * 100) : null;
+  const modelProb = Math.round(scoreVal * 100);
+  
+  const eventDesc = context?.homeTeam && context?.awayTeam 
+    ? `${context.homeTeam} vs ${context.awayTeam}` 
+    : "this event";
+  const marketDesc = context?.marketType || context?.atomLabel || "this market";
+
+  let summary = "";
+  const points: ExplanationPoint[] = [];
 
   switch (decision) {
     case "boost": {
-      const odds = getOdds(features);
-      const impliedProb = odds > 1.01 ? Math.round((1 / odds) * 100) : null;
-      const modelProb = Math.round(scoreVal * 100);
-      const hasStrongEdge = modelEdgePct > 5;
-      const hasPersistence = tickCount > 10;
-      const hasSteam = steamSharp > 0;
+      summary = `Strong value detected for ${eventDesc} (${marketDesc}). Recommended action: Increase stake to ${multiplier.toFixed(2)}×.`;
+      
+      points.push({
+        heading: "Value Gap",
+        text: impliedProb != null && modelProb > impliedProb
+          ? `The model predicts a ${modelProb}% win probability, but current odds imply only ${impliedProb}%. This ${modelProb - impliedProb}-point gap represents a strong edge (${confidence.toLowerCase()} confidence).`
+          : `The model predicts a ${modelProb}% win probability, creating a ${pct(modelEdgePct)} edge (${confidence.toLowerCase()} confidence).`,
+      });
 
-      if (impliedProb != null && modelProb > impliedProb) {
-        if (hasStrongEdge) {
-          lines.push(
-            `The model estimates a ${modelProb}% win probability but the market implies only ${impliedProb}% — a ${modelProb - impliedProb}-point value gap (${confidence.toLowerCase()} confidence).`,
-          );
-        } else {
-          lines.push(
-            `The model estimates a ${modelProb}% win probability vs ${impliedProb}% implied — a ${modelProb - impliedProb}-point edge (${confidence.toLowerCase()} confidence).`,
-          );
-        }
-      } else if (impliedProb != null) {
-        lines.push(
-          `The model estimates a ${modelProb}% win probability against ${impliedProb}% implied — a ${pct(modelEdgePct)} edge (${confidence.toLowerCase()} confidence).`,
-        );
-      } else {
-        lines.push(
-          `The model estimates a ${modelProb}% win probability with a ${Math.abs(modelEdgePct).toFixed(0)}% edge (${confidence.toLowerCase()} confidence).`,
-        );
+      if (tickCount > 10) {
+        points.push({
+          heading: "Market Persistence",
+          text: `This opportunity has persisted through ${tickCount} market updates. Real value tends to hold while noise fades quickly, suggesting the market has not yet corrected this mispricing.`,
+        });
       }
 
-      if (hasPersistence && !hasStrongEdge) {
-        lines.push(
-          `The bet persisted through ${tickCount} market updates — this level of staying power is rare and suggests genuine value that the market hasn't spotted yet, which is why the model boosted to ${multiplier.toFixed(2)}×.`,
-        );
-      } else if (hasPersistence) {
-        lines.push(
-          `The bet persisted through ${tickCount} market updates — real value tends to hold while noise fades quickly.`,
-        );
-      }
-
-      if (hasSteam && !hasStrongEdge && !hasPersistence) {
-        lines.push(
-          `Pinnacle moved sharply in the same direction — this independent confirmation led the model to boost to ${multiplier.toFixed(2)}×.`,
-        );
-      } else if (hasSteam) {
-        lines.push(
-          "Pinnacle moved sharply in the same direction, independently confirming the value signal.",
-        );
+      if (steamSharp > 0) {
+        points.push({
+          heading: "Sharp Confirmation",
+          text: "Pinnacle (sharp market) odds moved sharply in the same direction. This independent confirmation validates that professional money agrees with this value signal.",
+        });
       }
 
       if (convergence >= 0) {
-        lines.push(
-          "Odds are stable — no sign the market is correcting the mispricing.",
-        );
+        points.push({
+          heading: "Risk Assessment",
+          text: "Odds movement is stable. There is no immediate sign of the market correcting this mispricing, keeping the risk of edge decay low.",
+        });
       }
       break;
     }
     case "shrink": {
+      summary = `Moderate value detected for ${eventDesc} (${marketDesc}), but risk factors present. Recommended action: Reduce stake to ${multiplier.toFixed(2)}×.`;
+      
       if (modelEdgePct <= 0) {
-        lines.push(
-          "The model estimates this bet is not +EV at the offered odds.",
-        );
+        points.push({
+          heading: "Negative Edge",
+          text: `The model estimates this bet on ${eventDesc} is not +EV at the offered odds.`,
+        });
       } else {
-        lines.push(
-          `The model sees moderate value (${pct(modelEdgePct)} edge, ${confidence.toLowerCase()} confidence) but flags are dampening the signal.`,
-        );
+        points.push({
+          heading: "Thin Edge",
+          text: `The model sees moderate value (${pct(modelEdgePct)} edge, ${confidence.toLowerCase()} confidence) for ${marketDesc}, but specific risk factors are dampening the signal.`,
+        });
       }
+
       if (convergence < 0) {
-        lines.push(
-          `Convergence is at ${pct(convergence * 100)}/min — the odds gap is closing, so the model reduced the stake.`,
-        );
+        points.push({
+          heading: "Edge Decay",
+          text: `Convergence is at ${pct(convergence * 100)}/min. The odds gap is actively closing, meaning the value window is shrinking.`,
+        });
       }
+
       if (tickCount <= 10 && steamSharp === 0) {
-        lines.push(
-          "No persistence or sharp confirmation — the signal lacks supporting evidence for a full stake.",
-        );
+        points.push({
+          heading: "Lack of Confirmation",
+          text: "No persistence or sharp market confirmation. The signal lacks the supporting evidence required for a full stake.",
+        });
       }
       break;
     }
     case "skip": {
+      summary = `No actionable value detected for ${eventDesc} (${marketDesc}). Recommended action: Skip this bet to protect bankroll.`;
+      
       if (modelEdgePct <= 0) {
-        const odds = getOdds(features);
-        const impliedProb = odds > 1.01 ? Math.round((1 / odds) * 100) : null;
-        const modelProb = Math.round(scoreVal * 100);
-        if (impliedProb != null && impliedProb > modelProb) {
-          lines.push(
-            `The model estimates a ${modelProb}% win probability, but the odds imply ${impliedProb}% is needed to break even — a ${impliedProb - modelProb}-point gap. Over many bets like this, the model expects to lose ${Math.abs(modelEdgePct).toFixed(1)}% per stake.`,
-          );
-        } else if (impliedProb != null) {
-          lines.push(
-            `The model estimates a ${modelProb}% win probability at odds implying ${impliedProb}%. The edge is ${pct(modelEdgePct)} — not enough value to justify a stake.`,
-          );
-        } else {
-          lines.push(
-            `The model estimates this bet is not +EV at the offered odds — edge is ${pct(modelEdgePct)}.`,
-          );
-        }
+        points.push({
+          heading: "Negative Expected Value",
+          text: impliedProb != null && impliedProb > modelProb
+            ? `The model predicts a ${modelProb}% win probability, but the odds imply ${impliedProb}% is needed to break even. Over many bets like this, the model expects to lose ${Math.abs(modelEdgePct).toFixed(1)}% per unit staked.`
+            : `The model predicts a ${modelProb}% win probability at odds implying ${impliedProb}%. The edge is ${pct(modelEdgePct)} — not enough value to justify a stake on ${marketDesc}.`,
+        });
       } else {
-        lines.push(
-          `Model edge of ${pct(modelEdgePct)} is too low to justify a stake.`,
-        );
+        points.push({
+          heading: "Insufficient Edge",
+          text: `The model edge of ${pct(modelEdgePct)} is too low to overcome the bookmaker's margin and justify a stake on ${eventDesc}.`,
+        });
       }
       break;
     }
     case "agree": {
-      lines.push(
-        `The model sees ${pct(modelEdgePct)} value (${confidence.toLowerCase()} confidence) — nothing flagged to adjust the normal stake.`,
-      );
+      summary = `Standard value detected for ${eventDesc} (${marketDesc}). Recommended action: Proceed with normal stake.`;
+      points.push({
+        heading: "Baseline Value",
+        text: `The model sees ${pct(modelEdgePct)} value (${confidence.toLowerCase()} confidence). No risk factors or strong confirming signals are present to adjust the normal stake for this market.`,
+      });
       break;
     }
   }
 
-  return lines;
+  return { summary, points };
 }
 
 // ── Technical breakdown (technical audience) ────────────────────────────────

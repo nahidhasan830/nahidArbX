@@ -44,6 +44,13 @@ import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { MarketDisplay } from "@/components/ui/market-display";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -51,6 +58,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TabsContent } from "@/components/ui/tabs";
+import { buildDecisionReason } from "@/lib/ml/decision-reason";
 import {
   Tooltip,
   TooltipContent,
@@ -134,6 +142,7 @@ type PredictionAuditRow = {
   placementMlDecision: string | null;
   placementMlKellyMultiplier: number | null;
   placementMlModelVersion: number | null;
+  mlFeatures: number[] | null;
 };
 
 type PredictionAuditResponse = {
@@ -1405,50 +1414,118 @@ function PredictionAuditPanel() {
         id: "gate",
         header: "Gate",
         accessorKey: "decision",
-        cell: ({ row }) => (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="inline-flex cursor-help items-center gap-1.5">
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "h-5 rounded-md px-1.5 text-xs capitalize",
-                    decisionTone(row.original.decision),
+        cell: ({ row }) => {
+          const r = row.original;
+          const features = r.mlFeatures ?? [];
+          const multiplier = r.kellyMultiplier ?? 1.0;
+          const reason = buildDecisionReason(r.mlScore, features, multiplier, undefined, {
+            homeTeam: r.homeTeam,
+            awayTeam: r.awayTeam,
+            marketType: r.marketType,
+            atomLabel: r.atomLabel,
+          });
+
+          return (
+            <Dialog>
+              <DialogTrigger asChild>
+                <div className="inline-flex cursor-pointer items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "h-5 rounded-md px-1.5 text-xs capitalize",
+                      decisionTone(r.decision),
+                    )}
+                  >
+                    {cleanText(r.decision)}
+                  </Badge>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {r.modelVersion == null ? "shadow" : `v${r.modelVersion}`}
+                  </span>
+                </div>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <div className="flex items-center justify-between">
+                    <DialogTitle className="text-base">Decision Analysis</DialogTitle>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "h-6 rounded-md px-2 text-sm capitalize",
+                        decisionTone(r.decision),
+                      )}
+                    >
+                      {cleanText(r.decision)}
+                    </Badge>
+                  </div>
+                </DialogHeader>
+
+                <div className="space-y-5 text-sm">
+                  <div className="rounded-md bg-muted/40 p-4">
+                    <p className="font-medium text-foreground leading-relaxed">
+                      {reason.summary}
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="mb-3 font-semibold text-foreground">Why this decision?</p>
+                    <ul className="space-y-3">
+                      {reason.explanation.map((point, i) => (
+                        <li key={i} className="flex gap-3">
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
+                          <div>
+                            <span className="font-semibold text-foreground">{point.heading}: </span>
+                            <span className="text-muted-foreground leading-relaxed">{point.text}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {reason.multiplierChain !== "1.0 = 1.00× (no adjustments needed)" && (
+                    <div className="rounded-md border border-border bg-muted/30 p-3">
+                      <p className="mb-2 font-semibold text-foreground">Multiplier Chain</p>
+                      <p className="font-mono text-xs text-muted-foreground">
+                        {reason.multiplierChain}
+                      </p>
+                    </div>
                   )}
-                >
-                  {cleanText(row.original.decision)}
-                </Badge>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {row.original.modelVersion == null
-                    ? "shadow"
-                    : `v${row.original.modelVersion}`}
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-[280px] p-2.5">
-              <div className="grid grid-cols-[82px_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                <span>Decision</span>
-                <span className="text-foreground">
-                  {cleanText(row.original.decision)}
-                </span>
-                <span>Model</span>
-                <span className="text-foreground">
-                  {row.original.modelVersion == null
-                    ? "Shadow"
-                    : `v${row.original.modelVersion}`}
-                </span>
-                <span>Permission</span>
-                <span className="text-foreground">
-                  {formatPermissionLevel(row.original.permissionLevel)}
-                </span>
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        ),
+
+                  <div>
+                    <p className="mb-3 font-semibold text-foreground">Technical Signals</p>
+                    <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
+                      {reason.technical.map((tech, i) => (
+                        <div key={i} className="contents">
+                          <span className="text-muted-foreground font-medium">{tech.label}</span>
+                          <div className="flex flex-col">
+                            <span
+                              className={cn(
+                                "font-mono font-medium",
+                                tech.tone === "positive"
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : tech.tone === "negative"
+                                    ? "text-rose-600 dark:text-rose-400"
+                                    : "text-foreground",
+                              )}
+                            >
+                              {tech.value}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground/80 leading-snug">
+                              {tech.detail}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+          );
+        },
         meta: {
           align: "center",
           initialSize: 118,
-          hint: "Gate decision and model version used for this prediction.",
+          hint: "Click to open a detailed modal with decision analysis and technical signals.",
         },
       },
       {

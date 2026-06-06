@@ -11,6 +11,7 @@ import {
   getRuntimeDisabledProviders,
   isProviderRuntimeEnabled,
 } from "@/lib/providers/runtime-state";
+import { getProviderHealthTelegramSettings } from "@/lib/providers/health-telegram-settings";
 import { logger } from "@/lib/shared/logger";
 import { enginePost } from "@/lib/engine-proxy";
 
@@ -31,6 +32,7 @@ export async function GET() {
   return NextResponse.json({
     providers,
     disabled: Array.from(disabled),
+    healthTelegram: getProviderHealthTelegramSettings(),
   });
 }
 
@@ -81,10 +83,39 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      if (action === "setHealthTelegramEnabled") {
+        const { setProviderHealthTelegramEnabled } = await import(
+          "@/lib/providers/health-telegram-settings"
+        );
+        const { enabled } = body;
+        if (typeof enabled !== "boolean") {
+          return NextResponse.json(
+            { error: "enabled must be a boolean" },
+            { status: 400 },
+          );
+        }
+        const healthTelegram = setProviderHealthTelegramEnabled(enabled);
+        return NextResponse.json({
+          success: true,
+          healthTelegram,
+          _engineOffline: true,
+        });
+      }
+
       return NextResponse.json(
         { error: `Unknown action: ${body.action}` },
         { status: 400 },
       );
+    }
+
+    if (body.action === "setHealthTelegramEnabled") {
+      const { enabled } = body;
+      if (result && (result as { success?: boolean }).success === true) {
+        const { setProviderHealthTelegramEnabled } = await import(
+          "@/lib/providers/health-telegram-settings"
+        );
+        setProviderHealthTelegramEnabled(enabled === true);
+      }
     }
 
     return NextResponse.json(result);

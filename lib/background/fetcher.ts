@@ -5,16 +5,21 @@ import {
   setProviderStatus,
   setSyncStatus,
   setValueBets,
+  getEvents,
   getMatchedEvents,
   getAllProviderStatus,
   markProviderAttempt,
 } from "../store";
 import { matchEvents } from "../matching";
 
-import type { NormalizedEvent } from "../types";
+import type { NormalizedEvent, Provider } from "../types";
 
 import { logger } from "../shared/logger";
-import { getTokenTTL, refreshTokenIfNeeded } from "../auth/token-manager";
+import {
+  getPinnacleToken,
+  getTokenTTL,
+  refreshTokenIfNeeded,
+} from "../auth/token-manager";
 import {
   FIXTURE_INTERVAL_MS,
   HEARTBEAT_INTERVAL_MS,
@@ -68,6 +73,38 @@ import { notifyProviderHealthTransitions } from "../providers/health-telegram";
  * separate 5-minute TTL (see `lib/betting/ninewickets/reconciler.ts`).
  */
 const RECONCILE_INTERVAL_MS = 30_000;
+
+interface FixtureFetchResult {
+  provider: Provider;
+  events: NormalizedEvent[];
+  stale: boolean;
+}
+
+function getStoredEventsForProvider(provider: Provider): NormalizedEvent[] {
+  const events: NormalizedEvent[] = [];
+  const seen = new Set<string>();
+
+  for (const event of getEvents()) {
+    const providerInfo = event.providers[provider];
+    if (!providerInfo) continue;
+
+    const providerEvent: NormalizedEvent = {
+      ...event,
+      id: `${provider}-${providerInfo.eventId}`,
+      providers: {
+        [provider]: { ...providerInfo },
+      },
+      matchSource: undefined,
+      matchConfidence: undefined,
+    };
+
+    if (seen.has(providerEvent.id)) continue;
+    seen.add(providerEvent.id);
+    events.push(providerEvent);
+  }
+
+  return events;
+}
 
 // Pinned to globalThis so route-handler inspectors (isSchedulerRunning,
 // isSchedulerPausedState) see the same flags as the scheduler loops
@@ -164,7 +201,7 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     const allEvents: NormalizedEvent[] = [];
 
     // Pull events from all providers in parallel
-    const results = await Promise.allSettled(
+    const results = await Promise.allSettled<FixtureFetchResult>(
       adapters.map(async (adapter) => {
         const policy = getProviderPolicy(adapter.name);
         markProviderAttempt(adapter.name);
@@ -176,7 +213,7 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
             lastFetch: new Date(),
           });
 
-          return { provider: adapter.name, events };
+          return { provider: adapter.name, events, stale: false };
         } catch (error) {
           logger.error("Sync", `${adapter.name} error:`, error);
           setProviderStatus(adapter.name, {
@@ -184,7 +221,18 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
             lastFetch: new Date(),
             error: error instanceof Error ? error.message : "Unknown error",
           });
-          return { provider: adapter.name, events: [] };
+          const preservedEvents = getStoredEventsForProvider(adapter.name);
+          if (preservedEvents.length > 0) {
+            logger.warn(
+              "Sync",
+              `${adapter.name} fixture fetch failed; preserving ${preservedEvents.length} stored provider mappings for matching/subscriptions`,
+            );
+          }
+          return {
+            provider: adapter.name,
+            events: preservedEvents,
+            stale: preservedEvents.length > 0,
+          };
         }
       }),
     );
@@ -195,6 +243,8 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
     for (const result of results) {
       if (result.status === "fulfilled") {
         allEvents.push(...result.value.events);
+        if (result.value.stale) continue;
+
         for (const event of result.value.events) {
           const providerInfo = event.providers[result.value.provider];
           snapshotInputs.push({
@@ -566,7 +616,7 @@ export function startScheduler(): void {
   registerHealingAction("pinnacle", async () => {
     logger.info("Sync", "Healing Pinnacle token...");
     try {
-      await refreshTokenIfNeeded();
+      await getPinnacleToken(true);
       const ttl = getTokenTTL();
       return ttl !== null && ttl > 0;
     } catch (error) {

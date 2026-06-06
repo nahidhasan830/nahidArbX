@@ -33,7 +33,7 @@ import {
   listAutoPlaceStates,
   setAutoPlaceEnabled,
 } from "@/lib/betting/auto-place-config";
-import { refreshTokenIfNeeded } from "@/lib/auth/token-manager";
+import { getPinnacleToken } from "@/lib/auth/token-manager";
 import { reconcilePendingBets } from "@/lib/betting/ninewickets/reconciler";
 import { resetValueCache } from "@/lib/atoms/value-detector";
 import { invalidateResponseCache } from "@/lib/cache/response-cache";
@@ -277,11 +277,11 @@ registerCommand({
   group: "control",
   async handler({ reply }) {
     try {
-      const ok = await refreshTokenIfNeeded();
+      const token = await getPinnacleToken(true);
       await reply(
-        ok
+        token
           ? "✅ Pinnacle token refresh attempted (check /health for new TTL)."
-          : "ℹ️ Refresh skipped — current token still valid.",
+          : "⚠️ Pinnacle token refresh failed — check engine logs.",
       );
     } catch (err) {
       await reply(`⚠️ Refresh failed: ${esc((err as Error).message)}`);

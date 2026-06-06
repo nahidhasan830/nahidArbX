@@ -1,9 +1,5 @@
 import { pinnacleWsClient } from "../adapters/pinnacle/ws-client";
-import {
-  getPinnacleToken,
-  isTokenValid,
-  refreshTokenIfNeeded,
-} from "../auth/token-manager";
+import { getPinnacleToken, isTokenValid } from "../auth/token-manager";
 import { logger } from "../shared/logger";
 import { getMatchedEvents } from "../store";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
@@ -57,15 +53,15 @@ export class PinnacleSyncService {
 
   private async ensureValidToken() {
     try {
-      if (!isTokenValid()) {
+      let token = await getPinnacleToken(false, true);
+      if (!token || !isTokenValid()) {
         logger.info(
           "PinnacleSync",
-          "Token invalid or expiring soon. Attempting refresh...",
+          "No valid stored token available. Capturing fresh token...",
         );
-        await refreshTokenIfNeeded();
+        token = await getPinnacleToken(true);
       }
 
-      const token = await getPinnacleToken(false, true);
       if (token) {
         pinnacleWsClient.setToken(token);
       } else {

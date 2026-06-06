@@ -419,6 +419,21 @@ export function registerEngineRoutes() {
       });
     }
 
+    if (action === "setHealthTelegramEnabled") {
+      const enabled = parsed.enabled;
+      if (typeof enabled !== "boolean") {
+        return jsonResponse(res, { error: "enabled must be a boolean" }, 400);
+      }
+      const { setProviderHealthTelegramEnabled } = await import(
+        "../providers/health-telegram-settings"
+      );
+      const healthTelegram = setProviderHealthTelegramEnabled(enabled);
+      return jsonResponse(res, {
+        success: true,
+        healthTelegram,
+      });
+    }
+
     return jsonResponse(res, { error: `Unknown action: ${action}` }, 400);
   });
 
