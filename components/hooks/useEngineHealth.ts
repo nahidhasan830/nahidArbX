@@ -17,7 +17,13 @@ export interface ProviderRuntimeHealth {
   platform: string | null;
   status: string;
   lastFetch: string | null;
+  lastAttemptAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastErrorAt?: string | null;
+  unhealthySinceAt?: string | null;
+  lastError?: string | null;
   error: string | null;
+  consecutiveFailures?: number;
   connected: boolean | null;
   activeEvents: number | null;
   pendingRequests: number | null;

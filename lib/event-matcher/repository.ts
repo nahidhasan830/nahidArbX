@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../db/client";
+import { bestSim } from "../matching/string-sim";
 import {
   canonicalEventMembers,
   canonicalEvents,
+  type CanonicalEventRow,
   type CanonicalEventMemberRow,
   matcherCandidates,
   matcherDecisions,
@@ -39,6 +41,15 @@ export interface CanonicalMergePlan {
   memberCount: number;
   providers: string[];
 }
+
+export interface CompatibleCanonicalClusterMergePlan {
+  action: "merge" | "blocked";
+  canonicalEventId: string | null;
+  sourceCanonicalEventIds: string[];
+  reason: string;
+}
+
+const CLUSTER_MERGE_MAX_KICKOFF_DRIFT_MS = 5 * 60 * 1000;
 
 function rowToSnapshot(
   row: typeof providerEventSnapshots.$inferSelect,
@@ -486,8 +497,6 @@ export async function readReliabilityStats(
     degradationReason = "Grounded review returned too many no-source decisions";
   } else if (deepseekReviewed >= 5 && contradictorySourceRate >= 0.3) {
     degradationReason = "DeepSeek decisions have too many conflicts";
-  } else if (clusterConflicts >= 3) {
-    degradationReason = "Recent canonical cluster conflicts need operator review";
   }
 
   return {
@@ -884,6 +893,178 @@ function canonicalCompetition(candidate: EventMatcherCandidate): string {
   );
 }
 
+function normalizeClusterSurface(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(fc|sc|cf|ac|as|club)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function allSurfacesCompatible(values: string[], threshold: number): boolean {
+  const surfaces = values.map(normalizeClusterSurface).filter(Boolean);
+  for (let i = 0; i < surfaces.length; i++) {
+    for (let j = i + 1; j < surfaces.length; j++) {
+      if (bestSim(surfaces[i], surfaces[j]) < threshold) return false;
+    }
+  }
+  return true;
+}
+
+function scoreSupportsCompatibleClusterMerge(score: ScoreBreakdown): boolean {
+  const alignedTeam =
+    score.orientation === "same"
+      ? Math.min(score.home, score.away)
+      : Math.min(score.swappedHome, score.swappedAway);
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+  const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
+
+  return (
+    score.kickoffExact &&
+    score.orientation === "same" &&
+    score.combined >= 0.91 &&
+    alignedTeam >= 0.96 &&
+    score.bestTeam >= 0.98 &&
+    teamConsensus >= 0.96 &&
+    competitionConsensus >= 0.82
+  );
+}
+
+function clusterMembersHaveNoProviderCollision(
+  members: CanonicalEventMemberRow[],
+): boolean {
+  const providerCanonicalIds = new Map<string, string>();
+  for (const member of members) {
+    const existing = providerCanonicalIds.get(member.provider);
+    if (existing && existing !== member.canonicalEventId) return false;
+    providerCanonicalIds.set(member.provider, member.canonicalEventId);
+  }
+  return true;
+}
+
+function chooseTargetCanonicalEvent(events: CanonicalEventRow[]): string {
+  return [...events].sort((a, b) => {
+    const kickoffDelta =
+      new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime();
+    if (kickoffDelta !== 0) return kickoffDelta;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  })[0].id;
+}
+
+export async function planCompatibleCanonicalClusterMerge(input: {
+  conflictCanonicalEventIds: string[];
+  score: ScoreBreakdown;
+}): Promise<CompatibleCanonicalClusterMergePlan> {
+  const conflictCanonicalEventIds = [
+    ...new Set(input.conflictCanonicalEventIds),
+  ];
+  if (conflictCanonicalEventIds.length < 2) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "No conflicting canonical clusters were provided.",
+    };
+  }
+  if (!scoreSupportsCompatibleClusterMerge(input.score)) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "Candidate score is not strong enough to merge canonical clusters.",
+    };
+  }
+
+  const events = await db
+    .select()
+    .from(canonicalEvents)
+    .where(inArray(canonicalEvents.id, conflictCanonicalEventIds));
+  if (
+    events.length !== conflictCanonicalEventIds.length ||
+    events.some((event) => event.status !== "active")
+  ) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "One or more conflicting canonical clusters are missing or inactive.",
+    };
+  }
+
+  const members = await db
+    .select()
+    .from(canonicalEventMembers)
+    .where(
+      inArray(
+        canonicalEventMembers.canonicalEventId,
+        conflictCanonicalEventIds,
+      ),
+    );
+  if (!clusterMembersHaveNoProviderCollision(members)) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason:
+        "Conflicting canonical clusters contain different events from the same provider.",
+    };
+  }
+
+  const sports = new Set(events.map((event) => event.sport));
+  if (sports.size !== 1) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "Conflicting canonical clusters are for different sports.",
+    };
+  }
+
+  const kickoffs = events.map((event) => new Date(event.kickoff).getTime());
+  const kickoffDrift = Math.max(...kickoffs) - Math.min(...kickoffs);
+  if (kickoffDrift > CLUSTER_MERGE_MAX_KICKOFF_DRIFT_MS) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "Conflicting canonical clusters have materially different kickoffs.",
+    };
+  }
+
+  if (
+    !allSurfacesCompatible(
+      events.map((event) => event.homeTeamCanonical),
+      0.82,
+    ) ||
+    !allSurfacesCompatible(
+      events.map((event) => event.awayTeamCanonical),
+      0.82,
+    )
+  ) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "Canonical cluster team surfaces are not compatible.",
+    };
+  }
+
+  const targetCanonicalEventId = chooseTargetCanonicalEvent(events);
+  return {
+    action: "merge",
+    canonicalEventId: targetCanonicalEventId,
+    sourceCanonicalEventIds: conflictCanonicalEventIds.filter(
+      (id) => id !== targetCanonicalEventId,
+    ),
+    reason:
+      "Conflicting canonical clusters have compatible teams, sport, kickoff, providers, and score evidence.",
+  };
+}
+
 export async function planCanonicalMerge(
   candidate: EventMatcherCandidate,
 ): Promise<CanonicalMergePlan> {
@@ -1039,6 +1220,50 @@ export async function applyCanonicalMerge(input: {
       .where(eq(matcherDecisions.id, input.decision.id));
     return canonicalId;
   });
+}
+
+export async function applyCompatibleCanonicalClusterMerge(input: {
+  decision: MatcherDecisionRow;
+  plan: CompatibleCanonicalClusterMergePlan;
+}): Promise<string | null> {
+  if (input.plan.action !== "merge" || !input.plan.canonicalEventId) {
+    return null;
+  }
+
+  const targetCanonicalEventId = input.plan.canonicalEventId;
+  const sourceCanonicalEventIds = input.plan.sourceCanonicalEventIds;
+
+  await db.transaction(async (tx) => {
+    if (sourceCanonicalEventIds.length > 0) {
+      await tx
+        .update(canonicalEventMembers)
+        .set({ canonicalEventId: targetCanonicalEventId })
+        .where(
+          inArray(
+            canonicalEventMembers.canonicalEventId,
+            sourceCanonicalEventIds,
+          ),
+        );
+      await tx
+        .update(matcherDecisions)
+        .set({ canonicalEventId: targetCanonicalEventId })
+        .where(inArray(matcherDecisions.canonicalEventId, sourceCanonicalEventIds));
+      await tx
+        .delete(canonicalEvents)
+        .where(inArray(canonicalEvents.id, sourceCanonicalEventIds));
+    }
+
+    await tx
+      .update(canonicalEvents)
+      .set({ updatedAt: new Date().toISOString() })
+      .where(eq(canonicalEvents.id, targetCanonicalEventId));
+    await tx
+      .update(matcherDecisions)
+      .set({ canonicalEventId: targetCanonicalEventId })
+      .where(eq(matcherDecisions.id, input.decision.id));
+  });
+
+  return targetCanonicalEventId;
 }
 
 export async function rebuildImpactForRun(runId: string): Promise<void> {

@@ -54,6 +54,12 @@ function residual(confidence: number): DeepSeekResidualDecision {
   };
 }
 
+function malformedEvidenceAssessment(
+  text: string,
+): DeepSeekResidualDecision["evidenceAssessment"] {
+  return text as unknown as DeepSeekResidualDecision["evidenceAssessment"];
+}
+
 function sourcedSame(
   assessment: DeepSeekResidualDecision["evidenceAssessment"],
 ): DeepSeekResidualDecision {
@@ -134,7 +140,7 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("grounded_llm_same_match");
   });
 
-  it("keeps swapped team slots in review even when grounded review says SAME", () => {
+  it("auto-merges strong source-backed swapped rows when grounded review says SAME", () => {
     const decision = policyFromDeepSeek(
       sourcedSame({
         sameEvidence: 2,
@@ -154,14 +160,46 @@ describe("policyFromDeepSeek", () => {
         swappedOrientationTeam: 1,
         bestTeam: 1,
         orientation: "swapped",
+        competition: 0.95,
         combined: 0.95,
       },
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
 
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.stage).toBe("deepseek");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+    expect(decision.groundedDecision).toBe("SAME");
+  });
+
+  it("keeps weak swapped SAME verdicts in review without score support", () => {
+    const decision = policyFromDeepSeek(
+      sourcedSame({
+        sameEvidence: 2,
+        differentEvidence: 0,
+        contradiction: false,
+        noSource: false,
+        notes: ["Sources support SAME."],
+      }),
+      [],
+      {
+        ...score(),
+        home: 0.45,
+        away: 0.5,
+        swappedHome: 0.88,
+        swappedAway: 0.72,
+        sameOrientationTeam: 0.475,
+        swappedOrientationTeam: 0.8,
+        bestTeam: 0.8,
+        orientation: "swapped",
+        competition: 0.55,
+        combined: 0.84,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
     expect(decision.decision).toBe("human_review");
-    expect(decision.stage).toBe("human_review");
-    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
     expect(decision.groundedDecision).toBe("SAME");
   });
 
@@ -294,6 +332,105 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("grounded_llm_same_match");
   });
 
+  it("auto-merges one noisy team label when sourced SAME has independent score support", () => {
+    const same = sourcedSame({
+      sameEvidence: 1,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Source evidence supports one fixture and one noisy provider label."],
+    });
+    same.confidence = 85;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.48,
+        away: 1,
+        sameOrientationTeam: 0.74,
+        bestTeam: 0.74,
+        competition: 0.87,
+        alias: 1,
+        embeddingTeam: 0.91,
+        embeddingCompetition: 0.89,
+        combined: 0.865,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.confidence).toBeCloseTo(0.865, 3);
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("keeps sourced SAME with a noisy team label in review when local support is too weak", () => {
+    const same = sourcedSame({
+      sameEvidence: 1,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Source evidence supports one fixture and one noisy provider label."],
+    });
+    same.confidence = 85;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 0.62,
+        away: 0.7,
+        sameOrientationTeam: 0.66,
+        bestTeam: 0.66,
+        competition: 0.78,
+        alias: 0.7,
+        embeddingTeam: 0.81,
+        embeddingCompetition: 0.84,
+        combined: 0.775,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("auto-merges low-confidence source-only SAME when local score consensus is very strong", () => {
+    const same = sourcedSame({
+      sameEvidence: 2,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Sources support one fixture; one provider label appears noisy."],
+    });
+    same.confidence = 70;
+    same.reasoning =
+      "Same date, time, competition; source confirms one fixture and one provider name error.";
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 0.83,
+        sameOrientationTeam: 0.915,
+        bestTeam: 0.915,
+        competition: 0.99,
+        embeddingTeam: 0.94,
+        embeddingCompetition: 0.91,
+        combined: 0.912,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.confidence).toBeCloseTo(0.912, 3);
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
   it("does not treat negated contradiction wording as evidence conflict", () => {
     const same = sourcedSame({
       sameEvidence: 2,
@@ -386,6 +523,42 @@ describe("policyFromDeepSeek", () => {
     expect(decision.decision).toBe("human_review");
   });
 
+  it("auto-merges dominant SAME evidence when one noisy source is outweighed", () => {
+    const same = sourcedSame({
+      sameEvidence: 5,
+      differentEvidence: 1,
+      contradiction: false,
+      noSource: false,
+      notes: [
+        "Most sources support one fixture; one stale source only repeats the noisy provider label.",
+      ],
+    });
+    same.confidence = 86;
+    same.reasoning =
+      "Sources confirm one fixture; one provider label appears stale.";
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 0.83,
+        sameOrientationTeam: 0.915,
+        bestTeam: 0.915,
+        competition: 0.99,
+        embeddingTeam: 0.943,
+        embeddingCompetition: 0.91,
+        combined: 0.912,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.confidence).toBeCloseTo(0.912, 3);
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
   it("keeps grounded SAME in review when material uncertainty remains", () => {
     const same = sourcedSame({
       sameEvidence: 1,
@@ -462,6 +635,25 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("llm_time_zone_uncertain");
   });
 
+  it("keeps malformed kickoff-conflict DIFFERENT evidence in human review", () => {
+    const different = residual(95);
+    different.reasoning =
+      "Web evidence shows 14:00 UTC, while provider kickoff is 20:00, a >2h difference.";
+    different.evidenceAssessment = malformedEvidenceAssessment(
+      "Sources confirm a kickoff time difference between the provider row and source listing.",
+    );
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      score(),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("llm_time_zone_uncertain");
+  });
+
   it("does not mistake team mismatch evidence for a kickoff conflict", () => {
     const different = residual(95);
     different.reasoning =
@@ -496,6 +688,39 @@ describe("policyFromDeepSeek", () => {
     expect(decision.reasonCode).toBe("grounded_llm_different_match");
   });
 
+  it("auto-rejects malformed source-backed DIFFERENT assessment text", () => {
+    const different = residual(100);
+    different.reasoning =
+      "Different teams and different competitions confirmed by sources.";
+    different.confirmedFacts = [
+      "MFK Ruzomberok U19 vs Dukla Banska Bystrica U19 is listed in the Slovakia U19 competition.",
+      "SK Sigma Olomouc U19 vs FC Vysocina Jihlava U19 is listed in the Czech U19 competition.",
+    ];
+    different.evidenceAssessment = malformedEvidenceAssessment(
+      "Multiple sources confirm two separate matches; no overlap in teams or competitions.",
+    );
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.681,
+        away: 0.582,
+        sameOrientationTeam: 0.632,
+        bestTeam: 0.632,
+        competition: 1,
+        embeddingTeam: 0.8705,
+        embeddingCompetition: 1,
+        combined: 0.848,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
   it("auto-rejects clean DIFFERENT decisions that only mention the same kickoff time", () => {
     const different = residual(100);
     different.reasoning =
@@ -517,6 +742,49 @@ describe("policyFromDeepSeek", () => {
       different,
       [],
       score(),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
+  it("auto-rejects separate source fixtures despite moderate swapped team overlap", () => {
+    const different = residual(95);
+    different.reasoning =
+      "Web evidence confirms two separate matches: South Adelaide vs Adelaide Cobras and Adelaide Blue Eagles vs Adelaide Olympic.";
+    different.confirmedFacts = [
+      "South Adelaide vs Adelaide Cobras is listed as one fixture.",
+      "Adelaide Blue Eagles vs Adelaide Olympic is listed as another fixture.",
+    ];
+    different.evidenceAssessment = {
+      sameEvidence: 1,
+      differentEvidence: 2,
+      contradiction: false,
+      noSource: false,
+      notes: [
+        "Sources confirm two separate fixtures; the shared kickoff is the only same-event signal.",
+      ],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.3,
+        away: 0.42,
+        swappedHome: 0.7,
+        swappedAway: 0.88,
+        sameOrientationTeam: 0.36,
+        swappedOrientationTeam: 0.79,
+        bestTeam: 0.79,
+        orientation: "swapped",
+        competition: 1,
+        embeddingTeam: 0.8404,
+        embeddingCompetition: 1,
+        combined: 0.852,
+      },
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
 
@@ -598,8 +866,115 @@ describe("policyFromDeepSeek", () => {
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
 
-    expect(decision.decision).toBe("human_review");
-    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
+  it("auto-rejects material team mismatches even when reasoning mentions timezone", () => {
+    const different = residual(95);
+    different.reasoning =
+      "Teams and competitions differ; kickoff times also differ after timezone conversion.";
+    different.confirmedFacts = [
+      "Source [1] lists one match with different teams and competition.",
+      "Source [2] lists the other match as a separate fixture.",
+    ];
+    different.evidenceAssessment = {
+      sameEvidence: 0,
+      differentEvidence: 2,
+      contradiction: false,
+      noSource: false,
+      notes: ["Sources identify separate fixtures with different teams."],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.48,
+        away: 0.49,
+        sameOrientationTeam: 0.485,
+        bestTeam: 0.65,
+        competition: 0.86,
+        embeddingTeam: 0.74,
+        embeddingCompetition: 0.88,
+        combined: 0.78,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
+  it("auto-rejects source-backed DIFFERENT when material teams and competitions differ", () => {
+    const different = residual(95);
+    different.reasoning =
+      "Teams and competitions are clearly different; teams do not overlap.";
+    different.evidenceAssessment = {
+      sameEvidence: 1,
+      differentEvidence: 3,
+      contradiction: false,
+      noSource: false,
+      notes: ["Sources identify different teams and different competitions."],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.66,
+        away: 0.58,
+        sameOrientationTeam: 0.62,
+        bestTeam: 0.69,
+        competition: 0.88,
+        embeddingTeam: 0.82,
+        embeddingCompetition: 0.92,
+        combined: 0.84,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
+  it("auto-rejects DIFFERENT when sourced reasoning names material team and competition differences", () => {
+    const different = residual(100);
+    different.reasoning =
+      "Different teams and competitions: Northside vs Riverside in League A vs Eastside vs Westside in League B.";
+    different.evidenceAssessment = {
+      sameEvidence: 1,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["The shared kickoff is the only same-event signal."],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.47,
+        away: 0.7,
+        swappedHome: 0.56,
+        swappedAway: 0.64,
+        sameOrientationTeam: 0.59,
+        swappedOrientationTeam: 0.6,
+        bestTeam: 0.6,
+        orientation: "swapped",
+        competition: 0.52,
+        embeddingTeam: 0.71,
+        embeddingCompetition: 0.91,
+        combined: 0.744,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
   });
 
   it("keeps DIFFERENT in review when source-backed aliases cover the differing team slots", () => {

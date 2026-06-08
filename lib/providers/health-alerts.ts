@@ -1,9 +1,8 @@
 import type { ProviderStatus } from "../store";
 import type { ProviderKey, ProviderMetadata } from "./registry";
 import {
-  PROVIDER_HEALTH_DEGRADED_STALE_MS,
+  PROVIDER_HEALTH_DEGRADED_AFTER_MS,
   PROVIDER_HEALTH_FAILURES_DOWN,
-  PROVIDER_HEALTH_STALE_MS,
 } from "../shared/constants";
 
 export type ProviderAlertSeverity = "degraded" | "down";
@@ -18,6 +17,7 @@ export interface ProviderRuntimeSnapshot {
   lastAttemptAt?: string | null;
   lastSuccessAt?: string | null;
   lastErrorAt?: string | null;
+  unhealthySinceAt?: string | null;
   error: string | null;
   lastError?: string | null;
   consecutiveFailures?: number;
@@ -118,9 +118,12 @@ export function evaluateProviderHealthAlert(
   const nowMs = signal.nowMs ?? Date.now();
   const firstSyncMs = toMs(signal.firstSyncCompletedAt);
   const lastSuccessMs = toMs(signal.status.lastSuccessAt);
+  const lastErrorMs = toMs(signal.status.lastErrorAt);
   const lastAttemptMs = toMs(
     signal.status.lastAttemptAt ?? signal.status.lastFetch,
   );
+  const unhealthySinceMs =
+    toMs(signal.status.unhealthySinceAt) ?? lastErrorMs ?? lastAttemptMs;
   const consecutiveFailures = Math.max(
     0,
     signal.status.consecutiveFailures ?? 0,
@@ -143,26 +146,22 @@ export function evaluateProviderHealthAlert(
   if (cbState === "open") {
     severity = "down";
     reason = "circuit breaker is open";
-  } else if (consecutiveFailures >= PROVIDER_HEALTH_FAILURES_DOWN) {
+  } else if (
+    consecutiveFailures >= PROVIDER_HEALTH_FAILURES_DOWN &&
+    hasBeenUnhealthyForDegradedWindow(unhealthySinceMs, nowMs)
+  ) {
     severity = "down";
     reason = "3+ consecutive fixture fetch failures";
   } else if (
-    firstSyncMs !== null &&
-    lastSuccessMs === null &&
-    nowMs - firstSyncMs > PROVIDER_HEALTH_STALE_MS
+    cbState === "half-open" &&
+    hasBeenUnhealthyForDegradedWindow(unhealthySinceMs, nowMs)
   ) {
-    severity = "down";
-    reason = "no successful data more than 5 minutes after first sync";
-  } else if (
-    lastSuccessMs !== null &&
-    nowMs - lastSuccessMs > PROVIDER_HEALTH_STALE_MS
-  ) {
-    severity = "down";
-    reason = "no successful data for more than 5 minutes";
-  } else if (cbState === "half-open") {
     severity = "degraded";
     reason = "circuit breaker is half-open";
-  } else if (consecutiveFailures > 0 || signal.status.status === "error") {
+  } else if (
+    (consecutiveFailures > 0 || signal.status.status === "error") &&
+    hasBeenUnhealthyForDegradedWindow(unhealthySinceMs, nowMs)
+  ) {
     severity = "degraded";
     reason =
       signal.status.lastError ||
@@ -171,17 +170,31 @@ export function evaluateProviderHealthAlert(
   } else if (
     firstSyncMs !== null &&
     lastAttemptMs === null &&
-    nowMs - firstSyncMs > PROVIDER_HEALTH_DEGRADED_STALE_MS
+    hasBeenUnhealthyForDegradedWindow(firstSyncMs, nowMs)
   ) {
     severity = "degraded";
     reason = "waiting for first provider check";
   } else if (
+    firstSyncMs !== null &&
+    lastSuccessMs === null &&
+    hasBeenUnhealthyForDegradedWindow(firstSyncMs, nowMs)
+  ) {
+    severity = "degraded";
+    reason = "no successful data for 15 minutes after first sync";
+  } else if (
     lastSuccessMs !== null &&
-    nowMs - lastSuccessMs > PROVIDER_HEALTH_DEGRADED_STALE_MS
+    hasBeenUnhealthyForDegradedWindow(lastSuccessMs, nowMs)
   ) {
     severity = "degraded";
     reason = "provider data is stale";
-  } else if (signal.connected === false && connectionMatters(signal)) {
+  } else if (
+    signal.connected === false &&
+    connectionMatters(signal) &&
+    hasBeenUnhealthyForDegradedWindow(
+      unhealthySinceMs ?? lastSuccessMs ?? firstSyncMs,
+      nowMs,
+    )
+  ) {
     severity = "degraded";
     reason = "live connection is disconnected or reconnecting";
   }
@@ -218,6 +231,16 @@ export function buildProviderAlerts(
 
 function severityRank(severity: ProviderAlertSeverity): number {
   return severity === "down" ? 2 : 1;
+}
+
+function hasBeenUnhealthyForDegradedWindow(
+  unhealthySinceMs: number | null,
+  nowMs: number,
+): boolean {
+  return (
+    unhealthySinceMs !== null &&
+    nowMs - unhealthySinceMs >= PROVIDER_HEALTH_DEGRADED_AFTER_MS
+  );
 }
 
 function connectionMatters(signal: ProviderHealthSignal): boolean {

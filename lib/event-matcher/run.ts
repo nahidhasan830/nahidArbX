@@ -2,14 +2,16 @@ import { randomUUID } from "node:crypto";
 import { generateCandidates } from "./candidates";
 import { getEventMatcherConfig } from "./config";
 import { policyFromDeepSeek, reviewResidualWithDeepSeek } from "./deepseek";
-import { decideCandidate } from "./policy";
+import { confidenceBand, decideCandidate } from "./policy";
 import {
+  applyCompatibleCanonicalClusterMerge,
   applyCanonicalMerge,
   filterNewCandidateKeys,
   insertCandidate,
   insertDecision,
   loadRecentSnapshots,
   loadSnapshotsForDecisionIds,
+  planCompatibleCanonicalClusterMerge,
   planCanonicalMerge,
   rebuildImpactForRun,
   supersedeClusterResolvedHumanReviewDecisions,
@@ -263,18 +265,39 @@ export async function runEventMatcher(
       }
 
       let mergePlan = null;
+      let compatibleClusterMergePlan = null;
       if (policy.decision === "auto_merge") {
         mergePlan = await planCanonicalMerge(candidate);
         if (mergePlan.action === "conflict") {
-          policy = {
-            decision: "human_review",
-            stage: "human_review",
-            confidence: policy.confidence,
-            confidenceBand: policy.confidenceBand,
-            final: false,
-            reasonCode: "cluster_conflict",
-            reasonSummary: `Canonical cluster conflict: ${mergePlan.conflictCanonicalEventIds.join(", ")}`,
-          };
+          compatibleClusterMergePlan =
+            await planCompatibleCanonicalClusterMerge({
+              conflictCanonicalEventIds: mergePlan.conflictCanonicalEventIds,
+              score,
+            });
+          if (compatibleClusterMergePlan.action === "merge") {
+            const confidence = Math.max(policy.confidence, score.combined);
+            policy = {
+              decision: "auto_merge",
+              stage: policy.stage,
+              confidence,
+              confidenceBand: confidenceBand(confidence),
+              final: true,
+              reasonCode: "compatible_canonical_clusters_merged",
+              reasonSummary: compatibleClusterMergePlan.reason,
+              groundedDecision: policy.groundedDecision,
+              groundedConfidence: policy.groundedConfidence,
+            };
+          } else {
+            policy = {
+              decision: "human_review",
+              stage: "human_review",
+              confidence: policy.confidence,
+              confidenceBand: policy.confidenceBand,
+              final: false,
+              reasonCode: "cluster_conflict",
+              reasonSummary: `Canonical cluster conflict: ${mergePlan.conflictCanonicalEventIds.join(", ")}. ${compatibleClusterMergePlan.reason}`,
+            };
+          }
         }
       }
 
@@ -298,17 +321,30 @@ export async function runEventMatcher(
         autoMerged++;
         counters.autoMerged = autoMerged;
         if (opts.applyMerges === true) {
-          await emit("applying_merge", "Applying canonical event merge", {
-            candidate: candidateProgress(candidate),
-            score: scoreProgress(score),
-            decision: {
-              value: policy.decision,
-              stage: policy.stage,
-              confidence: policy.confidence,
-              reason: policy.reasonSummary,
+          await emit(
+            "applying_merge",
+            compatibleClusterMergePlan?.action === "merge"
+              ? "Merging compatible canonical clusters"
+              : "Applying canonical event merge",
+            {
+              candidate: candidateProgress(candidate),
+              score: scoreProgress(score),
+              decision: {
+                value: policy.decision,
+                stage: policy.stage,
+                confidence: policy.confidence,
+                reason: policy.reasonSummary,
+              },
             },
-          });
-          await applyCanonicalMerge({ candidate, decision });
+          );
+          if (compatibleClusterMergePlan?.action === "merge") {
+            await applyCompatibleCanonicalClusterMerge({
+              decision,
+              plan: compatibleClusterMergePlan,
+            });
+          } else {
+            await applyCanonicalMerge({ candidate, decision });
+          }
         }
       } else if (policy.decision === "auto_reject") {
         autoRejected++;

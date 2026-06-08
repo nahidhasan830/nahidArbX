@@ -8,8 +8,8 @@ import {
   type ProviderAlert,
 } from "@/lib/providers/health-alerts";
 import {
+  PROVIDER_HEALTH_DEGRADED_AFTER_MS,
   PROVIDER_HEALTH_FAILURES_DOWN,
-  PROVIDER_HEALTH_STALE_MS,
 } from "@/lib/shared/constants";
 import { PROVIDER_REGISTRY, type ProviderKey } from "@/lib/providers/registry";
 import type { ProviderStatus } from "@/lib/store";
@@ -24,6 +24,7 @@ function status(overrides: Partial<ProviderStatus> = {}): ProviderStatus {
     lastAttemptAt: null,
     lastSuccessAt: null,
     lastErrorAt: null,
+    unhealthySinceAt: null,
     consecutiveFailures: 0,
     lastError: undefined,
     ...overrides,
@@ -58,11 +59,25 @@ describe("provider health classification", () => {
     expect(alertFor("pinnacle")).toBeNull();
   });
 
-  it("marks a recent single failure as degraded", () => {
+  it("does not alert for a recent single failure", () => {
+    expect(
+      alertFor("ninewickets-sportsbook", {
+        status: "error",
+        lastAttemptAt: new Date(baseTime - 10_000),
+        lastErrorAt: new Date(baseTime - 10_000),
+        unhealthySinceAt: new Date(baseTime - 10_000),
+        consecutiveFailures: 1,
+        error: "HTTP 403",
+      }),
+    ).toBeNull();
+  });
+
+  it("marks a single failure as degraded after 15 minutes", () => {
     const alert = alertFor("ninewickets-sportsbook", {
       status: "error",
       lastAttemptAt: new Date(baseTime - 10_000),
       lastErrorAt: new Date(baseTime - 10_000),
+      unhealthySinceAt: new Date(baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS),
       consecutiveFailures: 1,
       error: "HTTP 403",
     });
@@ -72,11 +87,25 @@ describe("provider health classification", () => {
     expect(alert?.action).toContain("Bangladesh VPN/network");
   });
 
-  it("marks three consecutive failures as down", () => {
+  it("does not mark three recent consecutive failures as down", () => {
+    expect(
+      alertFor("velki-sportsbook", {
+        status: "error",
+        lastAttemptAt: new Date(baseTime - 10_000),
+        lastErrorAt: new Date(baseTime - 10_000),
+        unhealthySinceAt: new Date(baseTime - 10_000),
+        consecutiveFailures: PROVIDER_HEALTH_FAILURES_DOWN,
+        error: "timeout",
+      }),
+    ).toBeNull();
+  });
+
+  it("marks three consecutive failures as down after 15 minutes", () => {
     const alert = alertFor("velki-sportsbook", {
       status: "error",
       lastAttemptAt: new Date(baseTime - 10_000),
       lastErrorAt: new Date(baseTime - 10_000),
+      unhealthySinceAt: new Date(baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS),
       consecutiveFailures: PROVIDER_HEALTH_FAILURES_DOWN,
       error: "timeout",
     });
@@ -106,15 +135,46 @@ describe("provider health classification", () => {
     ).toBeNull();
   });
 
-  it("marks no successful data after first sync as down after the stale window", () => {
-    const alert = alertFor("ninewickets-exchange", {
-      firstSyncCompletedAt: new Date(baseTime - PROVIDER_HEALTH_STALE_MS - 1),
-      lastAttemptAt: new Date(baseTime - PROVIDER_HEALTH_STALE_MS),
+  it("does not mark stale provider data degraded before 15 minutes", () => {
+    expect(
+      alertFor("pinnacle", {
+        status: "ok",
+        lastAttemptAt: new Date(
+          baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS + 1,
+        ),
+        lastSuccessAt: new Date(
+          baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS + 1,
+        ),
+        connected: true,
+        activeEvents: 120,
+      }),
+    ).toBeNull();
+  });
+
+  it("marks stale provider data as degraded after 15 minutes", () => {
+    const alert = alertFor("pinnacle", {
+      status: "ok",
+      lastAttemptAt: new Date(baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS),
+      lastSuccessAt: new Date(baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS),
+      connected: true,
+      activeEvents: 120,
     });
 
-    expect(alert?.severity).toBe("down");
+    expect(alert?.severity).toBe("degraded");
+    expect(alert?.reason).toBe("provider data is stale");
+  });
+
+  it("marks no successful data after first sync as degraded after 15 minutes", () => {
+    const alert = alertFor("ninewickets-exchange", {
+      firstSyncCompletedAt: new Date(
+        baseTime - PROVIDER_HEALTH_DEGRADED_AFTER_MS,
+      ),
+      lastAttemptAt: new Date(baseTime - 10_000),
+    });
+
+    expect(alert?.severity).toBe("degraded");
     expect(alert?.reason).toBe(
-      "no successful data more than 5 minutes after first sync",
+      "no successful data for 15 minutes after first sync",
     );
   });
 

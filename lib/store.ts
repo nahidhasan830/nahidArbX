@@ -12,6 +12,7 @@ export interface ProviderStatus {
   lastAttemptAt: Date | null;
   lastSuccessAt: Date | null;
   lastErrorAt: Date | null;
+  unhealthySinceAt: Date | null;
   consecutiveFailures: number;
   lastError?: string;
 }
@@ -60,6 +61,7 @@ function initializeProviderStatus(): Record<Provider, ProviderStatus> {
       lastAttemptAt: null,
       lastSuccessAt: null,
       lastErrorAt: null,
+      unhealthySinceAt: null,
       consecutiveFailures: 0,
     };
   }
@@ -73,6 +75,7 @@ function emptyProviderStatus(): ProviderStatus {
     lastAttemptAt: null,
     lastSuccessAt: null,
     lastErrorAt: null,
+    unhealthySinceAt: null,
     consecutiveFailures: 0,
   };
 }
@@ -87,6 +90,10 @@ function normalizeProviderStatus(status: ProviderStatusUpdate): ProviderStatus {
   const lastErrorAt =
     status.lastErrorAt ??
     (status.status === "error" ? (status.lastFetch ?? lastAttemptAt) : null);
+  const unhealthySinceAt =
+    status.status === "error"
+      ? (status.unhealthySinceAt ?? lastErrorAt ?? lastAttemptAt)
+      : null;
 
   return {
     status: status.status,
@@ -95,6 +102,7 @@ function normalizeProviderStatus(status: ProviderStatusUpdate): ProviderStatus {
     lastAttemptAt,
     lastSuccessAt,
     lastErrorAt,
+    unhealthySinceAt,
     consecutiveFailures:
       status.consecutiveFailures ?? (status.status === "error" ? 1 : 0),
     lastError,
@@ -276,6 +284,13 @@ export function setProviderStatus(
     status.status === "error"
       ? (status.lastError ?? status.error ?? prev?.lastError)
       : undefined;
+  const unhealthySinceAt =
+    status.status === "error"
+      ? (status.unhealthySinceAt ??
+        prev.unhealthySinceAt ??
+        lastErrorAt ??
+        lastAttemptAt)
+      : null;
 
   store.providerStatus[provider] = {
     ...status,
@@ -284,6 +299,7 @@ export function setProviderStatus(
     lastAttemptAt,
     lastSuccessAt,
     lastErrorAt,
+    unhealthySinceAt,
     consecutiveFailures:
       status.status === "error"
         ? (status.consecutiveFailures ?? prev.consecutiveFailures + 1)

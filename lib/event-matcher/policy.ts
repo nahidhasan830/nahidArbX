@@ -42,7 +42,32 @@ export function decideCandidate(
     };
   }
 
+  const weakerAlignedTeam =
+    score.orientation === "same"
+      ? Math.min(score.home, score.away)
+      : Math.min(score.swappedHome, score.swappedAway);
+  const hasMatchMetadataRescue = score.metadata > 0;
+
   if (score.orientation === "swapped") {
+    const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
+    if (
+      config.deepseekEnabled &&
+      (score.combined >= config.residualLow ||
+        hasMatchMetadataRescue ||
+        teamConsensus >= config.teamAutoMergeFloor)
+    ) {
+      return {
+        decision: "human_review",
+        stage: "deepseek",
+        confidence: score.combined,
+        confidenceBand: confidenceBand(score.combined),
+        final: false,
+        reasonCode: "swapped_orientation_needs_grounding",
+        reasonSummary:
+          "Provider team slots are swapped; exact-kickoff candidate needs grounded review before any merge or reject decision.",
+      };
+    }
+
     return {
       decision: "human_review",
       stage: "human_review",
@@ -51,14 +76,10 @@ export function decideCandidate(
       final: false,
       reasonCode: "swapped_orientation_needs_review",
       reasonSummary:
-        "Provider team slots are swapped. Keep this out of automatic merge paths until odds ingestion can preserve and apply provider orientation.",
+        "Provider team slots are swapped and deterministic signals were not strong enough for grounded auto-resolution.",
     };
   }
 
-  const weakerAlignedTeam =
-    score.orientation === "same"
-      ? Math.min(score.home, score.away)
-      : Math.min(score.swappedHome, score.swappedAway);
   const teamPassesMerge =
     score.bestTeam >= config.teamAutoMergeFloor &&
     weakerAlignedTeam >= config.teamAutoMergeFloor;
@@ -109,7 +130,6 @@ export function decideCandidate(
     };
   }
 
-  const hasMatchMetadataRescue = score.metadata > 0;
   const weakBothTeamSlots =
     weakerAlignedTeam <= config.teamAutoRejectCeiling &&
     score.bestTeam <= config.teamAutoRejectCeiling + 0.07;

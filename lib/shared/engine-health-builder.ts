@@ -117,6 +117,7 @@ export function buildConnectionHealth(): Record<string, unknown> & {
       lastAttemptAt: s?.lastAttemptAt?.toISOString() ?? null,
       lastSuccessAt: s?.lastSuccessAt?.toISOString() ?? null,
       lastErrorAt: s?.lastErrorAt?.toISOString() ?? null,
+      unhealthySinceAt: s?.unhealthySinceAt?.toISOString() ?? null,
       error: s?.error ?? null,
       lastError: s?.lastError ?? null,
       consecutiveFailures: s?.consecutiveFailures ?? 0,

@@ -36,6 +36,7 @@ vi.mock("../../../lib/event-matcher/candidates", () => ({
 }));
 
 vi.mock("../../../lib/event-matcher/repository", () => ({
+  applyCompatibleCanonicalClusterMerge: vi.fn(),
   applyCanonicalMerge: vi.fn(),
   createRun: vi.fn(),
   filterNewCandidateKeys: vi.fn(async () => new Set(["key-new"])),
@@ -50,6 +51,12 @@ vi.mock("../../../lib/event-matcher/repository", () => ({
     conflictCanonicalEventIds: [],
     memberCount: 0,
     providers: [],
+  })),
+  planCompatibleCanonicalClusterMerge: vi.fn(async () => ({
+    action: "blocked",
+    canonicalEventId: null,
+    sourceCanonicalEventIds: [],
+    reason: "not compatible",
   })),
   rebuildImpactForRun: vi.fn(),
   supersedeClusterResolvedHumanReviewDecisions: vi.fn(async () => ({
@@ -216,6 +223,130 @@ describe("runEventMatcher", () => {
 
     expect(summary.autoMerged).toBe(1);
     expect(summary.humanReview).toBe(0);
+  });
+
+  it("merges compatible canonical clusters instead of leaving review debt", async () => {
+    vi.mocked(scoring.scoreCandidate).mockResolvedValueOnce({
+      ...residualScore(),
+      home: 0.83,
+      away: 1,
+      sameOrientationTeam: 0.915,
+      bestTeam: 0.915,
+      competition: 0.99,
+      embeddingTeam: 0.94,
+      embeddingCompetition: 0.99,
+      combined: 0.94,
+    });
+    vi.mocked(deepseek.reviewResidualWithDeepSeek).mockResolvedValueOnce({
+      decision: "SAME",
+      confidence: 90,
+      reasoning: "Sources confirm the rows are the same fixture.",
+      canonicalEvent: null,
+      confirmedFacts: [],
+      uncertainties: [],
+      evidenceAssessment: {
+        sameEvidence: 2,
+        differentEvidence: 0,
+        contradiction: false,
+        noSource: false,
+        notes: ["Sources support the same fixture."],
+      },
+      sources: [
+        {
+          url: "https://example.test/match",
+          title: "Fixture source",
+          snippet: "Same fixture.",
+        },
+      ],
+      searchQueriesUsed: [],
+      model: "test",
+    });
+    vi.mocked(repository.planCanonicalMerge)
+      .mockResolvedValueOnce({
+        action: "create",
+        canonicalEventId: null,
+        conflictCanonicalEventIds: [],
+        memberCount: 0,
+        providers: [],
+      })
+      .mockResolvedValueOnce({
+        action: "conflict",
+        canonicalEventId: null,
+        conflictCanonicalEventIds: ["canonical-a", "canonical-b"],
+        memberCount: 2,
+        providers: ["pinnacle", "velki-sportsbook"],
+      });
+    vi.mocked(
+      repository.planCompatibleCanonicalClusterMerge,
+    ).mockResolvedValueOnce({
+      action: "merge",
+      canonicalEventId: "canonical-a",
+      sourceCanonicalEventIds: ["canonical-b"],
+      reason: "clusters are compatible",
+    });
+
+    const summary = await runEventMatcher({
+      trigger: "test",
+      mode: "apply",
+      applyMerges: true,
+      useDeepSeek: true,
+    });
+
+    const decisionInput = vi.mocked(repository.insertDecision).mock.calls[0][0];
+    expect(decisionInput.policy.decision).toBe("auto_merge");
+    expect(decisionInput.policy.reasonCode).toBe(
+      "compatible_canonical_clusters_merged",
+    );
+    expect(decisionInput.policy.confidence).toBe(0.94);
+    expect(decisionInput.policy.confidenceBand).toBe("very_high");
+    expect(repository.applyCompatibleCanonicalClusterMerge).toHaveBeenCalledWith(
+      {
+        decision: { id: "decision" },
+        plan: {
+          action: "merge",
+          canonicalEventId: "canonical-a",
+          sourceCanonicalEventIds: ["canonical-b"],
+          reason: "clusters are compatible",
+        },
+      },
+    );
+    expect(repository.applyCanonicalMerge).not.toHaveBeenCalled();
+    expect(summary.autoMerged).toBe(1);
+    expect(summary.humanReview).toBe(0);
+  });
+
+  it("keeps unsafe canonical cluster conflicts in human review", async () => {
+    vi.mocked(repository.planCanonicalMerge).mockResolvedValueOnce({
+      action: "conflict",
+      canonicalEventId: null,
+      conflictCanonicalEventIds: ["canonical-a", "canonical-b"],
+      memberCount: 2,
+      providers: ["pinnacle", "velki-sportsbook"],
+    });
+    vi.mocked(
+      repository.planCompatibleCanonicalClusterMerge,
+    ).mockResolvedValueOnce({
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason: "provider collision",
+    });
+
+    const summary = await runEventMatcher({
+      trigger: "test",
+      mode: "apply",
+      applyMerges: true,
+      useDeepSeek: false,
+    });
+
+    const decisionInput = vi.mocked(repository.insertDecision).mock.calls[0][0];
+    expect(decisionInput.policy.decision).toBe("human_review");
+    expect(decisionInput.policy.reasonCode).toBe("cluster_conflict");
+    expect(decisionInput.policy.reasonSummary).toContain("provider collision");
+    expect(repository.applyCompatibleCanonicalClusterMerge).not.toHaveBeenCalled();
+    expect(repository.applyCanonicalMerge).not.toHaveBeenCalled();
+    expect(summary.autoMerged).toBe(0);
+    expect(summary.humanReview).toBe(1);
   });
 
   it("marks routed grounded review as disabled when DeepSeek is off", async () => {

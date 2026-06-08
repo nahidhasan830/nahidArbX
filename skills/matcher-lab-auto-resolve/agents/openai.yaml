@@ -1,0 +1,4 @@
+interface:
+  display_name: "Matcher Lab Auto Resolve"
+  short_description: "Debugs and hardens obvious matcher reviews"
+  default_prompt: "Use $matcher-lab-auto-resolve to investigate Matcher Lab Needs Review rows and generalize fixes for obvious auto-resolutions."

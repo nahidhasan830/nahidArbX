@@ -9,6 +9,17 @@ import type {
 } from "./types";
 import { confidenceBand } from "./policy";
 
+interface PolicyEvidenceAssessment {
+  present: boolean;
+  sameEvidence: number;
+  differentEvidence: number;
+  contradiction: boolean;
+  noSource: boolean;
+  notes: string[];
+  textSupportsSame: boolean;
+  textSupportsDifferent: boolean;
+}
+
 export async function reviewResidualWithDeepSeek(
   candidate: EventMatcherCandidate,
   score: ScoreBreakdown,
@@ -111,12 +122,99 @@ function buildUncertainties(
   return uncertainties;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const n = typeof value === "number" ? value : parseInt(String(value), 10);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
+}
+
+function stringFragments(value: unknown): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function rawEvidenceAssessment(residual: DeepSeekResidualDecision): unknown {
+  return (residual as { evidenceAssessment?: unknown }).evidenceAssessment;
+}
+
+function evidenceAssessmentForPolicy(
+  residual: DeepSeekResidualDecision,
+): PolicyEvidenceAssessment {
+  const raw = rawEvidenceAssessment(residual);
+  const record = isRecord(raw) ? raw : null;
+  const notes =
+    typeof raw === "string"
+      ? stringFragments(raw)
+      : stringFragments(record?.notes);
+  const text = notes.join(" ").toLowerCase();
+  const noSource =
+    record?.noSource === true ||
+    /\b(no usable source|no source|without source|missing source|not enough evidence|too thin)\b/.test(
+      text,
+    );
+  const textSupportsDifferent =
+    /\b(source|sources|evidence|web|search|confirmed|confirms|support|supports)\b/.test(
+      text,
+    ) &&
+    (/\b(separate|distinct|different)\s+(matches|fixtures|games|events)\b/.test(
+      text,
+    ) ||
+      /\btwo\s+(separate|distinct|different)\s+(matches|fixtures|games|events)\b/.test(
+        text,
+      ) ||
+      /\bdifferent\s+(teams|clubs|opponents|leagues|competitions|tournaments)\b/.test(
+        text,
+      ) ||
+      /\bno overlap\b/.test(text));
+  const textSupportsSame =
+    /\b(source|sources|evidence|web|search|confirmed|confirms|support|supports)\b/.test(
+      text,
+    ) &&
+    /\b(same fixture|same match|same event|one fixture|one match|identical fixture|same teams|same opponents)\b/.test(
+      text,
+    );
+
+  return {
+    present: raw !== null && raw !== undefined,
+    sameEvidence: record ? nonNegativeInteger(record.sameEvidence) : 0,
+    differentEvidence: record
+      ? nonNegativeInteger(record.differentEvidence)
+      : 0,
+    contradiction: record?.contradiction === true,
+    noSource,
+    notes,
+    textSupportsSame,
+    textSupportsDifferent,
+  };
+}
+
+function evidenceTextFragments(
+  residual: DeepSeekResidualDecision,
+): string[] {
+  return [
+    residual.reasoning,
+    ...residual.confirmedFacts,
+    ...evidenceAssessmentForPolicy(residual).notes,
+  ];
+}
+
 function hasContradiction(residual: DeepSeekResidualDecision): boolean {
-  if (residual.evidenceAssessment?.contradiction === true) return true;
+  if (evidenceAssessmentForPolicy(residual).contradiction) return true;
   const haystack = [
     residual.reasoning,
     ...residual.uncertainties,
-    ...(residual.evidenceAssessment?.notes ?? []),
+    ...evidenceAssessmentForPolicy(residual).notes,
     ...(Array.isArray(residual.diagnostics)
       ? residual.diagnostics.map(String)
       : [JSON.stringify(residual.diagnostics ?? "")]),
@@ -132,7 +230,7 @@ function allegesKickoffConflict(residual: DeepSeekResidualDecision): boolean {
     residual.reasoning,
     ...residual.confirmedFacts,
     ...residual.uncertainties,
-    ...(residual.evidenceAssessment?.notes ?? []),
+    ...evidenceAssessmentForPolicy(residual).notes,
   ]
     .join(" ")
     .toLowerCase()
@@ -221,13 +319,7 @@ function hasMaterialTeamMismatch(score: ScoreBreakdown): boolean {
 function hasSeparateFixtureEvidenceText(
   residual: DeepSeekResidualDecision,
 ): boolean {
-  const haystack = [
-    residual.reasoning,
-    ...residual.confirmedFacts,
-    ...(residual.evidenceAssessment?.notes ?? []),
-  ]
-    .join(" ")
-    .toLowerCase();
+  const haystack = evidenceTextFragments(residual).join(" ").toLowerCase();
 
   const separateFixture =
     /\b(separate|distinct|different)\s+(matches|fixtures|games|events)\b/.test(
@@ -245,9 +337,43 @@ function hasSeparateFixtureEvidenceText(
     ) ||
     /\b(teams|clubs|opponents|leagues|competitions|tournaments)\s+differ\b/.test(
       haystack,
-    );
+    ) ||
+    /\bno overlap\b/.test(haystack);
+  const fixturePairingMentions =
+    haystack.match(/\b(?:vs\.?|v\.?|versus)\b/g)?.length ?? 0;
+  const confirmedFixtureFacts = residual.confirmedFacts.filter(
+    (fact) =>
+      /\b(?:vs\.?|v\.?|versus)\b/i.test(fact) &&
+      !/\bboth\b/i.test(fact),
+  ).length;
 
-  return separateFixture && materialDifference;
+  return (
+    separateFixture &&
+    (materialDifference ||
+      fixturePairingMentions >= 2 ||
+      confirmedFixtureFacts >= 2)
+  );
+}
+
+function hasMaterialDifferenceEvidenceText(
+  residual: DeepSeekResidualDecision,
+): boolean {
+  const haystack = evidenceTextFragments(residual).join(" ").toLowerCase();
+
+  return (
+    /\b(team|teams|club|clubs|opponent|opponents|side|sides)\b[^.]{0,80}\b(differ|different|distinct|separate|unrelated|do not overlap|no overlap|mismatch)\b/.test(
+      haystack,
+    ) ||
+    /\b(different|distinct|separate|unrelated|mismatched|completely different|entirely different)\b[^.]{0,80}\b(team|teams|club|clubs|opponent|opponents|side|sides)\b/.test(
+      haystack,
+    ) ||
+    /\b(competition|competitions|league|leagues|tournament|tournaments|country|countries)\b[^.]{0,80}\b(differ|different|distinct|separate|unrelated|mismatch)\b/.test(
+      haystack,
+    ) ||
+    /\b(different|distinct|separate|unrelated|mismatched|completely different|entirely different)\b[^.]{0,80}\b(competition|competitions|league|leagues|tournament|tournaments|country|countries)\b/.test(
+      haystack,
+    )
+  );
 }
 
 function scoreSupportsGroundedSame(score: ScoreBreakdown): boolean {
@@ -293,6 +419,26 @@ function scoreStronglySupportsGroundedSame(score: ScoreBreakdown): boolean {
   );
 }
 
+function scoreSupportsSourceBackedNoisySame(score: ScoreBreakdown): boolean {
+  if (score.orientation !== "same") return false;
+  const weakerAlignedTeam = Math.min(score.home, score.away);
+  const strongerAlignedTeam = Math.max(score.home, score.away);
+  const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+
+  return (
+    score.kickoffExact &&
+    score.combined >= 0.84 &&
+    strongerAlignedTeam >= 0.98 &&
+    weakerAlignedTeam >= 0.45 &&
+    teamConsensus >= 0.9 &&
+    competitionConsensus >= 0.84
+  );
+}
+
 function reasonCodeForUnresolvedResidual(
   residual: DeepSeekResidualDecision,
   input: {
@@ -302,6 +448,7 @@ function reasonCodeForUnresolvedResidual(
     hasSources: boolean;
   },
 ): EventMatcherPolicyDecision["reasonCode"] {
+  const assessment = evidenceAssessmentForPolicy(residual);
   const diagnostics = residual.diagnostics as
     | {
         searchFailureRate?: number;
@@ -311,7 +458,7 @@ function reasonCodeForUnresolvedResidual(
   if (input.kickoffConflictDespiteExactParse) return "llm_time_zone_uncertain";
   if (input.sourceAliasConflict) return "source_alias_conflict";
   if (input.contradictory) return "llm_evidence_conflict";
-  if (!input.hasSources || residual.evidenceAssessment?.noSource === true) {
+  if (!input.hasSources || assessment.noSource) {
     return "llm_no_source";
   }
   if (
@@ -330,20 +477,21 @@ function sameReviewReasonSummary(
     hasSources: boolean;
   },
 ): string {
-  const assessment = residual.evidenceAssessment;
-  if (!input.hasSources || assessment?.noSource === true) {
+  const assessment = evidenceAssessmentForPolicy(residual);
+  if (!input.hasSources || assessment.noSource) {
     return "DeepSeek returned SAME, but no usable source citations were available.";
   }
   if (input.contradictory) {
     return "DeepSeek returned SAME, but source evidence contains conflicting signals.";
   }
-  if (assessment && assessment.differentEvidence > 0) {
+  if (assessment.differentEvidence > 0 || assessment.textSupportsDifferent) {
     return "DeepSeek returned SAME, but structured source evidence also includes DIFFERENT support.";
   }
   if (
-    assessment &&
+    assessment.present &&
     assessment.sameEvidence === 0 &&
-    assessment.differentEvidence === 0
+    assessment.differentEvidence === 0 &&
+    !assessment.textSupportsSame
   ) {
     return "DeepSeek returned SAME with sources, but structured source evidence did not identify a one-way SAME signal.";
   }
@@ -368,21 +516,6 @@ export function policyFromDeepSeek(
     };
   }
 
-  if (score.orientation === "swapped") {
-    return {
-      decision: "human_review",
-      stage: "human_review",
-      confidence: score.combined,
-      confidenceBand: confidenceBand(score.combined),
-      final: false,
-      reasonCode: "swapped_orientation_needs_review",
-      reasonSummary:
-        "Provider team slots are swapped. Grounded review is not allowed to auto-merge swapped-orientation rows until odds ingestion is orientation-aware.",
-      groundedDecision: residual?.decision ?? null,
-      groundedConfidence: residual ? residual.confidence / 100 : null,
-    };
-  }
-
   if (!residual) {
     return {
       decision: "human_review",
@@ -396,23 +529,37 @@ export function policyFromDeepSeek(
   }
 
   const normalizedConfidence = residual.confidence / 100;
-  const assessment = residual.evidenceAssessment;
+  const assessment = evidenceAssessmentForPolicy(residual);
   const hasSources =
-    residual.sources.length > 0 && assessment?.noSource !== true;
-  const sourceSupportsSame = assessment ? assessment.sameEvidence > 0 : true;
-  const sourceSupportsDifferent = assessment
-    ? assessment.differentEvidence > 0
+    residual.sources.length > 0 && assessment.noSource !== true;
+  const sourceSupportsSame = assessment.present
+    ? assessment.sameEvidence > 0 || assessment.textSupportsSame
+    : true;
+  const sourceSupportsDifferent = assessment.present
+    ? assessment.differentEvidence > 0 || assessment.textSupportsDifferent
     : true;
   const sourceOnlySupportsSame =
-    sourceSupportsSame && (!assessment || assessment.differentEvidence === 0);
+    sourceSupportsSame &&
+    (!assessment.present ||
+      (assessment.differentEvidence === 0 && !assessment.textSupportsDifferent));
   const sourceOnlySupportsDifferent =
-    sourceSupportsDifferent && (!assessment || assessment.sameEvidence === 0);
+    sourceSupportsDifferent &&
+    (!assessment.present ||
+      (assessment.sameEvidence === 0 && !assessment.textSupportsSame));
   const contradictory = hasContradiction(residual);
   const materialUncertainty = hasMaterialUncertainty(residual);
+  const materialTeamMismatch = hasMaterialTeamMismatch(score);
+  const separateFixtureEvidence = hasSeparateFixtureEvidenceText(residual);
+  const materialDifferenceEvidence =
+    separateFixtureEvidence || hasMaterialDifferenceEvidenceText(residual);
   const kickoffConflictDespiteExactParse =
     score.kickoffExact &&
     residual.decision === "DIFFERENT" &&
-    allegesKickoffConflict(residual);
+    allegesKickoffConflict(residual) &&
+    !(
+      (materialTeamMismatch || separateFixtureEvidence) &&
+      (sourceSupportsDifferent || materialDifferenceEvidence)
+    );
   const sourceAliasConflict =
     residual.decision === "DIFFERENT" &&
     score.kickoffExact &&
@@ -421,9 +568,9 @@ export function policyFromDeepSeek(
   const sourceBackedDifferent =
     sourceOnlySupportsDifferent ||
     (residual.decision === "DIFFERENT" &&
-      sourceSupportsDifferent &&
-      hasMaterialTeamMismatch(score) &&
-      hasSeparateFixtureEvidenceText(residual));
+      (sourceSupportsDifferent || materialDifferenceEvidence) &&
+      materialDifferenceEvidence &&
+      (materialTeamMismatch || separateFixtureEvidence));
   if (
     residual.decision === "SAME" &&
     config.deepseekAutoMergeEnabled &&
@@ -431,7 +578,8 @@ export function policyFromDeepSeek(
     hasSources &&
     sourceOnlySupportsSame &&
     !materialUncertainty &&
-    !contradictory
+    !contradictory &&
+    (score.orientation !== "swapped" || scoreSupportsGroundedSame(score))
   ) {
     return {
       decision: "auto_merge",
@@ -453,7 +601,8 @@ export function policyFromDeepSeek(
       config.deepseekAutoMergeEnabled &&
       residual.confidence >= config.deepseekConsensusAutoMergeConfidence &&
       hasSources &&
-      (!assessment || assessment.differentEvidence === 0) &&
+      (!assessment.present ||
+        (assessment.differentEvidence === 0 && !assessment.textSupportsDifferent)) &&
       !contradictory &&
       !materialUncertainty &&
       scoreSupportsGroundedSame(score);
@@ -463,6 +612,30 @@ export function policyFromDeepSeek(
       safePositiveEvidence &&
       !materialUncertainty &&
       scoreStronglySupportsGroundedSame(score);
+    const dominantSameEvidence =
+      config.deepseekAutoMergeEnabled &&
+      residual.confidence >= config.deepseekConsensusAutoMergeConfidence - 5 &&
+      hasSources &&
+      assessment.present &&
+      assessment.sameEvidence >= 3 &&
+      assessment.differentEvidence <= 1 &&
+      !assessment.textSupportsDifferent &&
+      !assessment.contradiction &&
+      !contradictory &&
+      !materialUncertainty &&
+      scoreStronglySupportsGroundedSame(score);
+    const strongScoreSourceBackedSame =
+      config.deepseekAutoMergeEnabled &&
+      residual.confidence >= 70 &&
+      safePositiveEvidence &&
+      !materialUncertainty &&
+      scoreStronglySupportsGroundedSame(score);
+    const sourceBackedNoisySame =
+      config.deepseekAutoMergeEnabled &&
+      residual.confidence >= config.deepseekConsensusAutoMergeConfidence - 5 &&
+      safePositiveEvidence &&
+      !materialUncertainty &&
+      scoreSupportsSourceBackedNoisySame(score);
     if (consensusPositiveEvidence) {
       return {
         decision: "auto_merge",
@@ -482,6 +655,48 @@ export function policyFromDeepSeek(
         stage: "deepseek",
         confidence: normalizedConfidence,
         confidenceBand: confidenceBand(normalizedConfidence),
+        final: true,
+        reasonCode: "grounded_llm_same_match",
+        reasonSummary: residual.reasoning,
+        groundedDecision: residual.decision,
+        groundedConfidence: normalizedConfidence,
+      };
+    }
+    if (dominantSameEvidence) {
+      const confidence = Math.max(normalizedConfidence, score.combined);
+      return {
+        decision: "auto_merge",
+        stage: "deepseek",
+        confidence,
+        confidenceBand: confidenceBand(confidence),
+        final: true,
+        reasonCode: "grounded_llm_same_match",
+        reasonSummary: residual.reasoning,
+        groundedDecision: residual.decision,
+        groundedConfidence: normalizedConfidence,
+      };
+    }
+    if (strongScoreSourceBackedSame) {
+      const confidence = Math.max(normalizedConfidence, score.combined);
+      return {
+        decision: "auto_merge",
+        stage: "deepseek",
+        confidence,
+        confidenceBand: confidenceBand(confidence),
+        final: true,
+        reasonCode: "grounded_llm_same_match",
+        reasonSummary: residual.reasoning,
+        groundedDecision: residual.decision,
+        groundedConfidence: normalizedConfidence,
+      };
+    }
+    if (sourceBackedNoisySame) {
+      const confidence = Math.max(normalizedConfidence, score.combined);
+      return {
+        decision: "auto_merge",
+        stage: "deepseek",
+        confidence,
+        confidenceBand: confidenceBand(confidence),
         final: true,
         reasonCode: "grounded_llm_same_match",
         reasonSummary: residual.reasoning,

@@ -22,6 +22,7 @@ const appliedMerges: unknown[] = [];
 let currentSnapshots: ProviderEventSnapshot[] = [];
 
 vi.mock("../../../lib/event-matcher/repository", () => ({
+  applyCompatibleCanonicalClusterMerge: vi.fn(),
   applyCanonicalMerge: vi.fn(async (input: unknown) => {
     appliedMerges.push(input);
   }),
@@ -46,6 +47,12 @@ vi.mock("../../../lib/event-matcher/repository", () => ({
     conflictCanonicalEventIds: [],
     memberCount: 0,
     providers: [],
+  })),
+  planCompatibleCanonicalClusterMerge: vi.fn(async () => ({
+    action: "blocked",
+    canonicalEventId: null,
+    sourceCanonicalEventIds: [],
+    reason: "not compatible",
   })),
   rebuildImpactForRun: vi.fn(),
   supersedeClusterResolvedHumanReviewDecisions: vi.fn(async () => ({

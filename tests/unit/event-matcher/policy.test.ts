@@ -83,7 +83,7 @@ describe("event matcher policy", () => {
     expect(decision.reasonCode).toBe("exact_team_kickoff_match");
   });
 
-  it("keeps swapped team slots out of automatic merge paths", () => {
+  it("routes strong swapped team slots to grounded review", () => {
     const decision = decideCandidate(
       [],
       score({
@@ -102,8 +102,8 @@ describe("event matcher policy", () => {
     );
 
     expect(decision.decision).toBe("human_review");
-    expect(decision.stage).toBe("human_review");
-    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
+    expect(decision.stage).toBe("deepseek");
+    expect(decision.reasonCode).toBe("swapped_orientation_needs_grounding");
   });
 
   it("does not auto-merge exact teams when competition agreement is implausible", () => {
@@ -185,7 +185,25 @@ describe("event matcher policy", () => {
     expect(decision.final).toBe(false);
   });
 
-  it("rejects weak team identity even when generic competition text overlaps", () => {
+  it("routes exact-kickoff near-threshold residuals to DeepSeek", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        combined: 0.69,
+        bestTeam: 0.69,
+        home: 0.79,
+        away: 0.59,
+        sameOrientationTeam: 0.69,
+        competition: 0.59,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.stage).toBe("deepseek");
+    expect(decision.reasonCode).toBe("weak_competition_needs_grounding");
+  });
+
+  it("routes weak swapped team identity with generic competition overlap to DeepSeek", () => {
     const decision = decideCandidate(
       [],
       score({
@@ -206,7 +224,8 @@ describe("event matcher policy", () => {
     );
 
     expect(decision.decision).toBe("human_review");
-    expect(decision.reasonCode).toBe("swapped_orientation_needs_review");
+    expect(decision.stage).toBe("deepseek");
+    expect(decision.reasonCode).toBe("swapped_orientation_needs_grounding");
   });
 
   it("routes high-confidence merge-gate failures to DeepSeek", () => {

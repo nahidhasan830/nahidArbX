@@ -11,7 +11,7 @@ export const DEFAULT_EVENT_MATCHER_CONFIG: EventMatcherConfig = {
   competitionRejectCeiling: 0.25,
   combinedAutoMergeThreshold: 0.9,
   combinedAutoRejectThreshold: 0.48,
-  residualLow: 0.72,
+  residualLow: 0.68,
   residualHigh: 0.9,
   deepseekEnabled: true,
   deepseekAutoMergeEnabled: true,

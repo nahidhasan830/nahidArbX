@@ -119,6 +119,23 @@ describe("event matcher repository", () => {
     expect(stats.humanFallback).toBe(3);
   });
 
+  it("does not degrade grounded review just because canonical clusters conflict", async () => {
+    rows.mockResolvedValue(
+      Array.from({ length: 5 }, () => ({
+        decision: "human_review",
+        decisionStage: "human_review",
+        reasonCode: "cluster_conflict",
+      })),
+    );
+
+    const stats = await readReliabilityStats();
+
+    expect(stats.clusterConflicts).toBe(5);
+    expect(stats.deepseekReviewed).toBe(0);
+    expect(stats.healthy).toBe(true);
+    expect(stats.degradationReason).toBeNull();
+  });
+
   it("counts no-source and search-failure DeepSeek fallbacks explicitly", async () => {
     rows.mockResolvedValue([
       {
