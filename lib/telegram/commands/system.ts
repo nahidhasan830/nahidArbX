@@ -310,7 +310,7 @@ registerCommand({
   description:
     "Data-source health: API-Football quota + SofaScore transport/proxy.",
   explanation:
-    "Shows API-Football quota (Tier 2b, 100 req/day free) and SofaScore transport status (Tier 2c). SofaScore tries Python curl_cffi direct first, then Scrape.do after Cloudflare 403.",
+    "Shows API-Football quota (last-resort, 100 req/day free) and SofaScore transport status. SofaScore tries Python curl_cffi direct first, then Scrape.do after Cloudflare 403.",
   group: "read",
   async handler({ reply }) {
     const apiFb = getApiFootballQuota();
@@ -318,7 +318,7 @@ registerCommand({
     const lines = [
       header("🌐", "Settlement data sources"),
       "",
-      b("API-Football (Tier 2b — 100 req/day)"),
+      b("API-Football (last resort — 100 req/day)"),
       kvList([
         ["Daily limit", num(apiFb.dailyLimit)],
         ["Used today", num(apiFb.used)],
@@ -333,7 +333,7 @@ registerCommand({
         ],
       ]),
       "",
-      b("SofaScore (Tier 2c — curl_cffi + Scrape.do fallback)"),
+      b("SofaScore (after ESPN — curl_cffi + Scrape.do fallback)"),
       kvList([
         [
           "Status",
@@ -364,7 +364,7 @@ registerCommand({
     if (apiFb.remaining === 0) {
       lines.push(
         "",
-        "⚠️ <i>API-Football daily limit exhausted — niche leagues will fall through to SofaScore.</i>",
+        "⚠️ <i>API-Football daily limit exhausted — events unresolved by ESPN/SofaScore will wait for the next retry window.</i>",
       );
     }
     if (!sofa.alive) {

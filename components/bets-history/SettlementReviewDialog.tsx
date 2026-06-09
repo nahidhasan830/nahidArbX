@@ -204,7 +204,7 @@ export function SettlementReviewDialog({
   const description = (
     <>
       {candidateRows.length} bet{candidateRows.length === 1 ? "" : "s"} settled
-      through the source waterfall (cache → ESPN → API-Football → SofaScore).
+      through the source waterfall (cache → ESPN → SofaScore → API-Football).
       Unresolved rows stay pending for manual review.
     </>
   );

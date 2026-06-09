@@ -39,7 +39,7 @@ export function AiModelMenuItems({
   callbacks,
   showDefault = false,
   defaultLabel = "Default pipeline",
-  defaultHint = "Full waterfall: Cache → Live → ESPN → API-Football → SofaScore → AI",
+  defaultHint = "Full waterfall: Cache → Live → ESPN → SofaScore → API-Football → AI",
 }: Props) {
   const { providers } = useAiProviders();
 

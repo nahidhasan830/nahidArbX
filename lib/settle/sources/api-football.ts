@@ -1,14 +1,14 @@
 /**
- * Tier 2b — API-Football (api-sports.io) official REST API.
+ * Tier 2c — API-Football (api-sports.io) official REST API.
  *
  * Free tier: 100 requests/day, 10 req/min, no credit card.
  * Covers 1,000+ leagues globally with FT + HT scores, corners,
  * yellow/red cards — everything the settlement pipeline needs.
  *
- * This source sits between ESPN (Tier 2a) and SofaScore (Tier 2c) in
- * the waterfall. It fires only for events that ESPN couldn't resolve
- * (niche leagues, HT-scope bets). The 100 req/day budget is more than
- * enough because ESPN resolves ~75%+ and the DB cache absorbs repeats.
+ * This source is the last resort after ESPN and SofaScore. It fires only
+ * for events those sources couldn't resolve with the data required by
+ * the pending bets. The daily quota guard remains the only API-Football
+ * request cap.
  *
  * Endpoints used:
  *   GET /fixtures?date=YYYY-MM-DD       — all matches for a date

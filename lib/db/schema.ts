@@ -513,6 +513,15 @@ export const settlementRuns = pgTable(
     tier3Hits: integer().notNull().default(0),
     tier4Hits: integer().notNull().default(0),
     unresolvedEvents: integer().notNull().default(0),
+    eventsTotal: integer().notNull().default(0),
+    eventsAttempted: integer().notNull().default(0),
+    eventsSkippedByBackoff: integer().notNull().default(0),
+    eventsResolvedFromCache: integer().notNull().default(0),
+    eventsResolvedByEspn: integer().notNull().default(0),
+    eventsResolvedBySofaScore: integer().notNull().default(0),
+    eventsResolvedByApiFootball: integer().notNull().default(0),
+    eventsStillUnresolved: integer().notNull().default(0),
+    apiFootballRequestsUsed: integer().notNull().default(0),
     /** Optional reason when a deeper settlement fallback short-circuited. */
     abortedReason: text(),
     /** Free-form error message when the whole tick blew up. */

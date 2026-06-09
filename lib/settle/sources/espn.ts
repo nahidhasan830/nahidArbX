@@ -1,5 +1,5 @@
 /**
- * Tier 2b — ESPN hidden scoreboard API.
+ * Tier 2a — ESPN hidden scoreboard API.
  *
  * ESPN exposes an unauthenticated JSON endpoint at
  *   site.api.espn.com/apis/site/v2/sports/soccer/{leagueSlug}/scoreboard

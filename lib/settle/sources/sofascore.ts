@@ -1,5 +1,5 @@
 /**
- * Tier 2c — SofaScore unofficial API (curl_cffi TLS impersonation).
+ * Tier 2b — SofaScore unofficial API (curl_cffi TLS impersonation).
  *
  * Covers essentially every global football league with both HT and FT
  * scores cleanly. ESPN + API-Football run first because they're ToS-safe.

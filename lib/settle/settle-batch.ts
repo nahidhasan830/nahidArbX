@@ -16,6 +16,7 @@ import {
   resolveScores,
   type WaterfallTelemetry,
   type SettleEvent,
+  type SettlementDataRequirements,
 } from "./waterfall";
 import { settleBet } from "./settle-bet";
 import type { SettleResult } from "./types";
@@ -28,6 +29,11 @@ export interface SettleBatchOptions {
    * an old score is cached. Useful for "Re-run default pipeline" in the UI.
    */
   bypassCache?: boolean;
+  /**
+   * Auto-settlement retry backoff passes only the events eligible for network
+   * sources. Cache is still checked for every event.
+   */
+  networkEventIds?: Set<string>;
 }
 
 export interface SettleProposal {
@@ -43,12 +49,27 @@ export interface SettleProposal {
 export interface SettleBatchResult {
   proposals: SettleProposal[];
   missing: string[];
+  eventBreakdown: {
+    networkAttemptedEventIds: string[];
+    skippedByBackoffEventIds: string[];
+    fullyResolvedEventIds: string[];
+    stillUnresolvedEventIds: string[];
+  };
   telemetry: WaterfallTelemetry & {
     settledDeterministically: number;
     unsupported: number;
     unresolvedEvents: number;
   };
 }
+
+const CORNER_MARKETS = new Set([
+  "CORNERS",
+  "HOME_CORNERS_TOTAL",
+  "AWAY_CORNERS_TOTAL",
+  "CORNERS_HANDICAP",
+  "CORNERS_EUROPEAN_HANDICAP",
+]);
+const BOOKING_MARKETS = new Set(["BOOKINGS", "BOOKINGS_HANDICAP"]);
 
 const buildProposal = (
   row: ValueBetRow,
@@ -76,6 +97,7 @@ export async function settleBatch(
   // same event appears on multiple bets the team/time fields are identical
   // by construction (denormalized at persist time), so the first row wins.
   const eventMap = new Map<string, SettleEvent>();
+  const eventRequirements = new Map<string, SettlementDataRequirements>();
   for (const r of rows) {
     if (!eventMap.has(r.eventId)) {
       eventMap.set(r.eventId, {
@@ -86,6 +108,13 @@ export async function settleBatch(
         startTime: r.eventStartTime,
       });
     }
+    const req = eventRequirements.get(r.eventId) ?? {};
+    if (CORNER_MARKETS.has(r.marketType)) req.needsCorners = true;
+    if (BOOKING_MARKETS.has(r.marketType)) req.needsBookings = true;
+    if (r.timeScope === "1H" || r.timeScope === "2H") {
+      req.needsHtScore = true;
+    }
+    eventRequirements.set(r.eventId, req);
   }
 
   // ── Pre-resolve team names via entity DB ─────────────────────────────
@@ -98,17 +127,6 @@ export async function settleBatch(
   clearCanonicalCache();
   const allTeamNames = rows.flatMap((r) => [r.homeTeam, r.awayTeam]);
   await preResolveTeams(allTeamNames, { provider: "settle" });
-  // Does the batch contain any corner-market bet? If so, ask the
-  // waterfall to fetch corner stats. If not, skip the extra HTTP cost.
-  const CORNER_MARKETS = new Set([
-    "CORNERS",
-    "HOME_CORNERS_TOTAL",
-    "AWAY_CORNERS_TOTAL",
-    "CORNERS_HANDICAP",
-    "CORNERS_EUROPEAN_HANDICAP",
-  ]);
-  const BOOKING_MARKETS = new Set(["BOOKINGS", "BOOKINGS_HANDICAP"]);
-
   const needsCorners = rows.some((r) => CORNER_MARKETS.has(r.marketType));
   const needsBookings = rows.some((r) => BOOKING_MARKETS.has(r.marketType));
 
@@ -120,12 +138,17 @@ export async function settleBatch(
     (r) => r.timeScope === "1H" || r.timeScope === "2H",
   );
 
-  const { scores, telemetry } = await resolveScores([...eventMap.values()], {
-    needsCorners,
-    needsBookings,
-    needsHtScore,
-    bypassCache: options.bypassCache === true,
-  });
+  const { scores, telemetry, eventBreakdown } = await resolveScores(
+    [...eventMap.values()],
+    {
+      needsCorners,
+      needsBookings,
+      needsHtScore,
+      bypassCache: options.bypassCache === true,
+      eventRequirements,
+      networkEventIds: options.networkEventIds,
+    },
+  );
 
   let settledDeterministically = 0;
   let unsupported = 0;
@@ -154,6 +177,7 @@ export async function settleBatch(
   const result: SettleBatchResult = {
     proposals,
     missing,
+    eventBreakdown,
     telemetry: {
       ...telemetry,
       settledDeterministically,

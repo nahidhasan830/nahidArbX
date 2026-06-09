@@ -10,6 +10,7 @@
 import { listBets, recordSettleAttempts } from "../db/repositories/bets";
 import { settleBatch } from "./settle-batch";
 import type { WaterfallTelemetry } from "./waterfall";
+import { getApiFootballQuota } from "./sources/api-football";
 import { logger } from "../shared/logger";
 import {
   estimateRunCost,
@@ -45,6 +46,134 @@ export interface AutoSettleResult {
 }
 
 const DEFAULT_BATCH_SIZE = 500;
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+const CORNER_MARKETS = new Set([
+  "CORNERS",
+  "HOME_CORNERS_TOTAL",
+  "AWAY_CORNERS_TOTAL",
+  "CORNERS_HANDICAP",
+  "CORNERS_EUROPEAN_HANDICAP",
+]);
+const BOOKING_MARKETS = new Set(["BOOKINGS", "BOOKINGS_HANDICAP"]);
+
+type RetryBackoffRow = {
+  eventId: string;
+  settleAttempts: number;
+  lastSettleAttemptAt: string | null;
+};
+
+const retryDelayMs = (attempts: number): number => {
+  if (attempts <= 3) return ONE_HOUR_MS;
+  if (attempts <= 8) return 6 * ONE_HOUR_MS;
+  return 24 * ONE_HOUR_MS;
+};
+
+const eligibleNetworkEvents = (
+  rows: RetryBackoffRow[],
+  nowMs: number,
+): Set<string> => {
+  const byEvent = new Map<
+    string,
+    { attempts: number; lastAttemptMs: number | null }
+  >();
+  for (const row of rows) {
+    const current = byEvent.get(row.eventId) ?? {
+      attempts: 0,
+      lastAttemptMs: null,
+    };
+    current.attempts = Math.max(current.attempts, row.settleAttempts ?? 0);
+    if (row.lastSettleAttemptAt) {
+      const last = new Date(row.lastSettleAttemptAt).getTime();
+      if (Number.isFinite(last)) {
+        current.lastAttemptMs =
+          current.lastAttemptMs == null
+            ? last
+            : Math.max(current.lastAttemptMs, last);
+      }
+    }
+    byEvent.set(row.eventId, current);
+  }
+
+  const eligible = new Set<string>();
+  for (const [eventId, state] of byEvent) {
+    if (state.lastAttemptMs == null) {
+      eligible.add(eventId);
+      continue;
+    }
+    if (nowMs - state.lastAttemptMs >= retryDelayMs(state.attempts)) {
+      eligible.add(eventId);
+    }
+  }
+  return eligible;
+};
+
+const batchContainsCorners = (rows: { marketType: string }[]): boolean =>
+  rows.some((row) => CORNER_MARKETS.has(row.marketType));
+
+const batchContainsBookings = (rows: { marketType: string }[]): boolean =>
+  rows.some((row) => BOOKING_MARKETS.has(row.marketType));
+
+const batchContainsHtScope = (rows: { timeScope: string }[]): boolean =>
+  rows.some((row) => row.timeScope === "1H" || row.timeScope === "2H");
+
+const shouldSendSourceWarning = (
+  telemetry: WaterfallTelemetry,
+  sourceIssues: string[],
+): boolean => {
+  const quota = getApiFootballQuota();
+  return (
+    quota.remaining <= 10 ||
+    sourceIssues.some((issue) => issue.includes("SofaScore transport")) ||
+    telemetry.eventsSkippedByBackoff > 0 ||
+    (telemetry.eventsAttempted > 0 && telemetry.eventsStillUnresolved > 0)
+  );
+};
+
+const buildSourceWarning = (
+  readyBets: number,
+  rows: Array<{ marketType: string; timeScope: string }>,
+  telemetry: WaterfallTelemetry,
+): string => {
+  const quota = getApiFootballQuota();
+  const lines = [
+    "⚠️ Settlement source warning",
+    "",
+    `Ready pending: ${readyBets} bets / ${telemetry.eventsTotal} events`,
+    `Attempted this tick: ${telemetry.eventsAttempted} events`,
+    `Skipped by retry backoff: ${telemetry.eventsSkippedByBackoff} events`,
+    `Still unresolved: ${telemetry.eventsStillUnresolved} events`,
+    "",
+    `API-Football: ${quota.remaining}/${quota.dailyLimit} requests remaining`,
+    `API-Football used this tick: ${telemetry.apiFootballRequestsUsed}`,
+  ];
+
+  if (batchContainsCorners(rows)) {
+    lines.push(
+      "",
+      "Corners markets were in this batch; settlement needs corner stats.",
+    );
+  }
+  if (batchContainsBookings(rows)) {
+    lines.push(
+      "",
+      "Bookings markets were in this batch; settlement needs booking points.",
+    );
+  }
+  if (batchContainsHtScope(rows)) {
+    lines.push(
+      "",
+      "1H/2H markets were in this batch; settlement needs HT scores.",
+    );
+  }
+
+  lines.push(
+    "",
+    "Settlement order: ESPN → SofaScore → API-Football.",
+    "API-Football is only used after ESPN and SofaScore cannot resolve the event.",
+  );
+  return lines.join("\n");
+};
 
 /**
  * Run one sweep of the settlement waterfall across every `pending` bet
@@ -86,6 +215,15 @@ async function persistRun(
       tier3Hits: res.telemetry.tier3_hits,
       tier4Hits: res.telemetry.tier4_hits,
       unresolvedEvents: res.telemetry.unresolvedEvents,
+      eventsTotal: res.telemetry.eventsTotal,
+      eventsAttempted: res.telemetry.eventsAttempted,
+      eventsSkippedByBackoff: res.telemetry.eventsSkippedByBackoff,
+      eventsResolvedFromCache: res.telemetry.eventsResolvedFromCache,
+      eventsResolvedByEspn: res.telemetry.eventsResolvedByEspn,
+      eventsResolvedBySofaScore: res.telemetry.eventsResolvedBySofaScore,
+      eventsResolvedByApiFootball: res.telemetry.eventsResolvedByApiFootball,
+      eventsStillUnresolved: res.telemetry.eventsStillUnresolved,
+      apiFootballRequestsUsed: res.telemetry.apiFootballRequestsUsed,
       abortedReason: null,
       error: errorMsg,
       estimatedCostUsd: cost,
@@ -113,6 +251,15 @@ export async function runAutoSettle(
     tier4_hits: 0,
     unresolved: 0,
     durationMs: 0,
+    eventsTotal: 0,
+    eventsAttempted: 0,
+    eventsSkippedByBackoff: 0,
+    eventsResolvedFromCache: 0,
+    eventsResolvedByEspn: 0,
+    eventsResolvedBySofaScore: 0,
+    eventsResolvedByApiFootball: 0,
+    eventsStillUnresolved: 0,
+    apiFootballRequestsUsed: 0,
     sourceIssues: [] as string[],
     settledDeterministically: 0,
     unsupported: 0,
@@ -154,9 +301,12 @@ export async function runAutoSettle(
   }
 
   const ids = rows.map((r) => r.id);
+  const rowById = new Map(rows.map((row) => [row.id, row]));
+  const networkEventIds = eligibleNetworkEvents(rows, Date.now());
+  const eventCount = new Set(rows.map((row) => row.eventId)).size;
   let batchResult;
   try {
-    batchResult = await settleBatch(ids);
+    batchResult = await settleBatch(ids, { networkEventIds });
   } catch (err) {
     const msg = (err as Error).message;
     errors.push(`settleBatch failed: ${msg}`);
@@ -168,8 +318,11 @@ export async function runAutoSettle(
       applied: 0,
       telemetry: {
         ...emptyTelemetry,
+        total: eventCount,
+        eventsTotal: eventCount,
         unresolved: ids.length,
-        unresolvedEvents: ids.length,
+        eventsStillUnresolved: eventCount,
+        unresolvedEvents: eventCount,
         unsupported: ids.length,
       },
       errors,
@@ -191,11 +344,28 @@ export async function runAutoSettle(
     score: p.score,
   }));
 
-  // Bump the attempt counter on every row the tick touched — including
-  // ones the pipeline couldn't resolve. That's what powers the "Needs
-  // review" filter (pending + settle_attempts > 0).
+  // Bump the attempt counter only on pending rows the pipeline genuinely
+  // touched. Events skipped by retry backoff still got a free cache check,
+  // but no network waterfall was attempted for them.
   try {
-    await recordSettleAttempts(ids);
+    const attemptedEvents = new Set(
+      batchResult.eventBreakdown.networkAttemptedEventIds,
+    );
+    const unresolvedEvents = new Set(
+      batchResult.eventBreakdown.stillUnresolvedEventIds,
+    );
+    const attemptedPendingIds = batchResult.proposals
+      .filter((proposal) => proposal.proposedOutcome === "pending")
+      .map((proposal) => {
+        const row = rowById.get(proposal.id);
+        return row &&
+          attemptedEvents.has(row.eventId) &&
+          unresolvedEvents.has(row.eventId)
+          ? proposal.id
+          : null;
+      })
+      .filter((id): id is string => !!id);
+    await recordSettleAttempts(attemptedPendingIds);
   } catch (err) {
     logger.warn(
       "AutoSettle",
@@ -225,10 +395,10 @@ export async function runAutoSettle(
   };
 
   // ── Source-health Telegram alert ────────────────────────────────────────
-  // Fires at most once per hour to avoid flooding the chat when SofaScore
-  // is persistently blocked.
+  // Fires at most once per hour to avoid flooding the chat when a source or
+  // retry condition persists across ticks.
   if (
-    batchResult.telemetry.sourceIssues.length > 0 &&
+    shouldSendSourceWarning(batchResult.telemetry, result.sourceIssues) &&
     Date.now() - alertState.lastSentAt > SOURCE_ALERT_COOLDOWN_MS
   ) {
     alertState.lastSentAt = Date.now();
@@ -236,11 +406,7 @@ export async function runAutoSettle(
       type: "system",
       at: new Date().toISOString(),
       severity: "warn",
-      message:
-        `⚠️ Settlement data-source issues:\n` +
-        batchResult.telemetry.sourceIssues.join("\n") +
-        `\n\nAffected bets: ${result.stillPending} still pending. ` +
-        `Bookings/corners enrichment may be degraded.`,
+      message: buildSourceWarning(ids.length, rows, batchResult.telemetry),
     }).catch(() => {});
   }
 
@@ -249,9 +415,14 @@ export async function runAutoSettle(
     `swept ${ids.length} bets across ${batchResult.telemetry.total} events — ` +
       `settled ${result.settled} (applied ${applied}), ` +
       `still-pending ${result.stillPending}. ` +
-      `Tier hits: T0=${batchResult.telemetry.tier0_hits} ` +
-      `T1=${batchResult.telemetry.tier1_hits} ` +
-      `T2=${batchResult.telemetry.tier2_hits}. ` +
+      `Events: attempted=${batchResult.telemetry.eventsAttempted} ` +
+      `backoff=${batchResult.telemetry.eventsSkippedByBackoff} ` +
+      `cache=${batchResult.telemetry.eventsResolvedFromCache} ` +
+      `espn=${batchResult.telemetry.eventsResolvedByEspn} ` +
+      `sofa=${batchResult.telemetry.eventsResolvedBySofaScore} ` +
+      `apifb=${batchResult.telemetry.eventsResolvedByApiFootball} ` +
+      `unresolved=${batchResult.telemetry.eventsStillUnresolved}. ` +
+      `API-Football used=${batchResult.telemetry.apiFootballRequestsUsed}. ` +
       `Duration ${batchResult.telemetry.durationMs}ms.`,
   );
   await persistRun(
