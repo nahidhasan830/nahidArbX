@@ -53,6 +53,7 @@ import {
   onReconnect as onScoresReconnect,
 } from "../scores/websocket";
 import { reconcilePendingBets } from "../betting/ninewickets/reconciler";
+import { pinnacleWsClient } from "../adapters/pinnacle/ws-client";
 import { singleton } from "../util/singleton";
 import { notify } from "../notifier";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
@@ -506,24 +507,42 @@ export function startScheduler(): void {
     };
   });
 
-  // Pinnacle token health
+  // Pinnacle health: token validity + WebSocket liveness.
+  // A valid token with a dead or silent STOMP socket is the one failure
+  // mode that silently zeroes sharp odds (and with them all detection),
+  // so the WS state must be part of this check — token-only health
+  // reported "healthy" through exactly that failure.
   registerHealthProvider("pinnacle", () => {
     const ttl = getTokenTTL();
     const hasValidToken = ttl !== null && ttl > 0;
     const isExpiringSoon = ttl !== null && ttl < 300000; // < 5 minutes
 
+    const ws = pinnacleWsClient.getConnectionStatus();
+    const wsDisconnected = ws.subscribedEvents > 0 && !ws.connected;
+    // Connected but no STOMP message for >5 min while subscribed —
+    // likely a zombie socket that closed without firing close events.
+    const wsSilent =
+      ws.subscribedEvents > 0 &&
+      ws.connected &&
+      ws.lastMessageAt !== null &&
+      Date.now() - ws.lastMessageAt > 300000;
+
+    const unhealthy = !hasValidToken || wsDisconnected;
+    const degraded = isExpiringSoon || wsSilent;
+
     return {
-      status: hasValidToken
-        ? isExpiringSoon
-          ? "degraded"
-          : "healthy"
-        : "unhealthy",
+      status: unhealthy ? "unhealthy" : degraded ? "degraded" : "healthy",
       lastCheck: Date.now(),
-      consecutiveFailures: hasValidToken ? 0 : 1,
+      consecutiveFailures: unhealthy ? 1 : 0,
       details: {
         hasToken: hasValidToken,
         tokenTTL: ttl,
         expiresIn: ttl !== null ? `${Math.round(ttl / 60000)}m` : null,
+        wsConnected: ws.connected,
+        subscribedEvents: ws.subscribedEvents,
+        lastMessageAt: ws.lastMessageAt
+          ? new Date(ws.lastMessageAt).toISOString()
+          : null,
       },
     };
   });
@@ -612,15 +631,28 @@ export function startScheduler(): void {
     }
   });
 
-  // Pinnacle token refresh
+  // Pinnacle token refresh + WS reconnect
   registerHealingAction("pinnacle", async () => {
-    logger.info("Sync", "Healing Pinnacle token...");
+    logger.info("Sync", "Healing Pinnacle (token + WebSocket)...");
     try {
       await getPinnacleToken(true);
       const ttl = getTokenTTL();
-      return ttl !== null && ttl > 0;
+      const tokenOk = ttl !== null && ttl > 0;
+      if (!tokenOk) return false;
+
+      // If the STOMP socket is dead or silent while subscribed, force a
+      // reconnect (resubscribe happens via onConnect).
+      const ws = pinnacleWsClient.getConnectionStatus();
+      const wsSilent =
+        ws.connected &&
+        ws.lastMessageAt !== null &&
+        Date.now() - ws.lastMessageAt > 300000;
+      if (ws.subscribedEvents > 0 && (!ws.connected || wsSilent)) {
+        await pinnacleWsClient.forceReconnect();
+      }
+      return true;
     } catch (error) {
-      logger.error("Sync", "Pinnacle token healing failed:", error);
+      logger.error("Sync", "Pinnacle healing failed:", error);
       return false;
     }
   });
@@ -686,8 +718,15 @@ export function startScheduler(): void {
   // Event matcher runs in-process against provider snapshots captured during
   // fixture sync. The lab can run the same path manually.
 
-  // Initial fixture sync (reactive detector handles value detection)
-  syncAll();
+  // Initial fixture sync (reactive detector handles value detection).
+  // Must not float: a first-boot failure (e.g. matchEvents throwing) would
+  // otherwise become an unhandled rejection and kill the process.
+  syncAll().catch((err) => {
+    logger.error(
+      "Sync",
+      `Initial sync failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
 
   // ==========================================
   // Queue-Based Scheduler (setTimeout chains)
@@ -696,7 +735,12 @@ export function startScheduler(): void {
   // the remaining interval time.
   // ==========================================
 
-  function scheduleNextFixtures(): void {
+  // Each schedule* loop arms exactly ONE timer per cycle and passes the
+  // next delay through recursion. The previous shape armed a full-interval
+  // timer, ran the task, then armed an inner "remaining time" timer whose
+  // callback re-entered the outer function — which armed ANOTHER full
+  // interval. Effective period was ~2× the configured interval.
+  function scheduleNextFixtures(delayMs: number = sch.fixtureInterval): void {
     if (!sch.active) return;
 
     sch.fixtureTimer = setTimeout(async () => {
@@ -716,16 +760,13 @@ export function startScheduler(): void {
         triggerDetection();
       }
 
-      // Schedule next fixture run after remaining interval time
+      // Schedule next fixture run after the remaining interval time
       // (accounts for how long this cycle took)
       if (sch.active) {
         const elapsed = Date.now() - syncStart;
-        const wait = Math.max(0, sch.fixtureInterval - elapsed);
-        sch.fixtureTimer = setTimeout(() => {
-          scheduleNextFixtures();
-        }, wait);
+        scheduleNextFixtures(Math.max(0, sch.fixtureInterval - elapsed));
       }
-    }, sch.fixtureInterval);
+    }, delayMs);
   }
 
   // Pending-bet reconciliation loop. Independent of the fixtures/odds
@@ -733,7 +774,9 @@ export function startScheduler(): void {
   // tick so we surface ticket ids (and fire Telegram) within ~30s of the
   // book confirming them. Orphaned pendings older than the TTL are
   // deleted in the same pass.
-  function scheduleNextReconcile(): void {
+  function scheduleNextReconcile(
+    delayMs: number = RECONCILE_INTERVAL_MS,
+  ): void {
     if (!sch.active) return;
 
     sch.reconcileTimer = setTimeout(async () => {
@@ -760,15 +803,14 @@ export function startScheduler(): void {
       }
 
       if (sch.active) {
-        const wait = Math.max(0, RECONCILE_INTERVAL_MS - (Date.now() - start));
-        sch.reconcileTimer = setTimeout(() => {
-          scheduleNextReconcile();
-        }, wait);
+        scheduleNextReconcile(
+          Math.max(0, RECONCILE_INTERVAL_MS - (Date.now() - start)),
+        );
       }
-    }, RECONCILE_INTERVAL_MS);
+    }, delayMs);
   }
 
-  function scheduleNextMl(): void {
+  function scheduleNextMl(delayMs = 60_000): void {
     if (!sch.active) return;
 
     sch.mlTimer = setTimeout(async () => {
@@ -830,13 +872,10 @@ export function startScheduler(): void {
         // Silent catch for matcher errors
       } finally {
         if (sch.active) {
-          const wait = Math.max(0, intervalMs - (Date.now() - start));
-          sch.mlTimer = setTimeout(() => {
-            scheduleNextMl();
-          }, wait);
+          scheduleNextMl(Math.max(0, intervalMs - (Date.now() - start)));
         }
       }
-    }, 60000);
+    }, delayMs);
   }
 
   scheduleNextFixtures();

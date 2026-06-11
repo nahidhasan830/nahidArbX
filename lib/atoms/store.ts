@@ -89,6 +89,19 @@ export function hasDirtyFamilies(): boolean {
   return dirtyFamilies.size > 0;
 }
 
+/**
+ * Merge previously-consumed dirty keys back into the dirty set.
+ * Used when a detection pass fails after consuming its snapshot, and by
+ * the heartbeat's stale-bet expiry. Intentionally does NOT fire the
+ * dirty callback — the 30s heartbeat picks the keys up, which avoids a
+ * tight retry loop on a persistent error.
+ */
+export function readdDirtyFamilies(keys: Set<string>): void {
+  for (const key of keys) {
+    dirtyFamilies.add(key);
+  }
+}
+
 // ============================================
 // Write Operations
 // ============================================
@@ -169,19 +182,29 @@ export function setOddsBatch(entries: NormalizedOddsEntry[]): void {
 }
 
 /**
- * Clear odds for a single event (before re-fetch to remove stale families)
+ * Clear odds for a single event (before re-fetch to remove stale families).
+ * Marks every removed family dirty so the value-detector's incremental
+ * cache resyncs — otherwise cached value bets survive a manual refresh
+ * that wiped their underlying odds.
  */
 export function clearOddsForEvent(eventId: string): void {
   const familyMap = oddsStore.get(eventId);
   if (familyMap) {
-    for (const atomMap of familyMap.values()) {
+    let anyDirty = false;
+    for (const [familyId, atomMap] of familyMap) {
       for (const providerMap of atomMap.values()) {
         state._totalOddsRecords -= providerMap.size;
         if (providerMap.size >= 2) state._matchedMarkets--;
       }
       state._totalAtoms -= atomMap.size;
+      dirtyFamilies.add(`${eventId}|${familyId}`);
+      state.storeVersion++;
+      anyDirty = true;
     }
     state._totalFamilies -= familyMap.size;
+    if (anyDirty) {
+      dirtyCallbackHolder.fn?.();
+    }
   }
   oddsStore.delete(eventId);
 }
@@ -214,31 +237,36 @@ export function pruneOddsForStaleEvents(activeEventIds: Set<string>): number {
 }
 
 /**
- * Remove all odds for a specific provider across all atoms in an event.
+ * Delete a provider's records for an event, optionally keeping atoms
+ * whose `familyId|atomId` key appears in `keepAtomKeys`. Used by
+ * applyProviderSnapshot to prune atoms absent from a fresh snapshot.
  *
- * Called before processing a full-snapshot message so any atoms the provider
- * DROPPED from the feed are deleted. The fresh snapshot below restores the
- * present ones via setOdds.
- *
- * Marks affected families as dirty so the reactive detector re-evaluates.
+ * Marks affected families dirty and fires the dirty callback once.
  */
-export function removeProviderAtomsForEvent(
+function deleteProviderAtoms(
   eventId: string,
   provider: ProviderKey,
+  keepAtomKeys?: Set<string>,
 ): void {
   const familyMap = oddsStore.get(eventId);
   if (!familyMap) return;
 
+  let anyDirty = false;
+
   for (const [familyId, atomMap] of familyMap) {
     let familyDirty = false;
     for (const [atomId, providerMap] of atomMap) {
+      if (keepAtomKeys?.has(`${familyId}|${atomId}`)) continue;
       const hadRecord = providerMap.delete(provider);
       if (hadRecord) {
         state._totalOddsRecords--;
-        const remaining = providerMap.size;
-        if (remaining < 2) state._matchedMarkets--;
+        // Crossed back below the 2-provider threshold → unmatched market.
+        // Only decrement on the 2→1 transition; a 1→0 deletion was never
+        // counted as matched (this previously used `< 2`, drifting the
+        // counter negative over time).
+        if (providerMap.size === 1) state._matchedMarkets--;
         familyDirty = true;
-        if (remaining === 0) {
+        if (providerMap.size === 0) {
           atomMap.delete(atomId);
           state._totalAtoms--;
         }
@@ -247,6 +275,7 @@ export function removeProviderAtomsForEvent(
     if (familyDirty) {
       dirtyFamilies.add(`${eventId}|${familyId}`);
       state.storeVersion++;
+      anyDirty = true;
     }
     if (atomMap.size === 0) {
       familyMap.delete(familyId);
@@ -254,12 +283,46 @@ export function removeProviderAtomsForEvent(
     }
   }
 
-  if (dirtyFamilies.size > 0) {
+  if (anyDirty) {
     dirtyCallbackHolder.fn?.();
   }
 
   if (familyMap.size === 0) {
     oddsStore.delete(eventId);
+  }
+}
+
+/**
+ * Apply a full provider snapshot for an event by DIFFING against the
+ * stored records instead of delete-all-reinsert:
+ *
+ *   1. Delete only this provider's atoms that are ABSENT from the
+ *      snapshot (markets the provider dropped from its feed).
+ *   2. setOdds() every entry — its value comparison marks families
+ *      dirty and records history ticks ONLY on real price/suspension
+ *      changes.
+ *
+ * An unchanged snapshot is therefore a complete no-op: no dirty
+ * families, no detection pass, no tick inflation. The previous
+ * delete-then-reinsert pattern made every poll cycle look like a fresh
+ * price for every atom, which kept the reactive detector running
+ * continuously and contaminated tick-based ML features
+ * (tick_count/tick_velocity measured poll frequency, not movement).
+ */
+export function applyProviderSnapshot(
+  eventId: string,
+  provider: ProviderKey,
+  entries: NormalizedOddsEntry[],
+): void {
+  const keepAtomKeys = new Set<string>();
+  for (const entry of entries) {
+    keepAtomKeys.add(`${entry.family_id}|${entry.atom_id}`);
+  }
+
+  deleteProviderAtoms(eventId, provider, keepAtomKeys);
+
+  for (const entry of entries) {
+    setOdds(entry);
   }
 }
 

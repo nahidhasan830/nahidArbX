@@ -8,23 +8,36 @@ import {
 import type { NormalizedOddsEntry } from "../../atoms/types";
 import { getMultiSourceScore } from "../../scores/multi-source-store";
 import { getLiveScore, getCornersScore } from "../../scores/store";
-import { removeProviderAtomsForEvent } from "../../atoms/store";
+
+export interface PinnacleWsParseResult {
+  entries: NormalizedOddsEntry[];
+  /**
+   * True when the payload parsed as a full market snapshot (non-empty
+   * JSON array). The caller should then apply it via
+   * `applyProviderSnapshot` so dropped markets are pruned. False for
+   * empty bodies / non-odds destinations / parse failures — those must
+   * NOT clear existing odds.
+   */
+  isSnapshot: boolean;
+}
+
+const EMPTY_RESULT: PinnacleWsParseResult = { entries: [], isSnapshot: false };
 
 export function parsePinnacleWsMessage(
   destination: string,
   body: string,
   providerEventId: string,
   normalizedEventId: string,
-): NormalizedOddsEntry[] {
+): PinnacleWsParseResult {
   // We only parse odds from the /market/decimal/.../A destination
   if (!destination.includes("/market/decimal/")) {
-    return [];
+    return EMPTY_RESULT;
   }
 
   // Pinnacle sends an empty body on initial subscription for events with
   // no active markets (ended / suspended / not yet open). Skip silently.
   if (!body || body.length === 0) {
-    return [];
+    return EMPTY_RESULT;
   }
 
   let payload: unknown[];
@@ -35,11 +48,11 @@ export function parsePinnacleWsMessage(
       "PinnacleWs",
       `Failed to parse WS payload for ${providerEventId} (len=${body.length})`,
     );
-    return [];
+    return EMPTY_RESULT;
   }
 
   if (!Array.isArray(payload)) {
-    return [];
+    return EMPTY_RESULT;
   }
 
   // Get live score for handicap adjustment
@@ -82,11 +95,6 @@ export function parsePinnacleWsMessage(
 
   const allEntries: NormalizedOddsEntry[] = [];
 
-  // Suspend all existing Pinnacle odds for this event so any markets
-  // Pinnacle dropped from the feed (e.g., bookings at kickoff) are
-  // flagged stale. The fresh snapshot below restores present ones.
-  removeProviderAtomsForEvent(normalizedEventId, "pinnacle");
-
   // payload is an array of PinnacleMarketTuple
   for (const item of payload) {
     // Basic validation of the tuple
@@ -101,5 +109,8 @@ export function parsePinnacleWsMessage(
     allEntries.push(...entries);
   }
 
-  return allEntries;
+  // A parsed array (even one extracting 0 entries) is a full snapshot:
+  // markets absent from it were dropped by Pinnacle and must be pruned
+  // by the caller via applyProviderSnapshot.
+  return { entries: allEntries, isSnapshot: true };
 }

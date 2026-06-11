@@ -37,11 +37,13 @@ import { logger } from "@/lib/shared/logger";
 import {
   DETECTION_DEBOUNCE_MS,
   HEARTBEAT_INTERVAL_MS,
+  MAX_VALUE_ODDS_AGE_MS,
   STALE_ODDS_CLEANUP_INTERVAL_MS,
 } from "@/lib/shared/constants";
 import {
   consumeDirtyFamilies,
   hasDirtyFamilies,
+  readdDirtyFamilies,
   setOnDirtyCallback,
   getStoreStats,
   getActiveMarketCountForEvent,
@@ -158,6 +160,12 @@ interface PersistedSnapshot {
   sharpOdds: number;
   softOdds: number;
   softProvider: string;
+  /**
+   * Vig-removed probability. Included so sibling-atom sharp moves —
+   * which shift this bet's trueProb/evPct without touching its own
+   * sharpOdds — still count as a change and get re-persisted.
+   */
+  trueProb: number;
 }
 const lastPersisted = singleton(
   "reactive-detector:lastPersisted",
@@ -177,6 +185,12 @@ async function runDetectionPass(): Promise<void> {
 
   state.passInProgress = true;
 
+  // The dirty snapshot currently being processed. On an unexpected
+  // throw we merge it back into the store's dirty set so the heartbeat
+  // can retry — otherwise consumed-but-unprocessed families would be
+  // silently lost.
+  let inFlightDirty: Set<string> | null = null;
+
   try {
     while (true) {
       state.needsAnotherPass = false;
@@ -185,6 +199,7 @@ async function runDetectionPass(): Promise<void> {
       state.forceFullRescore = false;
 
       const dirty = consumeDirtyFamilies();
+      inFlightDirty = dirty;
 
       const passStart = Date.now();
 
@@ -218,6 +233,10 @@ async function runDetectionPass(): Promise<void> {
           "ReactiveDetector",
           `No value-detection eligible events for phases=${bettingSettings.valueDetectionPhases.join(",")}, skipping pass`,
         );
+        // Intentionally DROP this dirty snapshot: these families belong
+        // to phase-ineligible events, so re-adding them would make the
+        // heartbeat spin on families that can never produce bets.
+        inFlightDirty = null;
         break;
       }
 
@@ -247,7 +266,8 @@ async function runDetectionPass(): Promise<void> {
         return (
           prev.sharpOdds !== vb.sharpOdds ||
           prev.softOdds !== vb.softOdds ||
-          prev.softProvider !== vb.softProvider
+          prev.softProvider !== vb.softProvider ||
+          prev.trueProb !== vb.trueProb
         );
       });
 
@@ -539,12 +559,17 @@ async function runDetectionPass(): Promise<void> {
 
           const result = await persistValueBets(enrichedBets);
 
-          // Update the last-persisted cache for successfully written bets
+          // Update the last-persisted cache for successfully written
+          // bets only — failed rows must retry on the next pass even if
+          // their odds haven't moved.
+          const failed = new Set(result.failedIds);
           for (const vb of betsToPersist) {
+            if (failed.has(vb.id)) continue;
             lastPersisted.set(vb.id, {
               sharpOdds: vb.sharpOdds,
               softOdds: vb.softOdds,
               softProvider: vb.softProvider,
+              trueProb: vb.trueProb,
             });
           }
 
@@ -651,6 +676,9 @@ async function runDetectionPass(): Promise<void> {
         );
       }
 
+      // This snapshot was fully processed — nothing to restore on error
+      inFlightDirty = null;
+
       // If more changes arrived during this pass, loop again
       if (!state.needsAnotherPass) break;
     }
@@ -659,6 +687,11 @@ async function runDetectionPass(): Promise<void> {
       "ReactiveDetector",
       `Detection pass failed: ${(err as Error).message}`,
     );
+    // Restore the consumed-but-unprocessed dirty snapshot so the 30s
+    // heartbeat retries it (no callback fired — avoids a tight error loop).
+    if (inFlightDirty && inFlightDirty.size > 0) {
+      readdDirtyFamilies(inFlightDirty);
+    }
   } finally {
     state.passInProgress = false;
   }
@@ -686,12 +719,60 @@ function onDirtySignal(): void {
 // Heartbeat — safety net + closing capture + cleanup
 // ============================================
 
+/**
+ * Expire value bets whose underlying odds have gone stale.
+ *
+ * The incremental value cache only recomputes a family when new odds
+ * arrive (dirty). If a feed stops — e.g. the Pinnacle STOMP socket goes
+ * silent without closing — sharp odds age past MAX_VALUE_ODDS_AGE_MS
+ * but the cached bets would otherwise stay listed (and persisted)
+ * forever, because nothing re-dirties the family.
+ *
+ * This re-dirties the families of any live bet whose sharp or soft
+ * record is missing/suspended/older than the staleness window, so the
+ * next pass recomputes them through detectValueForAtom's normal gates
+ * (which reject stale odds) and they drop out of the cache, the store,
+ * and the SSE stream via the standard pass machinery.
+ *
+ * Granularity: heartbeat cadence (30s) vs a 180s staleness window — a
+ * phantom bet survives at most ~30s past expiry.
+ */
+function expireStaleValueBets(): boolean {
+  const now = Date.now();
+  const staleFamilies = new Set<string>();
+
+  for (const vb of storeGetValueBets()) {
+    const allOdds = getAllOddsForAtom(vb.eventId, vb.familyId, vb.atomId);
+    const sharp = allOdds.get(vb.sharpProvider);
+    const soft = allOdds.get(vb.softProvider);
+
+    const sharpStale = !sharp || now - sharp.timestamp > MAX_VALUE_ODDS_AGE_MS;
+    const softStale =
+      !soft || soft.suspended || now - soft.timestamp > MAX_VALUE_ODDS_AGE_MS;
+
+    if (sharpStale || softStale) {
+      staleFamilies.add(`${vb.eventId}|${vb.familyId}`);
+    }
+  }
+
+  if (staleFamilies.size === 0) return false;
+
+  logger.info(
+    "ReactiveDetector",
+    `Stale-bet expiry: re-dirtying ${staleFamilies.size} family(ies) with expired odds`,
+  );
+  readdDirtyFamilies(staleFamilies);
+  return true;
+}
+
 async function heartbeat(): Promise<void> {
-  // 1. Safety net: flush any orphan dirty families
-  if (hasDirtyFamilies()) {
+  // 1. Expire value bets whose odds went stale (silent-feed protection),
+  //    then flush any orphan dirty families in the same pass.
+  const expiredAny = expireStaleValueBets();
+  if (expiredAny || hasDirtyFamilies()) {
     logger.debug(
       "ReactiveDetector",
-      "Heartbeat: flushing orphan dirty families",
+      "Heartbeat: flushing orphan/expired dirty families",
     );
     await runDetectionPass();
   }

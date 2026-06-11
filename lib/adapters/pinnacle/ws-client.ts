@@ -2,7 +2,7 @@ import { Client, StompSubscription } from "@stomp/stompjs";
 import WebSocket from "ws";
 import { logger } from "../../shared/logger";
 import { parsePinnacleWsMessage } from "./ws-parser";
-import { setOddsBatch } from "../../atoms/store";
+import { applyProviderSnapshot } from "../../atoms/store";
 import { singleton } from "@/lib/util/singleton";
 
 Object.assign(global, { WebSocket });
@@ -18,6 +18,8 @@ export class PinnacleWsClient {
   private token: string | null = null;
   private activeSubscriptions = new Map<string, SubscriptionContext>();
   private isConnected = false;
+  /** Timestamp of the last received STOMP message (or connect). Null until first connect. */
+  private lastMessageAt: number | null = null;
   private baseUrl = "wss://www.ps388win.com/proteus-websocket/mews";
 
   constructor() {
@@ -32,6 +34,7 @@ export class PinnacleWsClient {
       onConnect: (_frame) => {
         logger.info("PinnacleWs", "Connected to STOMP server");
         this.isConnected = true;
+        this.lastMessageAt = Date.now();
         this.resubscribeAll();
       },
       onStompError: (frame) => {
@@ -105,21 +108,27 @@ export class PinnacleWsClient {
     const dest = `/market/decimal/${ctx.providerEventId}/A`;
 
     ctx.stompSub = this.client.subscribe(dest, (message) => {
+      this.lastMessageAt = Date.now();
       const body = message.body;
-      const entries = parsePinnacleWsMessage(
+      const { entries, isSnapshot } = parsePinnacleWsMessage(
         dest,
         body,
         ctx.providerEventId,
         ctx.normalizedEventId,
       );
 
-      if (entries.length > 0) {
-        // Feed directly into atoms store!
-        setOddsBatch(entries);
-        logger.info(
-          "PinnacleWs",
-          `Processed ${entries.length} live odds updates for ${ctx.providerEventId}`,
-        );
+      if (isSnapshot) {
+        // Full snapshot: diff against the store so markets Pinnacle
+        // dropped are pruned and unchanged prices don't churn the dirty
+        // set. An isSnapshot message with 0 entries clears all Pinnacle
+        // odds for the event (drop-detection semantics).
+        applyProviderSnapshot(ctx.normalizedEventId, "pinnacle", entries);
+        if (entries.length > 0) {
+          logger.info(
+            "PinnacleWs",
+            `Processed ${entries.length} live odds updates for ${ctx.providerEventId}`,
+          );
+        }
       }
     });
 
@@ -132,15 +141,28 @@ export class PinnacleWsClient {
     }
   }
 
-  /** Get connection status for the UI engine status bar. */
+  /** Get connection status for the UI engine status bar and health checks. */
   public getConnectionStatus(): {
     connected: boolean;
     subscribedEvents: number;
+    lastMessageAt: number | null;
   } {
     return {
       connected: this.isConnected,
       subscribedEvents: this.activeSubscriptions.size,
+      lastMessageAt: this.lastMessageAt,
     };
+  }
+
+  /**
+   * Force a full STOMP reconnect (healing action for silent/zombie
+   * sockets). Re-subscription happens automatically via onConnect →
+   * resubscribeAll.
+   */
+  public async forceReconnect(): Promise<void> {
+    logger.warn("PinnacleWs", "Force-reconnecting STOMP client (healing)");
+    await this.client.deactivate();
+    this.client.activate();
   }
 
   public deactivate() {

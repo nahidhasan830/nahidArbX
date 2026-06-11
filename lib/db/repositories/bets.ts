@@ -59,6 +59,13 @@ export type PersistResult = {
   skippedNoFamily: number;
   errors: number;
   lastError: string | null;
+  /**
+   * Bet ids that were NOT written (per-row error or skip). The caller's
+   * change-detection cache must not mark these as persisted, or a
+   * transient DB failure would suppress the retry until the bet's odds
+   * happen to change again.
+   */
+  failedIds: string[];
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -187,12 +194,14 @@ export const persistValueBets = async (
     skippedNoFamily: 0,
     errors: 0,
     lastError: null as string | null,
+    failedIds: [],
   };
 
   for (const vb of betsToPersist) {
     const event = getEvent(vb.eventId);
     if (!event) {
       result.skippedNoEvent++;
+      result.failedIds.push(vb.id);
       logger.warn(
         "BetPersist",
         `Skip ${vb.id}: event ${vb.eventId} not in store`,
@@ -202,6 +211,7 @@ export const persistValueBets = async (
     const family = getFamily(vb.familyId);
     if (!family) {
       result.skippedNoFamily++;
+      result.failedIds.push(vb.id);
       logger.warn(
         "BetPersist",
         `Skip ${vb.id}: family ${vb.familyId} not in registry`,
@@ -352,6 +362,7 @@ export const persistValueBets = async (
       }
     } catch (err) {
       result.errors++;
+      result.failedIds.push(vb.id);
       const e = err as Error & {
         code?: string;
         detail?: string;
