@@ -40,6 +40,7 @@ const API_KEY = process.env.API_FOOTBALL_KEY ?? "";
 const MATCH_SCORE_THRESHOLD = 0.65;
 const KICKOFF_WINDOW_MS = 90 * 60 * 1000;
 const HTTP_TIMEOUT_MS = 15_000;
+const API_FOOTBALL_FIXTURE_CACHE_TTL_MS = 2 * 60 * 1000;
 
 /** Free tier: 100 requests/day. Warn at 80%. */
 const DAILY_LIMIT = 100;
@@ -52,6 +53,17 @@ interface QuotaState {
   usedRequests: number;
 }
 
+interface SourceIssueState {
+  messages: string[];
+}
+
+interface PlanWindowState {
+  dayKey: string;
+  from: string;
+  to: string;
+  message: string;
+}
+
 function currentDayKey(): string {
   return format(new Date(), "yyyy-MM-dd");
 }
@@ -60,6 +72,20 @@ const quota = singleton<QuotaState>("settle:api-football:quota", () => ({
   dayKey: currentDayKey(),
   usedRequests: 0,
 }));
+
+const sourceIssues = singleton<SourceIssueState>(
+  "settle:api-football:source-issues",
+  () => ({
+    messages: [],
+  }),
+);
+
+const planWindow = singleton<{ current: PlanWindowState | null }>(
+  "settle:api-football:plan-window",
+  () => ({
+    current: null,
+  }),
+);
 
 function ensureDayReset(): void {
   const key = currentDayKey();
@@ -102,6 +128,71 @@ export function getApiFootballQuota(): {
     used: quota.usedRequests,
     remaining: Math.max(0, DAILY_LIMIT - quota.usedRequests),
   };
+}
+
+export function clearApiFootballSourceIssues(): void {
+  sourceIssues.messages = [];
+}
+
+export function drainApiFootballSourceIssues(): string[] {
+  const out = [...new Set(sourceIssues.messages)];
+  sourceIssues.messages = [];
+  return out;
+}
+
+function recordApiFootballSourceIssue(message: string): void {
+  if (!message) return;
+  sourceIssues.messages.push(message);
+}
+
+function rememberPlanWindow(message: string): void {
+  const match = message.match(
+    /try from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/i,
+  );
+  if (!match) return;
+  const [, from, to] = match;
+  if (!from || !to) return;
+  planWindow.current = {
+    dayKey: currentDayKey(),
+    from,
+    to,
+    message,
+  };
+}
+
+function getCurrentPlanWindow(): PlanWindowState | null {
+  const current = planWindow.current;
+  if (!current || current.dayKey !== currentDayKey()) return null;
+  return current;
+}
+
+function shouldSkipDateByPlanWindow(date: string): string | null {
+  const current = getCurrentPlanWindow();
+  if (!current) return null;
+  if (date >= current.from && date <= current.to) return null;
+  return current.message;
+}
+
+function summarizeApiFootballErrors(errors: unknown): string | null {
+  if (!errors) return null;
+  if (Array.isArray(errors)) {
+    const joined = errors.map(String).filter(Boolean).join("; ");
+    return joined || null;
+  }
+  if (typeof errors === "string") return errors || null;
+  if (typeof errors !== "object") return null;
+
+  const messages = Object.entries(errors as Record<string, unknown>).flatMap(
+    ([key, value]) => {
+      if (value == null || value === "") return [];
+      const prefix = key ? `${key}: ` : "";
+      if (Array.isArray(value)) {
+        return value.map((item) => `${prefix}${String(item)}`);
+      }
+      return [`${prefix}${String(value)}`];
+    },
+  );
+  return messages.length > 0 ? messages.join("; ") : null;
 }
 
 // ─── League ID map ──────────────────────────────────────────────────────────
@@ -399,6 +490,33 @@ interface ApiFixtureResponse {
   errors: unknown;
 }
 
+interface FixtureCacheEntry {
+  fetchedAt: number;
+  fixtures: ApiFixture[];
+}
+
+const fixturesByDate = singleton<Map<string, FixtureCacheEntry>>(
+  "settle:api-football:fixtures-by-date",
+  () => new Map(),
+);
+
+function getCachedFixtures(date: string): ApiFixture[] | null {
+  const cached = fixturesByDate.get(date);
+  if (!cached) return null;
+  if (Date.now() - cached.fetchedAt > API_FOOTBALL_FIXTURE_CACHE_TTL_MS) {
+    fixturesByDate.delete(date);
+    return null;
+  }
+  return cached.fixtures;
+}
+
+function setCachedFixtures(date: string, fixtures: ApiFixture[]): void {
+  fixturesByDate.set(date, {
+    fetchedAt: Date.now(),
+    fixtures,
+  });
+}
+
 interface ApiStatItem {
   type: string;
   value: number | string | null;
@@ -501,6 +619,16 @@ async function apiFetch<T>(
       timeout: HTTP_TIMEOUT_MS,
     });
     trackRequest();
+    const issue = summarizeApiFootballErrors(
+      (data as { errors?: unknown } | null | undefined)?.errors,
+    );
+    if (issue) {
+      recordApiFootballSourceIssue(
+        `API-Football access issue on ${endpoint}: ${issue}`,
+      );
+      rememberPlanWindow(issue);
+      logger.warn("ApiFootball", `${endpoint} returned error: ${issue}`);
+    }
     return data;
   } catch (err) {
     const status = (err as { response?: { status?: number } }).response?.status;
@@ -544,7 +672,23 @@ export async function fetchApiFootballScores(
   // Fetch all fixtures for each date
   const allFixtures: ApiFixture[] = [];
   for (const date of [...dateSet].sort()) {
+    const cached = getCachedFixtures(date);
+    if (cached) {
+      allFixtures.push(...cached);
+      continue;
+    }
+
+    const skipReason = shouldSkipDateByPlanWindow(date);
+    if (skipReason) {
+      recordApiFootballSourceIssue(
+        `API-Football access issue on /fixtures: ${skipReason}`,
+      );
+      continue;
+    }
     const resp = await apiFetch<ApiFixtureResponse>("/fixtures", { date });
+    if (resp && !summarizeApiFootballErrors(resp.errors)) {
+      setCachedFixtures(date, resp.response ?? []);
+    }
     if (resp?.response) {
       allFixtures.push(...resp.response);
     }

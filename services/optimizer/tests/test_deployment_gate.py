@@ -49,6 +49,9 @@ def _make_metrics(
     simple_policy_sample_size: int = 250,
     simple_policy_coverage: float = 0.2,
     model_vs_simple_roi_delta: float | None = None,
+    policy_lower_confidence_roi_pct: float = 1.0,
+    outer_holdout_policy_roi_pct: float = 2.0,
+    outer_holdout_policy_n: int = 80,
     dsr: float = 0.85,
     pbo: float = 0.15,
     n_samples: int = 1500,
@@ -97,6 +100,9 @@ def _make_metrics(
             if model_vs_simple_roi_delta is None
             else model_vs_simple_roi_delta
         ),
+        policy_lower_confidence_roi_pct=policy_lower_confidence_roi_pct,
+        outer_holdout_policy_roi_pct=outer_holdout_policy_roi_pct,
+        outer_holdout_policy_n=outer_holdout_policy_n,
         dsr=dsr,
         pbo=pbo,
         n_samples=n_samples,
@@ -193,6 +199,8 @@ class TestDeploymentGateRejection:
             policy_sample_size=43,
             policy_roi_mean=-26.7442,
             simple_policy_sample_size=82,
+            outer_holdout_policy_n=12,
+            outer_holdout_policy_roi_pct=-10.0,
             dsr=0.0,
             pbo=0.79,
         )
@@ -203,6 +211,21 @@ class TestDeploymentGateRejection:
         assert any("Insufficient ML-gated policy sample" in w for w in result.warnings)
         assert any("ML-gated policy ROI is negative" in w for w in result.warnings)
         assert any("Deflated Sharpe" in w for w in result.warnings)
+        assert any("holdout policy sample is small" in w for w in result.warnings)
+
+    def test_negative_chronological_holdout_rejects_observe_model(self):
+        """A bad recent out-of-time policy slice should not replace observe mode."""
+        metrics = _make_metrics(
+            outer_holdout_policy_n=103,
+            outer_holdout_policy_roi_pct=-19.016,
+        )
+        result = evaluate_deployment_gate(metrics)
+        assert not result.approved
+        assert result.permission_level == "observe"
+        assert any(
+            "Chronological holdout policy ROI is negative" in r
+            for r in result.rejection_reasons
+        )
 
     def test_high_pbo(self):
         """PBO is now a warning, not a hard rejection gate."""
@@ -311,6 +334,23 @@ class TestPermissionLevels:
         assert result.approved
         assert result.permission_level == "observe"
         assert any("underperforms simple EV rule" in w for w in result.warnings)
+
+    def test_gate_only_requires_conservative_simple_rule_lift(self):
+        """A positive mean lift is not enough when the lower bound is negative."""
+        metrics = _make_metrics(
+            auc_roc=GATE_ONLY_MIN_AUC + 0.03,
+            n_samples=GATE_ONLY_MIN_EXAMPLES + 100,
+            dsr=GATE_ONLY_MIN_DSR + 0.03,
+            policy_roi_mean=5.0,
+            simple_policy_roi_mean=3.0,
+            simple_policy_sample_size=300,
+            model_vs_simple_roi_delta=2.0,
+            policy_lower_confidence_roi_pct=-0.5,
+        )
+        result = evaluate_deployment_gate(metrics)
+        assert result.approved
+        assert result.permission_level == "observe"
+        assert any("lower confidence edge" in w for w in result.warnings)
 
     def test_stake_reduce_level(self):
         """Model with excellent metrics should get stake_reduce level."""

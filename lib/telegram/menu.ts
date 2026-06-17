@@ -1,5 +1,9 @@
 import { isCommandEnabled } from "./config";
-import { isTelegramConfigured, setChatMenuButton, setMyCommands } from "./client";
+import {
+  isTelegramConfigured,
+  setChatMenuButton,
+  setMyCommands,
+} from "./client";
 import { listCommands } from "./registry";
 import { logger } from "@/lib/shared/logger";
 

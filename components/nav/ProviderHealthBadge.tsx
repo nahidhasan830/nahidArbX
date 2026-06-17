@@ -73,7 +73,9 @@ export function ProviderHealthBadge() {
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent side="bottom">View provider health alerts</TooltipContent>
+        <TooltipContent side="bottom">
+          View provider health alerts
+        </TooltipContent>
       </Tooltip>
 
       <PopoverContent

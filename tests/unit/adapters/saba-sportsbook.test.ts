@@ -1,18 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SabaShowAllOddsData } from "@/lib/betting/saba/events-client";
 
-const realSoccerEvents = vi.fn<() => Promise<{
-  upcoming: SabaShowAllOddsData;
-  today: SabaShowAllOddsData;
-  live: SabaShowAllOddsData;
-}>>();
+const realSoccerEvents = vi.fn<
+  () => Promise<{
+    upcoming: SabaShowAllOddsData;
+    today: SabaShowAllOddsData;
+    live: SabaShowAllOddsData;
+  }>
+>();
 
 vi.mock("@/lib/betting/saba/events-client", () => ({
   fetchRealSoccerEvents: realSoccerEvents,
   fetchSoccerShowAllOdds: vi.fn(),
 }));
 
-const { sabaSportsbookAdapter } = await import("@/lib/adapters/saba-sportsbook");
+const { sabaSportsbookAdapter } =
+  await import("@/lib/adapters/saba-sportsbook");
 
 function sabaProviderTime(offsetMinutes: number): string {
   const kickoff = new Date(Date.now() + offsetMinutes * 60_000);
@@ -33,11 +36,27 @@ function sabaData(): SabaShowAllOddsData {
       "8": "Nigeria",
       "9": "BK Olympic",
       "10": "Lunds BK",
+      "11": "Canada No.of Corners 15:01-30:00",
+      "12": "Bosnia-Herzegovina No.of Corners 15:01-30:00",
+      "13": "USA 00:00-15:00",
+      "14": "Paraguay 00:00-15:00",
+      "15": "Canada Total Bookings 30:01-45:00",
+      "16": "Bosnia-Herzegovina Total Bookings 30:01-45:00",
+      "17": "Canada",
+      "18": "Bosnia-Herzegovina",
     },
     LeagueN: {
       "10": "FANTASY MATCH",
       "11": "International - Friendlies",
       "12": "SWEDEN ETTAN SOUTH",
+      "13":
+        "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - SPECIFIC 15 MINS NUMBER OF CORNERS",
+      "14": "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - SPECIFIC 15 MINS",
+      "15":
+        "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - SPECIFIC 15 MINS TOTAL BOOKINGS",
+      "16":
+        "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - TOTAL CORNER & TOTAL GOAL",
+      "17": "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - TOTAL GOALS MINUTES",
     },
     NewMatch: [
       {
@@ -85,6 +104,51 @@ function sabaData(): SabaShowAllOddsData {
         TeamId2: 10,
         GameTime: sabaProviderTime(180),
       },
+      {
+        MatchId: 106,
+        GameID: 1,
+        LeagueId: 13,
+        LeagueGroupId: 1,
+        TeamId1: 11,
+        TeamId2: 12,
+        GameTime: sabaProviderTime(210),
+      },
+      {
+        MatchId: 107,
+        GameID: 1,
+        LeagueId: 14,
+        LeagueGroupId: 1,
+        TeamId1: 13,
+        TeamId2: 14,
+        GameTime: sabaProviderTime(240),
+      },
+      {
+        MatchId: 108,
+        GameID: 1,
+        LeagueId: 15,
+        LeagueGroupId: 1,
+        TeamId1: 15,
+        TeamId2: 16,
+        GameTime: sabaProviderTime(270),
+      },
+      {
+        MatchId: 109,
+        GameID: 1,
+        LeagueId: 16,
+        LeagueGroupId: 1,
+        TeamId1: 17,
+        TeamId2: 18,
+        GameTime: sabaProviderTime(300),
+      },
+      {
+        MatchId: 110,
+        GameID: 1,
+        LeagueId: 17,
+        LeagueGroupId: 1,
+        TeamId1: 17,
+        TeamId2: 18,
+        GameTime: sabaProviderTime(330),
+      },
     ],
   };
 }
@@ -110,7 +174,11 @@ describe("sabaSportsbookAdapter", () => {
           event.competition === "FANTASY MATCH" ||
           event.homeTeam.includes("+") ||
           event.awayTeam.includes("+") ||
-          /\s-vs-\s/i.test(event.homeTeam),
+          /\s-vs-\s/i.test(event.homeTeam) ||
+          /specific|corner|booking|minutes/i.test(event.competition) ||
+          /\d{2}:\d{2}-\d{2}:\d{2}|No\.of Corners|Total Bookings/i.test(
+            `${event.homeTeam} ${event.awayTeam}`,
+          ),
       ),
     ).toBe(false);
   });

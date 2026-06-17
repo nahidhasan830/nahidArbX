@@ -35,6 +35,7 @@ import {
 } from "./scrapedo-proxy";
 
 const LOG_TAG = "SofaScoreCurl";
+export const SOFASCORE_BROWSER_MAX_BUFFER_BYTES = 60 * 1024 * 1024;
 
 // ─── Singleton State ─────────────────────────────────────────────────────────
 
@@ -85,7 +86,7 @@ function execPython(url: string): Promise<string> {
       ["-c", PYTHON_FETCH_SCRIPT, url],
       {
         timeout: 25_000, // 25s hard kill
-        maxBuffer: 20 * 1024 * 1024, // 20MB — scheduled-events + inverse can be very large
+        maxBuffer: SOFASCORE_BROWSER_MAX_BUFFER_BYTES,
         env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
       },
       (err, stdout, stderr) => {

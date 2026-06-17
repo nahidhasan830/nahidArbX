@@ -796,7 +796,9 @@ export function OverviewTab({
             <MetricTile
               label="Search providers"
               value={
-                providersTotal > 0 ? `${providersHealthy}/${providersTotal}` : "---"
+                providersTotal > 0
+                  ? `${providersHealthy}/${providersTotal}`
+                  : "---"
               }
               detail="healthy"
               icon={<Signal className="size-3.5" />}

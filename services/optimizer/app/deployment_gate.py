@@ -83,6 +83,12 @@ MIN_SIMPLE_COMPARISON_SAMPLES = 100
 MIN_MODEL_VS_SIMPLE_ROI_DELTA = 0.0
 MIN_MODEL_VS_SIMPLE_LCB_DELTA = 0.0
 
+# Observe-mode models still drive the operator's read on whether the system is
+# learning. Do not replace the current scorer when the newest chronological
+# policy slice is already negative with enough samples to be meaningful.
+MIN_OUTER_HOLDOUT_POLICY_SAMPLES = 50
+MIN_OUTER_HOLDOUT_POLICY_ROI = 0.0
+
 # DSR threshold for active betting authority. Observe-only serving records
 # predictions but cannot affect placement, so low DSR blocks escalation rather
 # than blocking the first prediction-producing model.
@@ -242,6 +248,26 @@ def evaluate_deployment_gate(
         active_blockers.append(
             f"ML-gated policy ROI is negative: {metrics.policy_roi_mean:.4f}%, "
             f"need at least {MIN_POLICY_ROI:.4f}%"
+        )
+
+    if metrics.outer_holdout_policy_n >= MIN_OUTER_HOLDOUT_POLICY_SAMPLES:
+        if not math.isfinite(metrics.outer_holdout_policy_roi_pct):
+            reasons.append(
+                "Chronological holdout policy ROI is unavailable despite "
+                f"{metrics.outer_holdout_policy_n} holdout policy bets"
+            )
+        elif metrics.outer_holdout_policy_roi_pct < MIN_OUTER_HOLDOUT_POLICY_ROI:
+            reasons.append(
+                f"Chronological holdout policy ROI is negative: "
+                f"{metrics.outer_holdout_policy_roi_pct:.4f}%, "
+                f"need at least {MIN_OUTER_HOLDOUT_POLICY_ROI:.4f}% over "
+                f"{MIN_OUTER_HOLDOUT_POLICY_SAMPLES}+ out-of-time policy bets"
+            )
+    elif metrics.outer_holdout_policy_n > 0:
+        warnings.append(
+            f"Chronological holdout policy sample is small: "
+            f"{metrics.outer_holdout_policy_n} bets, "
+            f"need {MIN_OUTER_HOLDOUT_POLICY_SAMPLES} before using it as a hard gate"
         )
 
     has_simple_comparison = metrics.simple_policy_sample_size >= MIN_SIMPLE_COMPARISON_SAMPLES

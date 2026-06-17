@@ -144,6 +144,28 @@ describe("event matcher policy", () => {
     expect(decision.stage).toBe("deepseek");
   });
 
+  it("keeps one exact slot with a weak aligned team slot in grounded review", () => {
+    const decision = decideCandidate(
+      [],
+      score({
+        home: 0.43,
+        away: 1,
+        sameOrientationTeam: 0.715,
+        bestTeam: 0.715,
+        competition: 1,
+        alias: 1,
+        embeddingTeam: 0.77,
+        embeddingCompetition: 0.96,
+        combined: 0.826,
+      }),
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.stage).toBe("deepseek");
+    expect(decision.reasonCode).toBe("residual_uncertain");
+  });
+
   it("routes weak teams with shared match metadata to DeepSeek instead of auto-rejecting", () => {
     const decision = decideCandidate(
       [],
@@ -203,7 +225,7 @@ describe("event matcher policy", () => {
     expect(decision.reasonCode).toBe("weak_competition_needs_grounding");
   });
 
-  it("routes weak swapped team identity with generic competition overlap to DeepSeek", () => {
+  it("auto-rejects weak swapped team identity with generic competition overlap", () => {
     const decision = decideCandidate(
       [],
       score({
@@ -223,9 +245,9 @@ describe("event matcher policy", () => {
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
 
-    expect(decision.decision).toBe("human_review");
-    expect(decision.stage).toBe("deepseek");
-    expect(decision.reasonCode).toBe("swapped_orientation_needs_grounding");
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.stage).toBe("deterministic");
+    expect(decision.reasonCode).toBe("low_team_competition_similarity");
   });
 
   it("routes high-confidence merge-gate failures to DeepSeek", () => {

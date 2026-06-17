@@ -72,6 +72,7 @@ const MIGRATIONS = [
   "0081_event_matcher_run_jobs.sql",
   "0082_matcher_grounded_decision.sql",
   "0084_placement_ml_snapshot.sql",
+  "0086_purge_saba_special_markets.sql",
 ];
 
 let cloudSqlConnector: Connector | null = null;

@@ -116,45 +116,42 @@ export function useProviderRuntimeState(): ProviderRuntimeState {
     }
   }, []);
 
-  const toggleProviderHealthTelegram = useCallback(
-    async (enabled: boolean) => {
-      setProviderHealthTelegramEnabled(enabled);
-      setIsProviderHealthTelegramUpdating(true);
+  const toggleProviderHealthTelegram = useCallback(async (enabled: boolean) => {
+    setProviderHealthTelegramEnabled(enabled);
+    setIsProviderHealthTelegramUpdating(true);
 
-      try {
-        const res = await fetch("/api/providers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "setHealthTelegramEnabled",
-            enabled,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || `HTTP ${res.status}`);
-        }
-        toast.success(
-          enabled
-            ? "Telegram provider alerts enabled"
-            : "Telegram provider alerts disabled",
-          {
-            description: enabled
-              ? "Provider down and recovered events will send to Telegram"
-              : "Provider down and recovered events will stay silent",
-          },
-        );
-      } catch (err) {
-        setProviderHealthTelegramEnabled(!enabled);
-        toast.error("Couldn't update Telegram provider alerts", {
-          description: (err as Error).message,
-        });
-      } finally {
-        setIsProviderHealthTelegramUpdating(false);
+    try {
+      const res = await fetch("/api/providers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setHealthTelegramEnabled",
+          enabled,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
-    },
-    [],
-  );
+      toast.success(
+        enabled
+          ? "Telegram provider alerts enabled"
+          : "Telegram provider alerts disabled",
+        {
+          description: enabled
+            ? "Provider down and recovered events will send to Telegram"
+            : "Provider down and recovered events will stay silent",
+        },
+      );
+    } catch (err) {
+      setProviderHealthTelegramEnabled(!enabled);
+      toast.error("Couldn't update Telegram provider alerts", {
+        description: (err as Error).message,
+      });
+    } finally {
+      setIsProviderHealthTelegramUpdating(false);
+    }
+  }, []);
 
   return {
     disabled,

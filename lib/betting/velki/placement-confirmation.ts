@@ -369,10 +369,14 @@ async function finaliseConfirmed(
         at: new Date().toISOString(),
         severity: "warn",
         message:
-          `Odds drift on ${attempt.eventName} · ${attempt.marketType} → ` +
-          `${attempt.atomLabel}: requested ${driftAlert.requestedOdds}, ` +
-          `booked ${driftAlert.actualOdds} (Δ=${driftAlert.oddsDrift.toFixed(3)}). ` +
-          `Ticket ${ticketId}. The DB row reflects the BOOKED value.`,
+          `Odds drift after placement\n\n` +
+          `${attempt.eventName}\n` +
+          `${attempt.marketType} -> ${attempt.atomLabel}\n` +
+          `Requested: ${driftAlert.requestedStake} @ ${driftAlert.requestedOdds}\n` +
+          `Booked: ${driftAlert.actualStake} @ ${driftAlert.actualOdds}\n` +
+          `Delta: odds ${driftAlert.oddsDrift.toFixed(3)}, stake ${driftAlert.stakeDrift.toFixed(2)}\n` +
+          `Ticket: ${ticketId}\n` +
+          `DB row uses the booked value.`,
       }).catch(() => {});
     }
     await notify({

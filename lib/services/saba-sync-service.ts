@@ -95,6 +95,9 @@ export class SabaSyncService {
     }
 
     this.entities = next;
+    if (this.entities.size === 0) {
+      sabaSocketClient.deactivate();
+    }
   }
 
   private async runLoop(): Promise<void> {
@@ -102,12 +105,14 @@ export class SabaSyncService {
     this.loopRunning = true;
 
     const adapter = getAtomsAdapter(PROVIDER_ID);
-    const baseAdapter = adapter as unknown as {
-      processRawOdds?: (
-        rawData: unknown,
-        ctx: Record<string, unknown>,
-      ) => number;
-    } | undefined;
+    const baseAdapter = adapter as unknown as
+      | {
+          processRawOdds?: (
+            rawData: unknown,
+            ctx: Record<string, unknown>,
+          ) => number;
+        }
+      | undefined;
 
     while (this.running) {
       if (!isProviderRuntimeEnabled(PROVIDER_ID)) {
@@ -120,6 +125,7 @@ export class SabaSyncService {
         entities.length === 0 ||
         typeof baseAdapter?.processRawOdds !== "function"
       ) {
+        sabaSocketClient.deactivate();
         await sleep(EMPTY_DELAY_MS);
         continue;
       }

@@ -106,7 +106,13 @@ export function engineSSEProxy(): ReadableStream | null {
               }
             }
           };
-          pump();
+          void pump().catch(() => {
+            try {
+              controller.close();
+            } catch {
+              // Already closed by the client.
+            }
+          });
         } catch {
           try {
             // Engine unreachable — send error event then close

@@ -5,6 +5,7 @@ import { rmSync } from "node:fs";
 
 const bootDir = "/tmp/nahidarbx-boot";
 const children = new Set();
+const processGroups = new Map();
 let shuttingDown = false;
 let exitCode = 0;
 
@@ -26,9 +27,10 @@ const frontendTimer = setTimeout(() => {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGHUP", () => shutdown("SIGHUP"));
 process.on("exit", () => {
   clearTimeout(frontendTimer);
-  for (const child of children) terminate(child, "SIGTERM");
+  for (const group of processGroups.values()) terminateGroup(group, "SIGTERM");
 });
 
 function start(name, command, args, env) {
@@ -42,9 +44,13 @@ function start(name, command, args, env) {
 
   child.__name = name;
   children.add(child);
+  if (child.pid) {
+    processGroups.set(child.pid, { pid: child.pid, name });
+  }
 
   child.on("exit", (code, signal) => {
     children.delete(child);
+    pruneExitedGroups();
     if (shuttingDown) return;
 
     if (signal) {
@@ -73,35 +79,50 @@ function start(name, command, args, env) {
 function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
+  process.exitCode = exitCode;
   clearTimeout(frontendTimer);
 
-  for (const child of children) terminate(child, signal);
+  for (const group of processGroups.values()) terminateGroup(group, signal);
 
   const deadline = setTimeout(() => {
-    for (const child of children) terminate(child, "SIGKILL");
+    for (const group of processGroups.values()) {
+      terminateGroup(group, "SIGKILL");
+    }
     process.exit(exitCode);
   }, 7_000);
-  deadline.unref();
 
   const check = setInterval(() => {
-    if (children.size === 0) {
+    pruneExitedGroups();
+    if (children.size === 0 && processGroups.size === 0) {
       clearInterval(check);
       clearTimeout(deadline);
       process.exit(exitCode);
     }
   }, 100);
-  check.unref();
 }
 
-function terminate(child, signal) {
-  if (!child || child.killed) return;
+function terminateGroup(group, signal) {
+  if (!group?.pid) return;
   try {
-    process.kill(-child.pid, signal);
+    process.kill(-group.pid, signal);
   } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      // Process already exited.
+    processGroups.delete(group.pid);
+  }
+}
+
+function pruneExitedGroups() {
+  for (const group of processGroups.values()) {
+    if (!isGroupAlive(group.pid)) {
+      processGroups.delete(group.pid);
     }
+  }
+}
+
+function isGroupAlive(pid) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }

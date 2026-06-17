@@ -252,7 +252,8 @@ function connectionMatters(signal: ProviderHealthSignal): boolean {
 
 function toMs(value: Date | string | null | undefined): number | null {
   if (!value) return null;
-  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  const ms =
+    value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(ms) ? ms : null;
 }
 

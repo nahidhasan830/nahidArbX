@@ -267,7 +267,7 @@ export function hardBlockersForCandidate(
   ].join(" ");
   const womenSignals = /\b(women|womens|female|w\b)/i;
   const youthSignals =
-    /\b(u17|u18|u19|u20|u21|u23|youth|reserve|reserves|ii)\b/i;
+    /\b(u17|u18|u19|u20|u21|u23|youth|res|reserve|reserves|ii)\b/i;
   const aWomen = womenSignals.test(
     `${a.homeTeamRaw} ${a.awayTeamRaw} ${a.competitionRaw}`,
   );

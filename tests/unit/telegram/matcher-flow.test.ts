@@ -19,9 +19,8 @@ vi.mock("@/lib/shared/logger", () => ({
 }));
 
 const { notify } = await import("../../../lib/notifier");
-const { handleMatcherCallback } = await import(
-  "../../../lib/telegram/commands/matcher-commands"
-);
+const { handleMatcherCallback } =
+  await import("../../../lib/telegram/commands/matcher-commands");
 
 const row = {
   decisionId: "b3d3f9ff-ca77-4343-9cf4-8263e8f56e44",
@@ -112,12 +111,12 @@ describe("Telegram matcher review flow", () => {
     });
 
     const sendBody = fetchBodies()[0];
-    expect(sendBody.text).toContain("Matcher Review Needed");
-    expect(sendBody.text).toContain("Human review: <b>3</b>");
+    expect(sendBody.text).toContain("Matcher queue needs review");
+    expect(sendBody.text).toContain("<b>3</b> rows need operator decision");
     expect(sendBody.reply_markup.inline_keyboard).toEqual([
       [
-        { text: "Review 3 now", callback_data: "m:l:3" },
-        { text: "Run all human review", callback_data: "m:A" },
+        { text: "Review 3", callback_data: "m:l:3" },
+        { text: "Run all review", callback_data: "m:A" },
       ],
     ]);
   });
@@ -194,12 +193,12 @@ describe("Telegram matcher review flow", () => {
     const confirmEdit = fetchBodies().find((body) =>
       String(body.text).includes("Confirm matcher merge"),
     );
-    expect(confirmEdit?.reply_markup.inline_keyboard[0][0].callback_data).toMatch(
-      /^c:/,
-    );
-    expect(confirmEdit?.reply_markup.inline_keyboard[0][1].callback_data).toMatch(
-      /^x:/,
-    );
+    expect(
+      confirmEdit?.reply_markup.inline_keyboard[0][0].callback_data,
+    ).toMatch(/^c:/);
+    expect(
+      confirmEdit?.reply_markup.inline_keyboard[0][1].callback_data,
+    ).toMatch(/^x:/);
   });
 
   it("exposes run-all human review as a confirm-gated action", async () => {
@@ -222,11 +221,11 @@ describe("Telegram matcher review flow", () => {
       String(body.text).includes("all current human-review rows"),
     );
     expect(confirmEdit?.text).toContain("Rows: 3");
-    expect(confirmEdit?.reply_markup.inline_keyboard[0][0].callback_data).toMatch(
-      /^c:/,
-    );
-    expect(confirmEdit?.reply_markup.inline_keyboard[0][1].callback_data).toMatch(
-      /^x:/,
-    );
+    expect(
+      confirmEdit?.reply_markup.inline_keyboard[0][0].callback_data,
+    ).toMatch(/^c:/);
+    expect(
+      confirmEdit?.reply_markup.inline_keyboard[0][1].callback_data,
+    ).toMatch(/^x:/);
   });
 });

@@ -84,9 +84,8 @@ export async function POST(request: NextRequest) {
       }
 
       if (action === "setHealthTelegramEnabled") {
-        const { setProviderHealthTelegramEnabled } = await import(
-          "@/lib/providers/health-telegram-settings"
-        );
+        const { setProviderHealthTelegramEnabled } =
+          await import("@/lib/providers/health-telegram-settings");
         const { enabled } = body;
         if (typeof enabled !== "boolean") {
           return NextResponse.json(
@@ -111,9 +110,8 @@ export async function POST(request: NextRequest) {
     if (body.action === "setHealthTelegramEnabled") {
       const { enabled } = body;
       if (result && (result as { success?: boolean }).success === true) {
-        const { setProviderHealthTelegramEnabled } = await import(
-          "@/lib/providers/health-telegram-settings"
-        );
+        const { setProviderHealthTelegramEnabled } =
+          await import("@/lib/providers/health-telegram-settings");
         setProviderHealthTelegramEnabled(enabled === true);
       }
     }

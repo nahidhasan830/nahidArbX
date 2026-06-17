@@ -28,6 +28,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "services/optimizer/.venv/**",
     "coverage/**",
+    "scratch/**",
   ]),
 ]);
 

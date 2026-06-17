@@ -32,9 +32,8 @@ function stripQuotes(value: string): string {
 }
 
 function expandReserveShorthand(value: string): string {
-  const reserveContext = /\bres(?:erve|erves)?\b|\breserve league\b|\([Rr]\)/i.test(
-    value,
-  );
+  const reserveContext =
+    /\bres(?:erve|erves)?\b|\breserve league\b|\([Rr]\)/i.test(value);
   const withParentheticalReserve = value.replace(
     /\((?:R|Res|Reserve|Reserves)\)/gi,
     " reserve ",
@@ -55,9 +54,7 @@ function stripParentheticalDescriptors(value: string): string {
 
 function stripResultMarkers(value: string): string {
   return normalizeWhitespace(
-    value
-      .replace(/\((?:PEN|AET)\)/gi, " ")
-      .replace(/\b(?:PEN|AET)\b/gi, " "),
+    value.replace(/\((?:PEN|AET)\)/gi, " ").replace(/\b(?:PEN|AET)\b/gi, " "),
   );
 }
 
@@ -124,10 +121,7 @@ function stripFixtureCompetitionContext(value: string): string | null {
 function stripFixtureTime(value: string): string | null {
   const clean = normalizeWhitespace(value);
   const withoutTime = normalizeWhitespace(
-    clean.replace(
-      /\b(\d{4}-\d{2}-\d{2})\s+\d{1,2}:\d{2}(?:\s+UTC)?\b/i,
-      "$1",
-    ),
+    clean.replace(/\b(\d{4}-\d{2}-\d{2})\s+\d{1,2}:\d{2}(?:\s+UTC)?\b/i, "$1"),
   );
   return withoutTime !== clean ? withoutTime : null;
 }
@@ -223,14 +217,12 @@ function plusCompoundFixtureQueries(query: string): string[] {
   const beforeDate = normalizeWhitespace(query.slice(0, dateMatch.index));
   const unquoted = beforeDate.match(/^(.+?)\s+\+\s+(.+?)\s+(.+?)\s+\+\s+(.+)$/);
   if (!unquoted) return [];
-  const left = [
-    ...(unquoted[1] ?? "").split("+"),
-    unquoted[2] ?? "",
-  ].flatMap(teamSurfaceVariants);
-  const right = [
-    unquoted[3] ?? "",
-    ...(unquoted[4] ?? "").split("+"),
-  ].flatMap(teamSurfaceVariants);
+  const left = [...(unquoted[1] ?? "").split("+"), unquoted[2] ?? ""].flatMap(
+    teamSurfaceVariants,
+  );
+  const right = [unquoted[3] ?? "", ...(unquoted[4] ?? "").split("+")].flatMap(
+    teamSurfaceVariants,
+  );
 
   for (const a of left) {
     for (const b of right) {
@@ -268,14 +260,19 @@ function compactSearchSyntax(value: string): string {
   return normalizeWhitespace(
     stripResultMarkers(
       stripParentheticalCodes(
-        stripParentheticalDescriptors(stripQuotes(expandFootballAbbreviations(value))),
+        stripParentheticalDescriptors(
+          stripQuotes(expandFootballAbbreviations(value)),
+        ),
       ),
     )
       .replace(/\bsite:[^\s]+/gi, " ")
       .replace(/[?+]/g, " ")
       .replace(/\bFANTASY MATCH\b/gi, " ")
       .replace(/\bsame football match\b/gi, "football fixture")
-      .replace(/\bsame football league tournament country tier\b/gi, "football league country")
+      .replace(
+        /\bsame football league tournament country tier\b/gi,
+        "football league country",
+      )
       .replace(/\bthe same football team as\b/gi, "football club alias")
       .replace(/\bIs\s+/gi, " "),
   );
@@ -340,7 +337,9 @@ function pairedFixtureQueries(query: string): string[] {
 }
 
 function sameMatchFixtureQueries(query: string): string[] {
-  const match = query.match(/^(.*?)\s+(\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2}(?:\s+UTC)?)?)\s+same football match$/i);
+  const match = query.match(
+    /^(.*?)\s+(\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2}(?:\s+UTC)?)?)\s+same football match$/i,
+  );
   if (!match) return [];
 
   const subject = compactSearchSyntax(match[1] ?? "");
@@ -352,8 +351,9 @@ function sameMatchFixtureQueries(query: string): string[] {
 
   const queries: string[] = [];
   const mid = Math.floor(tokens.length / 2);
-  const splits = [mid, mid + 1, mid - 1, mid + 2, mid - 2]
-    .filter((split) => split >= 2 && split <= tokens.length - 2);
+  const splits = [mid, mid + 1, mid - 1, mid + 2, mid - 2].filter(
+    (split) => split >= 2 && split <= tokens.length - 2,
+  );
   const seenSplits = new Set<number>();
 
   for (const split of splits) {
@@ -569,12 +569,7 @@ export function buildVertexSearchQueries(query: string): SearchQueryVariant[] {
       addVariant(variants, seen, expandedQuotedFixture, "quoted-fixture");
       const withoutDate = stripFixtureDate(expandedQuotedFixture);
       if (withoutDate) {
-        addVariant(
-          variants,
-          seen,
-          withoutDate,
-          "quoted-fixture-no-date",
-        );
+        addVariant(variants, seen, withoutDate, "quoted-fixture-no-date");
       }
     }
     for (const identityQuery of quotedFixtureIdentityQueries(original)) {
@@ -598,12 +593,7 @@ export function buildVertexSearchQueries(query: string): SearchQueryVariant[] {
 
   if (/\bsame football match\b/i.test(original)) {
     for (const sameMatchFixture of sameMatchFixtureQueries(original)) {
-      addVariant(
-        variants,
-        seen,
-        sameMatchFixture,
-        "same-match-split-fixture",
-      );
+      addVariant(variants, seen, sameMatchFixture, "same-match-split-fixture");
     }
     addVariant(variants, seen, compactSearchSyntax(original), "same-match");
   }
@@ -641,30 +631,15 @@ export function buildVertexSearchQueries(query: string): SearchQueryVariant[] {
     }
     const contextStripped = stripFixtureCompetitionContext(cleaned);
     if (contextStripped && contextStripped !== cleaned) {
-      addVariant(
-        variants,
-        seen,
-        contextStripped,
-        "fixture-context-stripped",
-      );
+      addVariant(variants, seen, contextStripped, "fixture-context-stripped");
       const withoutDate = stripFixtureDate(contextStripped);
       if (withoutDate) {
-        addVariant(
-          variants,
-          seen,
-          withoutDate,
-          "fixture-context-no-date",
-        );
+        addVariant(variants, seen, withoutDate, "fixture-context-no-date");
       }
     }
     const suffixStripped = stripClubSuffixes(cleaned);
     if (suffixStripped !== cleaned) {
-      addVariant(
-        variants,
-        seen,
-        suffixStripped,
-        "club-suffix-stripped",
-      );
+      addVariant(variants, seen, suffixStripped, "club-suffix-stripped");
     }
     for (const splitFixture of splitFixtureSubjectQueries(cleaned)) {
       addVariant(variants, seen, splitFixture, "fixture-subject-split");

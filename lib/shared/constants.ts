@@ -18,6 +18,10 @@ export const MATCHER_LAB_AUTO_REFRESH_MS = 15_000;
 export const PROVIDER_HEALTH_DEGRADED_AFTER_MS = 15 * 60 * 1000;
 export const PROVIDER_HEALTH_FAILURES_DOWN = 3;
 export const PROVIDER_HEALTH_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
+export const LOG_RETENTION_DAYS = 7;
+export const LOG_RETENTION_TTL_MS = LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+export const LOG_RETENTION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+export const LOG_RETENTION_STARTUP_DELAY_MS = 30 * 1000;
 
 // Odds freshness
 export const MAX_ODDS_AGE_MS = 90_000; // 90 seconds - odds older than this are stale

@@ -2,8 +2,8 @@ import type { EventMatcherConfig } from "./types";
 
 export const DEFAULT_EVENT_MATCHER_CONFIG: EventMatcherConfig = {
   sameProviderBlocked: true,
-  scoringVersion: "event-matcher-scoring-v2",
-  groundingVersion: "event-matcher-grounding-v2",
+  scoringVersion: "event-matcher-scoring-v5",
+  groundingVersion: "event-matcher-grounding-v4",
   candidateLlmAdmitTeamFloor: 0.74,
   teamAutoMergeFloor: 0.86,
   teamAutoRejectCeiling: 0.55,

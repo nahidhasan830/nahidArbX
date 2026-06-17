@@ -1,7 +1,4 @@
-import type {
-  MatcherDecisionRow,
-  MatcherManualDecision,
-} from "./types";
+import type { MatcherDecisionRow, MatcherManualDecision } from "./types";
 
 export interface MatcherManualDecisionOverride {
   decisionId: string;

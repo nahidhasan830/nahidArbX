@@ -2,7 +2,7 @@
  * Activity Logging Module
  *
  * Logs all auth-related events for audit trail.
- * Activity logs are NEVER deleted, even when users are deleted.
+ * Activity logs are retained by the shared 7-day log-retention scheduler.
  */
 
 import { db, activityLogs } from "../db";

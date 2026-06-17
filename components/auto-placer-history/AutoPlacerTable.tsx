@@ -53,8 +53,7 @@ const STATUS_LABEL: Record<string, string> = {
 const ML_DECISION_PILL: Record<string, string> = {
   boost:
     "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  agree:
-    "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+  agree: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
   shrink:
     "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   skip: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",

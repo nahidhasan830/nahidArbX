@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EVENT_MATCHER_CONFIG } from "../../../lib/event-matcher/config";
+import { decideCandidate } from "../../../lib/event-matcher/policy";
 import { scoreCandidate } from "../../../lib/event-matcher/scoring";
 import type {
   EventMatcherCandidate,
@@ -145,6 +146,360 @@ describe("event matcher scoring", () => {
       DEFAULT_EVENT_MATCHER_CONFIG.teamAutoMergeFloor,
     );
     expect(score.bestTeam).toBeGreaterThan(0.94);
+  });
+
+  it("normalizes reserve markers once both sides are reserve-context fixtures", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "pinnacle",
+          homeTeamRaw: "Sarmiento",
+          homeTeamNormalized: "sarmiento",
+          awayTeamRaw: "Talleres de Cordoba",
+          awayTeamNormalized: "talleres de cordoba",
+          competitionRaw: "Argentina - Liga Pro Reserves",
+          competitionNormalized: "argentina liga pro reserves",
+        }),
+        snapshot("b", {
+          provider: "ninewickets-sportsbook",
+          homeTeamRaw: "CA Sarmiento (Res)",
+          homeTeamNormalized: "ca sarmiento res",
+          awayTeamRaw: "CA Talleres de Cordoba (Res)",
+          awayTeamNormalized: "ca talleres de cordoba res",
+          competitionRaw: "Argentinian Primera Division Reserves",
+          competitionNormalized: "argentinian primera division reserves",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBe(1);
+    expect(score.away).toBe(1);
+    expect(score.orientation).toBe("same");
+
+    const decision = decideCandidate([], score, DEFAULT_EVENT_MATCHER_CONFIG);
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("exact_team_kickoff_match");
+  });
+
+  it("does not let shared youth markers inflate unrelated team similarity", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "saba-sportsbook",
+          homeTeamRaw: "Grorud IL U19",
+          homeTeamNormalized: "grorud il u19",
+          awayTeamRaw: "Valdres FK U19",
+          awayTeamNormalized: "valdres fk u19",
+          competitionRaw: "NORWAY U19 INTERKRETS B",
+          competitionNormalized: "norway u19 interkrets b",
+        }),
+        snapshot("b", {
+          provider: "ninewickets-sportsbook",
+          homeTeamRaw: "Sarpsborg FK U19",
+          homeTeamNormalized: "sarpsborg fk u19",
+          awayTeamRaw: "Lorenskog U19",
+          awayTeamNormalized: "lorenskog u19",
+          competitionRaw: "Norwegian Interkretsserie U19 B",
+          competitionNormalized: "norwegian interkretsserie u19 b",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBeLessThanOrEqual(0.55);
+    expect(score.away).toBeLessThanOrEqual(0.55);
+
+    const decision = decideCandidate([], score, {
+      ...DEFAULT_EVENT_MATCHER_CONFIG,
+      embeddingEnabled: false,
+    });
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("low_team_competition_similarity");
+  });
+
+  it("does not let shared women markers inflate unrelated national teams", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "ninewickets-sportsbook",
+          homeTeamRaw: "Georgia (W)",
+          homeTeamNormalized: "georgia w",
+          awayTeamRaw: "Greece (W)",
+          awayTeamNormalized: "greece w",
+          competitionRaw: "FIFA Ladies World Cup Qualifiers",
+          competitionNormalized: "fifa ladies world cup qualifiers",
+        }),
+        snapshot("b", {
+          provider: "velki-sportsbook",
+          homeTeamRaw: "Serbia (W)",
+          homeTeamNormalized: "serbia w",
+          awayTeamRaw: "Denmark (W)",
+          awayTeamNormalized: "denmark w",
+          competitionRaw: "FIFA Ladies World Cup Qualifiers",
+          competitionNormalized: "fifa ladies world cup qualifiers",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBeLessThanOrEqual(0.55);
+    expect(score.away).toBeLessThanOrEqual(0.55);
+
+    const decision = decideCandidate([], score, {
+      ...DEFAULT_EVENT_MATCHER_CONFIG,
+      embeddingEnabled: false,
+    });
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("low_team_competition_similarity");
+  });
+
+  it("caps subset-only country and city token matches without breaking club prefixes", async () => {
+    const subsetNoise = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          homeTeamRaw: "Northern Ireland",
+          homeTeamNormalized: "northern ireland",
+          awayTeamRaw: "Guinea",
+          awayTeamNormalized: "guinea",
+          competitionRaw: "Friendlies International",
+          competitionNormalized: "friendlies international",
+        }),
+        snapshot("b", {
+          homeTeamRaw: "Burundi",
+          homeTeamNormalized: "burundi",
+          awayTeamRaw: "Equatorial Guinea",
+          awayTeamNormalized: "equatorial guinea",
+          competitionRaw: "International - Friendlies",
+          competitionNormalized: "international friendlies",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+    const knownPrefix = await scoreCandidate(
+      candidate(
+        snapshot("c", {
+          homeTeamRaw: "Dortmund",
+          homeTeamNormalized: "dortmund",
+          awayTeamRaw: "Bayern Munich",
+          awayTeamNormalized: "bayern munich",
+          competitionRaw: "German Bundesliga",
+          competitionNormalized: "german bundesliga",
+        }),
+        snapshot("d", {
+          homeTeamRaw: "Borussia Dortmund",
+          homeTeamNormalized: "borussia dortmund",
+          awayTeamRaw: "Bayern Munchen",
+          awayTeamNormalized: "bayern munchen",
+          competitionRaw: "German Bundesliga",
+          competitionNormalized: "german bundesliga",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(subsetNoise.away).toBeLessThan(0.86);
+    expect(knownPrefix.home).toBeGreaterThan(
+      DEFAULT_EVENT_MATCHER_CONFIG.teamAutoMergeFloor,
+    );
+  });
+
+  it("normalizes compact club initialisms when the opponent and competition also align", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "pinnacle",
+          homeTeamRaw: "SIF",
+          homeTeamNormalized: "sif",
+          awayTeamRaw: "Lapuan Virkia",
+          awayTeamNormalized: "lapuan virkia",
+          competitionRaw: "Finland - Kolmonen",
+          competitionNormalized: "finland kolmonen",
+        }),
+        snapshot("b", {
+          provider: "saba-sportsbook",
+          homeTeamRaw: "Sundom IF",
+          homeTeamNormalized: "sundom if",
+          awayTeamRaw: "Virkia",
+          awayTeamNormalized: "virkia",
+          competitionRaw: "FINLAND KOLMONEN",
+          competitionNormalized: "finland kolmonen",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBe(1);
+    expect(score.away).toBe(1);
+    expect(score.orientation).toBe("same");
+
+    const decision = decideCandidate([], score, DEFAULT_EVENT_MATCHER_CONFIG);
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("exact_team_kickoff_match");
+  });
+
+  it("normalizes legal prefixes and regional suffixes without fixture-specific aliases", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "pinnacle",
+          homeTeamRaw: "Leonico",
+          homeTeamNormalized: "leonico",
+          awayTeamRaw: "Barreiras",
+          awayTeamNormalized: "barreiras",
+          competitionRaw: "Brazil - Baiano 2",
+          competitionNormalized: "brazil baiano 2",
+        }),
+        snapshot("b", {
+          provider: "saba-sportsbook",
+          homeTeamRaw: "AD Leonico BA",
+          homeTeamNormalized: "ad leonico ba",
+          awayTeamRaw: "Barreiras FC BA",
+          awayTeamNormalized: "barreiras fc ba",
+          competitionRaw: "BRAZIL CAMPEONATO BAIANO SERIE B",
+          competitionNormalized: "brazil campeonato baiano serie b",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBe(1);
+    expect(score.away).toBe(1);
+    expect(score.orientation).toBe("same");
+
+    const decision = decideCandidate([], score, DEFAULT_EVENT_MATCHER_CONFIG);
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("exact_team_kickoff_match");
+  });
+
+  it("does not collapse unrelated regional-suffix teams with the same opponent", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "pinnacle",
+          homeTeamRaw: "Bahia",
+          homeTeamNormalized: "bahia",
+          awayTeamRaw: "Barreiras",
+          awayTeamNormalized: "barreiras",
+          competitionRaw: "Brazil - Baiano 2",
+          competitionNormalized: "brazil baiano 2",
+        }),
+        snapshot("b", {
+          provider: "saba-sportsbook",
+          homeTeamRaw: "AD Leonico BA",
+          homeTeamNormalized: "ad leonico ba",
+          awayTeamRaw: "Barreiras FC BA",
+          awayTeamNormalized: "barreiras fc ba",
+          competitionRaw: "BRAZIL CAMPEONATO BAIANO SERIE B",
+          competitionNormalized: "brazil campeonato baiano serie b",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBeLessThan(
+      DEFAULT_EVENT_MATCHER_CONFIG.teamAutoMergeFloor,
+    );
+
+    const decision = decideCandidate([], score, DEFAULT_EVENT_MATCHER_CONFIG);
+    expect(decision.decision).not.toBe("auto_merge");
+  });
+
+  it("normalizes women markers and leading FK compounds without weakening the gender hard blocker", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "ninewickets-sportsbook",
+          homeTeamRaw: "LSK Kvinner (W)",
+          homeTeamNormalized: "lsk kvinner w",
+          awayTeamRaw: "Fortuna Alesund (W)",
+          awayTeamNormalized: "fortuna alesund w",
+          competitionRaw: "Norwegian Toppserien Ladies",
+          competitionNormalized: "norwegian toppserien ladies",
+        }),
+        snapshot("b", {
+          provider: "pinnacle",
+          homeTeamRaw: "LSK",
+          homeTeamNormalized: "lsk",
+          awayTeamRaw: "AaFK Fortuna",
+          awayTeamNormalized: "aafk fortuna",
+          competitionRaw: "Norway - Toppserien Women",
+          competitionNormalized: "norway toppserien women",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBe(1);
+    expect(score.away).toBe(1);
+    expect(score.orientation).toBe("same");
+
+    const decision = decideCandidate([], score, DEFAULT_EVENT_MATCHER_CONFIG);
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("exact_team_kickoff_match");
+  });
+
+  it("does not collapse different clubs that only share a city token and exact opponent", async () => {
+    const score = await scoreCandidate(
+      candidate(
+        snapshot("a", {
+          provider: "saba-sportsbook",
+          homeTeamRaw: "IF Karlstad Fotbollutveckling",
+          homeTeamNormalized: "if karlstad fotbollutveckling",
+          awayTeamRaw: "IFK Skovde FK",
+          awayTeamNormalized: "ifk skovde fk",
+          competitionRaw: "SWEDEN 2ND DIVISION",
+          competitionNormalized: "sweden 2nd division",
+        }),
+        snapshot("b", {
+          provider: "ninewickets-sportsbook",
+          homeTeamRaw: "FBK Karlstad 2",
+          homeTeamNormalized: "fbk karlstad 2",
+          awayTeamRaw: "Skovde",
+          awayTeamNormalized: "skovde",
+          competitionRaw: "Swedish Division 2",
+          competitionNormalized: "swedish division 2",
+        }),
+      ),
+      {
+        ...DEFAULT_EVENT_MATCHER_CONFIG,
+        embeddingEnabled: false,
+      },
+    );
+
+    expect(score.home).toBeLessThan(
+      DEFAULT_EVENT_MATCHER_CONFIG.teamAutoMergeFloor,
+    );
+
+    const decision = decideCandidate([], score, DEFAULT_EVENT_MATCHER_CONFIG);
+    expect(decision.decision).not.toBe("auto_merge");
   });
 
   it("expands generic youth labels without aliasing specific age groups directly", async () => {

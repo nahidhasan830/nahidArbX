@@ -94,12 +94,54 @@ describe("event matcher snapshots", () => {
         },
       },
     };
+    const cornersWindowEvent: NormalizedEvent = {
+      id: "corners-window",
+      sport: "football",
+      homeTeam: "Canada No.of Corners 15:01-30:00",
+      awayTeam: "Bosnia-Herzegovina No.of Corners 15:01-30:00",
+      competition:
+        "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - SPECIFIC 15 MINS NUMBER OF CORNERS",
+      startTime: new Date("2026-06-03T18:00:00Z"),
+      providers: {
+        "saba-sportsbook": {
+          eventId: "corners-window",
+          fetchedAt: new Date("2026-06-03T10:00:00Z"),
+        },
+      },
+    };
+    const minutesMarketEvent: NormalizedEvent = {
+      id: "minutes-market",
+      sport: "football",
+      homeTeam: "USA 00:00-15:00",
+      awayTeam: "Paraguay 00:00-15:00",
+      competition:
+        "*WORLD CUP 2026 (IN CANADA, MEXICO & USA) - SPECIFIC 15 MINS",
+      startTime: new Date("2026-06-03T18:00:00Z"),
+      providers: {
+        "saba-sportsbook": {
+          eventId: "minutes-market",
+          fetchedAt: new Date("2026-06-03T10:00:00Z"),
+        },
+      },
+    };
 
     await captureProviderSnapshots([
       {
         event: fantasyEvent,
         provider: "saba-sportsbook",
         providerEventId: "fantasy",
+        fetchBatchId: "batch",
+      },
+      {
+        event: cornersWindowEvent,
+        provider: "saba-sportsbook",
+        providerEventId: "corners-window",
+        fetchBatchId: "batch",
+      },
+      {
+        event: minutesMarketEvent,
+        provider: "saba-sportsbook",
+        providerEventId: "minutes-market",
         fetchBatchId: "batch",
       },
       {

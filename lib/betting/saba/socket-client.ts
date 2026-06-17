@@ -6,10 +6,7 @@ import {
   type WebSocket as PlaywrightWebSocket,
 } from "playwright";
 import { captureSession } from "./session";
-import {
-  parseSabaSocketMessage,
-  type SabaOddsSnapshot,
-} from "./socket-parser";
+import { parseSabaSocketMessage, type SabaOddsSnapshot } from "./socket-parser";
 import { logger } from "../../shared/logger";
 import { singleton } from "@/lib/util/singleton";
 
@@ -90,7 +87,7 @@ interface PendingSnapshot {
   detailChannelId: string;
   resolve: (snapshot: SabaOddsSnapshot) => void;
   reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | null;
 }
 
 function isSabaOddsSocket(url: string): boolean {
@@ -107,8 +104,21 @@ function parseSocketEvent(payload: string): unknown[] | null {
   }
 }
 
+function isEmptySnapshot(snapshot: SabaOddsSnapshot): boolean {
+  return (
+    snapshot.rows.length === 1 &&
+    String(snapshot.rows[0]?.type ?? "").toLowerCase() === "empty"
+  );
+}
+
 async function installSocketBridge(context: BrowserContext): Promise<void> {
   await context.addInitScript({ content: SOCKET_BRIDGE_SCRIPT });
+}
+
+function pendingValues(
+  pending: Map<string, PendingSnapshot>,
+): PendingSnapshot[] {
+  return Array.from(new Set(pending.values()));
 }
 
 export class SabaSocketClient {
@@ -135,20 +145,27 @@ export class SabaSocketClient {
 
     const snapshot = new Promise<SabaOddsSnapshot>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.pending.delete(detailChannelId);
+        const timedOut = this.pending.get(detailChannelId);
+        if (!timedOut) return;
+        this.removePending(timedOut);
         void this.unsubscribe([baseChannelId, detailChannelId]);
-        reject(new Error(`SABA odds snapshot timed out for match ${matchId}`));
+        timedOut.reject(
+          new Error(`SABA odds snapshot timed out for match ${matchId}`),
+        );
       }, REQUEST_TIMEOUT_MS);
 
-      this.pending.set(detailChannelId, {
+      const pending = {
         matchId,
         baseChannelId,
         detailChannelId,
         resolve,
         reject,
         timer,
-      });
+      };
+      this.pending.set(baseChannelId, pending);
+      this.pending.set(detailChannelId, pending);
     });
+    void snapshot.catch(() => {});
 
     try {
       await this.sendSocketEvent("subscribe", [
@@ -167,6 +184,8 @@ export class SabaSocketClient {
           ],
         ],
       ]);
+
+      if (!this.pending.has(detailChannelId)) return snapshot;
 
       await this.sendSocketEvent("subscribe", [
         [
@@ -190,10 +209,14 @@ export class SabaSocketClient {
     } catch (err) {
       const pending = this.pending.get(detailChannelId);
       if (pending) {
-        clearTimeout(pending.timer);
-        this.pending.delete(detailChannelId);
+        if (pending.timer) clearTimeout(pending.timer);
+        this.removePending(pending);
+        void this.unsubscribe([baseChannelId, detailChannelId]);
+        const error = err instanceof Error ? err : new Error(String(err));
+        pending.reject(error);
+        throw error;
       }
-      throw err;
+      return snapshot;
     }
 
     return snapshot;
@@ -208,8 +231,8 @@ export class SabaSocketClient {
 
   deactivate(): void {
     this.socketReady = false;
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+    for (const pending of pendingValues(this.pending)) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(new Error("SABA socket client stopped"));
     }
     this.pending.clear();
@@ -342,16 +365,19 @@ export class SabaSocketClient {
       const pending = this.pending.get(channelId);
       if (!pending) continue;
 
-      clearTimeout(pending.timer);
-      this.pending.delete(channelId);
-      void this.unsubscribe([pending.baseChannelId, pending.detailChannelId]);
-      pending.resolve({
+      const snapshot = {
         channelId,
         matchId: pending.matchId,
         rows: decoded.rows,
         fieldMap: decoded.fieldMap,
         capturedAt: Date.now(),
-      });
+      };
+      if (isEmptySnapshot(snapshot)) continue;
+
+      if (pending.timer) clearTimeout(pending.timer);
+      this.removePending(pending);
+      void this.unsubscribe([pending.baseChannelId, pending.detailChannelId]);
+      pending.resolve(snapshot);
     }
   }
 
@@ -361,11 +387,16 @@ export class SabaSocketClient {
     this.readyResolver = null;
     this.readyRejecter = null;
 
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+    for (const pending of pendingValues(this.pending)) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.reject(error);
     }
     this.pending.clear();
+  }
+
+  private removePending(pending: PendingSnapshot): void {
+    this.pending.delete(pending.baseChannelId);
+    this.pending.delete(pending.detailChannelId);
   }
 
   private async unsubscribe(channelIds: string[]): Promise<void> {
@@ -373,7 +404,10 @@ export class SabaSocketClient {
     await this.sendSocketEvent("unsubscribe", channelIds).catch(() => {});
   }
 
-  private async sendSocketEvent(event: string, payload: unknown): Promise<void> {
+  private async sendSocketEvent(
+    event: string,
+    payload: unknown,
+  ): Promise<void> {
     await this.sendRaw(`42${JSON.stringify([event, payload])}`);
   }
 

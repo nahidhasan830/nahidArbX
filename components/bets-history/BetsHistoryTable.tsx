@@ -117,8 +117,7 @@ type Decorated = ValueBetRow & { _evPctMax: number; _kellyFraction: number };
 const ML_DECISION_PILL: Record<string, string> = {
   boost:
     "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  agree:
-    "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+  agree: "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
   shrink:
     "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
   skip: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
@@ -973,9 +972,7 @@ export function BetsHistoryTable({
                       className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5"
                     >
                       <RefreshCw className="size-3.5 shrink-0 text-sky-400" />
-                      <span className="text-[11px] font-medium">
-                        Recheck result
-                      </span>
+                      <span className="text-[11px] font-medium">Re-Settle</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() =>
@@ -989,7 +986,7 @@ export function BetsHistoryTable({
                     >
                       <Search className="size-3.5 shrink-0 text-amber-400" />
                       <span className="text-[11px] font-medium">
-                        Verify settlement
+                        Google Search
                       </span>
                     </DropdownMenuItem>
 

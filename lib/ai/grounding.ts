@@ -126,7 +126,10 @@ function textForAliasMatch(value: string): string {
     .replace(/\btp ho chi minh\b/g, "ho chi minh city")
     .replace(/\s+/g, " ")
     .trim();
-  out = out.replace(/\b(fc|cf|sc|club)\b/g, "").replace(/\s+/g, " ").trim();
+  out = out
+    .replace(/\b(fc|cf|sc|club)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
   return out;
 }
 
@@ -1078,7 +1081,11 @@ function parseMatchVerdictFromRaw(input: {
     data?.evidenceAssessment ?? data?.evidence_assessment;
   const evidenceAssessment = normalizeEvidenceAssessment(
     evidenceAssessmentFromJsonValue(rawEvidenceAssessment) ??
-      fallbackEvidenceAssessment(input.evidence, decision, rawEvidenceAssessment),
+      fallbackEvidenceAssessment(
+        input.evidence,
+        decision,
+        rawEvidenceAssessment,
+      ),
     input.evidence,
   );
   const aliasEvidence = extractSourceBackedAliasEvidence(

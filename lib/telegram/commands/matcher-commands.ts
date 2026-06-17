@@ -195,10 +195,7 @@ async function resolveDecisionArg(
   if (!value) return { row: null, error: "Missing decision id." };
 
   const exact = await readDecisionRow(value);
-  if (
-    exact &&
-    (!opts?.humanReviewOnly || exact.decision === "human_review")
-  ) {
+  if (exact && (!opts?.humanReviewOnly || exact.decision === "human_review")) {
     return { row: exact };
   }
 

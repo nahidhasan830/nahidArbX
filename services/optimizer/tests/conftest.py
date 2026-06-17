@@ -92,6 +92,8 @@ def make_synthetic_training_data(
         "first_seen_at": [str(t) for t in timestamps],
         "event_start_time": [str(t + 3600) for t in timestamps],
         "event_id": [f"event-{i // 3}" for i in range(n)],
+        "family_id": [f"family-{i % 17}" for i in range(n)],
+        "atom_id": [f"atom-{i % 2}" for i in range(n)],
     })
 
     # Derive sample weights — simulate realistic weight distribution

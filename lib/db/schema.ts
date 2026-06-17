@@ -169,8 +169,9 @@ export type NewBetRow = typeof bets.$inferInsert;
  * diagnosing strategy middleware compliance, balance issues, and
  * provider problems.
  *
- * Rows are append-only and never updated. The same bet ID can appear
- * multiple times (one per tick that re-evaluates it).
+ * Rows are append-only and never updated while inside the log-retention
+ * window. The shared log-retention scheduler prunes rows older than 7 days.
+ * The same bet ID can appear multiple times (one per tick that re-evaluates it).
  */
 export const autoPlacerLog = pgTable(
   "auto_placer_log",
@@ -492,8 +493,8 @@ export type NewMatchScoreRow = typeof matchScores.$inferInsert;
 /**
  * Per-tick telemetry from the auto-settle scheduler. Lets us chart cost,
  * tier-hit distribution, and failure rates over time without rummaging
- * through log files. Rows accumulate cheaply (one per interval) and are
- * capped by an ON DELETE RETENTION script if they ever grow too large.
+ * through log files. Rows are pruned by the shared 7-day log-retention
+ * scheduler.
  */
 export const settlementRuns = pgTable(
   "settlement_runs",
@@ -982,7 +983,9 @@ export const matcherCandidates = pgTable(
     groundingVersion: text("grounding_version").notNull(),
     status: text().notNull().default("generated"),
     hardBlockers: jsonb("hard_blockers").notNull(),
-    reasons: jsonb().notNull().default(sql`'[]'::jsonb`),
+    reasons: jsonb()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     scoreBreakdown: jsonb("score_breakdown"),
     combinedScore: real("combined_score"),
     sourceStage: text("source_stage").notNull().default("candidate_generation"),
@@ -1131,7 +1134,8 @@ export type NewEventMatcherSchedulerSettingsRow =
   typeof eventMatcherSchedulerSettings.$inferInsert;
 
 /**
- * Persistent Telegram command history
+ * Persistent Telegram command history, retained for the shared 7-day
+ * log window.
  */
 export const telegramCommandHistory = pgTable(
   "telegram_command_history",
@@ -1160,6 +1164,8 @@ export type NewTelegramCommandHistoryRow =
  * AI Search logs — append-only audit trail for every call through the
  * ai-search Python service proxy. Written by the Next.js API route so
  * the Python service stays stateless.
+ *
+ * Rows are retained by the shared 7-day log-retention scheduler.
  *
  * `endpoint` is the technical path ("search", "entity-match", etc.).
  * `service` is a human-friendly caller label ("Playground", "Auto Matcher",
@@ -1197,7 +1203,7 @@ export type NewAiSearchLogRow = typeof aiSearchLogs.$inferInsert;
 /**
  * Unified AI activity log — append-only audit trail for every AI
  * operation across all subsystems: grounding lab, entity matching, and
- * analysis.
+ * analysis. Rows are retained by the shared 7-day log-retention scheduler.
  *
  * Gives the operator a single "AI Activity" page to inspect spend,
  * latency, outcomes, and error patterns without jumping between

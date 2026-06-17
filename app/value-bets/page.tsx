@@ -113,8 +113,7 @@ function getProviderRuntimeView(
 ): ProviderRuntimeView {
   const runtime = engine?.providerRuntime?.[id];
   const statusEntry = providerStatusEntry(connectionHealth, id);
-  const activeEvents =
-    runtime?.activeEvents ?? legacyActiveEvents(engine, id);
+  const activeEvents = runtime?.activeEvents ?? legacyActiveEvents(engine, id);
   const connected =
     runtime?.connected ??
     legacyConnected(engine, connectionHealth, id, activeEvents);
@@ -122,7 +121,7 @@ function getProviderRuntimeView(
     runtime?.circuitBreaker ?? engine?.circuitBreakers?.[id] ?? null;
   const error =
     runtime?.error ??
-    (statusEntry?.status === "error" ? statusEntry.error ?? "Error" : null);
+    (statusEntry?.status === "error" ? (statusEntry.error ?? "Error") : null);
 
   return {
     id,
@@ -172,7 +171,8 @@ function providerStatusText(view: ProviderRuntimeView): string {
   if (activeEvents > 0) {
     return `${source} — ${activeEvents} active ${unit}`;
   }
-  if (view.connected) return `${source} connected — waiting for matched fixtures`;
+  if (view.connected)
+    return `${source} connected — waiting for matched fixtures`;
   return `${meta.displayName} waiting for matched fixtures…`;
 }
 

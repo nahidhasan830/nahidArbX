@@ -424,9 +424,8 @@ export function registerEngineRoutes() {
       if (typeof enabled !== "boolean") {
         return jsonResponse(res, { error: "enabled must be a boolean" }, 400);
       }
-      const { setProviderHealthTelegramEnabled } = await import(
-        "../providers/health-telegram-settings"
-      );
+      const { setProviderHealthTelegramEnabled } =
+        await import("../providers/health-telegram-settings");
       const healthTelegram = setProviderHealthTelegramEnabled(enabled);
       return jsonResponse(res, {
         success: true,
@@ -650,7 +649,7 @@ export function registerEngineRoutes() {
 let server: ReturnType<typeof createServer> | null = null;
 
 export function startEngineHttp(): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     registerEngineRoutes();
 
     server = createServer(async (req, res) => {
@@ -700,30 +699,14 @@ export function startEngineHttp(): Promise<void> {
 
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {
-        logger.warn(
+        logger.error(
           "EngineHTTP",
-          `Port ${ENGINE_PORT} in use — killing stale process and retrying...`,
+          `Port ${ENGINE_PORT} is already in use. Run \`npm run kill\` to stop stale dev processes, or set ENGINE_PORT to a free port.`,
         );
-        import("child_process").then(({ execSync }) => {
-          try {
-            execSync(`lsof -ti:${ENGINE_PORT} | xargs kill -9 2>/dev/null`, {
-              stdio: "ignore",
-            });
-          } catch {
-            /* nothing to kill */
-          }
-          setTimeout(() => {
-            server!.listen(ENGINE_PORT, () => {
-              logger.info(
-                "EngineHTTP",
-                `Engine HTTP API listening on port ${ENGINE_PORT} (retry)`,
-              );
-              resolve();
-            });
-          }, 500);
-        });
+        reject(err);
       } else {
         logger.error("EngineHTTP", `Server error: ${err.message}`);
+        reject(err);
       }
     });
 

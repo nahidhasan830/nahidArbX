@@ -77,7 +77,29 @@ export class PinnacleWsClient {
   }
 
   public subscribe(providerEventId: string, normalizedEventId: string) {
-    if (this.activeSubscriptions.has(providerEventId)) return;
+    const existing = this.activeSubscriptions.get(providerEventId);
+    if (existing) {
+      if (existing.normalizedEventId === normalizedEventId) return;
+
+      const previousNormalizedEventId = existing.normalizedEventId;
+      existing.normalizedEventId = normalizedEventId;
+      applyProviderSnapshot(previousNormalizedEventId, "pinnacle", []);
+
+      if (existing.stompSub) {
+        existing.stompSub.unsubscribe();
+        existing.stompSub = undefined;
+      }
+
+      if (this.isConnected) {
+        this.doSubscribe(existing);
+      }
+
+      logger.info(
+        "PinnacleWs",
+        `Remapped ${providerEventId} from ${previousNormalizedEventId} to ${normalizedEventId}`,
+      );
+      return;
+    }
 
     const ctx: SubscriptionContext = { providerEventId, normalizedEventId };
     this.activeSubscriptions.set(providerEventId, ctx);

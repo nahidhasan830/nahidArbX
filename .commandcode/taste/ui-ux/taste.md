@@ -1,4 +1,5 @@
 # ui-ux
+
 - Make auto-suggestions context-aware based on web search toggle state. When web grounding is enabled, show search query type suggestions; when disabled, show general question/brainstorm type suggestions. Confidence: 0.75
 - Respect disabled AI engines and search providers across the entire UI. When an AI engine (DeepSeek, Gemini) or search provider is disabled, all related UI components (AiDialog, AI Playground, model selectors, etc.) must reflect this state and show options as disabled. Confidence: 0.85
 - Sort providers in the AI Engine dashboard in this order: Google Vertex > Brave > Tavily. Confidence: 0.70

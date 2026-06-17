@@ -30,6 +30,28 @@ process.env.NAHIDARBX_ENGINE = "1";
 async function main() {
   const { logger } = await import("./lib/shared/logger");
 
+  let runtimeFaultCount = 0;
+  const formatRuntimeFault = (fault: unknown): string => {
+    if (fault instanceof Error) return fault.stack || fault.message;
+    return String(fault);
+  };
+
+  process.on("unhandledRejection", (reason) => {
+    runtimeFaultCount += 1;
+    logger.error(
+      "Engine",
+      `Unhandled promise rejection #${runtimeFaultCount}: ${formatRuntimeFault(reason)}`,
+    );
+  });
+
+  process.on("uncaughtException", (error) => {
+    runtimeFaultCount += 1;
+    logger.error(
+      "Engine",
+      `Uncaught exception #${runtimeFaultCount}: ${formatRuntimeFault(error)}`,
+    );
+  });
+
   logger.info("Engine", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   logger.info("Engine", "Starting standalone engine process...");
   logger.info("Engine", `PID: ${process.pid} | Node: ${process.version}`);
@@ -73,6 +95,7 @@ async function main() {
     { startReactiveDetector, stopReactiveDetector },
     { getRuntimeEnabledProviderIds, isProviderRuntimeEnabled },
     { getProviderDataSourceLabels },
+    { startLogRetentionScheduler, stopLogRetentionScheduler },
   ] = await Promise.all([
     import("./lib/background/fetcher"),
     import("./lib/settle/scheduler"),
@@ -88,6 +111,7 @@ async function main() {
     import("./lib/background/reactive-detector"),
     import("./lib/providers/runtime-state"),
     import("./lib/providers/registry"),
+    import("./lib/log-retention"),
   ]);
 
   // ── Startup diagnostics ─────────────────────────────────────────────
@@ -138,6 +162,9 @@ async function main() {
       `ML retraining scheduler started (Cloud Run Job: ${process.env.OPTIMIZER_JOB_NAME ?? "<unset>"} in ${process.env.GCP_REGION ?? "<unset>"})`,
     );
   }
+
+  startLogRetentionScheduler();
+  logger.info("Boot", "Log retention scheduler started");
 
   // Entity-resolution cache listener
   if (!isResolverCacheListenerActive()) {
@@ -310,6 +337,7 @@ async function main() {
       stopScheduler();
       stopAutoSettleScheduler();
       stopModelRetrainingScheduler();
+      stopLogRetentionScheduler();
 
       // Clean up SofaScore transport (no-op for curl_cffi, kept for API compat)
       try {

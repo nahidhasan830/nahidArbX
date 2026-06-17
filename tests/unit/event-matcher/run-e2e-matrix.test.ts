@@ -63,7 +63,9 @@ vi.mock("../../../lib/event-matcher/repository", () => ({
 
 vi.mock("../../../lib/event-matcher/deepseek", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../../../lib/event-matcher/deepseek")>();
+    await importOriginal<
+      typeof import("../../../lib/event-matcher/deepseek")
+    >();
   return {
     ...actual,
     reviewResidualWithDeepSeek: vi.fn(async () => null),
@@ -282,9 +284,9 @@ describe("runEventMatcher 50+ scenario orchestration matrix", () => {
     const progress: Array<{ phase: string; message: string }> = [];
 
     expect(fixtures.length).toBeGreaterThanOrEqual(50);
-    expect(fixtures.filter((fixture) => fixture.expectedCandidate)).toHaveLength(
-      56,
-    );
+    expect(
+      fixtures.filter((fixture) => fixture.expectedCandidate),
+    ).toHaveLength(56);
 
     const summary = await runEventMatcher({
       trigger: "test",
@@ -387,11 +389,9 @@ describe("runEventMatcher 50+ scenario orchestration matrix", () => {
     expect(deepseek.reviewResidualWithDeepSeek).toHaveBeenCalledTimes(12);
 
     const groundedRejects = savedDecisions.filter((input) => {
-      const decision = (
-        input as {
-          policy: { decision: string; reasonCode: string };
-        }
-      );
+      const decision = input as {
+        policy: { decision: string; reasonCode: string };
+      };
       return (
         decision.policy.decision === "auto_reject" &&
         decision.policy.reasonCode === "grounded_llm_different_match"

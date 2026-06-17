@@ -128,7 +128,9 @@ function parseRefinedQueries(
   raw: string,
   attemptedQueries: string[],
 ): SearchQueryVariant[] {
-  const attempted = new Set(attemptedQueries.map((q) => normalizeQuery(q).toLowerCase()));
+  const attempted = new Set(
+    attemptedQueries.map((q) => normalizeQuery(q).toLowerCase()),
+  );
   const seen = new Set<string>();
   let value: unknown = {};
   try {

@@ -318,8 +318,7 @@ function buildPlacementMlSnapshot(
     placedMlModelEdgePct: modelEdgePct,
     placedMlDecision: classifyPlacementMlDecision(args.mlKellyMultiplier),
     placedMlKellyMultiplier:
-      args.mlKellyMultiplier != null &&
-      Number.isFinite(args.mlKellyMultiplier)
+      args.mlKellyMultiplier != null && Number.isFinite(args.mlKellyMultiplier)
         ? Number(args.mlKellyMultiplier)
         : null,
     placedMlModelVersion: args.mlModelVersion ?? null,

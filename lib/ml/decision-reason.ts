@@ -250,10 +250,11 @@ function buildExplanation(
   const odds = getOdds(features);
   const impliedProb = odds > 1.01 ? Math.round((1 / odds) * 100) : null;
   const modelProb = Math.round(scoreVal * 100);
-  
-  const eventDesc = context?.homeTeam && context?.awayTeam 
-    ? `${context.homeTeam} vs ${context.awayTeam}` 
-    : "this event";
+
+  const eventDesc =
+    context?.homeTeam && context?.awayTeam
+      ? `${context.homeTeam} vs ${context.awayTeam}`
+      : "this event";
   const marketDesc = context?.marketType || context?.atomLabel || "this market";
 
   let summary = "";
@@ -262,12 +263,13 @@ function buildExplanation(
   switch (decision) {
     case "boost": {
       summary = `Strong value detected for ${eventDesc} (${marketDesc}). Recommended action: Increase stake to ${multiplier.toFixed(2)}×.`;
-      
+
       points.push({
         heading: "Value Gap",
-        text: impliedProb != null && modelProb > impliedProb
-          ? `The model predicts a ${modelProb}% win probability, but current odds imply only ${impliedProb}%. This ${modelProb - impliedProb}-point gap represents a strong edge (${confidence.toLowerCase()} confidence).`
-          : `The model predicts a ${modelProb}% win probability, creating a ${pct(modelEdgePct)} edge (${confidence.toLowerCase()} confidence).`,
+        text:
+          impliedProb != null && modelProb > impliedProb
+            ? `The model predicts a ${modelProb}% win probability, but current odds imply only ${impliedProb}%. This ${modelProb - impliedProb}-point gap represents a strong edge (${confidence.toLowerCase()} confidence).`
+            : `The model predicts a ${modelProb}% win probability, creating a ${pct(modelEdgePct)} edge (${confidence.toLowerCase()} confidence).`,
       });
 
       if (tickCount > 10) {
@@ -294,7 +296,7 @@ function buildExplanation(
     }
     case "shrink": {
       summary = `Moderate value detected for ${eventDesc} (${marketDesc}), but risk factors present. Recommended action: Reduce stake to ${multiplier.toFixed(2)}×.`;
-      
+
       if (modelEdgePct <= 0) {
         points.push({
           heading: "Negative Edge",
@@ -324,13 +326,14 @@ function buildExplanation(
     }
     case "skip": {
       summary = `No actionable value detected for ${eventDesc} (${marketDesc}). Recommended action: Skip this bet to protect bankroll.`;
-      
+
       if (modelEdgePct <= 0) {
         points.push({
           heading: "Negative Expected Value",
-          text: impliedProb != null && impliedProb > modelProb
-            ? `The model predicts a ${modelProb}% win probability, but the odds imply ${impliedProb}% is needed to break even. Over many bets like this, the model expects to lose ${Math.abs(modelEdgePct).toFixed(1)}% per unit staked.`
-            : `The model predicts a ${modelProb}% win probability at odds implying ${impliedProb}%. The edge is ${pct(modelEdgePct)} — not enough value to justify a stake on ${marketDesc}.`,
+          text:
+            impliedProb != null && impliedProb > modelProb
+              ? `The model predicts a ${modelProb}% win probability, but the odds imply ${impliedProb}% is needed to break even. Over many bets like this, the model expects to lose ${Math.abs(modelEdgePct).toFixed(1)}% per unit staked.`
+              : `The model predicts a ${modelProb}% win probability at odds implying ${impliedProb}%. The edge is ${pct(modelEdgePct)} — not enough value to justify a stake on ${marketDesc}.`,
         });
       } else {
         points.push({

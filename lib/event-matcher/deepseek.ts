@@ -20,6 +20,12 @@ interface PolicyEvidenceAssessment {
   textSupportsDifferent: boolean;
 }
 
+const SCORE_EPSILON = 1e-9;
+
+function atLeast(value: number, floor: number): boolean {
+  return value + SCORE_EPSILON >= floor;
+}
+
 export async function reviewResidualWithDeepSeek(
   candidate: EventMatcherCandidate,
   score: ScoreBreakdown,
@@ -199,9 +205,7 @@ function evidenceAssessmentForPolicy(
   };
 }
 
-function evidenceTextFragments(
-  residual: DeepSeekResidualDecision,
-): string[] {
+function evidenceTextFragments(residual: DeepSeekResidualDecision): string[] {
   return [
     residual.reasoning,
     ...residual.confirmedFacts,
@@ -220,7 +224,10 @@ function hasContradiction(residual: DeepSeekResidualDecision): boolean {
       : [JSON.stringify(residual.diagnostics ?? "")]),
   ]
     .join(" ")
-    .replace(/\b(?:does|do|did|is|are|was|were|not|no|without)\s+(?:not\s+)?(?:contradict|conflict|inconsistent|disagree)\w*\b/gi, "")
+    .replace(
+      /\b(?:does|do|did|is|are|was|were|not|no|without)\s+(?:not\s+)?(?:contradict|conflict|inconsistent|disagree)\w*\b/gi,
+      "",
+    )
     .toLowerCase();
   return /\b(contradict|conflict|inconsistent|disagree)\w*\b/.test(haystack);
 }
@@ -316,6 +323,28 @@ function hasMaterialTeamMismatch(score: ScoreBreakdown): boolean {
   );
 }
 
+function hasOneExactSlotDifferentClubEvidence(score: ScoreBreakdown): boolean {
+  const alignedHome =
+    score.orientation === "same" ? score.home : score.swappedHome;
+  const alignedAway =
+    score.orientation === "same" ? score.away : score.swappedAway;
+  const strongerAlignedTeam = Math.max(alignedHome, alignedAway);
+  const weakerAlignedTeam = Math.min(alignedHome, alignedAway);
+  const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+
+  return (
+    score.kickoffExact &&
+    atLeast(strongerAlignedTeam, 0.98) &&
+    weakerAlignedTeam <= 0.75 &&
+    atLeast(teamConsensus, 0.82) &&
+    atLeast(competitionConsensus, 0.8)
+  );
+}
+
 function hasSeparateFixtureEvidenceText(
   residual: DeepSeekResidualDecision,
 ): boolean {
@@ -343,8 +372,7 @@ function hasSeparateFixtureEvidenceText(
     haystack.match(/\b(?:vs\.?|v\.?|versus)\b/g)?.length ?? 0;
   const confirmedFixtureFacts = residual.confirmedFacts.filter(
     (fact) =>
-      /\b(?:vs\.?|v\.?|versus)\b/i.test(fact) &&
-      !/\bboth\b/i.test(fact),
+      /\b(?:vs\.?|v\.?|versus)\b/i.test(fact) && !/\bboth\b/i.test(fact),
   ).length;
 
   return (
@@ -387,14 +415,18 @@ function scoreSupportsGroundedSame(score: ScoreBreakdown): boolean {
     score.embeddingCompetition ?? 0,
   );
   const strongTeamText =
-    alignedTeam >= 0.8 && score.bestTeam >= 0.88 && teamConsensus >= 0.9;
+    atLeast(alignedTeam, 0.8) &&
+    atLeast(score.bestTeam, 0.88) &&
+    atLeast(teamConsensus, 0.9);
   const strongAliasEmbedding =
-    alignedTeam >= 0.78 && score.bestTeam >= 0.83 && teamConsensus >= 0.94;
+    atLeast(alignedTeam, 0.78) &&
+    atLeast(score.bestTeam, 0.83) &&
+    atLeast(teamConsensus, 0.94);
 
   return (
     score.kickoffExact &&
     (strongTeamText || strongAliasEmbedding) &&
-    competitionConsensus >= 0.62
+    atLeast(competitionConsensus, 0.62)
   );
 }
 
@@ -411,11 +443,11 @@ function scoreStronglySupportsGroundedSame(score: ScoreBreakdown): boolean {
 
   return (
     score.kickoffExact &&
-    score.combined >= 0.9 &&
-    alignedTeam >= 0.82 &&
-    score.bestTeam >= 0.9 &&
-    teamConsensus >= 0.9 &&
-    competitionConsensus >= 0.9
+    atLeast(score.combined, 0.9) &&
+    atLeast(alignedTeam, 0.82) &&
+    atLeast(score.bestTeam, 0.9) &&
+    atLeast(teamConsensus, 0.9) &&
+    atLeast(competitionConsensus, 0.9)
   );
 }
 
@@ -431,11 +463,11 @@ function scoreSupportsSourceBackedNoisySame(score: ScoreBreakdown): boolean {
 
   return (
     score.kickoffExact &&
-    score.combined >= 0.84 &&
-    strongerAlignedTeam >= 0.98 &&
-    weakerAlignedTeam >= 0.45 &&
-    teamConsensus >= 0.9 &&
-    competitionConsensus >= 0.84
+    atLeast(score.combined, 0.84) &&
+    atLeast(strongerAlignedTeam, 0.98) &&
+    atLeast(weakerAlignedTeam, 0.45) &&
+    atLeast(teamConsensus, 0.9) &&
+    atLeast(competitionConsensus, 0.84)
   );
 }
 
@@ -541,7 +573,8 @@ export function policyFromDeepSeek(
   const sourceOnlySupportsSame =
     sourceSupportsSame &&
     (!assessment.present ||
-      (assessment.differentEvidence === 0 && !assessment.textSupportsDifferent));
+      (assessment.differentEvidence === 0 &&
+        !assessment.textSupportsDifferent));
   const sourceOnlySupportsDifferent =
     sourceSupportsDifferent &&
     (!assessment.present ||
@@ -570,7 +603,9 @@ export function policyFromDeepSeek(
     (residual.decision === "DIFFERENT" &&
       (sourceSupportsDifferent || materialDifferenceEvidence) &&
       materialDifferenceEvidence &&
-      (materialTeamMismatch || separateFixtureEvidence));
+      (materialTeamMismatch ||
+        separateFixtureEvidence ||
+        hasOneExactSlotDifferentClubEvidence(score)));
   if (
     residual.decision === "SAME" &&
     config.deepseekAutoMergeEnabled &&
@@ -602,7 +637,8 @@ export function policyFromDeepSeek(
       residual.confidence >= config.deepseekConsensusAutoMergeConfidence &&
       hasSources &&
       (!assessment.present ||
-        (assessment.differentEvidence === 0 && !assessment.textSupportsDifferent)) &&
+        (assessment.differentEvidence === 0 &&
+          !assessment.textSupportsDifferent)) &&
       !contradictory &&
       !materialUncertainty &&
       scoreSupportsGroundedSame(score);
@@ -711,21 +747,18 @@ export function policyFromDeepSeek(
       confidence: normalizedConfidence,
       confidenceBand: confidenceBand(normalizedConfidence),
       final: false,
-      reasonCode: safePositiveEvidence
-        ? "grounded_llm_same_match"
-        : reasonCodeForUnresolvedResidual(residual, {
-            kickoffConflictDespiteExactParse: false,
-            sourceAliasConflict: false,
+      reasonCode: reasonCodeForUnresolvedResidual(residual, {
+        kickoffConflictDespiteExactParse: false,
+        sourceAliasConflict: false,
+        contradictory,
+        hasSources,
+      }),
+      reasonSummary: safePositiveEvidence
+        ? residual.reasoning
+        : sameReviewReasonSummary(residual, {
             contradictory,
             hasSources,
           }),
-      reasonSummary:
-        safePositiveEvidence
-          ? residual.reasoning
-          : sameReviewReasonSummary(residual, {
-              contradictory,
-              hasSources,
-            }),
       groundedDecision: residual.decision,
       groundedConfidence: normalizedConfidence,
     };

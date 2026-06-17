@@ -30,9 +30,7 @@ function readFancyWinCredentials(): { username: string; password: string } {
   const username = process.env.FANCYWIN_USERNAME ?? process.env.SABA_USERNAME;
   const password = process.env.FANCYWIN_PASSWORD ?? process.env.SABA_PASSWORD;
   if (!username || !password) {
-    throw new Error(
-      "FANCYWIN_USERNAME / FANCYWIN_PASSWORD missing from .env",
-    );
+    throw new Error("FANCYWIN_USERNAME / FANCYWIN_PASSWORD missing from .env");
   }
   return { username, password };
 }

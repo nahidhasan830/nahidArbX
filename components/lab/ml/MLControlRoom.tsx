@@ -771,10 +771,7 @@ function LiveTrainingCard({ data }: { data: PipelineData }) {
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <MiniStat label="Samples" value={formatInt(active.sampleCount)} />
-        <MiniStat
-          label="Elapsed"
-          value={formatDurationMs(active.elapsedMs)}
-        />
+        <MiniStat label="Elapsed" value={formatDurationMs(active.elapsedMs)} />
         <MiniStat
           label="Heartbeat"
           value={heartbeatAgeMs == null ? "-" : formatAge(heartbeatAgeMs)}
@@ -1418,12 +1415,18 @@ function PredictionAuditPanel() {
           const r = row.original;
           const features = r.mlFeatures ?? [];
           const multiplier = r.kellyMultiplier ?? 1.0;
-          const reason = buildDecisionReason(r.mlScore, features, multiplier, undefined, {
-            homeTeam: r.homeTeam,
-            awayTeam: r.awayTeam,
-            marketType: r.marketType,
-            atomLabel: r.atomLabel,
-          });
+          const reason = buildDecisionReason(
+            r.mlScore,
+            features,
+            multiplier,
+            undefined,
+            {
+              homeTeam: r.homeTeam,
+              awayTeam: r.awayTeam,
+              marketType: r.marketType,
+              atomLabel: r.atomLabel,
+            },
+          );
 
           return (
             <Dialog>
@@ -1446,7 +1449,9 @@ function PredictionAuditPanel() {
               <DialogContent className="max-w-2xl">
                 <DialogHeader>
                   <div className="flex items-center justify-between">
-                    <DialogTitle className="text-base">Decision Analysis</DialogTitle>
+                    <DialogTitle className="text-base">
+                      Decision Analysis
+                    </DialogTitle>
                     <Badge
                       variant="outline"
                       className={cn(
@@ -1467,23 +1472,32 @@ function PredictionAuditPanel() {
                   </div>
 
                   <div>
-                    <p className="mb-3 font-semibold text-foreground">Why this decision?</p>
+                    <p className="mb-3 font-semibold text-foreground">
+                      Why this decision?
+                    </p>
                     <ul className="space-y-3">
                       {reason.explanation.map((point, i) => (
                         <li key={i} className="flex gap-3">
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
                           <div>
-                            <span className="font-semibold text-foreground">{point.heading}: </span>
-                            <span className="text-muted-foreground leading-relaxed">{point.text}</span>
+                            <span className="font-semibold text-foreground">
+                              {point.heading}:{" "}
+                            </span>
+                            <span className="text-muted-foreground leading-relaxed">
+                              {point.text}
+                            </span>
                           </div>
                         </li>
                       ))}
                     </ul>
                   </div>
 
-                  {reason.multiplierChain !== "1.0 = 1.00× (no adjustments needed)" && (
+                  {reason.multiplierChain !==
+                    "1.0 = 1.00× (no adjustments needed)" && (
                     <div className="rounded-md border border-border bg-muted/30 p-3">
-                      <p className="mb-2 font-semibold text-foreground">Multiplier Chain</p>
+                      <p className="mb-2 font-semibold text-foreground">
+                        Multiplier Chain
+                      </p>
                       <p className="font-mono text-xs text-muted-foreground">
                         {reason.multiplierChain}
                       </p>
@@ -1491,11 +1505,15 @@ function PredictionAuditPanel() {
                   )}
 
                   <div>
-                    <p className="mb-3 font-semibold text-foreground">Technical Signals</p>
+                    <p className="mb-3 font-semibold text-foreground">
+                      Technical Signals
+                    </p>
                     <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
                       {reason.technical.map((tech, i) => (
                         <div key={i} className="contents">
-                          <span className="text-muted-foreground font-medium">{tech.label}</span>
+                          <span className="text-muted-foreground font-medium">
+                            {tech.label}
+                          </span>
                           <div className="flex flex-col">
                             <span
                               className={cn(

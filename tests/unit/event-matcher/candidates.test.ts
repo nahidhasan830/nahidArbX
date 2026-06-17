@@ -51,6 +51,30 @@ describe("event matcher candidate generation", () => {
     ).toContain("kickoff_mismatch");
   });
 
+  it("blocks senior-vs-reserve rows when only one side uses a parenthesized reserve marker", () => {
+    const kickoff = new Date("2026-01-01T10:00:00Z");
+    const a = snap("a", "pinnacle", kickoff, {
+      homeTeamRaw: "Sarmiento",
+      homeTeamNormalized: "sarmiento",
+      awayTeamRaw: "Talleres de Cordoba",
+      awayTeamNormalized: "talleres de cordoba",
+      competitionRaw: "Argentina - Liga Pro",
+      competitionNormalized: "argentina liga pro",
+    });
+    const b = snap("b", "ninewickets-sportsbook", kickoff, {
+      homeTeamRaw: "CA Sarmiento (Res)",
+      homeTeamNormalized: "ca sarmiento res",
+      awayTeamRaw: "CA Talleres de Cordoba (Res)",
+      awayTeamNormalized: "ca talleres de cordoba res",
+      competitionRaw: "Argentinian Primera Division",
+      competitionNormalized: "argentinian primera division",
+    });
+
+    expect(
+      hardBlockersForCandidate(a, b, DEFAULT_EVENT_MATCHER_CONFIG),
+    ).toContain("youth_or_tier_mismatch");
+  });
+
   it("keeps same-kickoff pairs without anchors out of the candidate funnel", () => {
     const kickoff = new Date("2026-05-28T07:00:00Z");
     const a = snap("a", "saba-sportsbook", kickoff, {

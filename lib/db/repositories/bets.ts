@@ -1113,6 +1113,33 @@ export async function isAlreadyPlaced(
   return rows.length > 0;
 }
 
+/**
+ * True iff any non-cancelled sibling selection in the same event/family has
+ * already been reserved or placed. Used by active ML placement policy because
+ * atoms inside a family are a closed market: taking both over and under on the
+ * same line is not a valid model action.
+ */
+export async function hasPlacedSiblingInFamily(
+  eventId: string,
+  familyId: string,
+  atomId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: bets.id })
+    .from(bets)
+    .where(
+      and(
+        eq(bets.eventId, eventId),
+        eq(bets.familyId, familyId),
+        sql`${bets.atomId} <> ${atomId}`,
+        sql`${bets.outcome} <> 'cancelled'`,
+        sql`${bets.placedAt} IS NOT NULL`,
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 export interface ReservePlacementShell {
   atomLabel: string;
   homeTeam: string;

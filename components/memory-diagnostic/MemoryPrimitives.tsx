@@ -43,10 +43,7 @@ export function SectionHeaderPlaceholder() {
 export function TilePlaceholder({ height = "h-24" }: { height?: string }) {
   return (
     <div
-      className={cn(
-        "rounded-md border border-border bg-background",
-        height,
-      )}
+      className={cn("rounded-md border border-border bg-background", height)}
     />
   );
 }

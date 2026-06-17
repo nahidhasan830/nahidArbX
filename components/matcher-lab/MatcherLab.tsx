@@ -773,7 +773,8 @@ function RunProgressModal({
     !running && rows.length > 0 && latest?.phase === "completed";
   const failed = latest?.phase === "failed";
   const eventLog = [...events].reverse();
-  const selectedCount = counters?.snapshots ?? summary?.snapshotCount ?? rows.length;
+  const selectedCount =
+    counters?.snapshots ?? summary?.snapshotCount ?? rows.length;
   const outputTotal =
     resultCounts.auto_merge +
     resultCounts.auto_reject +
@@ -1085,7 +1086,9 @@ function RunProgressModal({
                   Apply reviewed outcomes
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Save the selected matcher outcomes</TooltipContent>
+              <TooltipContent>
+                Save the selected matcher outcomes
+              </TooltipContent>
             </Tooltip>
           </DialogFooter>
         )}
@@ -1739,25 +1742,28 @@ export function MatcherLab() {
     setRowDecisionCounts(data.decisionCounts);
   }, [decisionFilter]);
 
-  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
-    const requestSeq = refreshSeqRef.current + 1;
-    refreshSeqRef.current = requestSeq;
-    if (!opts?.silent) setRefreshing(true);
-    try {
-      await Promise.all([loadStats(), loadRows()]);
-    } catch (err) {
-      if (refreshSeqRef.current === requestSeq && !opts?.silent) {
-        toast.error("Failed to load matcher lab", {
-          description: (err as Error).message,
-        });
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const requestSeq = refreshSeqRef.current + 1;
+      refreshSeqRef.current = requestSeq;
+      if (!opts?.silent) setRefreshing(true);
+      try {
+        await Promise.all([loadStats(), loadRows()]);
+      } catch (err) {
+        if (refreshSeqRef.current === requestSeq && !opts?.silent) {
+          toast.error("Failed to load matcher lab", {
+            description: (err as Error).message,
+          });
+        }
+      } finally {
+        if (refreshSeqRef.current === requestSeq) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-    } finally {
-      if (refreshSeqRef.current === requestSeq) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, [loadRows, loadStats]);
+    },
+    [loadRows, loadStats],
+  );
 
   useEffect(() => {
     void refresh();
@@ -2332,9 +2338,7 @@ export function MatcherLab() {
         row={detailRow}
         open={detailRow !== null}
         onOpenChange={(open) => !open && setDetailRow(null)}
-        manualDecisionSaving={
-          detailRow?.decisionId === manualDecisionSavingId
-        }
+        manualDecisionSaving={detailRow?.decisionId === manualDecisionSavingId}
         onManualDecision={saveDirectManualDecision}
       />
       <RunProgressModal
@@ -2559,7 +2563,9 @@ function buildColumns({
               <Search className="size-3.5 text-amber-400" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Open manual Google AI Mode verification</TooltipContent>
+          <TooltipContent>
+            Open manual Google AI Mode verification
+          </TooltipContent>
         </Tooltip>
       ),
     },

@@ -4,7 +4,16 @@
  * Write side is deliberately tolerant: audit failures must never block live
  * value detection, scoring, settlement, or placement.
  */
-import { and, desc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { db } from "../client";
 import {
   bets,

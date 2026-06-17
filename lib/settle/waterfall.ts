@@ -24,6 +24,8 @@ import {
 } from "../db/repositories/match-scores";
 import { fetchEspnScores, enrichEspnStats } from "./sources/espn";
 import {
+  clearApiFootballSourceIssues,
+  drainApiFootballSourceIssues,
   fetchApiFootballScores,
   enrichApiFootballStats,
   getApiFootballQuota,
@@ -145,10 +147,7 @@ const hasRequiredData = (
   if (req.needsCorners && (s.cornersHome == null || s.cornersAway == null)) {
     return false;
   }
-  if (
-    req.needsBookings &&
-    (s.bookingsHome == null || s.bookingsAway == null)
-  ) {
+  if (req.needsBookings && (s.bookingsHome == null || s.bookingsAway == null)) {
     return false;
   }
   return true;
@@ -368,6 +367,7 @@ export async function resolveScores(
   // ── Tier 2c: API-Football (official, quota-guarded last resort) ────────
   const t2cCandidates = candidatesNeedingNetwork();
   if (t2cCandidates.length > 0) {
+    clearApiFootballSourceIssues();
     try {
       const t2c = await fetchApiFootballScores(t2cCandidates);
       if (t2c.size > 0) {
@@ -393,6 +393,8 @@ export async function resolveScores(
         "Waterfall",
         `Tier 2c (API-Football) failed: ${(err as Error).message}`,
       );
+    } finally {
+      telemetry.sourceIssues.push(...drainApiFootballSourceIssues());
     }
   }
 

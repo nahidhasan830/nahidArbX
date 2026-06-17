@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import {
+  isSabaSyntheticMarketFixture,
+  SABA_SYNTHETIC_MARKET_COMPETITION_SQL_RE,
+  SABA_SYNTHETIC_MARKET_TEAM_SQL_RE,
+} from "../adapters/saba-filters";
 import { db } from "../db/client";
 import { bestSim } from "../matching/string-sim";
 import {
@@ -49,7 +54,57 @@ export interface CompatibleCanonicalClusterMergePlan {
   reason: string;
 }
 
+interface CanonicalMemberSnapshotForPlanning {
+  id: string;
+  canonicalEventId: string;
+  snapshotId: string;
+  provider: string;
+  providerEventId: string;
+  sport: string;
+  homeTeamRaw: string;
+  awayTeamRaw: string;
+  competitionRaw: string;
+  parsedKickoff: string | Date;
+}
+
 const CLUSTER_MERGE_MAX_KICKOFF_DRIFT_MS = 5 * 60 * 1000;
+const SABA_PROVIDER = "saba-sportsbook";
+
+function sabaSyntheticSnapshotPredicate(table: {
+  provider: unknown;
+  competitionRaw: unknown;
+  homeTeamRaw: unknown;
+  awayTeamRaw: unknown;
+}) {
+  return sql`${table.provider} = ${SABA_PROVIDER} and (
+    ${table.competitionRaw} ~* ${SABA_SYNTHETIC_MARKET_COMPETITION_SQL_RE}
+    or ${table.homeTeamRaw} ~* ${SABA_SYNTHETIC_MARKET_TEAM_SQL_RE}
+    or ${table.awayTeamRaw} ~* ${SABA_SYNTHETIC_MARKET_TEAM_SQL_RE}
+  )`;
+}
+
+function nonSabaSyntheticSnapshotPredicate(table: {
+  provider: unknown;
+  competitionRaw: unknown;
+  homeTeamRaw: unknown;
+  awayTeamRaw: unknown;
+}) {
+  return sql`not (${sabaSyntheticSnapshotPredicate(table)})`;
+}
+
+function isSyntheticPlanningMember(
+  member: Pick<
+    CanonicalMemberSnapshotForPlanning,
+    "provider" | "homeTeamRaw" | "awayTeamRaw" | "competitionRaw"
+  >,
+): boolean {
+  return isSabaSyntheticMarketFixture({
+    provider: member.provider,
+    homeTeam: member.homeTeamRaw,
+    awayTeam: member.awayTeamRaw,
+    competition: member.competitionRaw,
+  });
+}
 
 function rowToSnapshot(
   row: typeof providerEventSnapshots.$inferSelect,
@@ -80,8 +135,11 @@ export async function loadRecentSnapshots(opts: {
   fetchBatchId?: string;
 }): Promise<ProviderEventSnapshot[]> {
   const where = opts.fetchBatchId
-    ? eq(providerEventSnapshots.fetchBatchId, opts.fetchBatchId)
-    : undefined;
+    ? and(
+        eq(providerEventSnapshots.fetchBatchId, opts.fetchBatchId),
+        nonSabaSyntheticSnapshotPredicate(providerEventSnapshots),
+      )
+    : nonSabaSyntheticSnapshotPredicate(providerEventSnapshots);
   const rows = await db
     .select()
     .from(providerEventSnapshots)
@@ -115,7 +173,12 @@ export async function loadSnapshotsForDecisionIds(
   const snapshots = await db
     .select()
     .from(providerEventSnapshots)
-    .where(inArray(providerEventSnapshots.id, snapshotIds));
+    .where(
+      and(
+        inArray(providerEventSnapshots.id, snapshotIds),
+        nonSabaSyntheticSnapshotPredicate(providerEventSnapshots),
+      ),
+    );
   return snapshots.map(rowToSnapshot);
 }
 
@@ -134,6 +197,8 @@ export async function listDecisionRows(opts?: {
     opts?.decisionId ? eq(matcherDecisions.id, opts.decisionId) : undefined,
     opts?.runId ? eq(matcherDecisions.runId, opts.runId) : undefined,
     opts?.decision ? eq(matcherDecisions.decision, opts.decision) : undefined,
+    nonSabaSyntheticSnapshotPredicate(snapshotA),
+    nonSabaSyntheticSnapshotPredicate(snapshotB),
     !opts?.decisionId && !opts?.runId
       ? sql`${matcherDecisions.id} in (
           select distinct on (candidate_id) id
@@ -284,10 +349,14 @@ export async function countDecisionRows(opts?: {
   decisionId?: string;
   decision?: string;
 }): Promise<number> {
+  const snapshotA = alias(providerEventSnapshots, "count_snapshot_a");
+  const snapshotB = alias(providerEventSnapshots, "count_snapshot_b");
   const filters = [
     opts?.decisionId ? eq(matcherDecisions.id, opts.decisionId) : undefined,
     opts?.runId ? eq(matcherDecisions.runId, opts.runId) : undefined,
     opts?.decision ? eq(matcherDecisions.decision, opts.decision) : undefined,
+    nonSabaSyntheticSnapshotPredicate(snapshotA),
+    nonSabaSyntheticSnapshotPredicate(snapshotB),
     !opts?.decisionId && !opts?.runId
       ? sql`${matcherDecisions.id} in (
           select distinct on (candidate_id) id
@@ -300,6 +369,12 @@ export async function countDecisionRows(opts?: {
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .innerJoin(snapshotA, eq(snapshotA.id, matcherCandidates.snapshotAId))
+    .innerJoin(snapshotB, eq(snapshotB.id, matcherCandidates.snapshotBId))
     .where(filters.length > 0 ? and(...filters) : undefined);
   return rows[0]?.count ?? 0;
 }
@@ -307,8 +382,12 @@ export async function countDecisionRows(opts?: {
 export async function decisionCountsForDecisionRows(opts?: {
   runId?: string;
 }): Promise<{ decision: string; count: number }[]> {
+  const snapshotA = alias(providerEventSnapshots, "decision_count_snapshot_a");
+  const snapshotB = alias(providerEventSnapshots, "decision_count_snapshot_b");
   const filters = [
     opts?.runId ? eq(matcherDecisions.runId, opts.runId) : undefined,
+    nonSabaSyntheticSnapshotPredicate(snapshotA),
+    nonSabaSyntheticSnapshotPredicate(snapshotB),
     !opts?.runId
       ? sql`${matcherDecisions.id} in (
           select distinct on (candidate_id) id
@@ -324,6 +403,12 @@ export async function decisionCountsForDecisionRows(opts?: {
       count: sql<number>`count(*)::int`,
     })
     .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .innerJoin(snapshotA, eq(snapshotA.id, matcherCandidates.snapshotAId))
+    .innerJoin(snapshotB, eq(snapshotB.id, matcherCandidates.snapshotBId))
     .where(filters.length > 0 ? and(...filters) : undefined)
     .groupBy(matcherDecisions.decision)
     .orderBy(sql`count(*) desc`);
@@ -338,13 +423,23 @@ export async function countDecisions(opts?: {
   runId?: string;
   decision?: string;
 }): Promise<number> {
+  const snapshotA = alias(providerEventSnapshots, "stats_count_snapshot_a");
+  const snapshotB = alias(providerEventSnapshots, "stats_count_snapshot_b");
   const filters = [
     opts?.runId ? eq(matcherDecisions.runId, opts.runId) : undefined,
     opts?.decision ? eq(matcherDecisions.decision, opts.decision) : undefined,
+    nonSabaSyntheticSnapshotPredicate(snapshotA),
+    nonSabaSyntheticSnapshotPredicate(snapshotB),
   ].filter(Boolean);
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .innerJoin(snapshotA, eq(snapshotA.id, matcherCandidates.snapshotAId))
+    .innerJoin(snapshotB, eq(snapshotB.id, matcherCandidates.snapshotBId))
     .where(filters.length > 0 ? and(...filters) : undefined);
   return rows[0]?.count ?? 0;
 }
@@ -389,12 +484,26 @@ export async function filterNewCandidateKeys(
 export async function decisionCountsByDecision(): Promise<
   { decision: string; count: number }[]
 > {
+  const snapshotA = alias(providerEventSnapshots, "stats_decision_snapshot_a");
+  const snapshotB = alias(providerEventSnapshots, "stats_decision_snapshot_b");
   return db
     .select({
       decision: matcherDecisions.decision,
       count: sql<number>`count(*)::int`,
     })
     .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .innerJoin(snapshotA, eq(snapshotA.id, matcherCandidates.snapshotAId))
+    .innerJoin(snapshotB, eq(snapshotB.id, matcherCandidates.snapshotBId))
+    .where(
+      and(
+        nonSabaSyntheticSnapshotPredicate(snapshotA),
+        nonSabaSyntheticSnapshotPredicate(snapshotB),
+      ),
+    )
     .groupBy(matcherDecisions.decision)
     .orderBy(sql`count(*) desc`);
 }
@@ -408,6 +517,8 @@ const GROUNDED_REVIEW_SKIP_REASON_CODES = new Set([
 export async function readReliabilityStats(
   limit = 500,
 ): Promise<EventMatcherReliabilityStats> {
+  const snapshotA = alias(providerEventSnapshots, "reliability_snapshot_a");
+  const snapshotB = alias(providerEventSnapshots, "reliability_snapshot_b");
   const rows = await db
     .select({
       decision: matcherDecisions.decision,
@@ -415,6 +526,18 @@ export async function readReliabilityStats(
       reasonCode: matcherDecisions.reasonCode,
     })
     .from(matcherDecisions)
+    .innerJoin(
+      matcherCandidates,
+      eq(matcherCandidates.id, matcherDecisions.candidateId),
+    )
+    .innerJoin(snapshotA, eq(snapshotA.id, matcherCandidates.snapshotAId))
+    .innerJoin(snapshotB, eq(snapshotB.id, matcherCandidates.snapshotBId))
+    .where(
+      and(
+        nonSabaSyntheticSnapshotPredicate(snapshotA),
+        nonSabaSyntheticSnapshotPredicate(snapshotB),
+      ),
+    )
     .orderBy(desc(matcherDecisions.createdAt))
     .limit(limit);
 
@@ -756,25 +879,27 @@ export async function supersedeStaleHumanReviewDecisions(input: {
   const inserted = await db
     .insert(matcherDecisions)
     .values(
-      staleRows.map((row): NewMatcherDecisionRow => ({
-        id: randomUUID(),
-        runId: input.runId,
-        candidateId: row.candidateId,
-        decision: "auto_reject",
-        decisionStage: "deterministic",
-        confidence: 1,
-        confidenceBand: "very_high",
-        final: true,
-        dryRun: false,
-        reasonCode: "stale_candidate_not_regenerated",
-        reasonSummary:
-          "Selected review row no longer forms an admissible current candidate, so the stale review decision was superseded.",
-        hardBlockers: ["stale_candidate_not_regenerated"],
-        scoreBreakdown: row.scoreBreakdown,
-        groundedDecision: null,
-        groundedConfidence: null,
-        canonicalEventId: null,
-      })),
+      staleRows.map(
+        (row): NewMatcherDecisionRow => ({
+          id: randomUUID(),
+          runId: input.runId,
+          candidateId: row.candidateId,
+          decision: "auto_reject",
+          decisionStage: "deterministic",
+          confidence: 1,
+          confidenceBand: "very_high",
+          final: true,
+          dryRun: false,
+          reasonCode: "stale_candidate_not_regenerated",
+          reasonSummary:
+            "Selected review row no longer forms an admissible current candidate, so the stale review decision was superseded.",
+          hardBlockers: ["stale_candidate_not_regenerated"],
+          scoreBreakdown: row.scoreBreakdown,
+          groundedDecision: null,
+          groundedConfidence: null,
+          canonicalEventId: null,
+        }),
+      ),
     )
     .returning({ id: matcherDecisions.id });
 
@@ -841,31 +966,34 @@ export async function supersedeClusterResolvedHumanReviewDecisions(input: {
   const inserted = await db
     .insert(matcherDecisions)
     .values(
-      rows.map((row): NewMatcherDecisionRow => ({
-        id: randomUUID(),
-        runId: input.runId,
-        candidateId: row.candidateId,
-        decision: "auto_merge",
-        decisionStage: "deterministic",
-        confidence: 1,
-        confidenceBand: "very_high",
-        final: true,
-        dryRun: false,
-        reasonCode: "canonical_cluster_already_matched",
-        reasonSummary: `Both provider snapshots are already members of canonical event ${row.canonicalEventId}, so the stale review row was superseded.`,
-        hardBlockers: row.hardBlockers,
-        scoreBreakdown: row.scoreBreakdown,
-        groundedDecision: row.groundedDecision,
-        groundedConfidence: row.groundedConfidence,
-        canonicalEventId: row.canonicalEventId,
-      })),
+      rows.map(
+        (row): NewMatcherDecisionRow => ({
+          id: randomUUID(),
+          runId: input.runId,
+          candidateId: row.candidateId,
+          decision: "auto_merge",
+          decisionStage: "deterministic",
+          confidence: 1,
+          confidenceBand: "very_high",
+          final: true,
+          dryRun: false,
+          reasonCode: "canonical_cluster_already_matched",
+          reasonSummary: `Both provider snapshots are already members of canonical event ${row.canonicalEventId}, so the stale review row was superseded.`,
+          hardBlockers: row.hardBlockers,
+          scoreBreakdown: row.scoreBreakdown,
+          groundedDecision: row.groundedDecision,
+          groundedConfidence: row.groundedConfidence,
+          canonicalEventId: row.canonicalEventId,
+        }),
+      ),
     )
     .returning({ id: matcherDecisions.id });
 
   return {
     superseded: inserted.length,
-    currentRunSuperseded: rows.filter((row) => row.previousRunId === input.runId)
-      .length,
+    currentRunSuperseded: rows.filter(
+      (row) => row.previousRunId === input.runId,
+    ).length,
   };
 }
 
@@ -935,7 +1063,9 @@ function scoreSupportsCompatibleClusterMerge(score: ScoreBreakdown): boolean {
 }
 
 function clusterMembersHaveNoProviderCollision(
-  members: CanonicalEventMemberRow[],
+  members: Array<
+    Pick<CanonicalMemberSnapshotForPlanning, "provider" | "canonicalEventId">
+  >,
 ): boolean {
   const providerCanonicalIds = new Map<string, string>();
   for (const member of members) {
@@ -946,8 +1076,24 @@ function clusterMembersHaveNoProviderCollision(
   return true;
 }
 
-function chooseTargetCanonicalEvent(events: CanonicalEventRow[]): string {
+function chooseTargetCanonicalEvent(
+  events: CanonicalEventRow[],
+  members: CanonicalMemberSnapshotForPlanning[] = [],
+): string {
+  const eligibleMemberCounts = new Map<string, number>();
+  for (const member of members) {
+    eligibleMemberCounts.set(
+      member.canonicalEventId,
+      (eligibleMemberCounts.get(member.canonicalEventId) ?? 0) + 1,
+    );
+  }
+
   return [...events].sort((a, b) => {
+    const memberCountDelta =
+      (eligibleMemberCounts.get(b.id) ?? 0) -
+      (eligibleMemberCounts.get(a.id) ?? 0);
+    if (memberCountDelta !== 0) return memberCountDelta;
+
     const kickoffDelta =
       new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime();
     if (kickoffDelta !== 0) return kickoffDelta;
@@ -975,7 +1121,8 @@ export async function planCompatibleCanonicalClusterMerge(input: {
       action: "blocked",
       canonicalEventId: null,
       sourceCanonicalEventIds: [],
-      reason: "Candidate score is not strong enough to merge canonical clusters.",
+      reason:
+        "Candidate score is not strong enough to merge canonical clusters.",
     };
   }
 
@@ -991,26 +1138,60 @@ export async function planCompatibleCanonicalClusterMerge(input: {
       action: "blocked",
       canonicalEventId: null,
       sourceCanonicalEventIds: [],
-      reason: "One or more conflicting canonical clusters are missing or inactive.",
+      reason:
+        "One or more conflicting canonical clusters are missing or inactive.",
     };
   }
 
-  const members = await db
-    .select()
+  const memberRows = await db
+    .select({
+      id: canonicalEventMembers.id,
+      canonicalEventId: canonicalEventMembers.canonicalEventId,
+      snapshotId: canonicalEventMembers.snapshotId,
+      provider: canonicalEventMembers.provider,
+      providerEventId: canonicalEventMembers.providerEventId,
+      sport: providerEventSnapshots.sport,
+      homeTeamRaw: providerEventSnapshots.homeTeamRaw,
+      awayTeamRaw: providerEventSnapshots.awayTeamRaw,
+      competitionRaw: providerEventSnapshots.competitionRaw,
+      parsedKickoff: providerEventSnapshots.parsedKickoff,
+    })
     .from(canonicalEventMembers)
+    .innerJoin(
+      providerEventSnapshots,
+      eq(providerEventSnapshots.id, canonicalEventMembers.snapshotId),
+    )
     .where(
       inArray(
         canonicalEventMembers.canonicalEventId,
         conflictCanonicalEventIds,
       ),
     );
-  if (!clusterMembersHaveNoProviderCollision(members)) {
+  const compatibilityMembers = memberRows.filter(
+    (member) => !isSyntheticPlanningMember(member),
+  );
+  const compatibilityCanonicalIds = new Set(
+    compatibilityMembers.map((member) => member.canonicalEventId),
+  );
+  if (
+    conflictCanonicalEventIds.some((id) => !compatibilityCanonicalIds.has(id))
+  ) {
     return {
       action: "blocked",
       canonicalEventId: null,
       sourceCanonicalEventIds: [],
       reason:
-        "Conflicting canonical clusters contain different events from the same provider.",
+        "One or more conflicting canonical clusters have no non-synthetic members for compatibility checks.",
+    };
+  }
+
+  if (!clusterMembersHaveNoProviderCollision(compatibilityMembers)) {
+    return {
+      action: "blocked",
+      canonicalEventId: null,
+      sourceCanonicalEventIds: [],
+      reason:
+        "Conflicting canonical clusters contain different non-synthetic events from the same provider.",
     };
   }
 
@@ -1031,17 +1212,18 @@ export async function planCompatibleCanonicalClusterMerge(input: {
       action: "blocked",
       canonicalEventId: null,
       sourceCanonicalEventIds: [],
-      reason: "Conflicting canonical clusters have materially different kickoffs.",
+      reason:
+        "Conflicting canonical clusters have materially different kickoffs.",
     };
   }
 
   if (
     !allSurfacesCompatible(
-      events.map((event) => event.homeTeamCanonical),
+      compatibilityMembers.map((member) => member.homeTeamRaw),
       0.82,
     ) ||
     !allSurfacesCompatible(
-      events.map((event) => event.awayTeamCanonical),
+      compatibilityMembers.map((member) => member.awayTeamRaw),
       0.82,
     )
   ) {
@@ -1053,7 +1235,10 @@ export async function planCompatibleCanonicalClusterMerge(input: {
     };
   }
 
-  const targetCanonicalEventId = chooseTargetCanonicalEvent(events);
+  const targetCanonicalEventId = chooseTargetCanonicalEvent(
+    events,
+    compatibilityMembers,
+  );
   return {
     action: "merge",
     canonicalEventId: targetCanonicalEventId,
@@ -1247,7 +1432,9 @@ export async function applyCompatibleCanonicalClusterMerge(input: {
       await tx
         .update(matcherDecisions)
         .set({ canonicalEventId: targetCanonicalEventId })
-        .where(inArray(matcherDecisions.canonicalEventId, sourceCanonicalEventIds));
+        .where(
+          inArray(matcherDecisions.canonicalEventId, sourceCanonicalEventIds),
+        );
       await tx
         .delete(canonicalEvents)
         .where(inArray(canonicalEvents.id, sourceCanonicalEventIds));
@@ -1388,7 +1575,12 @@ export async function readCanonicalClusters(
       latestDecision,
       eq(latestDecision.canonicalEventId, canonicalEvents.id),
     )
-    .where(eq(canonicalEvents.status, "active"))
+    .where(
+      and(
+        eq(canonicalEvents.status, "active"),
+        nonSabaSyntheticSnapshotPredicate(providerEventSnapshots),
+      ),
+    )
     .groupBy(canonicalEvents.id)
     .orderBy(desc(canonicalEvents.kickoff))
     .limit(limit);

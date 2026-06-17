@@ -153,10 +153,7 @@ describe("Vertex search query rewrites", () => {
       variants[1]?.query,
       "Egersund Stromsgodset 2026-05-31 football fixture",
     );
-    assert.equal(
-      variants[2]?.query,
-      "Egersund Stromsgodset football fixture",
-    );
+    assert.equal(variants[2]?.query, "Egersund Stromsgodset football fixture");
     assert.equal(
       variants[3]?.query,
       "Strommen Sogndal 2026-05-31 15:00 UTC football fixture",
@@ -202,7 +199,9 @@ describe("Vertex search query rewrites", () => {
       "Alpha City vs Beta United 2026-06-02 football fixture",
     );
     assert(
-      siteVariants.every((v) => v.reason === "original" || !/\bPEN\b/i.test(v.query)),
+      siteVariants.every(
+        (v) => v.reason === "original" || !/\bPEN\b/i.test(v.query),
+      ),
       "result markers should be stripped from generated variants",
     );
 
@@ -276,9 +275,7 @@ describe("Vertex search query rewrites", () => {
       "Alpha City Beta United (ABC) 2026-05-31 Premier League football fixture",
     );
 
-    assert(
-      variants.some((v) => v.query.includes("Alpha City Beta United")),
-    );
+    assert(variants.some((v) => v.query.includes("Alpha City Beta United")));
     assert(
       variants.some(
         (v) =>
@@ -322,8 +319,7 @@ describe("Vertex search query rewrites", () => {
       variants.some(
         (v) =>
           v.reason === "fixture-subject-split" &&
-          v.query ===
-            "pryk pattya Ukrainian Persha Liga football club",
+          v.query === "pryk pattya Ukrainian Persha Liga football club",
       ),
     );
   });
@@ -352,7 +348,10 @@ describe("Vertex search query rewrites", () => {
       "Poland Nigeria 2026-06-03 football fixture",
     );
 
-    assert.equal(variants[0]?.query, "Poland Nigeria 2026-06-03 football fixture");
+    assert.equal(
+      variants[0]?.query,
+      "Poland Nigeria 2026-06-03 football fixture",
+    );
     assert.equal(variants[0]?.reason, "original");
     assert(
       variants.some(

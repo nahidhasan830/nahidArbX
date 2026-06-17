@@ -126,7 +126,7 @@ export function invalidateSession() {
   }
 }
 
-/** Shut down the persistent browser if running. */
+/** Shut down any active capture browser if running. */
 export async function shutdownSessionBrowser(): Promise<void> {
   await bridge.shutdown();
 }

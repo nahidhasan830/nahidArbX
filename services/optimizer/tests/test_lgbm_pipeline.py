@@ -19,10 +19,12 @@ from app.feature_names import FEATURE_COUNT, FEATURE_NAMES, FEATURE_NAMES_HASH, 
 from app.loader import TrainingData
 from app.policy import (
     POLICY_EDGE_THRESHOLD_PCT,
+    best_per_family_mask,
     compute_policy_threshold_stats,
     hpo_policy_objective_stats,
     model_edge_pct,
     policy_unit_returns,
+    simple_rule_unit_returns,
 )
 from app.trainer import TrainingMetrics, TrainingResult, train
 
@@ -65,9 +67,7 @@ class TestCPCVSplits:
         for split in splits:
             train_set = set(split.train_indices.tolist())
             test_set = set(split.test_indices.tolist())
-            assert train_set.isdisjoint(test_set), (
-                f"Fold {split.path_index}: train/test overlap"
-            )
+            assert train_set.isdisjoint(test_set), f"Fold {split.path_index}: train/test overlap"
 
 
 class TestTrainer:
@@ -139,7 +139,7 @@ class TestPolicyAlignedMetrics:
 
         edges = model_edge_pct(probs, features)
 
-        assert edges[0] == pytest.approx(4.5)   # 0.55 * 1.9 - 1
+        assert edges[0] == pytest.approx(4.5)  # 0.55 * 1.9 - 1
         assert edges[1] == pytest.approx(10.0)  # fallback to soft_odds
         assert edges[2] == pytest.approx(-30.0)
 
@@ -153,7 +153,9 @@ class TestPolicyAlignedMetrics:
         unit_returns = np.array([1.0, -1.0, 3.0, -1.0], dtype=np.float64)
 
         mean_ur, sharpe, selected_n = hpo_policy_objective_stats(
-            probs, features, unit_returns,
+            probs,
+            features,
+            unit_returns,
         )
 
         assert selected_n == 2
@@ -171,10 +173,12 @@ class TestPolicyAlignedMetrics:
         features[:, IDX["adjusted_soft_odds"]] = 2.0
         features[:, IDX["market_type_encoded"]] = 0.0
         labels = np.array([1, 0, 1, 0, 1, 0], dtype=np.int32)
-        metadata = pl.DataFrame({
-            "unit_return": [1.0, -10.0, 1.0, -10.0, 1.0, -10.0],
-            "event_id": [f"e{i}" for i in range(6)],
-        })
+        metadata = pl.DataFrame(
+            {
+                "unit_return": [1.0, -10.0, 1.0, -10.0, 1.0, -10.0],
+                "event_id": [f"e{i}" for i in range(6)],
+            }
+        )
         data = TrainingData(
             features=features,
             labels=labels,
@@ -246,6 +250,91 @@ class TestPolicyAlignedMetrics:
         assert mask.tolist() == [True, False, False, False]
         assert selected.tolist() == [1.0]
 
+    def test_policy_keeps_best_selection_per_event_family(self):
+        features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
+        features[:, IDX["sharp_true_prob"]] = 0.54
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
+        probs = np.array([0.56, 0.62, 0.58, 0.59], dtype=np.float64)
+        unit_returns = np.array([-1.0, 1.0, 0.5, 0.6], dtype=np.float64)
+        metadata = pl.DataFrame(
+            {
+                "id": ["a", "b", "c", "d"],
+                "event_id": ["event-1", "event-1", "event-1", "event-1"],
+                "family_id": ["ft_total_2_5", "ft_total_2_5", "ft_ah_0", "ft_ah_1"],
+                "soft_odds": [2.0, 2.0, 2.0, 2.0],
+                "sharp_true_prob": [0.54, 0.54, 0.54, 0.54],
+            }
+        )
+
+        selected, _edges, mask = policy_unit_returns(
+            probs,
+            features,
+            unit_returns,
+            metadata=metadata,
+        )
+
+        assert mask.tolist() == [False, True, True, True]
+        assert selected.tolist() == [1.0, 0.5, 0.6]
+
+    def test_hpo_objective_credits_only_best_family_selection(self):
+        features = np.zeros((3, FEATURE_COUNT), dtype=np.float32)
+        features[:, IDX["sharp_true_prob"]] = 0.54
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        features[:, IDX["market_type_encoded"]] = 0.0
+        probs = np.array([0.56, 0.62, 0.59], dtype=np.float64)
+        unit_returns = np.array([-1.0, 2.0, 1.0], dtype=np.float64)
+        metadata = pl.DataFrame(
+            {
+                "event_id": ["event-1", "event-1", "event-2"],
+                "family_id": ["ft_total_2_5", "ft_total_2_5", "ft_total_2_5"],
+            }
+        )
+
+        mean_ur, _sharpe, selected_n = hpo_policy_objective_stats(
+            probs,
+            features,
+            unit_returns,
+            metadata=metadata,
+        )
+
+        assert selected_n == 2
+        assert mean_ur == pytest.approx(1.5 * (2 / 30))
+
+    def test_simple_baseline_also_deconflicts_event_family(self):
+        features = np.zeros((3, FEATURE_COUNT), dtype=np.float32)
+        features[:, IDX["sharp_true_prob"]] = 0.54
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = [2.0, 2.2, 2.0]
+        features[:, IDX["market_type_encoded"]] = 0.0
+        unit_returns = np.array([-1.0, 1.0, 0.5], dtype=np.float64)
+        metadata = pl.DataFrame(
+            {
+                "event_id": ["event-1", "event-1", "event-1"],
+                "family_id": ["ft_total_2_5", "ft_total_2_5", "ft_ah_0"],
+                "soft_odds": [2.0, 2.2, 2.0],
+                "sharp_true_prob": [0.54, 0.54, 0.54],
+            }
+        )
+
+        selected, mask = simple_rule_unit_returns(
+            features,
+            unit_returns,
+            metadata=metadata,
+        )
+
+        assert mask.tolist() == [False, True, True]
+        assert selected.tolist() == [1.0, 0.5]
+
+    def test_best_per_family_mask_is_noop_without_metadata_keys(self):
+        mask = np.array([True, True], dtype=bool)
+        edges = np.array([5.0, 10.0], dtype=np.float64)
+        metadata = pl.DataFrame({"event_id": ["event-1", "event-1"]})
+
+        assert best_per_family_mask(mask, edges, metadata).tolist() == [True, True]
+
     def test_fixed_policy_threshold_scores_incremental_oos_improvement(self):
         n_good = 120
         n_bad = 100
@@ -254,14 +343,18 @@ class TestPolicyAlignedMetrics:
         features[:, IDX["adjusted_soft_odds"]] = 2.0
         features[:, IDX["market_type_encoded"]] = 0.0
         features[:, IDX["sharp_true_prob"]] = 0.54
-        probs = np.concatenate([
-            np.full(n_good, 0.56),
-            np.full(n_bad, 0.50),
-        ])
-        unit_returns = np.concatenate([
-            np.full(n_good, 0.10),
-            np.full(n_bad, -0.20),
-        ])
+        probs = np.concatenate(
+            [
+                np.full(n_good, 0.56),
+                np.full(n_bad, 0.50),
+            ]
+        )
+        unit_returns = np.concatenate(
+            [
+                np.full(n_good, 0.10),
+                np.full(n_bad, -0.20),
+            ]
+        )
 
         result = compute_policy_threshold_stats(
             probs,

@@ -8,7 +8,7 @@
  *   Step 2 – page.evaluate(fetch('/getGameUrl')) → provider-specific result
  *   Step 3 – (optional) Follow the result (navigate, redirect-capture, etc.)
  *
- * This module extracts the shared mechanics (warm browser management,
+ * This module extracts the shared mechanics (browser lifecycle management,
  * CF solving, in-page fetch, concurrency guards, retry with auto-healing)
  * into a reusable pipeline. Each provider plugs in a small config object
  * describing its endpoints and payload shapes.
@@ -18,7 +18,9 @@
  *   - Hard failures (bad credentials, account suspended) abort immediately
  *   - Transient failures (CF timeout, network blip, server 500) retry
  *     with backoff (3 attempts by default)
- *   - On any browser-level failure, the warm browser is disposed and
+ *   - After every capture attempt, the browser is disposed so Chromium
+ *     processes do not linger after login/token work is complete.
+ *   - On any browser-level failure, the browser is disposed and
  *     relaunched fresh on the next attempt (auto-healing)
  *
  * Current consumers:
@@ -139,7 +141,7 @@ export interface CaptureResult {
 export interface CloudflareBridge {
   /** Run the full capture flow with retries. Coalesces concurrent callers. */
   capture: () => Promise<CaptureResult>;
-  /** Shut down the warm browser. */
+  /** Shut down any active capture browser. */
   shutdown: () => Promise<void>;
 }
 
@@ -163,10 +165,11 @@ export function createCloudflareBridge(
   const backoffMs = config.backoffMs ?? DEFAULT_BACKOFF_MS;
 
   // Module-local inflight promise for coalescing concurrent callers
-  // during cold-launch. The browser itself lives in the global registry.
-  let warmBrowserInflight: Promise<Browser> | null = null;
+  // during cold-launch. The browser itself lives in the global registry
+  // so a hot reload can still find and close a prior instance.
+  let browserInflight: Promise<Browser> | null = null;
 
-  async function getWarmBrowser(): Promise<Browser> {
+  async function getCaptureBrowser(): Promise<Browser> {
     const existing = getSingletonBrowser(config.browserKey);
     if (existing) {
       // HMR reload path: close stale contexts from prior module lifetimes
@@ -179,10 +182,10 @@ export function createCloudflareBridge(
       }
       return existing;
     }
-    if (warmBrowserInflight) return warmBrowserInflight;
+    if (browserInflight) return browserInflight;
 
     const headless = process.env.TOKEN_HEADLESS !== "false";
-    warmBrowserInflight = chromium
+    browserInflight = chromium
       .launch({
         headless,
         args: ["--disable-blink-features=AutomationControlled"],
@@ -192,20 +195,20 @@ export function createCloudflareBridge(
         return b;
       })
       .finally(() => {
-        warmBrowserInflight = null;
+        browserInflight = null;
       });
-    return warmBrowserInflight;
+    return browserInflight;
   }
 
-  async function disposeWarmBrowser(): Promise<void> {
-    warmBrowserInflight = null;
+  async function disposeCaptureBrowser(): Promise<void> {
+    browserInflight = null;
     await closeSingletonBrowser(config.browserKey);
   }
 
   // ── Single attempt ─────────────────────────────────────────────────
 
   async function doSingleCapture(): Promise<CaptureResult> {
-    const browser = await getWarmBrowser();
+    const browser = await getCaptureBrowser();
     let ctx: BrowserContext | null = null;
 
     try {
@@ -316,11 +319,6 @@ export function createCloudflareBridge(
         providerData,
         attempts: 0 /* set by caller */,
       };
-    } catch (err) {
-      // Any capture failure taints the warm browser — reset so the
-      // next attempt starts with a clean Chromium process (auto-heal).
-      await disposeWarmBrowser();
-      throw err;
     } finally {
       if (ctx) {
         try {
@@ -329,6 +327,7 @@ export function createCloudflareBridge(
           /* ignore */
         }
       }
+      await disposeCaptureBrowser();
     }
   }
 
@@ -398,7 +397,7 @@ export function createCloudflareBridge(
       });
       return inflight;
     },
-    shutdown: () => disposeWarmBrowser(),
+    shutdown: () => disposeCaptureBrowser(),
   };
 }
 

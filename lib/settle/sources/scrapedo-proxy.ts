@@ -27,7 +27,8 @@ import { format } from "date-fns";
 const SCRAPE_DO_TOKEN =
   process.env.SCRAPE_DO_TOKEN ?? "3c8036cf1404454a88fc06efe50cb0ee934edfbf8ae";
 
-const SCRAPE_DO_BASE = "http://api.scrape.do";
+const SCRAPE_DO_BASE = "https://api.scrape.do";
+const MIN_REQUEST_SPACING_MS = 2_500;
 
 // After a direct 403, skip direct entirely for this window and route
 // via Scrape.do. Prevents the "re-trip Cloudflare every 10-min tick" loop.
@@ -41,6 +42,7 @@ const WARN_THRESHOLD = 0.8;
 
 interface ProxyState {
   lastDirect403At: number;
+  lastProxyRequestAt: number;
   /** Monthly usage counter — resets on month boundary. */
   monthKey: string; // "YYYY-MM"
   usedCredits: number;
@@ -52,6 +54,7 @@ function currentMonthKey(): string {
 
 const state = singleton<ProxyState>("settle:scrapedo-proxy", () => ({
   lastDirect403At: 0,
+  lastProxyRequestAt: 0,
   monthKey: currentMonthKey(),
   usedCredits: 0,
 }));
@@ -88,11 +91,25 @@ export async function fetchViaScrapeDoProxy<T>(
     return null;
   }
 
+  const waitMs = Math.max(
+    0,
+    MIN_REQUEST_SPACING_MS - (Date.now() - state.lastProxyRequestAt),
+  );
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  state.lastProxyRequestAt = Date.now();
+
   const cfg: AxiosRequestConfig = {
     method: "get",
-    url: `${SCRAPE_DO_BASE}/?token=${SCRAPE_DO_TOKEN}&url=${encodeURIComponent(targetUrl)}`,
+    url: SCRAPE_DO_BASE,
     timeout: timeoutMs,
     headers: { Accept: "application/json" },
+    params: {
+      token: SCRAPE_DO_TOKEN,
+      url: targetUrl,
+      super: "true",
+    },
   };
 
   try {
@@ -114,6 +131,13 @@ export async function fetchViaScrapeDoProxy<T>(
   } catch (err) {
     const status = (err as { response?: { status?: number } }).response?.status;
     if (status === 404) return null;
+    if (status === 429) {
+      logger.warn(
+        "ScrapeDoProxy",
+        `Proxy GET ${targetUrl} was rate-limited (HTTP 429). The settlement scheduler will retry later.`,
+      );
+      return null;
+    }
     logger.warn(
       "ScrapeDoProxy",
       `Proxy GET ${targetUrl} failed (HTTP ${status ?? "N/A"}): ${(err as Error).message}`,

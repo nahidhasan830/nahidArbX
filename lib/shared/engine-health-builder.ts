@@ -100,10 +100,7 @@ export function buildConnectionHealth(): Record<string, unknown> & {
     betconstruct: bcHealth.pendingRequests,
     "saba-sportsbook": sabaStatus.pending,
   };
-  const providerRuntime: Record<
-    string,
-    ProviderRuntimeSnapshot
-  > = {};
+  const providerRuntime: Record<string, ProviderRuntimeSnapshot> = {};
   for (const id of PROVIDER_IDS) {
     const s = ps[id];
     const cb = cbStats[id];
@@ -124,9 +121,7 @@ export function buildConnectionHealth(): Record<string, unknown> & {
       connected: connectedByProvider[id] ?? null,
       activeEvents: activeEventsByProvider[id] ?? null,
       pendingRequests: pendingRequestsByProvider[id] ?? null,
-      circuitBreaker: cb
-        ? { state: cb.state, failures: cb.failures }
-        : null,
+      circuitBreaker: cb ? { state: cb.state, failures: cb.failures } : null,
     };
   }
 
@@ -180,5 +175,7 @@ export function buildConnectionHealth(): Record<string, unknown> & {
   };
   health.providerAlerts = providerAlerts;
 
-  return health as Record<string, unknown> & { providerAlerts: ProviderAlert[] };
+  return health as Record<string, unknown> & {
+    providerAlerts: ProviderAlert[];
+  };
 }

@@ -94,6 +94,8 @@ def load_training_data(session: Session) -> TrainingData:
             first_seen_at,
             event_start_time,
             event_id,
+            family_id,
+            atom_id,
             placed_at
         FROM bets
         WHERE outcome <> 'pending'
@@ -237,6 +239,8 @@ def load_training_data(session: Session) -> TrainingData:
             "first_seen_at": r.get("first_seen_at"),
             "event_start_time": r.get("event_start_time"),
             "event_id": r.get("event_id"),
+            "family_id": r.get("family_id"),
+            "atom_id": r.get("atom_id"),
         })
 
     metadata = pl.DataFrame(meta_records, infer_schema_length=None, strict=False)
@@ -306,6 +310,8 @@ def _empty_metadata() -> pl.DataFrame:
             "first_seen_at": pl.Utf8,
             "event_start_time": pl.Utf8,
             "event_id": pl.Utf8,
+            "family_id": pl.Utf8,
+            "atom_id": pl.Utf8,
         }
     )
 
@@ -528,6 +534,8 @@ def load_from_training_examples(session: Session) -> TrainingData | None:
             "first_seen_at": r.get("created_at"),
             "event_start_time": r.get("event_start_time"),
             "event_id": r.get("event_id"),
+            "family_id": r.get("family_id"),
+            "atom_id": r.get("atom_id"),
         })
 
     metadata = pl.DataFrame(meta_records, infer_schema_length=None, strict=False)

@@ -230,7 +230,9 @@ describe("runAutoSettle", () => {
         },
       ],
       missing: [],
-      eventBreakdown: eventBreakdown({ fullyResolvedEventIds: ["evt1", "evt2"] }),
+      eventBreakdown: eventBreakdown({
+        fullyResolvedEventIds: ["evt1", "evt2"],
+      }),
       telemetry: { ...mockTelemetry, total: 2 },
     });
     vi.mocked(applySettlementOutcomes).mockResolvedValue(2);
@@ -386,14 +388,67 @@ describe("runAutoSettle", () => {
     await runAutoSettle();
 
     const message = vi.mocked(notify).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("⚠️ Settlement source warning");
-    expect(message).toContain("API-Football used this tick: 6");
+    expect(message).toContain("Settlement sources need attention");
     expect(message).toContain(
-      "Settlement order: ESPN → SofaScore → API-Football.",
+      "Outcome: 1 event still unresolved; 0 events resolved this tick.",
+    );
+    expect(message).toContain(
+      "Queue: 1 bet across 1 event. Tried 1; backoff held 0.",
+    );
+    expect(message).toContain("API-Football: 10/100 left; used 6 this tick.");
+    expect(message).toContain(
+      "Waterfall: ESPN → SofaScore → API-Football.",
     );
     expect(message).not.toContain("Corners markets");
     expect(message).not.toContain("Bookings markets");
     expect(message).not.toContain("1H/2H markets");
+  });
+
+  it("includes concrete source issues in source warnings", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2027-02-02T00:00:00Z"));
+    const row = makeRow();
+    vi.mocked(listBets).mockResolvedValue({ rows: [row as never], total: 1 });
+    vi.mocked(settleBatch).mockResolvedValue({
+      proposals: [
+        {
+          id: row.id,
+          proposedOutcome: "pending",
+          confidence: 0,
+          reasoning: "no source",
+          score: "",
+          tier: "unresolved",
+          source: null,
+        },
+      ],
+      missing: [],
+      eventBreakdown: eventBreakdown({
+        networkAttemptedEventIds: ["evt1"],
+        fullyResolvedEventIds: [],
+        stillUnresolvedEventIds: ["evt1"],
+      }),
+      telemetry: {
+        ...mockTelemetry,
+        eventsAttempted: 1,
+        eventsResolvedFromCache: 0,
+        eventsStillUnresolved: 1,
+        unresolved: 1,
+        unresolvedEvents: 1,
+        settledDeterministically: 0,
+        unsupported: 1,
+        sourceIssues: [
+          "API-Football access issue on /fixtures: plan: Free plans do not have access to this date.",
+        ],
+      },
+    });
+
+    await runAutoSettle();
+
+    const message = vi.mocked(notify).mock.calls[0]?.[0].message ?? "";
+    expect(message).toContain("Blocked by:");
+    expect(message).toContain(
+      "- API-Football: plan: Free plans do not have access to this date.",
+    );
   });
 
   it("includes stat-market copy in source warnings only when those markets are present", async () => {
@@ -462,8 +517,7 @@ describe("runAutoSettle", () => {
     await runAutoSettle();
 
     const message = vi.mocked(notify).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("Corners markets were in this batch");
-    expect(message).toContain("Bookings markets were in this batch");
+    expect(message).toContain("Needs: corner stats, booking points.");
     expect(message).not.toContain("1H/2H markets");
   });
 });

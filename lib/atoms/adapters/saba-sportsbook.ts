@@ -268,9 +268,8 @@ export class SabaSportsbookAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
 
   async onEnable(): Promise<void> {
-    const { sabaSyncService } = await import(
-      "../../services/saba-sync-service"
-    );
+    const { sabaSyncService } =
+      await import("../../services/saba-sync-service");
     sabaSyncService.start();
   }
 

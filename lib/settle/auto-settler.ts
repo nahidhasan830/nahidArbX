@@ -117,6 +117,24 @@ const batchContainsBookings = (rows: { marketType: string }[]): boolean =>
 const batchContainsHtScope = (rows: { timeScope: string }[]): boolean =>
   rows.some((row) => row.timeScope === "1H" || row.timeScope === "2H");
 
+const plural = (count: number, singular: string, pluralForm = `${singular}s`) =>
+  `${count} ${count === 1 ? singular : pluralForm}`;
+
+const formatSourceIssue = (issue: string): string => {
+  if (issue.startsWith("API-Football access issue on /fixtures:")) {
+    return issue.replace("API-Football access issue on /fixtures:", "API-Football:");
+  }
+  if (issue.startsWith("SofaScore transport is degraded after ")) {
+    return issue
+      .replace("SofaScore transport is degraded after ", "SofaScore: ")
+      .replace(
+        " consecutive direct/proxy failures. It will retry on next settlement tick.",
+        " direct/proxy failures; retrying next tick.",
+      );
+  }
+  return issue;
+};
+
 const shouldSendSourceWarning = (
   telemetry: WaterfallTelemetry,
   sourceIssues: string[],
@@ -134,43 +152,47 @@ const buildSourceWarning = (
   readyBets: number,
   rows: Array<{ marketType: string; timeScope: string }>,
   telemetry: WaterfallTelemetry,
+  sourceIssues: string[],
 ): string => {
   const quota = getApiFootballQuota();
+  const resolvedEvents =
+    telemetry.eventsResolvedFromCache +
+    telemetry.eventsResolvedByEspn +
+    telemetry.eventsResolvedBySofaScore +
+    telemetry.eventsResolvedByApiFootball;
   const lines = [
-    "⚠️ Settlement source warning",
+    "Settlement sources need attention",
     "",
-    `Ready pending: ${readyBets} bets / ${telemetry.eventsTotal} events`,
-    `Attempted this tick: ${telemetry.eventsAttempted} events`,
-    `Skipped by retry backoff: ${telemetry.eventsSkippedByBackoff} events`,
-    `Still unresolved: ${telemetry.eventsStillUnresolved} events`,
-    "",
-    `API-Football: ${quota.remaining}/${quota.dailyLimit} requests remaining`,
-    `API-Football used this tick: ${telemetry.apiFootballRequestsUsed}`,
+    `Outcome: ${plural(telemetry.eventsStillUnresolved, "event")} still unresolved; ${plural(resolvedEvents, "event")} resolved this tick.`,
+    `Queue: ${plural(readyBets, "bet")} across ${plural(telemetry.eventsTotal, "event")}. Tried ${telemetry.eventsAttempted}; backoff held ${telemetry.eventsSkippedByBackoff}.`,
+    `API-Football: ${quota.remaining}/${quota.dailyLimit} left; used ${telemetry.apiFootballRequestsUsed} this tick.`,
   ];
 
+  if (sourceIssues.length > 0) {
+    lines.push("", "Blocked by:");
+    for (const issue of sourceIssues) {
+      lines.push(`- ${formatSourceIssue(issue)}`);
+    }
+  }
+
+  const needs: string[] = [];
   if (batchContainsCorners(rows)) {
-    lines.push(
-      "",
-      "Corners markets were in this batch; settlement needs corner stats.",
-    );
+    needs.push("corner stats");
   }
   if (batchContainsBookings(rows)) {
-    lines.push(
-      "",
-      "Bookings markets were in this batch; settlement needs booking points.",
-    );
+    needs.push("booking points");
   }
   if (batchContainsHtScope(rows)) {
-    lines.push(
-      "",
-      "1H/2H markets were in this batch; settlement needs HT scores.",
-    );
+    needs.push("HT scores");
+  }
+  if (needs.length > 0) {
+    lines.push("", `Needs: ${needs.join(", ")}.`);
   }
 
   lines.push(
     "",
-    "Settlement order: ESPN → SofaScore → API-Football.",
-    "API-Football is only used after ESPN and SofaScore cannot resolve the event.",
+    "Waterfall: ESPN → SofaScore → API-Football.",
+    "API-Football is last resort only.",
   );
   return lines.join("\n");
 };
@@ -406,7 +428,12 @@ export async function runAutoSettle(
       type: "system",
       at: new Date().toISOString(),
       severity: "warn",
-      message: buildSourceWarning(ids.length, rows, batchResult.telemetry),
+      message: buildSourceWarning(
+        ids.length,
+        rows,
+        batchResult.telemetry,
+        result.sourceIssues,
+      ),
     }).catch(() => {});
   }
 

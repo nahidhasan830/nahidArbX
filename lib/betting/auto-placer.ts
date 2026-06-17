@@ -24,7 +24,11 @@
 import { isAutoPlaceEnabled } from "./auto-place-config";
 import { getBettingProvider } from "./registry";
 import { placeBetForValueBet } from "./placer";
-import { getBetById, type ValueBetRow } from "@/lib/db/repositories/bets";
+import {
+  getBetById,
+  hasPlacedSiblingInFamily,
+  type ValueBetRow,
+} from "@/lib/db/repositories/bets";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 import { recordDecision } from "@/lib/db/repositories/auto-placer-log";
 import { logger } from "@/lib/shared/logger";
@@ -185,6 +189,26 @@ export async function maybeAutoPlace(
       gate: "phase",
       status: "skipped",
       reason: `Bet placement disabled for ${marketPhaseLabel(phase)} events`,
+    });
+    return;
+  }
+
+  if (
+    permissionLevel !== "observe" &&
+    (await hasPlacedSiblingInFamily(vb.eventId, vb.familyId, vb.atomId))
+  ) {
+    recordDecision({
+      ...logBase,
+      homeTeam: row.homeTeam ?? null,
+      awayTeam: row.awayTeam ?? null,
+      competition: row.competition ?? null,
+      eventStartTime: row.eventStartTime ?? null,
+      marketType: row.marketType ?? null,
+      atomLabel: row.atomLabel ?? null,
+      gate: "ml_family",
+      status: "skipped",
+      reason:
+        "ML family deconfliction: another selection in this event/market is already reserved or placed",
     });
     return;
   }

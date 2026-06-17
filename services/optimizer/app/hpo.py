@@ -312,7 +312,10 @@ def _train_and_score_fold(
         if not np.all(np.isfinite(preds)):
             return -1.0, 0.0
         mean_ur, sharpe, _selected_n = hpo_policy_objective_stats(
-            preds, X_test, unit_returns,
+            preds,
+            X_test,
+            unit_returns,
+            metadata=fold_meta,
         )
         return mean_ur, sharpe
     except Exception:

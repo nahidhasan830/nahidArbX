@@ -12,11 +12,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { AppShell } from "@/components/nav/AppShell";
-import {
-  OverviewTab,
-  type StatsData,
-  type HealthData,
-} from "./OverviewTab";
+import { OverviewTab, type StatsData, type HealthData } from "./OverviewTab";
 import { useAiProviders } from "./useAiProviders";
 
 // ── Constants ────────────────────────────────────────────────────────────

@@ -55,10 +55,10 @@ export async function POST(req: Request) {
   // Off → on transition is almost always "the operator just finished
   // a manual session on their phone / another device, flip back on".
   // Under 9W's single-session rule the server-side tokens are already
-  // stale, and the warm Chromium we had running through the pause may
-  // have ended up in a bad state. Wipe both so the next background
-  // tick does a completely fresh login instead of burning another
-  // 30-second timeout discovering the tokens are invalid.
+  // stale, and an in-flight capture browser may have ended up in a bad
+  // state. Wipe both so the next background tick does a completely
+  // fresh login instead of burning another 30-second timeout
+  // discovering the tokens are invalid.
   if (!prev.enabled && body.enabled) {
     invalidateSession();
     await shutdownSessionBrowser();

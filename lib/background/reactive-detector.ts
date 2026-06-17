@@ -592,7 +592,16 @@ async function runDetectionPass(): Promise<void> {
         // Auto-place only changed bets (fire-and-forget per bet). Pass
         // raw ML audit context plus permission separately so the placer
         // cannot bypass the gate by treating "no score" as "no ML".
-        for (const vb of changedBets) {
+        const changedBetsForPlacement =
+          permissionLevel === "observe"
+            ? changedBets
+            : selectBestMlBetPerFamily(
+                changedBets,
+                scoresMap,
+                kellyMultiplierMap,
+                featuresMap,
+              );
+        for (const vb of changedBetsForPlacement) {
           const rawScore = scoresMap.get(vb.id);
           const kellyMultiplier = kellyMultiplierMap.get(vb.id);
 
@@ -895,6 +904,54 @@ function runStaleCleanup(): void {
       `Stale cleanup: odds=${prunedOdds} history=${prunedHistory} scores=${prunedScores} multiScores=${prunedMultiScores} marketLimits=${prunedMarketLimits} dedup=${prunedDedup} | historyMem≈${(histStats.memoryEstimateBytes / 1024 / 1024).toFixed(1)}MB`,
     );
   }
+}
+
+function selectBestMlBetPerFamily<
+  T extends { id: string; eventId: string; familyId: string; evPct: number },
+>(
+  valueBets: T[],
+  scoresMap: Map<string, number | null>,
+  kellyMultiplierMap: Map<string, number | null>,
+  featuresMap: Map<string, number[]>,
+): T[] {
+  const bestByFamily = new Map<string, { bet: T; modelEdgePct: number }>();
+  const passthrough: T[] = [];
+
+  for (const vb of valueBets) {
+    const multiplier = kellyMultiplierMap.get(vb.id);
+    const score = scoresMap.get(vb.id);
+    const features = featuresMap.get(vb.id);
+    if (
+      multiplier == null ||
+      multiplier <= 0 ||
+      score == null ||
+      !Number.isFinite(score) ||
+      !features
+    ) {
+      passthrough.push(vb);
+      continue;
+    }
+
+    const modelEdgePct = computeModelEdgePct(score, features);
+    const key = `${vb.eventId}|${vb.familyId}`;
+    const existing = bestByFamily.get(key);
+    if (
+      !existing ||
+      modelEdgePct > existing.modelEdgePct ||
+      (modelEdgePct === existing.modelEdgePct &&
+        vb.evPct > existing.bet.evPct) ||
+      (modelEdgePct === existing.modelEdgePct &&
+        vb.evPct === existing.bet.evPct &&
+        vb.id < existing.bet.id)
+    ) {
+      bestByFamily.set(key, { bet: vb, modelEdgePct });
+    }
+  }
+
+  return [
+    ...passthrough,
+    ...Array.from(bestByFamily.values(), (entry) => entry.bet),
+  ];
 }
 
 // ============================================

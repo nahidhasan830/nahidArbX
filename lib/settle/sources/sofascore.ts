@@ -62,7 +62,12 @@ interface SofaEventStatus {
 
 interface SofaEvent {
   id: number;
-  tournament?: { name?: string; slug?: string };
+  tournament?: {
+    name?: string;
+    slug?: string;
+    category?: { sport?: { name?: string; slug?: string } };
+  };
+  sport?: { name?: string; slug?: string };
   homeTeam: SofaTeam;
   awayTeam: SofaTeam;
   homeScore: SofaScoreLine;
@@ -167,6 +172,13 @@ const eventsByDate = singleton<Map<string, DayEventsCacheEntry>>(
   () => new Map(),
 );
 
+const isFootballEvent = (event: SofaEvent): boolean => {
+  const sport = event.sport ?? event.tournament?.category?.sport;
+  if (!sport) return true;
+  const label = `${sport.slug ?? ""} ${sport.name ?? ""}`.toLowerCase();
+  return label.includes("football") || label.includes("soccer");
+};
+
 export const getDayEventsCacheTtlMs = (
   date: string,
   nowMs: number = Date.now(),
@@ -197,20 +209,25 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
     return cached.events;
   }
 
-  // Single call to the scheduled-events endpoint. The `inverse` variant was
-  // dropped because it returns ALL sports (35+ MB, 10k events) — far too large
-  // for subprocess transport. The regular endpoint already returns all football
-  // matches for the date (800+ on busy days) which covers our settlement needs.
-  const path = `/api/v1/sport/football/scheduled-events/${date}`;
-  const collected: SofaEvent[] = [];
+  // The regular scheduled-events endpoint can omit lower-division fixtures
+  // that still appear in SofaScore's football-only `inverse` catalog. Merge
+  // both views and dedupe by SofaScore event id so broad settlement lookups
+  // keep niche matches without loosening fuzzy thresholds.
+  const paths = [
+    `/api/v1/sport/football/scheduled-events/${date}`,
+    `/api/v1/sport/football/scheduled-events/${date}/inverse`,
+  ];
+  const byId = new Map<number, SofaEvent>();
 
-  const data = await fetchViaBrowser<SofaScheduled>(path);
-  if (data) {
-    for (const e of data.events ?? []) {
-      collected.push(e);
+  for (const path of paths) {
+    const data = await fetchViaBrowser<SofaScheduled>(path);
+    for (const e of data?.events ?? []) {
+      if (!isFootballEvent(e)) continue;
+      byId.set(e.id, e);
     }
   }
 
+  const collected = [...byId.values()];
   eventsByDate.set(date, { fetchedAt: Date.now(), events: collected });
   return collected;
 };

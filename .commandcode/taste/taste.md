@@ -52,7 +52,9 @@
 - Use skills $design-taste-frontend and $redesign-existing-projects for all UI/UX design and redesign tasks. Do not design UI without invoking these skills first. Confidence: 0.85
 
 # ui-ux
+
 See [ui-ux/taste.md](ui-ux/taste.md)
+
 # event-matcher
 
 - Use DeepSeek with search grounding as the primary AI approach for fixture matching decisions. Pass full search results to DeepSeek without truncation for residual review. Confidence: 0.80

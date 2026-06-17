@@ -33,17 +33,14 @@ vi.mock("@/lib/db/repositories/event-matcher-scheduler-settings", () => ({
 }));
 
 const matcherRoute = await import("../../../app/api/matcher-lab/route");
-const streamRoute = await import(
-  "../../../app/api/matcher-lab/run-stream/route"
-);
+const streamRoute =
+  await import("../../../app/api/matcher-lab/run-stream/route");
 const jobsRoute = await import("../../../app/api/matcher-lab/jobs/route");
-const jobRoute = await import(
-  "../../../app/api/matcher-lab/jobs/[jobId]/route"
-);
+const jobRoute =
+  await import("../../../app/api/matcher-lab/jobs/[jobId]/route");
 const statsRoute = await import("../../../app/api/matcher-lab/stats/route");
-const schedulerRoute = await import(
-  "../../../app/api/matcher-lab/scheduler/route"
-);
+const schedulerRoute =
+  await import("../../../app/api/matcher-lab/scheduler/route");
 
 function request(url: string, body?: unknown): NextRequest {
   return new NextRequest(url, {
@@ -90,7 +87,9 @@ describe("Matcher Lab API routes", () => {
       offset: 3,
     });
     expect(body.total).toBe(1);
-    expect(body.decisionCounts).toEqual([{ decision: "human_review", count: 1 }]);
+    expect(body.decisionCounts).toEqual([
+      { decision: "human_review", count: 1 },
+    ]);
     expect(eventMatcher.countDecisionRows).toHaveBeenCalledWith({
       runId: "run-1",
       decision: "human_review",

@@ -14,6 +14,7 @@ vi.mock("@/lib/betting/placer", () => ({
 
 vi.mock("@/lib/db/repositories/bets", () => ({
   getBetById: vi.fn(),
+  hasPlacedSiblingInFamily: vi.fn(),
 }));
 
 vi.mock("@/lib/shared/logger", () => ({
@@ -32,7 +33,10 @@ import { maybeAutoPlace } from "@/lib/betting/auto-placer";
 import { isAutoPlaceEnabled } from "@/lib/betting/auto-place-config";
 import { getBettingProvider } from "@/lib/betting/registry";
 import { placeBetForValueBet } from "@/lib/betting/placer";
-import { getBetById } from "@/lib/db/repositories/bets";
+import {
+  getBetById,
+  hasPlacedSiblingInFamily,
+} from "@/lib/db/repositories/bets";
 import { recordDecision } from "@/lib/db/repositories/auto-placer-log";
 import { getBettingSettings } from "@/lib/db/repositories/betting-settings";
 
@@ -97,6 +101,7 @@ beforeEach(() => {
       betPlacementPhases: ["pre_match"],
     },
   } as never);
+  vi.mocked(hasPlacedSiblingInFamily).mockResolvedValue(false);
 });
 
 describe("maybeAutoPlace — toggle OFF", () => {
@@ -292,6 +297,38 @@ describe("maybeAutoPlace — ML score gating", () => {
       status: "placed",
     } as never);
     await maybeAutoPlace(makeValueBet() as never, ML_ALLOWED);
+    expect(placeBetForValueBet).toHaveBeenCalledOnce();
+  });
+
+  it("skips active ML placement when a sibling in the same family is already placed", async () => {
+    vi.mocked(hasPlacedSiblingInFamily).mockResolvedValue(true);
+
+    await maybeAutoPlace(makeValueBet() as never, ML_ALLOWED);
+
+    expect(placeBetForValueBet).not.toHaveBeenCalled();
+    expect(recordDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gate: "ml_family",
+        status: "skipped",
+        reason:
+          "ML family deconfliction: another selection in this event/market is already reserved or placed",
+      }),
+    );
+  });
+
+  it("does not apply family deconfliction in observe mode", async () => {
+    vi.mocked(hasPlacedSiblingInFamily).mockResolvedValue(true);
+    vi.mocked(placeBetForValueBet).mockResolvedValue({
+      status: "placed",
+    } as never);
+
+    await maybeAutoPlace(makeValueBet() as never, {
+      permissionLevel: "observe",
+      mlScore: 0.8,
+      mlKellyMultiplier: 1,
+    });
+
+    expect(hasPlacedSiblingInFamily).not.toHaveBeenCalled();
     expect(placeBetForValueBet).toHaveBeenCalledOnce();
   });
 });

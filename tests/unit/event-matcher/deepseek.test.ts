@@ -95,12 +95,12 @@ describe("policyFromDeepSeek", () => {
       deepseekAutoRejectConfidence: 90,
     };
 
-    expect(
-      policyFromDeepSeek(residual(89), [], score(), config).decision,
-    ).toBe("human_review");
-    expect(
-      policyFromDeepSeek(residual(90), [], score(), config).decision,
-    ).toBe("auto_reject");
+    expect(policyFromDeepSeek(residual(89), [], score(), config).decision).toBe(
+      "human_review",
+    );
+    expect(policyFromDeepSeek(residual(90), [], score(), config).decision).toBe(
+      "auto_reject",
+    );
   });
 
   it("does not trust sourced SAME when structured evidence is contradictory", () => {
@@ -199,7 +199,7 @@ describe("policyFromDeepSeek", () => {
     );
 
     expect(decision.decision).toBe("human_review");
-    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+    expect(decision.reasonCode).toBe("llm_uncertain");
     expect(decision.groundedDecision).toBe("SAME");
   });
 
@@ -258,6 +258,37 @@ describe("policyFromDeepSeek", () => {
         embeddingTeam: 0.9499352600224079,
         embeddingCompetition: 0.9110606832433741,
         combined: 0.9043230359953681,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_merge");
+    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+  });
+
+  it("auto-merges grounded SAME when score support lands on a floating-point threshold", () => {
+    const same = sourcedSame({
+      sameEvidence: 0,
+      differentEvidence: 0,
+      contradiction: false,
+      noSource: false,
+      notes: ["Structured evidence counts were not populated."],
+    });
+    same.confidence = 95;
+
+    const decision = policyFromDeepSeek(
+      same,
+      [],
+      {
+        ...score(),
+        home: 1,
+        away: 0.7999999999999999,
+        sameOrientationTeam: 0.8999999999999999,
+        bestTeam: 0.8999999999999999,
+        competition: 0.9364705882352942,
+        embeddingTeam: 0.912640442359151,
+        embeddingCompetition: 0.9707920948393176,
+        combined: 0.8962845923793471,
       },
       DEFAULT_EVENT_MATCHER_CONFIG,
     );
@@ -338,7 +369,9 @@ describe("policyFromDeepSeek", () => {
       differentEvidence: 0,
       contradiction: false,
       noSource: false,
-      notes: ["Source evidence supports one fixture and one noisy provider label."],
+      notes: [
+        "Source evidence supports one fixture and one noisy provider label.",
+      ],
     });
     same.confidence = 85;
 
@@ -371,7 +404,9 @@ describe("policyFromDeepSeek", () => {
       differentEvidence: 0,
       contradiction: false,
       noSource: false,
-      notes: ["Source evidence supports one fixture and one noisy provider label."],
+      notes: [
+        "Source evidence supports one fixture and one noisy provider label.",
+      ],
     });
     same.confidence = 85;
 
@@ -394,7 +429,7 @@ describe("policyFromDeepSeek", () => {
     );
 
     expect(decision.decision).toBe("human_review");
-    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+    expect(decision.reasonCode).toBe("llm_uncertain");
   });
 
   it("auto-merges low-confidence source-only SAME when local score consensus is very strong", () => {
@@ -588,7 +623,7 @@ describe("policyFromDeepSeek", () => {
     );
 
     expect(decision.decision).toBe("human_review");
-    expect(decision.reasonCode).toBe("grounded_llm_same_match");
+    expect(decision.reasonCode).toBe("llm_uncertain");
   });
 
   it("classifies no-source residuals explicitly", () => {
@@ -938,6 +973,86 @@ describe("policyFromDeepSeek", () => {
 
     expect(decision.decision).toBe("auto_reject");
     expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
+  it("auto-rejects source-backed DIFFERENT when one exact team slot masks a different club", () => {
+    const different = residual(90);
+    different.reasoning =
+      "Home teams are different clubs: IF Karlstad Fotbollutveckling vs FBK Karlstad 2.";
+    different.evidenceAssessment = {
+      sameEvidence: 0,
+      differentEvidence: 1,
+      contradiction: false,
+      noSource: false,
+      notes: ["Sources identify different clubs in the home team slot."],
+    };
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.7,
+        away: 1,
+        sameOrientationTeam: 0.85,
+        bestTeam: 0.85,
+        competition: 0.84,
+        alias: 1,
+        embeddingTeam: 0.874,
+        embeddingCompetition: 0.962,
+        combined: 0.866,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("auto_reject");
+    expect(decision.reasonCode).toBe("grounded_llm_different_match");
+  });
+
+  it("keeps one-slot source-backed aliases in review instead of auto-rejecting", () => {
+    const different = residual(90);
+    different.reasoning =
+      "Home teams differ and away teams match, confirmed by sources.";
+    different.evidenceAssessment = {
+      sameEvidence: 0,
+      differentEvidence: 1,
+      contradiction: false,
+      noSource: false,
+      notes: ["Model trusted raw provider labels."],
+    };
+    different.aliasEvidence = [
+      {
+        side: "home",
+        eventASurface: "SIF",
+        eventBSurface: "Sundom IF",
+        canonicalSurface: "Sundom IF - Fixtures",
+        sourceTitle: "Sundom IF - Fixtures",
+        sourceUrl: "https://example.com/sif/sundom-if",
+        reason:
+          "Source URL slug contains one provider label while the page title uses the other label.",
+      },
+    ];
+
+    const decision = policyFromDeepSeek(
+      different,
+      [],
+      {
+        ...score(),
+        home: 0.7,
+        away: 1,
+        sameOrientationTeam: 0.85,
+        bestTeam: 0.85,
+        competition: 0.84,
+        alias: 1,
+        embeddingTeam: 0.874,
+        embeddingCompetition: 0.962,
+        combined: 0.866,
+      },
+      DEFAULT_EVENT_MATCHER_CONFIG,
+    );
+
+    expect(decision.decision).toBe("human_review");
+    expect(decision.reasonCode).toBe("source_alias_conflict");
   });
 
   it("auto-rejects DIFFERENT when sourced reasoning names material team and competition differences", () => {

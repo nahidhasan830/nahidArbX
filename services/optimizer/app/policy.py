@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+import polars as pl
 
 from .feature_names import FEATURE_NAMES
 
@@ -84,16 +85,102 @@ def policy_mask(
     return simple_rule_mask(features) & (model_edge_pct(probs, features) > edge_threshold_pct)
 
 
+def best_per_family_mask(
+    mask: np.ndarray,
+    edge_scores_pct: np.ndarray,
+    metadata: pl.DataFrame | None = None,
+) -> np.ndarray:
+    """Keep at most one selected atom per event/family closed market.
+
+    Betting rows are scored independently, but an event/family is a mutually
+    exclusive market: e.g. over 2.5 and under 2.5 cannot both be good actions
+    for the same event. When metadata has the market keys, choose the selected
+    row with the highest model edge inside each event/family. Synthetic tests
+    and older callers without those columns keep the original mask.
+    """
+    selected = np.asarray(mask, dtype=bool).copy()
+    if metadata is None or selected.size == 0:
+        return selected
+    if "event_id" not in metadata.columns or "family_id" not in metadata.columns:
+        return selected
+    if len(metadata) != selected.size:
+        return selected
+
+    best_by_family: dict[tuple[str, str], int] = {}
+    for i, is_selected in enumerate(selected):
+        if not bool(is_selected):
+            continue
+        event_id = metadata["event_id"][i]
+        family_id = metadata["family_id"][i]
+        if event_id is None or family_id is None:
+            continue
+        key = (str(event_id), str(family_id))
+        current = best_by_family.get(key)
+        if current is None or _is_better_family_candidate(
+            i,
+            current,
+            edge_scores_pct=edge_scores_pct,
+            metadata=metadata,
+        ):
+            best_by_family[key] = i
+
+    if not best_by_family:
+        return selected
+
+    out = np.zeros_like(selected, dtype=bool)
+    for index in best_by_family.values():
+        out[index] = True
+    return out
+
+
+def _is_better_family_candidate(
+    candidate: int,
+    incumbent: int,
+    *,
+    edge_scores_pct: np.ndarray,
+    metadata: pl.DataFrame,
+) -> bool:
+    candidate_edge = float(edge_scores_pct[candidate])
+    incumbent_edge = float(edge_scores_pct[incumbent])
+    if candidate_edge != incumbent_edge:
+        return candidate_edge > incumbent_edge
+
+    for col in ("soft_odds", "sharp_true_prob"):
+        if col not in metadata.columns:
+            continue
+        candidate_value = _numeric_metadata_value(metadata, col, candidate)
+        incumbent_value = _numeric_metadata_value(metadata, col, incumbent)
+        if candidate_value != incumbent_value:
+            return candidate_value > incumbent_value
+
+    if "id" in metadata.columns:
+        return str(metadata["id"][candidate]) < str(metadata["id"][incumbent])
+    return candidate < incumbent
+
+
+def _numeric_metadata_value(metadata: pl.DataFrame, col: str, index: int) -> float:
+    value = metadata[col][index]
+    if value is None:
+        return float("-inf")
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return float("-inf")
+    return out if np.isfinite(out) else float("-inf")
+
+
 def policy_unit_returns(
     probs: np.ndarray,
     features: np.ndarray,
     unit_returns: np.ndarray,
     *,
     edge_threshold_pct: float = POLICY_EDGE_THRESHOLD_PCT,
+    metadata: pl.DataFrame | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return selected unit returns, all edge scores, and selected mask."""
     edges = model_edge_pct(probs, features)
     mask = simple_rule_mask(features) & (edges > edge_threshold_pct)
+    mask = best_per_family_mask(mask, edges, metadata)
     clean_returns = np.nan_to_num(unit_returns.astype(np.float64), nan=0.0)
     return clean_returns[mask], edges, mask
 
@@ -104,21 +191,25 @@ def simple_rule_mask(features: np.ndarray) -> np.ndarray:
     Computes EV% from features since it's no longer in the feature vector.
     EV% = (adjusted_soft_odds * sharp_true_prob - 1) * 100
     """
-    sharp_prob = features[:, SHARP_TRUE_PROB_INDEX].astype(np.float64)
-    adjusted_odds = features[:, ADJUSTED_SOFT_ODDS_INDEX].astype(np.float64)
-    ev_pct = (adjusted_odds * sharp_prob - 1.0) * 100.0
-
     market_type = features[:, MARKET_TYPE_INDEX].astype(np.float64)
     market_ok = np.isin(market_type, list(SIMPLE_RULE_MARKET_TYPE_CODES))
-    return (ev_pct >= SIMPLE_RULE_MIN_EV_PCT) & market_ok
+    return (simple_rule_edge_pct(features) >= SIMPLE_RULE_MIN_EV_PCT) & market_ok
+
+
+def simple_rule_edge_pct(features: np.ndarray) -> np.ndarray:
+    sharp_prob = features[:, SHARP_TRUE_PROB_INDEX].astype(np.float64)
+    adjusted_odds = features[:, ADJUSTED_SOFT_ODDS_INDEX].astype(np.float64)
+    return (adjusted_odds * sharp_prob - 1.0) * 100.0
 
 
 def simple_rule_unit_returns(
     features: np.ndarray,
     unit_returns: np.ndarray,
+    metadata: pl.DataFrame | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return selected unit returns and the selected mask for the baseline."""
     mask = simple_rule_mask(features)
+    mask = best_per_family_mask(mask, simple_rule_edge_pct(features), metadata)
     clean_returns = np.nan_to_num(unit_returns.astype(np.float64), nan=0.0)
     return clean_returns[mask], mask
 
@@ -127,6 +218,7 @@ def compute_policy_threshold_stats(
     probs: np.ndarray,
     features: np.ndarray,
     unit_returns: np.ndarray,
+    metadata: pl.DataFrame | None = None,
 ) -> PolicyThresholdResult:
     """Compute stats for the fixed 2% policy threshold.
 
@@ -135,15 +227,20 @@ def compute_policy_threshold_stats(
     find the best threshold (which overfits to the validation set).
     """
     clean_returns = np.nan_to_num(unit_returns.astype(np.float64), nan=0.0)
-    simple_returns, simple_mask = simple_rule_unit_returns(features, clean_returns)
+    simple_returns, simple_mask = simple_rule_unit_returns(
+        features,
+        clean_returns,
+        metadata=metadata,
+    )
     simple_n = int(simple_mask.sum())
     simple_roi = float(simple_returns.mean() * 100.0) if simple_n > 0 else 0.0
 
-    selected, _edges, mask = policy_unit_returns(
+    selected, _edges, _mask = policy_unit_returns(
         probs,
         features,
         clean_returns,
         edge_threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
+        metadata=metadata,
     )
     n = int(selected.size)
     roi = float(selected.mean() * 100.0) if n > 0 else 0.0
@@ -186,6 +283,7 @@ def hpo_policy_objective_stats(
     probs: np.ndarray,
     features: np.ndarray,
     unit_returns: np.ndarray,
+    metadata: pl.DataFrame | None = None,
 ) -> tuple[float, float, int]:
     """Policy return metric for HPO.
 
@@ -193,7 +291,12 @@ def hpo_policy_objective_stats(
     The sample adjustment keeps tiny, lucky policy slices from dominating the
     search while still nudging Optuna toward configurations that find bets.
     """
-    selected_returns, _, _ = policy_unit_returns(probs, features, unit_returns)
+    selected_returns, _, _ = policy_unit_returns(
+        probs,
+        features,
+        unit_returns,
+        metadata=metadata,
+    )
     selected_n = int(selected_returns.size)
     if selected_n == 0:
         return NO_SELECTION_OBJECTIVE, 0.0, 0

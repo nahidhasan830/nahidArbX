@@ -80,11 +80,7 @@ export type MatcherRunResponse = EventMatcherRunSummary;
 
 export type MatcherRunProgressEvent = EventMatcherProgressEvent;
 
-export type MatcherRunJobStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed";
+export type MatcherRunJobStatus = "queued" | "running" | "completed" | "failed";
 
 export interface MatcherRunJob {
   id: string;

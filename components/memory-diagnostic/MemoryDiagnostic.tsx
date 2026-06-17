@@ -2,7 +2,12 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Database, MemoryStick, AlertTriangle, CircleAlert } from "lucide-react";
+import {
+  Database,
+  MemoryStick,
+  AlertTriangle,
+  CircleAlert,
+} from "lucide-react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -60,8 +65,7 @@ const RISK_TONE: Record<
   { badge: string; label: string; tone: ValueTone }
 > = {
   NO_CLEANUP: {
-    badge:
-      "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    badge: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
     label: "HIGH RISK",
     tone: "bad",
   },
@@ -72,8 +76,7 @@ const RISK_TONE: Record<
     tone: "warn",
   },
   UNBOUNDED: {
-    badge:
-      "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    badge: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
     label: "HIGH RISK",
     tone: "bad",
   },
@@ -92,10 +95,7 @@ function riskFor(issue?: string): {
   return RISK_TONE[code];
 }
 
-function formatStoreDetails(
-  key: string,
-  store: MemoryDiagnosticStore,
-): string {
+function formatStoreDetails(key: string, store: MemoryDiagnosticStore): string {
   switch (key) {
     case "oddsHistory":
       return `${(store.trackedAtoms ?? 0).toLocaleString()} atoms, ${(store.totalTicks ?? 0).toLocaleString()} ticks`;
@@ -133,9 +133,16 @@ function formatMB(mb: number | undefined, digits = 2): string {
   return `${mb.toFixed(digits)} MB`;
 }
 
-function Bar({ value, total, tone }: { value: number; total: number; tone: ValueTone }) {
-  const pct =
-    total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
+function Bar({
+  value,
+  total,
+  tone,
+}: {
+  value: number;
+  total: number;
+  tone: ValueTone;
+}) {
+  const pct = total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
   const barClass =
     tone === "good"
       ? "bg-emerald-500"
@@ -256,9 +263,7 @@ export function MemoryDiagnosticContent({
 
   const unaccountedMB = proc.heapUsedMB - totals.totalEstimated;
   const heapPct =
-    proc.heapTotalMB > 0
-      ? (proc.heapUsedMB / proc.heapTotalMB) * 100
-      : 0;
+    proc.heapTotalMB > 0 ? (proc.heapUsedMB / proc.heapTotalMB) * 100 : 0;
 
   const heapTone: ValueTone =
     heapPct >= 90 ? "bad" : heapPct >= 75 ? "warn" : "good";
@@ -348,9 +353,7 @@ export function MemoryDiagnosticContent({
           row.original.issue ? (
             <div className="flex items-center gap-1.5 truncate text-rose-700 dark:text-rose-300">
               <CircleAlert className="size-3 shrink-0" />
-              <span className="truncate text-[11px]">
-                {row.original.issue}
-              </span>
+              <span className="truncate text-[11px]">{row.original.issue}</span>
             </div>
           ) : (
             <span className="text-muted-foreground/60">-</span>
@@ -380,7 +383,13 @@ export function MemoryDiagnosticContent({
             sub={`${heapPct.toFixed(0)}% of ${formatMB(proc.heapTotalMB, 0)}`}
             tone={heapTone}
             hint={HEAP_HINT}
-            footer={<Bar value={proc.heapUsedMB} total={proc.heapTotalMB} tone={heapTone} />}
+            footer={
+              <Bar
+                value={proc.heapUsedMB}
+                total={proc.heapTotalMB}
+                tone={heapTone}
+              />
+            }
           />
           <ProcessTile
             label="Heap total"
@@ -434,7 +443,9 @@ export function MemoryDiagnosticContent({
               <Bar
                 value={Math.max(0, unaccountedMB)}
                 total={proc.heapUsedMB}
-                tone={unaccountedMB > proc.heapUsedMB * 0.5 ? "warn" : "neutral"}
+                tone={
+                  unaccountedMB > proc.heapUsedMB * 0.5 ? "warn" : "neutral"
+                }
               />
             }
           />

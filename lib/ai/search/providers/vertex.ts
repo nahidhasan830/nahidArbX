@@ -112,14 +112,17 @@ export class VertexSearchProvider {
       );
       if (
         results.length > bestResults.length ||
-        (results.length === bestResults.length && contentChars > bestContentChars)
+        (results.length === bestResults.length &&
+          contentChars > bestContentChars)
       ) {
         bestResults = results;
         bestVariantReason = variant.reason;
         bestContentChars = contentChars;
       }
 
-      if (isStrongVertexSearchResult(results.length, contentChars, maxResults)) {
+      if (
+        isStrongVertexSearchResult(results.length, contentChars, maxResults)
+      ) {
         if (index > 0 || variant.query !== query) {
           logger.info(
             tag,
@@ -149,14 +152,17 @@ export class VertexSearchProvider {
       );
       if (
         results.length > bestResults.length ||
-        (results.length === bestResults.length && contentChars > bestContentChars)
+        (results.length === bestResults.length &&
+          contentChars > bestContentChars)
       ) {
         bestResults = results;
         bestVariantReason = variant.reason;
         bestContentChars = contentChars;
       }
 
-      if (isStrongVertexSearchResult(results.length, contentChars, maxResults)) {
+      if (
+        isStrongVertexSearchResult(results.length, contentChars, maxResults)
+      ) {
         logger.info(
           tag,
           `Resolved via ${variant.reason} DeepSeek rewrite for "${query.slice(0, 80)}"`,
@@ -322,5 +328,8 @@ function collectExtractiveContent(doc: {
 }
 
 function normalizeText(value: string): string {
-  return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }

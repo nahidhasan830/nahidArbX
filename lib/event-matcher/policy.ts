@@ -47,8 +47,31 @@ export function decideCandidate(
       ? Math.min(score.home, score.away)
       : Math.min(score.swappedHome, score.swappedAway);
   const hasMatchMetadataRescue = score.metadata > 0;
+  const competitionConsensus = Math.max(
+    score.competition,
+    score.embeddingCompetition ?? 0,
+  );
+  const weakSwappedTeamSlots =
+    score.orientation === "swapped" &&
+    weakerAlignedTeam <= config.teamAutoRejectCeiling &&
+    score.bestTeam <= config.teamAutoRejectCeiling + 0.07 &&
+    !hasMatchMetadataRescue;
 
   if (score.orientation === "swapped") {
+    if (weakSwappedTeamSlots) {
+      const confidence = Math.max(1 - score.combined, 0.75);
+      return {
+        decision: "auto_reject",
+        stage: "deterministic",
+        confidence,
+        confidenceBand: confidenceBand(confidence),
+        final: true,
+        reasonCode: "low_team_competition_similarity",
+        reasonSummary:
+          "Exact kickoff is shared, but team identity signals are too weak and no match-level metadata rescue is present.",
+      };
+    }
+
     const teamConsensus = Math.max(score.bestTeam, score.embeddingTeam ?? 0);
     if (
       config.deepseekEnabled &&
@@ -83,10 +106,6 @@ export function decideCandidate(
   const teamPassesMerge =
     score.bestTeam >= config.teamAutoMergeFloor &&
     weakerAlignedTeam >= config.teamAutoMergeFloor;
-  const competitionConsensus = Math.max(
-    score.competition,
-    score.embeddingCompetition ?? 0,
-  );
   const exactAlignedTeams =
     score.orientation === "same" &&
     score.home >= 0.98 &&
@@ -136,6 +155,7 @@ export function decideCandidate(
   if (
     score.combined <= config.combinedAutoRejectThreshold ||
     (weakBothTeamSlots && !hasMatchMetadataRescue) ||
+    weakSwappedTeamSlots ||
     (score.bestTeam <= config.teamAutoRejectCeiling &&
       score.competition <= config.competitionRejectCeiling &&
       !hasMatchMetadataRescue) ||

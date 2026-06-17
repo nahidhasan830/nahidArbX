@@ -308,28 +308,7 @@ def write_model_row(
             "feature_importance": _json_dumps(metrics.feature_importance),
             "model_artifact_path": artifact_path,
             "onnx_blob": onnx_blob,
-            "training_report": _json_dumps({
-                "n_positive": metrics.n_positive,
-                "n_negative": metrics.n_negative,
-                "n_folds": metrics.n_folds,
-                "scale_pos_weight": metrics.scale_pos_weight,
-                "per_fold_sharpes": metrics.per_fold_sharpes,
-                "oos_clv_mean": metrics.oos_clv_mean,
-                "policy_roi_mean": metrics.policy_roi_mean,
-                "policy_sample_size": metrics.policy_sample_size,
-                "policy_coverage": metrics.policy_coverage,
-                "policy_edge_threshold_pct": metrics.policy_edge_threshold_pct,
-                "baseline_roi_mean": metrics.baseline_roi_mean,
-                "simple_policy_roi_mean": metrics.simple_policy_roi_mean,
-                "simple_policy_sample_size": metrics.simple_policy_sample_size,
-                "simple_policy_coverage": metrics.simple_policy_coverage,
-                "model_vs_simple_roi_delta": metrics.model_vs_simple_roi_delta,
-                "policy_lower_confidence_roi_pct": metrics.policy_lower_confidence_roi_pct,
-                "policy_threshold_candidates": metrics.policy_threshold_candidates,
-                "calibration_method": metrics.calibration_method,
-                "calibration_params": metrics.calibration_params,
-                "score_bucket_report": _serialize_bucket_report(metrics.score_bucket_report),
-            }),
+            "training_report": _json_dumps(_training_report_payload(metrics)),
             "permission_level": permission_level,
             "rejection_reasons": _json_dumps(rejection_reasons) if rejection_reasons else None,
             "vertex_model_name": vertex_model_name,
@@ -474,6 +453,45 @@ def _json_dumps(obj: dict) -> str:
     """JSON serialize for JSONB columns."""
     import json
     return json.dumps(obj, default=str)
+
+
+def _training_report_payload(metrics: TrainingMetrics) -> dict:
+    """Build the JSON payload stored in ml_models.training_report.
+
+    Persist the DSR inputs needed for future exact audits. Older rows only have
+    the final DSR plus fold Sharpes, so their HPO deflation step cannot be
+    replayed from Postgres alone.
+    """
+    return {
+        "n_positive": metrics.n_positive,
+        "n_negative": metrics.n_negative,
+        "n_folds": metrics.n_folds,
+        "scale_pos_weight": metrics.scale_pos_weight,
+        "per_fold_sharpes": metrics.per_fold_sharpes,
+        "oos_clv_mean": metrics.oos_clv_mean,
+        "policy_roi_mean": metrics.policy_roi_mean,
+        "policy_sample_size": metrics.policy_sample_size,
+        "policy_coverage": metrics.policy_coverage,
+        "policy_edge_threshold_pct": metrics.policy_edge_threshold_pct,
+        "baseline_roi_mean": metrics.baseline_roi_mean,
+        "simple_policy_roi_mean": metrics.simple_policy_roi_mean,
+        "simple_policy_sample_size": metrics.simple_policy_sample_size,
+        "simple_policy_coverage": metrics.simple_policy_coverage,
+        "model_vs_simple_roi_delta": metrics.model_vs_simple_roi_delta,
+        "policy_lower_confidence_roi_pct": metrics.policy_lower_confidence_roi_pct,
+        "policy_threshold_candidates": metrics.policy_threshold_candidates,
+        "hpo_n_trials": metrics.hpo_n_trials,
+        "hpo_best_objective": metrics.hpo_best_objective,
+        "hpo_per_trial_sharpe_var": metrics.hpo_per_trial_sharpe_var,
+        "outer_holdout_n": metrics.outer_holdout_n,
+        "outer_holdout_auc": metrics.outer_holdout_auc,
+        "outer_holdout_unit_return_mean": metrics.outer_holdout_unit_return_mean,
+        "outer_holdout_policy_roi_pct": metrics.outer_holdout_policy_roi_pct,
+        "outer_holdout_policy_n": metrics.outer_holdout_policy_n,
+        "calibration_method": metrics.calibration_method,
+        "calibration_params": metrics.calibration_params,
+        "score_bucket_report": _serialize_bucket_report(metrics.score_bucket_report),
+    }
 
 
 def _serialize_bucket_report(report: object | None) -> dict | None:

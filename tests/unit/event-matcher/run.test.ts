@@ -95,7 +95,9 @@ vi.mock("../../../lib/event-matcher/scoring", () => ({
 
 vi.mock("../../../lib/event-matcher/deepseek", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../../../lib/event-matcher/deepseek")>();
+    await importOriginal<
+      typeof import("../../../lib/event-matcher/deepseek")
+    >();
   return {
     ...actual,
     reviewResidualWithDeepSeek: vi.fn(async () => null),
@@ -166,9 +168,9 @@ describe("runEventMatcher", () => {
   });
 
   it("supersedes selected stale review rows that no longer generate candidates", async () => {
-    vi.mocked(repository.supersedeStaleHumanReviewDecisions).mockResolvedValueOnce(
-      2,
-    );
+    vi.mocked(
+      repository.supersedeStaleHumanReviewDecisions,
+    ).mockResolvedValueOnce(2);
 
     const summary = await runEventMatcher({
       trigger: "test",
@@ -299,17 +301,17 @@ describe("runEventMatcher", () => {
     );
     expect(decisionInput.policy.confidence).toBe(0.94);
     expect(decisionInput.policy.confidenceBand).toBe("very_high");
-    expect(repository.applyCompatibleCanonicalClusterMerge).toHaveBeenCalledWith(
-      {
-        decision: { id: "decision" },
-        plan: {
-          action: "merge",
-          canonicalEventId: "canonical-a",
-          sourceCanonicalEventIds: ["canonical-b"],
-          reason: "clusters are compatible",
-        },
+    expect(
+      repository.applyCompatibleCanonicalClusterMerge,
+    ).toHaveBeenCalledWith({
+      decision: { id: "decision" },
+      plan: {
+        action: "merge",
+        canonicalEventId: "canonical-a",
+        sourceCanonicalEventIds: ["canonical-b"],
+        reason: "clusters are compatible",
       },
-    );
+    });
     expect(repository.applyCanonicalMerge).not.toHaveBeenCalled();
     expect(summary.autoMerged).toBe(1);
     expect(summary.humanReview).toBe(0);
@@ -343,7 +345,9 @@ describe("runEventMatcher", () => {
     expect(decisionInput.policy.decision).toBe("human_review");
     expect(decisionInput.policy.reasonCode).toBe("cluster_conflict");
     expect(decisionInput.policy.reasonSummary).toContain("provider collision");
-    expect(repository.applyCompatibleCanonicalClusterMerge).not.toHaveBeenCalled();
+    expect(
+      repository.applyCompatibleCanonicalClusterMerge,
+    ).not.toHaveBeenCalled();
     expect(repository.applyCanonicalMerge).not.toHaveBeenCalled();
     expect(summary.autoMerged).toBe(0);
     expect(summary.humanReview).toBe(1);

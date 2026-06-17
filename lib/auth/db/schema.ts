@@ -79,7 +79,7 @@ export const passwordResets = sqliteTable("password_resets", {
 });
 
 // ============================================
-// Activity Logs Table (audit trail - never deleted)
+// Activity Logs Table (audit trail retained by the 7-day log TTL)
 // ============================================
 
 export const activityLogs = sqliteTable("activity_logs", {

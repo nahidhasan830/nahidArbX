@@ -456,7 +456,8 @@ describe("grounding entity-match parsing", () => {
         {
           title: "Premier League fixtures",
           url: "https://example.com/fixtures",
-          snippet: "Metro United, also searched as Metro City, appears in fixtures.",
+          snippet:
+            "Metro United, also searched as Metro City, appears in fixtures.",
           source: "test",
         },
       ],
@@ -484,7 +485,8 @@ describe("grounding entity-match parsing", () => {
         {
           title: "PVF-Công An Nhân Dân vs Công An Hà Nội live score",
           url: "https://www.sofascore.com/football/match/pvf-cong-an-nhan-dan-cong-an-ha-noi/qxCbsqjLd",
-          snippet: "PVF-Công An Nhân Dân is going head to head with Công An Hà Nội.",
+          snippet:
+            "PVF-Công An Nhân Dân is going head to head with Công An Hà Nội.",
           source: "test",
         },
       ],

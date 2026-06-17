@@ -62,9 +62,8 @@ describe("SofaScore transport fallback", () => {
     mockDirectJson({ __error: true, status: 403 });
     mocks.fetchViaScrapeDoProxy.mockResolvedValue({ events: [{ id: 123 }] });
 
-    const { fetchViaBrowser, getBrowserSessionStats } = await import(
-      "@/lib/settle/sources/sofascore-browser"
-    );
+    const { fetchViaBrowser, getBrowserSessionStats } =
+      await import("@/lib/settle/sources/sofascore-browser");
 
     const result = await fetchViaBrowser<{ events: { id: number }[] }>(
       "/api/v1/sport/football/scheduled-events/2026-06-03",
@@ -88,13 +87,35 @@ describe("SofaScore transport fallback", () => {
     mocks.isDirectOnCooldown.mockReturnValue(true);
     mocks.fetchViaScrapeDoProxy.mockResolvedValue({ events: [] });
 
-    const { fetchViaBrowser } = await import(
-      "@/lib/settle/sources/sofascore-browser"
-    );
+    const { fetchViaBrowser } =
+      await import("@/lib/settle/sources/sofascore-browser");
 
     await fetchViaBrowser("/api/v1/sport/football/scheduled-events/2026-06-03");
 
     expect(mocks.execFile).not.toHaveBeenCalled();
     expect(mocks.fetchViaScrapeDoProxy).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows large inverse catalog payloads from direct transport", async () => {
+    mockDirectJson({ events: [] });
+
+    const { fetchViaBrowser, SOFASCORE_BROWSER_MAX_BUFFER_BYTES } =
+      await import("@/lib/settle/sources/sofascore-browser");
+
+    await fetchViaBrowser(
+      "/api/v1/sport/football/scheduled-events/2026-06-01/inverse",
+    );
+
+    expect(mocks.execFile).toHaveBeenCalledWith(
+      "python3",
+      expect.any(Array),
+      expect.objectContaining({
+        maxBuffer: SOFASCORE_BROWSER_MAX_BUFFER_BYTES,
+      }),
+      expect.any(Function),
+    );
+    expect(SOFASCORE_BROWSER_MAX_BUFFER_BYTES).toBeGreaterThanOrEqual(
+      60 * 1024 * 1024,
+    );
   });
 });

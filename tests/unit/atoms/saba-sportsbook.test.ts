@@ -268,32 +268,25 @@ describe("SabaSportsbookAtomsAdapter", () => {
 
     expect(count).toBe(17);
     expect(
-      getOdds(eventId, "ft_odd_even", "ft_goals_odd", "saba-sportsbook")
-        ?.odds,
+      getOdds(eventId, "ft_odd_even", "ft_goals_odd", "saba-sportsbook")?.odds,
     ).toBe(1.91);
     expect(
-      getOdds(eventId, "ft_odd_even", "ft_goals_even", "saba-sportsbook")
-        ?.odds,
+      getOdds(eventId, "ft_odd_even", "ft_goals_even", "saba-sportsbook")?.odds,
     ).toBeCloseTo(2.099, 3);
     expect(
       getOdds(eventId, "ft_total_2_5", "ft_total_over_2_5", "saba-sportsbook")
         ?.odds,
     ).toBe(1.79);
     expect(
-      getOdds(
-        eventId,
-        "ft_total_2_5",
-        "ft_total_under_2_5",
-        "saba-sportsbook",
-      )?.odds,
+      getOdds(eventId, "ft_total_2_5", "ft_total_under_2_5", "saba-sportsbook")
+        ?.odds,
     ).toBeCloseTo(2.031, 3);
     expect(
       getOdds(eventId, "ft_match_result", "ft_home_win", "saba-sportsbook")
         ?.odds,
     ).toBe(1.55);
     expect(
-      getOdds(eventId, "ft_match_result", "ft_draw", "saba-sportsbook")
-        ?.odds,
+      getOdds(eventId, "ft_match_result", "ft_draw", "saba-sportsbook")?.odds,
     ).toBe(3.65);
     expect(
       getOdds(eventId, "ft_match_result", "ft_away_win", "saba-sportsbook")
@@ -326,8 +319,67 @@ describe("SabaSportsbookAtomsAdapter", () => {
       getOdds(eventId, "1h_match_result", "1h_away_win", "saba-sportsbook")
         ?.odds,
     ).toBe(5.1);
-    expect(getOdds(eventId, "ft_double_chance", "ft_dc_1x", "saba-sportsbook")?.odds).toBe(1.09);
-    expect(getOdds(eventId, "ft_double_chance", "ft_dc_12", "saba-sportsbook")?.odds).toBe(1.18);
-    expect(getOdds(eventId, "ft_double_chance", "ft_dc_x2", "saba-sportsbook")?.odds).toBe(2.1);
+    expect(
+      getOdds(eventId, "ft_double_chance", "ft_dc_1x", "saba-sportsbook")?.odds,
+    ).toBe(1.09);
+    expect(
+      getOdds(eventId, "ft_double_chance", "ft_dc_12", "saba-sportsbook")?.odds,
+    ).toBe(1.18);
+    expect(
+      getOdds(eventId, "ft_double_chance", "ft_dc_x2", "saba-sportsbook")?.odds,
+    ).toBe(2.1);
+  });
+
+  it("keeps special-looking market rows when they belong to the normal match", () => {
+    const adapter = new SabaSportsbookAtomsAdapter();
+    const eventId = "event-normal-match-special-markets";
+
+    const count = adapter.processRawOdds(
+      {
+        rows: [
+          {
+            type: "o",
+            matchid: 1,
+            bettype: 5,
+            oddsstatus: "running",
+            enable: 1,
+            com1: 1.55,
+            comx: 3.65,
+            com2: 4.95,
+          },
+          {
+            type: "o",
+            matchid: 1,
+            bettype: 3,
+            marketname: "Total Goals Minutes",
+            oddsstatus: "running",
+            enable: 1,
+            hdp1: 2.5,
+            odds1a: 9.99,
+            odds2a: 9.99,
+          },
+        ],
+      },
+      {
+        providerEventId: "1",
+        normalizedEventId: eventId,
+        homeTeam: "Canada",
+        awayTeam: "Bosnia-Herzegovina",
+        options: {},
+      },
+    );
+
+    expect(count).toBe(5);
+    expect(
+      getOdds(eventId, "ft_match_result", "ft_home_win", "saba-sportsbook")
+        ?.odds,
+    ).toBe(1.55);
+    expect(
+      getOdds(eventId, "ft_match_result", "ft_draw", "saba-sportsbook")?.odds,
+    ).toBe(3.65);
+    expect(
+      getOdds(eventId, "ft_total_2_5", "ft_total_over_2_5", "saba-sportsbook")
+        ?.odds,
+    ).toBe(10.99);
   });
 });

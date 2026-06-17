@@ -18,8 +18,12 @@ vi.mock("@/lib/settle/sources/sofascore", () => ({
 }));
 
 vi.mock("@/lib/settle/sources/api-football", () => ({
+  clearApiFootballSourceIssues: vi.fn(),
+  drainApiFootballSourceIssues: vi.fn().mockReturnValue([]),
   fetchApiFootballScores: vi.fn(),
-  enrichApiFootballStats: vi.fn().mockResolvedValue({ enriched: 0, skipped: 0 }),
+  enrichApiFootballStats: vi
+    .fn()
+    .mockResolvedValue({ enriched: 0, skipped: 0 }),
   getApiFootballQuota: vi
     .fn()
     .mockReturnValue({ dailyLimit: 100, used: 0, remaining: 100 }),
@@ -40,6 +44,8 @@ import { getScoresByEventIds } from "@/lib/db/repositories/match-scores";
 import { fetchEspnScores } from "@/lib/settle/sources/espn";
 import { fetchSofaScoreScores } from "@/lib/settle/sources/sofascore";
 import {
+  clearApiFootballSourceIssues,
+  drainApiFootballSourceIssues,
   fetchApiFootballScores,
   getApiFootballQuota,
 } from "@/lib/settle/sources/api-football";
@@ -74,6 +80,7 @@ beforeEach(() => {
   vi.mocked(fetchEspnScores).mockResolvedValue(new Map());
   vi.mocked(fetchSofaScoreScores).mockResolvedValue(new Map());
   vi.mocked(fetchApiFootballScores).mockResolvedValue(new Map());
+  vi.mocked(drainApiFootballSourceIssues).mockReturnValue([]);
   vi.mocked(getApiFootballQuota).mockReturnValue({
     dailyLimit: 100,
     used: 0,
@@ -142,5 +149,20 @@ describe("resolveScores source order", () => {
     expect(result.scores.get("evt1")?.source).toBe("espn");
     expect(result.telemetry.eventsResolvedFromCache).toBe(1);
     expect(result.telemetry.eventsSkippedByBackoff).toBe(0);
+  });
+
+  it("surfaces API-Football provider access errors when the last-resort tier misses", async () => {
+    vi.mocked(drainApiFootballSourceIssues).mockReturnValue([
+      "API-Football access issue on /fixtures: plan: Free plans do not have access to this date.",
+    ]);
+
+    const result = await resolveScores([event]);
+
+    expect(clearApiFootballSourceIssues).toHaveBeenCalled();
+    expect(fetchApiFootballScores).toHaveBeenCalledWith([event]);
+    expect(result.eventBreakdown.stillUnresolvedEventIds).toEqual(["evt1"]);
+    expect(result.telemetry.sourceIssues).toEqual([
+      "API-Football access issue on /fixtures: plan: Free plans do not have access to this date.",
+    ]);
   });
 });

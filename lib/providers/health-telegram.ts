@@ -46,8 +46,7 @@ export function getProviderHealthTelegramDecision(input: {
 
   if (input.alert?.severity === "down") {
     const shouldSend =
-      !state.down ||
-      input.nowMs - state.lastDownSentAt >= cooldownMs;
+      !state.down || input.nowMs - state.lastDownSentAt >= cooldownMs;
     state.down = true;
     state.lastDownFingerprint = input.alert.fingerprint;
     if (!shouldSend) return null;

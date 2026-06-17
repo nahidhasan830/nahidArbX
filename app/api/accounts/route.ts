@@ -97,10 +97,9 @@ export async function POST(req: Request) {
 
   try {
     if (provider === "ninewickets-sportsbook") {
-      // Full clean-slate: invalidate the stale session, dispose the
-      // warm Chromium (otherwise a tainted browser instance keeps
-      // failing every capture), and reset both 9W circuit breakers
-      // so the first post-recovery request actually hits the book.
+      // Full clean-slate: invalidate the stale session, dispose any
+      // active capture browser, and reset both 9W circuit breakers so
+      // the first post-recovery request actually hits the book.
       // Mirrors the off→on auto-login toggle path — same problem,
       // same cure.
       invalidateSession();

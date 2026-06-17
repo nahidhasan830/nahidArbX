@@ -40,9 +40,9 @@ from .hpo import HpoResult, optimize
 from .loader import TrainingData
 from .policy import (
     POLICY_EDGE_THRESHOLD_PCT,
+    compute_policy_threshold_stats,
     policy_unit_returns,
     return_sharpe,
-    compute_policy_threshold_stats,
     simple_rule_unit_returns,
 )
 from .scoring import (
@@ -81,28 +81,28 @@ DEFAULT_LGBM_PARAMS: dict = {
     "force_col_wise": True,
     # Monotone constraints for 22 features (removed ev_pct, implied_prob_gap, kelly_fraction_raw)
     "monotone_constraints": [
-        0,   # 0:  sharp_true_prob (relaxed — can be non-monotonic with odds)
-        0,   # 1:  soft_odds
-        0,   # 2:  adjusted_soft_odds
-        0,   # 3:  tick_count
-        0,   # 4:  time_to_kickoff_min
-        0,   # 5:  movement_pct_sharp
-        0,   # 6:  movement_pct_soft
-        0,   # 7:  steam_move_sharp
-        0,   # 8:  steam_move_soft
-        0,   # 9:  sharp_direction
-        0,   # 10: soft_direction
-        0,   # 11: convergence_rate
-        0,   # 12: tick_velocity
-        0,   # 13: provider_count
-        0,   # 14: opening_sharp_odds
-        0,   # 15: market_type_encoded
-        0,   # 16: is_asian_line
-        0,   # 17: vig_pct
-        0,   # 18: competition_tier
-        0,   # 19: hours_since_line_opened
-        0,   # 20: sharp_soft_spread
-        0,   # 21: num_markets_same_event
+        0,  # 0:  sharp_true_prob (relaxed — can be non-monotonic with odds)
+        0,  # 1:  soft_odds
+        0,  # 2:  adjusted_soft_odds
+        0,  # 3:  tick_count
+        0,  # 4:  time_to_kickoff_min
+        0,  # 5:  movement_pct_sharp
+        0,  # 6:  movement_pct_soft
+        0,  # 7:  steam_move_sharp
+        0,  # 8:  steam_move_soft
+        0,  # 9:  sharp_direction
+        0,  # 10: soft_direction
+        0,  # 11: convergence_rate
+        0,  # 12: tick_velocity
+        0,  # 13: provider_count
+        0,  # 14: opening_sharp_odds
+        0,  # 15: market_type_encoded
+        0,  # 16: is_asian_line
+        0,  # 17: vig_pct
+        0,  # 18: competition_tier
+        0,  # 19: hours_since_line_opened
+        0,  # 20: sharp_soft_spread
+        0,  # 21: num_markets_same_event
     ],
 }
 
@@ -142,8 +142,8 @@ class TrainingMetrics:
     policy_threshold_candidates: int = 0
 
     # Overfitting diagnostics — meaningful now that HPO is multi-trial.
-    dsr: float = 0.0    # Deflated Sharpe Ratio (n_trials = HPO trials).
-    pbo: float = 0.0    # Probability of Backtest Overfitting (CPCV path-based).
+    dsr: float = 0.0  # Deflated Sharpe Ratio (n_trials = HPO trials).
+    pbo: float = 0.0  # Probability of Backtest Overfitting (CPCV path-based).
 
     # Stage A — HPO summary
     hpo_n_trials: int = 0
@@ -186,8 +186,8 @@ class TrainingResult:
 
     model: lgb.LGBMClassifier
     metrics: TrainingMetrics
-    oos_predictions: np.ndarray   # calibrated, CPCV-aggregated, shape (n,)
-    oos_labels: np.ndarray        # shape (n,)
+    oos_predictions: np.ndarray  # calibrated, CPCV-aggregated, shape (n,)
+    oos_labels: np.ndarray  # shape (n,)
 
 
 # ── Public orchestrator ───────────────────────────────────────────────────
@@ -233,9 +233,22 @@ def train(
             log.warning("Progress callback failed: %s", exc)
 
     # ── Stage A: HPO ──────────────────────────────────────────────────
+    #
+    # Keep HPO away from the chronological outer-holdout tail. Otherwise
+    # the chosen hyperparameters have already seen the "future" validation
+    # regime through walk-forward folds, and Stage B is no longer an honest
+    # out-of-time check.
+    hpo_data = _hpo_training_subset(data)
+    if hpo_data.n_samples != data.n_samples:
+        log.info(
+            "Stage A HPO uses first %d/%d samples; last %d held out for Stage B",
+            hpo_data.n_samples,
+            data.n_samples,
+            data.n_samples - hpo_data.n_samples,
+        )
     progress("hpo", f"Starting HPO: {hpo_trials} trials", 300_000)
     hpo_result = _stage_a_hpo(
-        data,
+        hpo_data,
         base_params=base_params,
         run_hpo=run_hpo and lgbm_params is None,
         n_trials=hpo_trials,
@@ -248,20 +261,26 @@ def train(
     )
 
     chosen_params: dict = (
-        {**base_params, **lgbm_params}
-        if lgbm_params is not None
-        else hpo_result.best_params
+        {**base_params, **lgbm_params} if lgbm_params is not None else hpo_result.best_params
     )
     if "min_child_samples" not in chosen_params:
         chosen_params["min_child_samples"] = _adaptive_min_child_samples(data.n_samples)
 
     log.info(
         "Stage A complete: n_trials=%d, best_objective=%.6f, chosen_params=%s",
-        hpo_result.n_trials, hpo_result.best_value,
-        {k: chosen_params.get(k) for k in (
-            "num_leaves", "max_depth", "learning_rate",
-            "min_child_samples", "reg_alpha", "reg_lambda",
-        )},
+        hpo_result.n_trials,
+        hpo_result.best_value,
+        {
+            k: chosen_params.get(k)
+            for k in (
+                "num_leaves",
+                "max_depth",
+                "learning_rate",
+                "min_child_samples",
+                "reg_alpha",
+                "reg_lambda",
+            )
+        },
     )
     best_objective = (
         f"{hpo_result.best_value:.6f}"
@@ -275,8 +294,11 @@ def train(
     outer = _stage_b_outer_holdout(data, chosen_params)
     log.info(
         "Stage B complete: holdout n=%d AUC=%.4f unit_return=%.4f policy_n=%d policy_roi=%.2f%%",
-        outer["n"], outer["auc"], outer["unit_return_mean"],
-        outer["policy_n"], outer["policy_roi_pct"],
+        outer["n"],
+        outer["auc"],
+        outer["unit_return_mean"],
+        outer["policy_n"],
+        outer["policy_roi_pct"],
     )
     progress(
         "holdout",
@@ -289,7 +311,9 @@ def train(
     cpcv_out = _stage_c_cpcv(data, chosen_params, cfg, progress=progress)
     log.info(
         "Stage C complete: %d folds, mean fold-Sharpe=%.4f, mean fold-ROI=%.2f%%",
-        cpcv_out["n_folds"], cpcv_out["mean_sharpe"], cpcv_out["mean_roi"],
+        cpcv_out["n_folds"],
+        cpcv_out["mean_sharpe"],
+        cpcv_out["mean_roi"],
     )
     progress(
         "cpcv",
@@ -348,31 +372,52 @@ def train(
         pnl_valid = np.nan_to_num(pnl_arr[valid_mask], nan=0.0)
 
     valid_features = data.features[valid_mask]
+    valid_metadata = data.metadata.filter(valid_mask.tolist())
     threshold_stats = compute_policy_threshold_stats(
         calibrated_oos_valid,
         valid_features,
         pnl_valid,
+        metadata=valid_metadata,
     )
     policy = _evaluate_policy(
         calibrated_oos_valid,
         features=valid_features,
-        metadata=data.metadata.filter(valid_mask.tolist()),
+        metadata=valid_metadata,
         edge_threshold_pct=threshold_stats.threshold_pct,
     )
     simple_policy = _evaluate_simple_policy(
         features=data.features[valid_mask],
         unit_returns=pnl_valid,
+        metadata=valid_metadata,
+    )
+    _, _, policy_mask_for_lcb = policy_unit_returns(
+        calibrated_oos_valid,
+        valid_features,
+        pnl_valid,
+        edge_threshold_pct=threshold_stats.threshold_pct,
+        metadata=valid_metadata,
+    )
+    _, simple_mask_for_lcb = simple_rule_unit_returns(
+        valid_features,
+        pnl_valid,
+        metadata=valid_metadata,
     )
     baseline_roi = float(pnl_valid.mean() * 100.0) if pnl_valid.size > 0 else 0.0
     model_vs_simple_delta = (
-        policy.roi_pct - simple_policy.roi_pct
-        if simple_policy.sample_size > 0
-        else 0.0
+        policy.roi_pct - simple_policy.roi_pct if simple_policy.sample_size > 0 else 0.0
+    )
+    policy_lower_confidence_roi_pct = _bootstrap_roi_delta_lower_confidence_bound(
+        unit_returns=pnl_valid,
+        policy_mask=policy_mask_for_lcb,
+        simple_mask=simple_mask_for_lcb,
     )
 
     clv_for_buckets = clv_valid if finite_clv.size > 0 else None
     bucket_report = score_bucket_analysis(
-        policy.edge_scores_pct, labels_valid, pnl_valid, clv_for_buckets,
+        policy.edge_scores_pct,
+        labels_valid,
+        pnl_valid,
+        clv_for_buckets,
     )
     _log_bucket_report(bucket_report)
 
@@ -382,6 +427,7 @@ def train(
         raw_preds=cpcv_out["raw_fold_preds"],
         fold_features=cpcv_out["fold_features"],
         fold_unit_returns=cpcv_out["fold_unit_returns"],
+        fold_metadata=cpcv_out["fold_metadata"],
         calibration=calibration,
         edge_threshold_pct=threshold_stats.threshold_pct,
     )
@@ -433,7 +479,9 @@ def train(
     progress("final", f"Fitting final model on {data.n_samples} samples", 10_000)
     final_model = lgb.LGBMClassifier(**chosen_params)
     final_model.fit(
-        data.features, data.labels, sample_weight=data.sample_weights,
+        data.features,
+        data.labels,
+        sample_weight=data.sample_weights,
     )
 
     feature_importance = _compute_shap_importance(final_model, data.features)
@@ -455,11 +503,13 @@ def train(
         simple_policy_sample_size=simple_policy.sample_size,
         simple_policy_coverage=round(simple_policy.coverage, 4),
         model_vs_simple_roi_delta=round(model_vs_simple_delta, 4),
+        policy_lower_confidence_roi_pct=round(policy_lower_confidence_roi_pct, 4),
         dsr=round(dsr, 4),
         pbo=round(pbo_val, 4),
         hpo_n_trials=hpo_result.n_trials,
         hpo_best_objective=round(hpo_result.best_value, 6)
-        if not math.isnan(hpo_result.best_value) else float("nan"),
+        if not math.isnan(hpo_result.best_value)
+        else float("nan"),
         hpo_per_trial_sharpe_var=round(sharpe_var_across_trials, 6),
         outer_holdout_n=outer["n"],
         outer_holdout_auc=round(outer["auc"], 4),
@@ -482,10 +532,16 @@ def train(
         "Training complete: AUC=%.4f DSR=%.4f PBO=%.4f ROI=%.2f%% "
         "policyROI=%.2f%% policyN=%d simpleROI=%.2f%% simpleN=%d "
         "outerAUC=%.4f outerN=%d cal=%s",
-        metrics.auc_roc, metrics.dsr, metrics.pbo, metrics.oos_roi_mean,
-        metrics.policy_roi_mean, metrics.policy_sample_size,
-        metrics.simple_policy_roi_mean, metrics.simple_policy_sample_size,
-        metrics.outer_holdout_auc, metrics.outer_holdout_n,
+        metrics.auc_roc,
+        metrics.dsr,
+        metrics.pbo,
+        metrics.oos_roi_mean,
+        metrics.policy_roi_mean,
+        metrics.policy_sample_size,
+        metrics.simple_policy_roi_mean,
+        metrics.simple_policy_sample_size,
+        metrics.outer_holdout_auc,
+        metrics.outer_holdout_n,
         metrics.calibration_method,
     )
 
@@ -495,6 +551,100 @@ def train(
         oos_predictions=calibrated_oos_full,
         oos_labels=data.labels,
     )
+
+
+def _outer_holdout_size(n_samples: int) -> int:
+    return max(20, int(round(n_samples * OUTER_HOLDOUT_FRACTION)))
+
+
+def _hpo_training_subset(data: TrainingData) -> TrainingData:
+    """Return the pre-holdout slice used for HPO.
+
+    The outer holdout is the last chronological block. HPO must not see it,
+    even indirectly through walk-forward validation paths.
+    """
+    holdout_size = _outer_holdout_size(data.n_samples)
+    if holdout_size >= data.n_samples - 20:
+        return data
+    train_idx = np.arange(data.n_samples - holdout_size, dtype=np.int64)
+    return _slice_training_data(data, train_idx)
+
+
+def _slice_training_data(data: TrainingData, indices: np.ndarray) -> TrainingData:
+    sample_weights = (
+        data.sample_weights[indices] if data.sample_weights is not None else None
+    )
+    labels = data.labels[indices]
+    n_pos = int(labels.sum())
+    n_neg = int((labels == 0).sum())
+    return TrainingData(
+        features=data.features[indices],
+        labels=labels,
+        feature_names=data.feature_names,
+        metadata=data.metadata[indices.tolist()],
+        n_samples=int(indices.size),
+        sample_weights=sample_weights,
+        scale_pos_weight=_conservative_scale_pos_weight(n_pos, n_neg),
+        feature_version=data.feature_version,
+        feature_names_hash=data.feature_names_hash,
+    )
+
+
+def _conservative_scale_pos_weight(n_pos: int, n_neg: int) -> float:
+    if n_pos == 0 or n_neg == 0:
+        return 1.0
+    ratio = n_neg / n_pos
+    if 0.7 <= ratio <= 1.4:
+        return 1.0
+    return round(math.sqrt(ratio), 4)
+
+
+def _bootstrap_roi_delta_lower_confidence_bound(
+    *,
+    unit_returns: np.ndarray,
+    policy_mask: np.ndarray,
+    simple_mask: np.ndarray,
+    n_bootstrap: int = 500,
+    min_selected_per_sample: int = 20,
+    seed: int = 42,
+) -> float:
+    """One-sided 95% lower bound for ML-policy ROI minus simple-rule ROI.
+
+    This is intentionally paired on the same OOS rows. A positive mean delta
+    is not enough for active authority when the lower bound is negative.
+    """
+    clean_returns = np.nan_to_num(unit_returns.astype(np.float64), nan=0.0)
+    policy_mask = np.asarray(policy_mask, dtype=bool)
+    simple_mask = np.asarray(simple_mask, dtype=bool)
+    n = clean_returns.size
+    if (
+        n == 0
+        or policy_mask.size != n
+        or simple_mask.size != n
+        or int(policy_mask.sum()) < min_selected_per_sample
+        or int(simple_mask.sum()) < min_selected_per_sample
+    ):
+        return -100.0
+
+    rng = np.random.default_rng(seed)
+    deltas: list[float] = []
+    for _ in range(n_bootstrap):
+        idx = rng.integers(0, n, size=n)
+        policy_selected = policy_mask[idx]
+        simple_selected = simple_mask[idx]
+        if (
+            int(policy_selected.sum()) < min_selected_per_sample
+            or int(simple_selected.sum()) < min_selected_per_sample
+        ):
+            continue
+        sampled_returns = clean_returns[idx]
+        policy_roi = float(sampled_returns[policy_selected].mean() * 100.0)
+        simple_roi = float(sampled_returns[simple_selected].mean() * 100.0)
+        deltas.append(policy_roi - simple_roi)
+
+    if len(deltas) < max(50, n_bootstrap // 10):
+        return -100.0
+    return float(np.percentile(np.asarray(deltas, dtype=np.float64), 5))
 
 
 # ── Stage A ───────────────────────────────────────────────────────────────
@@ -531,15 +681,19 @@ def _stage_a_hpo(
 def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
     """Train on first (1-OUTER_HOLDOUT_FRACTION) of data, eval on the tail."""
     n = data.n_samples
-    holdout_size = max(20, int(round(n * OUTER_HOLDOUT_FRACTION)))
+    holdout_size = _outer_holdout_size(n)
     if holdout_size >= n - 20:
         log.warning("Outer holdout too small (n=%d) — returning placeholder", n)
         return {
-            "n": 0, "auc": float("nan"), "unit_return_mean": float("nan"),
-            "policy_roi_pct": float("nan"), "policy_n": 0,
+            "n": 0,
+            "auc": float("nan"),
+            "unit_return_mean": float("nan"),
+            "policy_roi_pct": float("nan"),
+            "policy_n": 0,
             "raw_preds": np.empty(0, dtype=np.float64),
             "features": np.empty((0, data.features.shape[1]), dtype=np.float32),
             "unit_returns": np.empty(0, dtype=np.float64),
+            "metadata": pl.DataFrame(),
         }
 
     train_idx = np.arange(n - holdout_size, dtype=np.int64)
@@ -549,8 +703,7 @@ def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
     w_train = data.sample_weights[train_idx] if data.sample_weights is not None else None
 
     model = lgb.LGBMClassifier(**params)
-    model.fit(X_train, y_train, sample_weight=w_train,
-              callbacks=[lgb.log_evaluation(period=0)])
+    model.fit(X_train, y_train, sample_weight=w_train, callbacks=[lgb.log_evaluation(period=0)])
 
     X_test, y_test = data.features[test_idx], data.labels[test_idx]
     raw_preds = model.predict_proba(X_test)[:, 1]
@@ -575,11 +728,10 @@ def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
         test_features,
         unit_returns,
         edge_threshold_pct=POLICY_EDGE_THRESHOLD_PCT,
+        metadata=test_meta,
     )
     policy_n = int(policy_mask.sum())
-    policy_roi_pct = (
-        float(selected_returns.mean() * 100.0) if policy_n > 0 else float("nan")
-    )
+    policy_roi_pct = float(selected_returns.mean() * 100.0) if policy_n > 0 else float("nan")
 
     return {
         "n": int(test_idx.size),
@@ -590,6 +742,7 @@ def _stage_b_outer_holdout(data: TrainingData, params: dict) -> dict:
         "raw_preds": raw_preds,
         "features": test_features,
         "unit_returns": unit_returns,
+        "metadata": test_meta,
     }
 
 
@@ -603,9 +756,11 @@ def _stage_c_cpcv(
     progress: Callable[[str, str, int], None] | None = None,
 ) -> dict:
     """CPCV risk certification with the chosen hyperparameters."""
-    splitter_df = pl.DataFrame({
-        "event_id": data.metadata["event_id"].to_list(),
-    })
+    splitter_df = pl.DataFrame(
+        {
+            "event_id": data.metadata["event_id"].to_list(),
+        }
+    )
     splits = make_cpcv_splits(splitter_df, cfg)
     n_folds = len(splits)
 
@@ -617,6 +772,7 @@ def _stage_c_cpcv(
     raw_fold_preds: list[np.ndarray] = []
     fold_features: list[np.ndarray] = []
     fold_unit_returns: list[np.ndarray] = []
+    fold_metadata: list[pl.DataFrame] = []
 
     X = data.features
     y = data.labels
@@ -664,16 +820,18 @@ def _stage_c_cpcv(
         raw_fold_preds.append(preds)
         fold_features.append(X_test)
         fold_unit_returns.append(unit_returns)
+        fold_metadata.append(fold_meta)
 
         selected_returns, _edges, _policy_mask = policy_unit_returns(
-            preds, X_test, unit_returns,
+            preds,
+            X_test,
+            unit_returns,
+            metadata=fold_meta,
         )
         sharpe = return_sharpe(selected_returns)
         per_fold_sharpes.append(sharpe)
         per_fold_rois.append(
-            float(selected_returns.mean() * 100.0)
-            if selected_returns.size > 0
-            else 0.0
+            float(selected_returns.mean() * 100.0) if selected_returns.size > 0 else 0.0
         )
         fold_number = split.path_index + 1
         if progress is not None and (
@@ -704,6 +862,7 @@ def _stage_c_cpcv(
         "raw_fold_preds": raw_fold_preds,
         "fold_features": fold_features,
         "fold_unit_returns": fold_unit_returns,
+        "fold_metadata": fold_metadata,
     }
 
 
@@ -719,17 +878,14 @@ class PolicyEvaluation:
 
 
 def _classification_metrics(
-    labels: np.ndarray, calibrated_probs: np.ndarray,
+    labels: np.ndarray,
+    calibrated_probs: np.ndarray,
 ) -> tuple[float, float, float, float]:
     if labels.size == 0:
         return 0.5, 0.0, 0.0, 0.0
     unique_labels = np.unique(labels)
     try:
-        auc = (
-            float(roc_auc_score(labels, calibrated_probs))
-            if unique_labels.size >= 2
-            else 0.5
-        )
+        auc = float(roc_auc_score(labels, calibrated_probs)) if unique_labels.size >= 2 else 0.5
     except ValueError:
         auc = 0.5
     acc = float(accuracy_score(labels, (calibrated_probs > 0.5).astype(int)))
@@ -783,7 +939,8 @@ def _safe_skew_kurt(arr: np.ndarray) -> tuple[float, float]:
 
 
 def _split_train_validation(
-    train_idx: np.ndarray, y: np.ndarray,
+    train_idx: np.ndarray,
+    y: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Chronological inner split for early stopping without touching test rows."""
     if len(train_idx) < 20:
@@ -822,6 +979,7 @@ def _evaluate_policy(
         features,
         unit_returns,
         edge_threshold_pct=edge_threshold_pct,
+        metadata=metadata,
     )
     sample_size = int(policy_mask.sum())
     roi_pct = float(selected_returns.mean() * 100.0) if sample_size > 0 else 0.0
@@ -839,8 +997,13 @@ def _evaluate_simple_policy(
     *,
     features: np.ndarray,
     unit_returns: np.ndarray,
+    metadata,
 ) -> PolicyEvaluation:
-    selected_returns, mask = simple_rule_unit_returns(features, unit_returns)
+    selected_returns, mask = simple_rule_unit_returns(
+        features,
+        unit_returns,
+        metadata=metadata,
+    )
     sample_size = int(mask.sum())
     roi_pct = float(selected_returns.mean() * 100.0) if sample_size > 0 else 0.0
     coverage = float(sample_size / len(unit_returns)) if len(unit_returns) > 0 else 0.0
@@ -857,6 +1020,7 @@ def _evaluate_cpcv_policy_threshold(
     raw_preds: list[np.ndarray],
     fold_features: list[np.ndarray],
     fold_unit_returns: list[np.ndarray],
+    fold_metadata: list[pl.DataFrame],
     calibration: CalibrationResult,
     edge_threshold_pct: float,
 ) -> dict:
@@ -864,10 +1028,11 @@ def _evaluate_cpcv_policy_threshold(
     per_fold_sharpes: list[float] = []
     per_fold_rois: list[float] = []
 
-    for preds, features, unit_returns in zip(
+    for preds, features, unit_returns, metadata in zip(
         raw_preds,
         fold_features,
         fold_unit_returns,
+        fold_metadata,
     ):
         calibrated = apply_calibration(preds, calibration)
         selected_returns, _edges, _policy_mask = policy_unit_returns(
@@ -875,12 +1040,11 @@ def _evaluate_cpcv_policy_threshold(
             features,
             unit_returns,
             edge_threshold_pct=edge_threshold_pct,
+            metadata=metadata,
         )
         per_fold_sharpes.append(return_sharpe(selected_returns))
         per_fold_rois.append(
-            float(selected_returns.mean() * 100.0)
-            if selected_returns.size > 0
-            else 0.0
+            float(selected_returns.mean() * 100.0) if selected_returns.size > 0 else 0.0
         )
 
     return {
@@ -901,10 +1065,12 @@ def _evaluate_outer_holdout_policy_threshold(
     raw_preds = outer.get("raw_preds")
     features = outer.get("features")
     unit_returns = outer.get("unit_returns")
+    metadata = outer.get("metadata")
     if (
         not isinstance(raw_preds, np.ndarray)
         or not isinstance(features, np.ndarray)
         or not isinstance(unit_returns, np.ndarray)
+        or not isinstance(metadata, pl.DataFrame)
         or raw_preds.size == 0
     ):
         return {"policy_roi_pct": float("nan"), "policy_n": 0}
@@ -915,20 +1081,21 @@ def _evaluate_outer_holdout_policy_threshold(
         features,
         unit_returns,
         edge_threshold_pct=edge_threshold_pct,
+        metadata=metadata,
     )
     policy_n = int(policy_mask.sum())
     return {
         "policy_roi_pct": (
-            float(selected_returns.mean() * 100.0)
-            if selected_returns.size > 0
-            else float("nan")
+            float(selected_returns.mean() * 100.0) if selected_returns.size > 0 else float("nan")
         ),
         "policy_n": policy_n,
     }
 
 
 def _expected_calibration_error(
-    y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10,
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_bins: int = 10,
 ) -> float:
     labels = np.asarray(y_true, dtype=np.float64)
     probs = np.asarray(y_prob, dtype=np.float64)
@@ -960,6 +1127,7 @@ def _compute_shap_importance(
 ) -> dict[str, float]:
     try:
         import shap
+
         if X.shape[0] > max_samples:
             rng = np.random.default_rng(42)
             idx = rng.choice(X.shape[0], max_samples, replace=False)
@@ -971,10 +1139,7 @@ def _compute_shap_importance(
         if isinstance(shap_values, list):
             shap_values = shap_values[1]
         mean_abs = np.abs(shap_values).mean(axis=0)
-        return {
-            FEATURE_NAMES[i]: round(float(mean_abs[i]), 6)
-            for i in range(FEATURE_COUNT)
-        }
+        return {FEATURE_NAMES[i]: round(float(mean_abs[i]), 6) for i in range(FEATURE_COUNT)}
     except Exception as e:
         log.warning("SHAP computation failed: %s", e)
         return {}
@@ -995,12 +1160,19 @@ def _log_bucket_report(report: ScoreBucketReport) -> None:
         clv_str = f"{b.mean_clv_pct:8.2f}" if math.isfinite(b.mean_clv_pct) else "     N/A"
         log.info(
             "  %-10s %6d %7.1f%% %7.1f%% %s %8.4f",
-            b.label, b.count, b.win_rate * 100, b.roi_pct, clv_str, b.mean_score,
+            b.label,
+            b.count,
+            b.win_rate * 100,
+            b.roi_pct,
+            clv_str,
+            b.mean_score,
         )
     log.info(
         "  Monotonicity: ROI=%.2f, CLV=%.2f, WinRate=%.2f | Directional=%s",
-        report.roi_monotonicity, report.clv_monotonicity,
-        report.win_rate_monotonicity, report.is_directionally_monotonic,
+        report.roi_monotonicity,
+        report.clv_monotonicity,
+        report.win_rate_monotonicity,
+        report.is_directionally_monotonic,
     )
 
 
@@ -1074,34 +1246,38 @@ def run_ablation(
             ablated_auc = _quick_auc(ablated_data, params)
         except Exception as e:
             log.warning("Ablation for %s failed: %s", feat_name, e)
-            results.append({
+            results.append(
+                {
+                    "feature_name": feat_name,
+                    "feature_index": feat_idx,
+                    "full_dsr": round(full_sharpe, 4),
+                    "ablated_dsr": float("nan"),
+                    "dsr_delta": float("nan"),
+                    "full_roi": round(full_roi, 4),
+                    "ablated_roi": float("nan"),
+                    "roi_delta": float("nan"),
+                    "full_auc": round(full_auc, 4),
+                    "ablated_auc": float("nan"),
+                    "auc_delta": float("nan"),
+                }
+            )
+            continue
+
+        results.append(
+            {
                 "feature_name": feat_name,
                 "feature_index": feat_idx,
                 "full_dsr": round(full_sharpe, 4),
-                "ablated_dsr": float("nan"),
-                "dsr_delta": float("nan"),
+                "ablated_dsr": round(ablated_sharpe, 4),
+                "dsr_delta": round(full_sharpe - ablated_sharpe, 4),
                 "full_roi": round(full_roi, 4),
-                "ablated_roi": float("nan"),
-                "roi_delta": float("nan"),
+                "ablated_roi": round(ablated_roi, 4),
+                "roi_delta": round(full_roi - ablated_roi, 4),
                 "full_auc": round(full_auc, 4),
-                "ablated_auc": float("nan"),
-                "auc_delta": float("nan"),
-            })
-            continue
-
-        results.append({
-            "feature_name": feat_name,
-            "feature_index": feat_idx,
-            "full_dsr": round(full_sharpe, 4),
-            "ablated_dsr": round(ablated_sharpe, 4),
-            "dsr_delta": round(full_sharpe - ablated_sharpe, 4),
-            "full_roi": round(full_roi, 4),
-            "ablated_roi": round(ablated_roi, 4),
-            "roi_delta": round(full_roi - ablated_roi, 4),
-            "full_auc": round(full_auc, 4),
-            "ablated_auc": round(ablated_auc, 4),
-            "auc_delta": round(full_auc - ablated_auc, 4),
-        })
+                "ablated_auc": round(ablated_auc, 4),
+                "auc_delta": round(full_auc - ablated_auc, 4),
+            }
+        )
 
     # Sort by DSR delta (most impactful first)
     results.sort(key=lambda r: r.get("dsr_delta", 0) or 0, reverse=True)
@@ -1109,10 +1285,7 @@ def run_ablation(
     log.info(
         "Ablation complete: %d features tested. Top-5 by DSR impact: %s",
         len(results),
-        ", ".join(
-            f"{r['feature_name']}={r['dsr_delta']:.4f}"
-            for r in results[:5]
-        ),
+        ", ".join(f"{r['feature_name']}={r['dsr_delta']:.4f}" for r in results[:5]),
     )
 
     # Flag redundant features (negative delta = model improved without them)
