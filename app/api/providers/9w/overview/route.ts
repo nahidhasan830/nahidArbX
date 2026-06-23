@@ -9,11 +9,19 @@ import {
   reconcilePendingBets,
   type ReconcileReport,
 } from "@/lib/betting/ninewickets/reconciler";
+import {
+  buildDemoNineWicketsOverview,
+  isDashboardDemoRequest,
+} from "@/lib/dashboard/demo-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (isDashboardDemoRequest(req)) {
+    return NextResponse.json(buildDemoNineWicketsOverview());
+  }
+
   const at = new Date().toISOString();
   const errors: Record<string, string> = {};
 

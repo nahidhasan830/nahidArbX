@@ -16,6 +16,10 @@ import { readPlayerInfoWithRecapture } from "@/lib/betting/velki/balance";
 import { resetCircuitBreaker } from "@/lib/shared/circuit-breaker";
 import { DEMO_ACCOUNT } from "@/lib/betting/dummy-data";
 import { isAutoPlaceEnabled } from "@/lib/betting/auto-place-config";
+import {
+  buildDemoDashboardAccounts,
+  isDashboardDemoRequest,
+} from "@/lib/dashboard/demo-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,7 +49,11 @@ const SESSION_FILE_9W = path.join("sessions", "9wkts", "session.json");
 const SESSION_FILE_VELKI = path.join("sessions", "velki", "session.json");
 const EXPIRING_WINDOW_MS = 10 * 60 * 1000;
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (isDashboardDemoRequest(req)) {
+    return NextResponse.json({ accounts: buildDemoDashboardAccounts() });
+  }
+
   const [nineW, velki] = await Promise.all([
     fetch9wktsAccount(),
     fetchVelkiAccount(),

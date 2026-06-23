@@ -3,6 +3,10 @@ import { listPlacedBets } from "@/lib/db/repositories/bets";
 import { BETTING_PROVIDERS } from "@/lib/betting/registry";
 import type { BetRow } from "@/lib/db/schema";
 import { addDays, format, getDay, getHours, parseISO } from "date-fns";
+import {
+  buildDemoDashboardRows,
+  isDashboardDemoRequest,
+} from "@/lib/dashboard/demo-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -26,13 +30,24 @@ export interface PnlPoint {
   expected: number;
 }
 
-export async function GET() {
-  const rows = await listPlacedBets(1000);
-  const stats = deriveStats(rows);
+export async function GET(req: Request) {
+  const demo = isDashboardDemoRequest(req);
+  const rows = demo
+    ? buildDemoDashboardRows()
+    : await listPlacedBets(1000);
+  const stats = deriveStats(rows, {
+    startingBankroll: demo ? 5_110 : 10_000,
+    includeExpected: demo,
+  });
   return NextResponse.json(stats);
 }
 
-function deriveStats(rows: BetRow[]) {
+function deriveStats(
+  rows: BetRow[],
+  options: { startingBankroll?: number; includeExpected?: boolean } = {},
+) {
+  const startingBankroll = options.startingBankroll ?? 10_000;
+  const includeExpected = options.includeExpected ?? false;
   const active = rows.filter((r) => r.outcome !== "cancelled");
   const settled = active.filter(
     (r) => r.outcome !== "pending" && r.outcome !== "cancelled",
@@ -58,7 +73,10 @@ function deriveStats(rows: BetRow[]) {
         100
       : null;
 
-  const bankroll = round2(10_000 + totalProfit - openStake);
+  const bankroll = round2(startingBankroll + totalProfit - openStake);
+  const expectedProfit = includeExpected
+    ? round2(sum(settled.map(expectedPnl)))
+    : 0;
 
   return {
     totals: {
@@ -78,11 +96,11 @@ function deriveStats(rows: BetRow[]) {
       pctBeatClv: pctBeatClv !== null ? round2(pctBeatClv) : null,
       openBets: open.length,
       openStake: round2(openStake),
-      expectedProfit: 0, // we don't track per-row EV on settled/placed bets yet
-      luckDelta: 0,
+      expectedProfit,
+      luckDelta: includeExpected ? round2(totalProfit - expectedProfit) : 0,
       maxDrawdown: computeMaxDrawdown(settled),
     },
-    pnlSeries: buildPnlSeries(active),
+    pnlSeries: buildPnlSeries(active, includeExpected),
     byBook: groupBy(
       active,
       (r) => r.provider!,
@@ -180,15 +198,18 @@ function groupBy(
     .sort((a, b) => b.stake - a.stake);
 }
 
-function buildPnlSeries(rows: BetRow[]): PnlPoint[] {
+function buildPnlSeries(rows: BetRow[], includeExpected: boolean): PnlPoint[] {
   if (rows.length === 0) return [];
-  const byDay = new Map<string, number>();
+  const byDay = new Map<string, { actual: number; expected: number }>();
   for (const r of rows) {
     if (r.outcome === "pending" || r.outcome === "cancelled") continue;
     const timestamp = r.settledAt ?? r.placedAt;
     if (!timestamp) continue;
     const day = format(parseISO(timestamp), "yyyy-MM-dd");
-    byDay.set(day, (byDay.get(day) ?? 0) + Number(r.pnl ?? 0));
+    const current = byDay.get(day) ?? { actual: 0, expected: 0 };
+    current.actual += Number(r.pnl ?? 0);
+    current.expected += includeExpected ? expectedPnl(r) : 0;
+    byDay.set(day, current);
   }
   const days = [...byDay.keys()].sort();
   if (days.length === 0) return [];
@@ -198,11 +219,33 @@ function buildPnlSeries(rows: BetRow[]): PnlPoint[] {
   for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
     filled.push(format(d, "yyyy-MM-dd"));
   }
-  let cum = 0;
+  let actual = 0;
+  let expected = 0;
   return filled.map((day) => {
-    cum += byDay.get(day) ?? 0;
-    return { date: day, actual: round2(cum), expected: 0 };
+    const value = byDay.get(day);
+    actual += value?.actual ?? 0;
+    expected += value?.expected ?? 0;
+    return { date: day, actual: round2(actual), expected: round2(expected) };
   });
+}
+
+function expectedPnl(row: BetRow): number {
+  const stake = Number(row.stake ?? 0);
+  const odds = Number(row.odds ?? row.softOdds);
+  const trueProb = Number(row.sharpTrueProb);
+  const commissionPct = Number(row.softCommissionPct ?? 0);
+  if (
+    !Number.isFinite(stake) ||
+    !Number.isFinite(odds) ||
+    !Number.isFinite(trueProb) ||
+    stake <= 0 ||
+    odds <= 1 ||
+    trueProb <= 0
+  ) {
+    return 0;
+  }
+  const adjustedOdds = 1 + (odds - 1) * (1 - commissionPct / 100);
+  return round2(stake * (adjustedOdds * trueProb - 1));
 }
 
 function computeMaxDrawdown(settled: BetRow[]): number {

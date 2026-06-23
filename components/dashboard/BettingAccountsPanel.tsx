@@ -11,7 +11,6 @@ import {
 } from "date-fns";
 import {
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Pause,
   Play,
@@ -390,13 +389,11 @@ function PendingTurnoverTile({
   openStake: number | null;
   currency: string;
 }) {
-  const cleared = openStake !== null && openStake === 0;
-
   return (
     <div
       className={cn(
         "flex flex-col gap-1 px-3 py-2.5 rounded-[8px] border",
-        cleared
+        openStake !== null && openStake === 0
           ? "bg-emerald-950/20 border-emerald-500/25"
           : "bg-black/20 border-white/[0.04]",
       )}
@@ -404,24 +401,24 @@ function PendingTurnoverTile({
       <div
         className={cn(
           "text-[9px] font-bold tracking-[0.08em] uppercase",
-          cleared ? "text-emerald-400/80" : "text-muted-foreground/70",
+          openStake !== null && openStake === 0
+            ? "text-emerald-400/80"
+            : "text-muted-foreground/70",
         )}
       >
         Pending T.O.
       </div>
 
-      {cleared ? (
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <CheckCircle2 className="size-3 text-emerald-400" />
-          <span className="text-[13px] font-semibold leading-none tracking-[-0.01em] text-emerald-400">
-            Cleared
-          </span>
-        </div>
-      ) : (
-        <div className="text-[13px] font-semibold leading-none tracking-[-0.01em] font-mono tabular-nums text-foreground/80 mt-1">
-          {openStake !== null ? money(openStake, currency) : "—"}
-        </div>
-      )}
+      <div
+        className={cn(
+          "text-[13px] font-semibold leading-none tracking-[-0.01em] font-mono tabular-nums mt-1",
+          openStake !== null && openStake === 0
+            ? "text-emerald-400"
+            : "text-foreground/80",
+        )}
+      >
+        {openStake !== null ? money(openStake, currency) : "—"}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Aggressive Cleanup"
-  short_description: "Removes comments, docs, stale scripts, and duplication"
-  default_prompt: "Use $aggressive-cleanup to remove comments, delete stale docs and scripts, refactor duplication, and organize the NahidArbX codebase with verification."

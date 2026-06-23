@@ -1,4 +1,0 @@
-interface:
-  display_name: "Bets Needs Review Settlement"
-  short_description: "Clears settlement review rows safely"
-  default_prompt: "Use $bets-needs-review-settlement to sample five Bets History Needs Review events, replay settlement, diagnose failures, and generalize pipeline fixes."
