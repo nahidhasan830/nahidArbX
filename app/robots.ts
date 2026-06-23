@@ -15,6 +15,5 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    // Internal tool — not a public website
   };
 }

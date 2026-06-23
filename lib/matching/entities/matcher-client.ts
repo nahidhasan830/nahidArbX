@@ -1,10 +1,3 @@
-/**
- * Entity Matcher Client - Vertex AI Embeddings
- *
- * Generates embeddings for entity matching using Vertex AI's managed
- * text-embedding models. The old self-hosted Python matcher fallback has
- * been removed; unavailable Vertex embeddings return null.
- */
 
 import {
   embedBatch as vertexEmbedBatch,
@@ -27,17 +20,10 @@ interface ScoreContext {
   competition_canonical?: string;
 }
 
-/**
- * Embed a single surface form. Returns a 768-dim vector or null on failure.
- */
 export async function embed(text: string): Promise<number[] | null> {
   return vertexEmbed(text);
 }
 
-/**
- * Bi-encoder cosine similarity in [0, 1]. Returns null when Vertex
- * embeddings are unavailable so callers can escalate safely.
- */
 export async function scoreBiEncoder(
   nameA: string,
   nameB: string,
@@ -53,11 +39,6 @@ export async function scoreBiEncoder(
   return (cosineSimilarity(embA, embB) + 1) / 2;
 }
 
-/**
- * Cross-encoder calibration was provided by the removed Python service.
- * Keep the typed API so existing entity auto-resolver stages degrade to
- * operator review without throwing.
- */
 export async function scoreCrossEncoder(
   nameA: string,
   nameB: string,
@@ -69,10 +50,6 @@ export async function scoreCrossEncoder(
   return null;
 }
 
-/**
- * Batch-embed a list of surface forms. Returns a Map from each input text
- * to its 768-dim embedding vector, or null if any embedding fails.
- */
 export async function embedBatch(
   texts: string[],
 ): Promise<Map<string, number[]> | null> {

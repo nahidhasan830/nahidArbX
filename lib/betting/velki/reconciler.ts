@@ -1,15 +1,3 @@
-/**
- * Velki pending-bet reconciler.
- *
- * Symmetric counterpart to {@link ../ninewickets/reconciler.ts}. Both
- * providers run the same Genius Sports platform, so the feed endpoint
- * (`queryUnMatchTicketsAndTxns`) returns the exact same response shape
- * — only the host and auth differ.
- *
- * All monetary amounts in the raw feed are in Velki-units (1 = 100 BDT).
- * This module normalizes them to plain BDT at the boundary, so every
- * downstream consumer sees the same denomination as the rest of the app.
- */
 import { callWithSessionRetry, VelkiSessionExpiredError } from "./session";
 import { toBDT } from "./units";
 import {
@@ -63,10 +51,6 @@ const UNMATCH_FIELDS: Record<string, string> = {
   geniusSportsTxnVersion: "0",
 };
 
-/**
- * Normalize monetary amounts on a single ticket from Velki-units to BDT.
- * Odds, ids, and timestamps are left untouched.
- */
 function normalizeTicketAmounts(
   t: GeniusSportsUnMatchTicket,
 ): GeniusSportsUnMatchTicket {
@@ -78,11 +62,6 @@ function normalizeTicketAmounts(
   };
 }
 
-/**
- * Fetch the live unmatched-tickets + transaction feed from Velki's
- * provider tier. All monetary amounts in the returned tickets are
- * normalized to plain BDT.
- */
 export async function fetchUnMatchedTickets(): Promise<QueryUnMatchTicketsResponse> {
   return callWithSessionRetry(async (session) => {
     const url = `${PROVIDER_API_HOST}/exchange/member/playerService/queryUnMatchTicketsAndTxns;jsessionid=${session.jsessionid}`;
@@ -118,9 +97,6 @@ export async function fetchUnMatchedTickets(): Promise<QueryUnMatchTicketsRespon
       );
     }
     const feed = parsed as QueryUnMatchTicketsResponse;
-    // Normalize Velki-unit amounts to BDT on all GS tickets so
-    // downstream matching / DB writes use the same denomination as
-    // the rest of the app.
     feed.geniusSportsUnMatchTickets = (
       feed.geniusSportsUnMatchTickets ?? []
     ).map(normalizeTicketAmounts);
@@ -128,9 +104,6 @@ export async function fetchUnMatchedTickets(): Promise<QueryUnMatchTicketsRespon
   });
 }
 
-// =====================================================================
-// Pending-bet reconciler (mirrors ninewickets/reconciler.ts)
-// =====================================================================
 
 const ORPHAN_PENDING_TTL_MS = 5 * 60 * 1000;
 
@@ -189,8 +162,6 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
   }
 
   for (const row of pending) {
-    // If the row already has a ticket id, verify it's still in the live feed.
-    // The provider's bet history is the ultimate source of truth.
     if (row.providerTicketId) {
       const stillInFeed = tickets.some(
         (t) => String(t.id) === row.providerTicketId,

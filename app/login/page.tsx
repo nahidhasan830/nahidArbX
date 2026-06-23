@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Show message based on reason
   const sessionRevokedMessage =
     reason === "session_revoked"
       ? "You were logged out because your account was accessed from another device."
@@ -28,7 +27,6 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      // Navigation handled by AuthProvider.login()
     } catch (err) {
       setError(
         err instanceof Error
@@ -44,27 +42,23 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="w-full max-w-md px-4">
         <div className="bg-slate-900 rounded-xl shadow-xl p-8 border border-slate-800">
-          {/* Logo/Title */}
           <div className="text-center mb-8">
             <BrandLogo size="lg" />
             <p className="text-gray-400 mt-2">Sign in to your account</p>
           </div>
 
-          {/* Session Revoked Message */}
           {sessionRevokedMessage && (
             <div className="mb-4 p-3 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-200 text-sm">
               {sessionRevokedMessage}
             </div>
           )}
 
-          {/* Error Message */}
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200 text-sm">
               {error}
             </div>
           )}
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label
@@ -136,7 +130,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Forgot Password Link */}
           <div className="mt-6 text-center">
             <Link
               href="/forgot-password"
@@ -147,7 +140,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-gray-600 text-sm mt-8">
           Invite-only access.{" "}
           <Link

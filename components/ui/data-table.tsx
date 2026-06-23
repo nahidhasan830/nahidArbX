@@ -1,27 +1,5 @@
 "use client";
 
-/**
- * Reusable DataTable — TanStack Table v8 + TanStack Virtual + dnd-kit.
- *
- * One component for every table in the app. Feature flags are opt-in so a
- * trivial table stays trivial, while a heavy analytical table can turn on
- * sorting, column resizing, header drag-to-reorder, grouping, selection,
- * virtualization, and infinite scroll.
- *
- * Styling baseline is deliberately tight — 11px text, 30px rows, sticky
- * header, tooltip hints per column — to match the density we already have
- * in the bets-history / value-bets surfaces.
- *
- * Non-obvious behaviours:
- * - Sort cycles desc → asc → none (TanStack's default is asc → desc → none,
- *   but desc-first is what analysts expect here — biggest EV / newest / etc.
- *   at the top on first click). See `cycleSort` below.
- * - `meta.fixed` columns (e.g. checkbox, actions) are excluded from the
- *   sortable header set so they can't be dragged away from their pinned edge.
- * - Persistence writes a bundle (`sorting + columnSizing + columnOrder +
- *   columnVisibility + grouping`) to one localStorage key to avoid key sprawl.
- */
-
 import * as React from "react";
 import {
   DndContext,
@@ -49,6 +27,7 @@ import {
   type GroupingState,
   type Header,
   type Row,
+  type RowData,
   type RowSelectionState,
   type SortingState,
   type VisibilityState,
@@ -69,33 +48,22 @@ import {
 import { useLocalStorage } from "@/components/hooks/useLocalStorage";
 import { cn } from "@/lib/utils";
 
-// ---------- public types ----------
-
 export type DataTableColumnMeta = {
-  /** Tooltip shown on header hover. Explain the column's meaning in plain English. */
   hint?: React.ReactNode;
-  /** Cell alignment. `right` auto-adds `tabular-nums` for numeric columns. */
   align?: "left" | "right" | "center";
-  /** Pinned to its edge — excluded from drag-reorder. Use for select/actions. */
   fixed?: "left" | "right";
-  /** Initial pixel width when resizing is enabled. */
   initialSize?: number;
-  /** Show this column in the grouping menu (default: true for non-fixed). */
   groupable?: boolean;
 };
 
-// TanStack's `ColumnMeta` augmentation slot — we inject our column-level
-// options here so callers get typed `meta.hint`, `meta.align`, etc. on
-// every column definition. The two generic params are required by
-// TanStack's module shape even though we don't use them in the extension.
 declare module "@tanstack/react-table" {
-  interface ColumnMeta<TData extends RowData, TValue> // eslint-disable-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue>
     extends DataTableColumnMeta {
-    /** @internal — placeholder so the interface isn't empty. */
-    readonly __dataTableMeta?: never;
+    readonly __dataTableMeta?: [TData, TValue] extends [never, never]
+      ? never
+      : never;
   }
 }
-import type { RowData } from "@tanstack/react-table";
 
 type PersistedState = {
   sorting?: SortingState;
@@ -110,7 +78,6 @@ export type DataTableProps<T> = {
   columns: ColumnDef<T, unknown>[];
   getRowId?: (row: T, index: number) => string;
 
-  // Feature toggles — off by default, opt in per table.
   enableSorting?: boolean;
   enableMultiSort?: boolean;
   enableColumnResizing?: boolean;
@@ -120,48 +87,30 @@ export type DataTableProps<T> = {
   enableExpanding?: boolean;
   enableVirtualization?: boolean;
   rowHeight?: number;
-  /**
-   * Per-row height override. When provided, takes precedence over
-   * `rowHeight` for rows where it returns a number — used to give long
-   * rows extra vertical space (e.g. /telegram's `/optimise` usage line
-   * that needs to wrap onto two lines without breaking the layout).
-   * The virtualizer's `estimateSize` honours this so scroll math stays
-   * correct.
-   */
   getRowHeight?: (row: T) => number;
 
-  // Controlled row-selection (TanStack state) — opt-in.
   rowSelection?: RowSelectionState;
   onRowSelectionChange?: (next: RowSelectionState) => void;
 
-  // Persist sorting/sizing/order/grouping/visibility to localStorage.
   persistenceKey?: string;
 
-  // Infinite scroll. Fire onLoadMore when the last ~10 rows come into view.
   hasNextPage?: boolean;
   isFetchingNextPage?: boolean;
   onLoadMore?: () => void;
 
-  // Row interaction.
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string | undefined;
 
-  // Slots.
   renderEmpty?: () => React.ReactNode;
   renderLoading?: () => React.ReactNode;
-  /** Rendered as a tbody row below the data rows once loading is finished
-   *  and there are no more pages. Use for end-of-list summaries. */
   renderFooter?: () => React.ReactNode;
   loading?: boolean;
 
-  // Styling.
   className?: string;
   density?: "compact" | "comfortable";
   toolbar?: React.ReactNode;
   withCard?: boolean;
 };
-
-// ---------- style primitives ----------
 
 const densityClasses = {
   compact: {
@@ -176,19 +125,11 @@ const densityClasses = {
   },
 } as const;
 
-// ---------- header cell ----------
-
 type HeaderCellProps<T> = {
   header: Header<T, unknown>;
   enableSorting: boolean;
   enableColumnOrdering: boolean;
   enableColumnResizing: boolean;
-  /**
-   * False during SSR + first client render (before DndContext mounts). When
-   * false, skip spreading dnd-kit's sortable attributes/listeners/refs so the
-   * `<th>` markup matches across SSR and client-pre-hydration and `useSortable`'s
-   * internal `aria-describedby` counter doesn't leak into static HTML.
-   */
   dndReady: boolean;
   thClassName: string;
   onSortClick: (header: Header<T, unknown>) => void;
@@ -211,7 +152,7 @@ function HeaderCellInner<T>({
   const canReorder = enableColumnOrdering && !fixed;
   const align = meta?.align ?? "left";
 
-  const sortDir = column.getIsSorted(); // "asc" | "desc" | false
+  const sortDir = column.getIsSorted();
   const sortIndicator =
     sortDir === "desc" ? " ↓" : sortDir === "asc" ? " ↑" : "";
 
@@ -309,8 +250,6 @@ function HeaderCellInner<T>({
   );
 }
 
-// ---------- body cell ----------
-
 function DataCell<T>({
   cell,
   tdClassName,
@@ -340,8 +279,6 @@ function DataCell<T>({
     </td>
   );
 }
-
-// ---------- main component ----------
 
 export function DataTable<T>({
   data,
@@ -377,7 +314,6 @@ export function DataTable<T>({
   const styleTokens = densityClasses[density];
   const effectiveRowHeight = rowHeight ?? styleTokens.rowHeight;
 
-  // Persisted state (bundled into one localStorage entry per table).
   const [persisted, setPersisted] = useLocalStorage<PersistedState>(
     persistenceKey ?? "__data-table-no-persist__",
     {},
@@ -398,7 +334,6 @@ export function DataTable<T>({
     persisted.grouping ?? [],
   );
 
-  // Flush bundled state changes to localStorage (debounced inside useLocalStorage).
   React.useEffect(() => {
     if (!isPersisting) return;
     setPersisted({
@@ -418,7 +353,6 @@ export function DataTable<T>({
     setPersisted,
   ]);
 
-  // Seed initial column sizes from `meta.initialSize` once.
   const seededSizingRef = React.useRef(false);
   React.useEffect(() => {
     if (seededSizingRef.current) return;
@@ -476,23 +410,21 @@ export function DataTable<T>({
     autoResetExpanded: false,
   });
 
-  // Tri-state sort cycle: desc → asc → none (TanStack default is asc → desc).
   const cycleSort = React.useCallback(
     (header: Header<T, unknown>) => {
       if (!enableSorting || !header.column.getCanSort()) return;
       const current = header.column.getIsSorted();
       if (current === false) {
-        header.column.toggleSorting(true); // desc
+        header.column.toggleSorting(true);
       } else if (current === "desc") {
-        header.column.toggleSorting(false); // asc
+        header.column.toggleSorting(false);
       } else {
-        header.column.clearSorting(); // none
+        header.column.clearSorting();
       }
     },
     [enableSorting],
   );
 
-  // Drag-and-drop sensors (mouse/touch/keyboard).
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, {
@@ -506,7 +438,6 @@ export function DataTable<T>({
       const { active, over } = event;
       if (!over || active.id === over.id) return;
       setColumnOrderState((prev) => {
-        // If prev is empty (first time), seed it from the current table layout.
         const baseline =
           prev && prev.length > 0
             ? prev
@@ -520,7 +451,6 @@ export function DataTable<T>({
     [table],
   );
 
-  // Virtualization.
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const rows = table.getRowModel().rows;
   const sizeForIndex = React.useCallback(
@@ -549,7 +479,6 @@ export function DataTable<T>({
       ? totalSize - virtualItems[virtualItems.length - 1].end
       : 0;
 
-  // Infinite-scroll trigger.
   const lastVisibleIndex =
     virtualItems[virtualItems.length - 1]?.index ??
     (enableVirtualization ? -1 : rows.length - 1);
@@ -566,8 +495,6 @@ export function DataTable<T>({
     onLoadMore,
   ]);
 
-  // Header columns for SortableContext — only the non-fixed ones are draggable,
-  // but every leaf column needs to be in the DOM as a <th>.
   const headerGroups = table.getHeaderGroups();
   const sortableIds = React.useMemo(
     () =>
@@ -597,11 +524,6 @@ export function DataTable<T>({
         },
       }));
 
-  // DndContext generates accessibility IDs (DndDescribedBy-N) from an internal
-  // counter that doesn't line up between SSR and the first client render,
-  // triggering a hydration mismatch on `aria-describedby`. Gate the provider
-  // behind a post-mount flag so SSR emits a plain table and the client adds
-  // DnD after hydration — no user-visible flicker, no mismatch.
   const [dndReady, setDndReady] = React.useState(false);
   React.useEffect(() => {
     setDndReady(true);
@@ -752,8 +674,6 @@ export function DataTable<T>({
   );
 
   if (withCard || toolbar) {
-    // Dynamically import Card to avoid circular deps if any, or just use normal divs
-    // Actually we can just use the standard Card classes: bg-card text-card-foreground border rounded-xl shadow-sm
     return (
       <div
         className={cn(
@@ -770,7 +690,6 @@ export function DataTable<T>({
   return mainContent;
 }
 
-// Split out so hover/click handlers don't rerender every row on unrelated state.
 function DataRow<T>({
   row,
   rowHeight,
@@ -790,7 +709,6 @@ function DataRow<T>({
   const extra = rowClassName?.(row.original);
 
   if (isGrouped) {
-    // Group header row — spans all visible cells, shows group key + count.
     const groupCellIndex = row
       .getVisibleCells()
       .findIndex((c) => c.getIsGrouped());

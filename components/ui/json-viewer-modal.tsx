@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Check, X, FileJson, ArrowRightLeft } from "lucide-react";
+import { Copy, Check, FileJson, ArrowRightLeft } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,10 +20,6 @@ interface JsonViewerModalProps {
   metadata?: Record<string, unknown>;
 }
 
-/**
- * JSON Viewer Modal — shows request/response payloads side by side.
- * Supports collapsible JSON with syntax highlighting.
- */
 export function JsonViewerModal({
   open,
   onOpenChange,
@@ -147,16 +143,12 @@ function JsonPanel({ data, label, onCopy, copied }: JsonPanelProps) {
   );
 }
 
-/**
- * Simple syntax highlighter for JSON.
- */
 function SyntaxHighlighter({ json }: { json: string }) {
   const lines = json.split("\n");
 
   return (
     <code>
       {lines.map((line, i) => {
-        // Colorize JSON syntax
         const colored = line
           .replace(/"([^"]+)":/g, '<span class="text-purple-400">"$1"</span>:')
           .replace(/: "([^"]*)"/g, ': <span class="text-green-400">"$1"</span>')

@@ -9,7 +9,7 @@ describe("deriveEdge", () => {
       sharpTrueProb: 0.5,
     });
     expect(result.evPct).toBeGreaterThan(0);
-    expect(result.evPct).toBeCloseTo(5.0, 1); // 2.1 * 0.5 - 1 = 0.05
+    expect(result.evPct).toBeCloseTo(5.0, 1);
     expect(result.fullKelly).toBeGreaterThan(0);
   });
 
@@ -29,7 +29,7 @@ describe("deriveEdge", () => {
       sharpTrueProb: 0.5,
     });
     expect(result.evPct).toBeLessThan(0);
-    expect(result.fullKelly).toBeLessThan(0); // raw Kelly, floored at 0 only inside computeStake
+    expect(result.fullKelly).toBeLessThan(0);
   });
 
   it("applies commission to adjusted odds", () => {
@@ -59,8 +59,8 @@ describe("deriveEdge", () => {
   it("Kelly fraction formula: (b*p - q) / b", () => {
     const prob = 0.6;
     const odds = 2.0;
-    const b = odds - 1; // 1
-    const expectedKelly = (b * prob - (1 - prob)) / b; // (0.6 - 0.4) / 1 = 0.2
+    const b = odds - 1;
+    const expectedKelly = (b * prob - (1 - prob)) / b;
     const result = deriveEdge({
       softOdds: odds,
       softCommissionPct: 0,
@@ -78,7 +78,6 @@ describe("computeStake", () => {
       kellyCapPct: 10,
       kellyFraction: 0.25,
     });
-    // 0.2 * 0.25 * 1000 = 50; cap = 1000 * 10/100 = 100; min(50, 100) = 50
     expect(stake).toBeCloseTo(50, 6);
   });
 
@@ -89,7 +88,6 @@ describe("computeStake", () => {
       kellyCapPct: 5,
       kellyFraction: 0.25,
     });
-    // 1.0 * 0.25 * 1000 = 250; cap = 1000 * 5/100 = 50; min(250, 50) = 50
     expect(stake).toBeCloseTo(50, 6);
   });
 

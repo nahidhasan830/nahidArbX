@@ -1,15 +1,6 @@
-/**
- * Rate Limiting Module
- *
- * Simple in-memory rate limiter for auth endpoints.
- * Protects against brute-force attacks.
- */
 
 import { singleton } from "@/lib/util/singleton";
 
-// ============================================
-// Types
-// ============================================
 
 interface RateLimitEntry {
   count: number;
@@ -23,39 +14,29 @@ interface RateLimitConfig {
   blockDurationMs: number;
 }
 
-// ============================================
-// Storage
-// ============================================
 
 const rateLimitStore = singleton(
   "rate-limit:store",
   () => new Map<string, RateLimitEntry>(),
 );
 
-// ============================================
-// Default Configurations
-// ============================================
 
 export const RATE_LIMIT_CONFIGS = {
-  // Login: 5 attempts per 15 minutes, then block for 15 minutes
   login: {
     maxAttempts: 5,
     windowMs: 15 * 60 * 1000,
     blockDurationMs: 15 * 60 * 1000,
   },
-  // Password reset: 3 attempts per hour, then block for 1 hour
   passwordReset: {
     maxAttempts: 3,
     windowMs: 60 * 60 * 1000,
     blockDurationMs: 60 * 60 * 1000,
   },
-  // Invite: 10 invites per hour
   invite: {
     maxAttempts: 10,
     windowMs: 60 * 60 * 1000,
     blockDurationMs: 60 * 60 * 1000,
   },
-  // Generic: 100 requests per minute
   generic: {
     maxAttempts: 100,
     windowMs: 60 * 1000,
@@ -63,21 +44,11 @@ export const RATE_LIMIT_CONFIGS = {
   },
 } as const;
 
-// ============================================
-// Functions
-// ============================================
 
-/**
- * Create a rate limit key
- */
 export function createRateLimitKey(type: string, identifier: string): string {
   return `${type}:${identifier}`;
 }
 
-/**
- * Check if a request is rate limited
- * Returns null if allowed, or seconds remaining if blocked
- */
 export function checkRateLimit(
   key: string,
   config: RateLimitConfig,
@@ -85,7 +56,6 @@ export function checkRateLimit(
   const now = Date.now();
   const entry = rateLimitStore.get(key);
 
-  // No previous requests
   if (!entry) {
     rateLimitStore.set(key, {
       count: 1,
@@ -98,7 +68,6 @@ export function checkRateLimit(
     };
   }
 
-  // Currently blocked?
   if (entry.blockedUntil && now < entry.blockedUntil) {
     const retryAfterSeconds = Math.ceil((entry.blockedUntil - now) / 1000);
     return {
@@ -108,7 +77,6 @@ export function checkRateLimit(
     };
   }
 
-  // Window expired? Reset
   if (now - entry.firstRequest > config.windowMs) {
     rateLimitStore.set(key, {
       count: 1,
@@ -121,10 +89,8 @@ export function checkRateLimit(
     };
   }
 
-  // Increment count
   entry.count++;
 
-  // Exceeded limit?
   if (entry.count > config.maxAttempts) {
     entry.blockedUntil = now + config.blockDurationMs;
     rateLimitStore.set(key, entry);
@@ -144,16 +110,10 @@ export function checkRateLimit(
   };
 }
 
-/**
- * Reset rate limit for a key (e.g., after successful login)
- */
 export function resetRateLimit(key: string): void {
   rateLimitStore.delete(key);
 }
 
-/**
- * Get remaining attempts for a key
- */
 export function getRemainingAttempts(
   key: string,
   config: RateLimitConfig,
@@ -166,12 +126,10 @@ export function getRemainingAttempts(
 
   const now = Date.now();
 
-  // Window expired
   if (now - entry.firstRequest > config.windowMs) {
     return config.maxAttempts;
   }
 
-  // Blocked
   if (entry.blockedUntil && now < entry.blockedUntil) {
     return 0;
   }
@@ -179,15 +137,11 @@ export function getRemainingAttempts(
   return Math.max(0, config.maxAttempts - entry.count);
 }
 
-/**
- * Clean up expired entries (run periodically)
- */
 export function cleanupRateLimitStore(): number {
   const now = Date.now();
   let cleaned = 0;
 
   for (const [key, entry] of rateLimitStore.entries()) {
-    // Remove entries older than 1 hour with no block
     const isOld = now - entry.firstRequest > 60 * 60 * 1000;
     const isUnblocked = !entry.blockedUntil || now > entry.blockedUntil;
 
@@ -200,25 +154,17 @@ export function cleanupRateLimitStore(): number {
   return cleaned;
 }
 
-// Cleanup every 10 minutes — singleton to prevent HMR timer duplication
 const _cleanupTimer = singleton("rate-limit:cleanup-timer", () => {
   if (typeof setInterval !== "undefined") {
     return setInterval(cleanupRateLimitStore, 10 * 60 * 1000);
   }
   return null;
 });
-void _cleanupTimer; // suppress unused warning
+void _cleanupTimer;
 
-// ============================================
-// Middleware Helper
-// ============================================
 
 import { NextResponse } from "next/server";
 
-/**
- * Rate limit middleware helper
- * Returns NextResponse if rate limited, null if allowed
- */
 export function rateLimitResponse(
   type: keyof typeof RATE_LIMIT_CONFIGS,
   identifier: string,

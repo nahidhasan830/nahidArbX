@@ -1,19 +1,3 @@
-/**
- * Repository for the unified `bets` table — merges the former value_bets
- * and placed_bets.
- *
- * Key design:
- * - All fields from both tables are now in one place.
- * - Placement fields (placedAt, provider, stake, odds, etc.) are NULL
- *   until a bet is actually placed.
- * - Queries for "placed bets only" use: WHERE placedAt IS NOT NULL
- * - Queries for "unmatched opportunities" use: WHERE placedAt IS NULL
- * - Manual bets: WHERE mode = 'manual'
- * - Auto bets: WHERE mode = 'auto'
- *
- * The settlement cascade (value_bets → placed_bets) is no longer needed
- * since outcome lives on the same row.
- */
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
 import {
@@ -43,13 +27,11 @@ import {
 import { classifyDecisionDriver } from "@/lib/ml/decision-reason";
 import { getPermissionLevel } from "@/lib/ml/deployment-gate";
 
-// ─── Type re-exports for backwards compatibility ────────────────────────────────
 
 import type { BetMatchScore } from "@/lib/bets-history/types";
 
 export type { BetRow as ValueBetRow };
 
-/** BetRow augmented with the cached match score subset attached by listBets. */
 export type BetRowWithScore = BetRow & { matchScore?: BetMatchScore | null };
 export type PersistResult = {
   attempted: number;
@@ -59,16 +41,9 @@ export type PersistResult = {
   skippedNoFamily: number;
   errors: number;
   lastError: string | null;
-  /**
-   * Bet ids that were NOT written (per-row error or skip). The caller's
-   * change-detection cache must not mark these as persisted, or a
-   * transient DB failure would suppress the retry until the bet's odds
-   * happen to change again.
-   */
   failedIds: string[];
 };
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 const toIso = (d: Date | string | number): string =>
   typeof d === "string" ? d : new Date(d).toISOString();
@@ -161,7 +136,6 @@ async function mirrorPredictionAudit(row: BetRow): Promise<void> {
   ]);
 }
 
-// ─── Persist (upsert from value detection pipeline) ────────────────────────────
 
 export const persistValueBets = async (
   betsToPersist: Array<{
@@ -219,9 +193,6 @@ export const persistValueBets = async (
       continue;
     }
 
-    // Dedup invariant: bet id MUST be `${eventId}|${familyId}|${atomId}`.
-    // Coerce even if the caller passed something else — the PK is our
-    // single source of truth for "one row per selection".
     const deterministicId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
     if (vb.id !== deterministicId) {
       logger.warn(
@@ -269,20 +240,10 @@ export const persistValueBets = async (
       mlFeatureNamesHash: vb.mlFeatures ? FEATURE_NAMES_HASH : null,
       mlScore: vb.mlScore ?? null,
       mlStakeFraction: vb.mlStakeFraction ?? null,
-      // Placement fields remain NULL for newly detected opportunities
       outcome: "pending" as const,
     };
 
     try {
-      // "Best Soft Odds Wins" (see §7.2 of reactive-odds-engine-architecture.md)
-      // Only update the soft side if the new effective payout beats the existing.
-      //
-      // Effective payout = 1 + (odds - 1) * (1 - commission/100)
-      //
-      // ⚠ IMPORTANT: each CASE WHEN inlines its own payout expression.
-      // Do NOT extract into a shared `sql` variable — Drizzle duplicates
-      // bound params on every embed, causing parameter-position drift
-      // that makes Postgres misinterpret softOdds as an integer.
       const rows = await db
         .insert(bets)
         .values(payload)
@@ -290,27 +251,15 @@ export const persistValueBets = async (
           target: bets.id,
           set: {
             lastSeenAt: toIso(vb.detectedAt),
-            // Sharp side — always update to current Pinnacle read
             sharpOdds: vb.sharpOdds,
             sharpTrueProb: vb.trueProb,
-            // Soft side — only update if new effective payout > existing
             softProvider: sql`CASE WHEN (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${vb.softProvider} ELSE ${bets.softProvider} END`,
             softCommissionPct: sql`CASE WHEN (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${vb.commissionPct}::numeric ELSE ${bets.softCommissionPct} END`,
             softOdds: sql`CASE WHEN (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${vb.softOdds}::numeric ELSE ${bets.softOdds} END`,
-            // tick_count — only bump when the bet's own terms changed:
-            //   1. Sharp odds differ from stored value, OR
-            //   2. Soft side is being upgraded (new payout > existing)
-            // This prevents inflated counts from sibling-atom dirty signals
-            // within the same family.
             tickCount: sql`CASE WHEN ${bets.sharpOdds} IS DISTINCT FROM ${vb.sharpOdds}::numeric OR (1 + (${vb.softOdds}::numeric - 1) * (1 - ${vb.commissionPct}::numeric / 100.0)) > (1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100.0)) THEN ${bets.tickCount} + 1 ELSE ${bets.tickCount} END`,
-            // Update movement snapshot — preserve existing if new snapshot is null
-            // (can happen when ring buffer hasn't accumulated data yet)
             oddsMovement: vb.oddsMovement
               ? vb.oddsMovement
               : sql`${bets.oddsMovement}`,
-            // ML fields are explicit-state inputs: when the detector passes
-            // null, clear stale model state instead of preserving an old score
-            // from a previous warm/model-loaded pass.
             mlFeatures: hasMlFeatures
               ? (vb.mlFeatures ?? null)
               : sql`${bets.mlFeatures}`,
@@ -392,16 +341,11 @@ export const persistValueBets = async (
   return result;
 };
 
-// ─── List filters ─────────────────────────────────────────────────────────────
 
 export type ListFilters = {
-  /** Captured-time lower bound (filters firstSeenAt). */
   from?: string;
-  /** Captured-time upper bound (filters firstSeenAt). */
   to?: string;
-  /** Kickoff-time lower bound (filters eventStartTime). */
   eventFrom?: string;
-  /** Kickoff-time upper bound (filters eventStartTime). */
   eventTo?: string;
   marketTypes?: string[];
   softProviders?: string[];
@@ -411,37 +355,21 @@ export type ListFilters = {
   maxEv?: number;
   search?: string;
   readyToSettle?: boolean;
-  /** Bets the pipeline tried to settle but couldn't (`outcome='pending' AND settle_attempts > 0`). */
   needsReview?: boolean;
-  /** True = placed rows only; false = detected-only rows. */
   placedOnly?: boolean;
-  /**
-   * When true, exclude historical in-play pollution — rows where the bet was
-   * first detected at or after kickoff. Platform is pre-match only.
-   */
   preMatchOnly?: boolean;
-  /** Filter bets whose soft (bookmaker) odds are ≥ this value. */
   oddsMin?: number;
-  /** Filter bets whose soft (bookmaker) odds are ≤ this value. */
   oddsMax?: number;
-  /** Strategy `min_sharp_prob` — sharp true probability ≥ this value. */
   minSharpProb?: number;
 
-  /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
   minTickCount?: number;
-  /** Placement mode filter — 'auto' or 'manual'. */
   mode?: "auto" | "manual";
   limit?: number;
   offset?: number;
 };
 
-// SQL expression for EV% computed at detection price (softOdds). Kept in sync
-// with derive.evPctFirst — if the formula changes there, mirror it here.
 const evExpr = sql`((1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100)) * ${bets.sharpTrueProb} - 1) * 100`;
 
-// Shared filter-clause builder. Kept private so `listBets` and `aggregateBets`
-// always apply identical predicates — the toolbar's summary numbers would lie
-// otherwise.
 const buildFilterClauses = (filters: ListFilters) => {
   const clauses = [];
   if (filters.from) clauses.push(gte(bets.firstSeenAt, filters.from));
@@ -535,9 +463,6 @@ export const listBets = async (
     .from(bets)
     .where(where);
 
-  // Attach cached match scores so the UI can render the FT/HT/source breakdown
-  // in the outcome-status tooltip without an extra round-trip per row. We
-  // intentionally fetch only the columns the tooltip needs.
   const rows: BetRowWithScore[] = baseRows;
   const eventIds = Array.from(new Set(rows.map((r) => r.eventId)));
   if (eventIds.length > 0) {
@@ -590,7 +515,6 @@ export const listBets = async (
   return { rows, total: count ?? 0 };
 };
 
-// ─── Aggregate (ROI / win-loss summary over the full filtered set) ────────────
 
 export type BetsAggregate = {
   matched: number;
@@ -604,14 +528,12 @@ export type BetsAggregate = {
   losses: number;
   halfLosses: number;
   voids: number;
-  /** 1-unit flat stake across all settled rows, commission-adjusted. */
   flat: {
     stake: number;
     pnl: number;
     roiPct: number;
     winRatePct: number;
   };
-  /** Real money — only placed rows, uses actual stake/odds/pnl columns. */
   real: {
     stake: number;
     pnl: number;
@@ -621,18 +543,6 @@ export type BetsAggregate = {
   };
 };
 
-/**
- * Aggregate counts + ROI across every row that matches `filters`, not just the
- * paginated slice. Mirrors `listBets` predicate-for-predicate.
- *
- * Flat ROI simulates the user's configured Kelly strategy (bankroll = 1 unit,
- * `kellyFraction` multiplier, `kellyCapPct` cap) on every settled bet. Changing
- * the strategy in the dashboard reshapes this denominator: high-edge bets get
- * proportionally more simulated stake under larger kellyFraction values, so
- * the ratio answers "what ROI would my strategy have produced on every
- * detected bet?". Real ROI uses the `pnl` column populated at placement-
- * settlement time — actual money only.
- */
 export const aggregateBets = async (
   filters: ListFilters = {},
 ): Promise<BetsAggregate> => {
@@ -644,14 +554,9 @@ export const aggregateBets = async (
     0,
     Math.min(1, settings.kellyFraction ?? 0.25),
   );
-  // Cap expressed as a fraction of the synthetic 1-unit bankroll.
   const kellyCapParam = Math.max(0, (settings.kellyCapPct ?? 10) / 100);
 
-  // Commission-adjusted net edge per unit staked (b in Kelly notation).
   const bExpr = sql`((${bets.softOdds} - 1) * (1 - COALESCE(${bets.softCommissionPct}, 0) / 100))`;
-  // Full Kelly fraction derived on the fly from the stored sharp true-prob +
-  // soft odds. Returns 0 when b ≤ 0 (no edge or soft book below fair price)
-  // or when kelly would be negative.
   const fullKellyExpr = sql`
     CASE WHEN ${bExpr} > 0
       THEN GREATEST(
@@ -661,10 +566,7 @@ export const aggregateBets = async (
       ELSE 0
     END
   `;
-  // Simulated stake per row: fractional Kelly × bankroll (= 1), capped by
-  // kellyCapPct (also a fraction of bankroll).
   const simStakeExpr = sql`LEAST(${fullKellyExpr} * ${kellyFractionParam}, ${kellyCapParam})`;
-  // Commission-adjusted P&L per row, scaled by simulated stake.
   const flatPnlExpr = sql`
     ${simStakeExpr} *
     CASE ${bets.outcome}
@@ -738,14 +640,8 @@ export const aggregateBets = async (
   const realWins = num(row?.realWins);
 
   const winWeighted = wins + halfWins * 0.5;
-  // Settled-count-denominated win rate matches the old client behaviour.
   const flatWinRate = settled > 0 ? (winWeighted / settled) * 100 : 0;
-  // Textbook ROI over the simulated strategy: SUM(pnl) / SUM(stake). High-edge
-  // bets get proportionally more simulated stake under larger kellyFraction,
-  // so this reshapes with the user's strategy choice — not a 1-unit flat.
   const flatRoiPct = flatStake > 0 ? (flatPnl / flatStake) * 100 : 0;
-  // Real ROI uses the realized stake total, which is what the user actually
-  // put at risk — not a synthetic 1-unit basis.
   const realWinRate = placedSettled > 0 ? (realWins / placedSettled) * 100 : 0;
 
   return {
@@ -786,11 +682,6 @@ export const getBetsByIds = async (ids: string[]): Promise<BetRow[]> => {
   return db.select().from(bets).where(inArray(bets.id, ids));
 };
 
-/**
- * Pending rows for events that are already being resolved by the operator.
- * A single final score can settle every supported market on the same event, so
- * manual settlement should not leave sibling markets stranded in Needs Review.
- */
 export const getPendingBetsByEventIds = async (
   eventIds: string[],
 ): Promise<BetRow[]> => {
@@ -811,11 +702,7 @@ export const getPendingBetsByEventIds = async (
     );
 };
 
-// ─── Outcome / settlement ─────────────────────────────────────────────────────
 
-/**
- * Mark the outcome for a single bet.
- */
 export const markOutcome = async (
   id: string,
   outcome: Outcome,
@@ -835,10 +722,6 @@ export const markOutcome = async (
   return rows[0] ?? null;
 };
 
-/**
- * Bulk outcome updater for rows that only need the outcome fields marked.
- * Placed-bet settlement side effects live in applySettlement().
- */
 export const markOutcomesBulk = async (
   updates: { id: string; outcome: Outcome; source?: string | null }[],
 ): Promise<number> => {
@@ -868,15 +751,10 @@ export const markOutcomesBulk = async (
     (result as unknown as { rowCount?: number }).rowCount ??
     (Array.isArray(result) ? result.length : 0);
 
-  // Note: placed-bet side effects (settledAt, pnl, notifications) are
-  // handled by applySettlement() and higher-level settlement helpers.
 
   return rowCount;
 };
 
-/**
- * Bump settle_attempts for bets the pipeline just processed.
- */
 export const recordSettleAttempts = async (ids: string[]): Promise<void> => {
   if (ids.length === 0) return;
   await db
@@ -888,7 +766,6 @@ export const recordSettleAttempts = async (ids: string[]): Promise<void> => {
     .where(inArray(bets.id, ids));
 };
 
-// ─── Placed bets queries ──────────────────────────────────────────────────────
 
 export type PlacedBetStatus =
   | "pending"
@@ -936,9 +813,6 @@ export interface NewPlacedBetInput {
   placedMlFeatureNamesHash?: string | null;
 }
 
-/**
- * Sentinel thrown when the dedup index rejects an insert.
- */
 export class DuplicatePlacedBetError extends Error {
   constructor(
     readonly eventId: string,
@@ -950,22 +824,9 @@ export class DuplicatePlacedBetError extends Error {
   }
 }
 
-/**
- * Patch real placement fields (ticket id, booked stake/odds, request /
- * response payloads) onto a row that has already been reserved by
- * `reservePlacement`. Throws `DuplicatePlacedBetError` if the row was
- * never reserved (placed_at IS NULL) — that's a misuse of the API and
- * the caller should investigate, not retry.
- *
- * Deliberately does NOT touch `placedAt`. The reservation's timestamp
- * is authoritative; overwriting it on a racing second call was the
- * exact clobbering bug that let duplicate bets through before.
- */
 export async function insertPlacedBet(
   input: NewPlacedBetInput,
 ): Promise<BetRow> {
-  // Dedup invariant: bet id MUST be `${eventId}|${familyId}|${atomId}`.
-  // Coerce even if the caller passed something else.
   const deterministicId = `${input.eventId}|${input.familyId}|${input.atomId}`;
   if (input.id !== deterministicId) {
     logger.warn(
@@ -998,9 +859,6 @@ export async function insertPlacedBet(
     .returning();
 
   if (rows.length === 0) {
-    // Either the row doesn't exist, or it exists but is not reserved.
-    // Both are programmer errors — every insertPlacedBet call should
-    // be preceded by reservePlacement in the same logical flow.
     throw new DuplicatePlacedBetError(
       input.eventId,
       input.familyId,
@@ -1010,10 +868,6 @@ export async function insertPlacedBet(
   return rows[0]!;
 }
 
-/**
- * True iff a bet is already placed (non-cancelled) for this selection.
- * Used by the placer to check before submitting.
- */
 export async function isAlreadyPlaced(
   eventId: string,
   familyId: string,
@@ -1035,12 +889,6 @@ export async function isAlreadyPlaced(
   return rows.length > 0;
 }
 
-/**
- * True iff any non-cancelled sibling selection in the same event/family has
- * already been reserved or placed. Used by active ML placement policy because
- * atoms inside a family are a closed market: taking both over and under on the
- * same line is not a valid model action.
- */
 export async function hasPlacedSiblingInFamily(
   eventId: string,
   familyId: string,
@@ -1079,25 +927,6 @@ export interface ReservePlacementShell {
   softOdds: number;
 }
 
-/**
- * Atomically reserve a placement slot for a selection BEFORE submitting
- * to the book.
- *
- * One statement, two outcomes:
- *   - INSERT branch: row didn't exist yet (value detector hadn't persisted
- *     it). Row is created with placed_at=NOW(), stake=0, odds=1
- *     (sentinels — finaliseConfirmed / insertPlacedBet patches them in).
- *   - ON CONFLICT DO UPDATE branch: row exists. If placed_at IS NULL, we
- *     flip it to now and return the id. If placed_at IS NOT NULL, the
- *     partial `WHERE` clause blocks the update and RETURNING is empty —
- *     someone else already reserved/placed this selection.
- *
- * This replaces the racy `isAlreadyPlaced` SELECT-then-INSERT pattern.
- * Because the deterministic PK pins exactly one row per selection and
- * the partial `WHERE` clause is evaluated atomically with the UPDATE,
- * no two concurrent callers can both reserve the same slot — even
- * across sync cycles, process restarts, or HMR.
- */
 export async function reservePlacement(args: {
   eventId: string;
   familyId: string;
@@ -1134,8 +963,6 @@ export async function reservePlacement(args: {
       provider: args.provider,
       mode: args.mode,
       currency: args.currency,
-      // Sentinels — real values patched in by finaliseConfirmed /
-      // insertPlacedBet after the book confirms.
       stake: 0,
       odds: 1,
       placedAt: now,
@@ -1152,10 +979,6 @@ export async function reservePlacement(args: {
         mode: args.mode,
         currency: args.currency,
       },
-      // Only reserve if the existing row hasn't been placed yet, OR if
-      // a prior placement was cancelled (matches the legacy
-      // isAlreadyPlaced exemption so cancelled selections can be
-      // re-placed when a fresh value opportunity appears).
       setWhere: sql`${bets.placedAt} IS NULL OR ${bets.outcome} = 'cancelled'`,
     })
     .returning({ id: bets.id });
@@ -1163,14 +986,6 @@ export async function reservePlacement(args: {
   return { reserved: true, id: rows[0]!.id };
 }
 
-/**
- * Roll back a prior `reservePlacement` call. Used when the adapter
- * threw or the book returned a transport-level error — the slot
- * should be released so the next valid tick can retry.
- *
- * We null out `placed_at`, `provider`, `mode`, `stake`, `odds` so the
- * row returns to its value-detector-shell state.
- */
 export async function releaseReservation(id: string): Promise<void> {
   await db
     .update(bets)
@@ -1185,12 +1000,10 @@ export async function releaseReservation(id: string): Promise<void> {
     .where(and(eq(bets.id, id), sql`${bets.providerTicketId} IS NULL`));
 }
 
-/** Fetch a single placed bet by id. */
 export async function getPlacedBetById(id: string): Promise<BetRow | null> {
   return getBetById(id);
 }
 
-/** Newest-first list of placed bets, capped. */
 export async function listPlacedBets(limit = 200): Promise<BetRow[]> {
   return db
     .select()
@@ -1200,9 +1013,6 @@ export async function listPlacedBets(limit = 200): Promise<BetRow[]> {
     .limit(limit);
 }
 
-/**
- * All currently-pending placed bets for a provider.
- */
 export async function listPendingBetsForProvider(
   provider: string,
   limit = 500,
@@ -1221,9 +1031,6 @@ export async function listPendingBetsForProvider(
     .limit(limit);
 }
 
-/**
- * Attach a book-assigned ticket id to a pending placed bet.
- */
 export async function attachTicketId(
   betId: string,
   ticketId: string,
@@ -1238,10 +1045,6 @@ export async function attachTicketId(
   return updated ?? null;
 }
 
-/**
- * Delete a bet row by id. Used by the reconciler when a pending placement
- * aged out without confirmation — allows retry via dedup.
- */
 export async function deleteBet(betId: string): Promise<boolean> {
   const result = await db.transaction(async (tx) => {
     await tx.delete(autoPlacerLog).where(eq(autoPlacerLog.betId, betId));
@@ -1257,14 +1060,6 @@ export async function deleteBet(betId: string): Promise<boolean> {
   return result;
 }
 
-/**
- * Update closing odds and compute CLV for a bet.
- * Called by closing-capture.ts when the event starts.
- *
- * CLV is computed for ALL bets:
- *   - Placed bets: (placedOdds / closingSharp - 1) * 100
- *   - Non-placed: (adjSoftOdds / closingSharp - 1) * 100
- */
 export async function recordClosingOdds(args: {
   betId: string;
   closingSharpOdds: number;
@@ -1275,12 +1070,10 @@ export async function recordClosingOdds(args: {
   let clvPct: number | null = null;
   if (args.closingSharpOdds > 0) {
     if (current.placedAt && current.odds) {
-      // Placed bet: CLV against placed odds
       clvPct = Number(
         ((Number(current.odds) / args.closingSharpOdds - 1) * 100).toFixed(2),
       );
     } else if (current.softOdds) {
-      // Non-placed: CLV against commission-adjusted soft odds at detection
       const commission = Number(current.softCommissionPct ?? 0);
       const adjSoftOdds = adjustOddsForCommission(
         Number(current.softOdds),
@@ -1303,10 +1096,6 @@ export async function recordClosingOdds(args: {
   return updated ?? null;
 }
 
-/**
- * Apply settlement outcome and compute P&L.
- * Replaces the former cascadePlacedBetSettlements.
- */
 export async function applySettlement(args: {
   betId: string;
   outcome: Exclude<PlacedBetStatus, "pending" | "cancelled">;

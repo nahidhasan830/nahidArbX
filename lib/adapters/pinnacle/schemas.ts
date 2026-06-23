@@ -1,20 +1,9 @@
-/**
- * Pinnacle API Zod Schemas
- *
- * Single source of truth for all Pinnacle API response validation.
- * Used by both events adapter and atoms adapter.
- */
 
 import { z } from "zod";
 
-// Sport ID for Soccer in Pinnacle
 export const SOCCER_SPORT_ID = 29;
 
-// ============================================================
-// Shared Element Schemas
-// ============================================================
 
-// Outcome: exactly 5 elements [odds, handicap, side, direction, originalOdds]
 export const OutcomeSchema = z.tuple([
   z.number().nullable(),
   z.number().nullable(),
@@ -23,7 +12,6 @@ export const OutcomeSchema = z.tuple([
   z.number().nullable(),
 ]);
 
-// Market: exactly 19 elements
 export const MarketSchema = z.tuple([
   z.number(),
   z.number(),
@@ -46,7 +34,6 @@ export const MarketSchema = z.tuple([
   z.number(),
 ]);
 
-// Period: exactly 7 elements
 export const PeriodSchema = z.tuple([
   z.number(),
   z.number(),
@@ -57,7 +44,6 @@ export const PeriodSchema = z.tuple([
   z.number(),
 ]);
 
-// Event: exactly 8 elements
 export const EventSchema = z.tuple([
   z.number(), // [0] eventId
   z.number(), // [1] parentEventId
@@ -69,7 +55,6 @@ export const EventSchema = z.tuple([
   z.array(z.unknown()), // [7] periodSummaries
 ]);
 
-// League: exactly 4 elements [leagueId, leagueName, events[], unknownArray[]]
 export const LeagueSchema = z.tuple([
   z.number(),
   z.string(),
@@ -77,14 +62,9 @@ export const LeagueSchema = z.tuple([
   z.array(z.unknown()).nullable(),
 ]);
 
-// StatusGroup: exactly 2 elements [status, leagues[]]
 export const StatusGroupSchema = z.tuple([z.string(), z.array(LeagueSchema)]);
 
-// ============================================================
-// Events List Response Schema
-// ============================================================
 
-// Sport: exactly 4 elements [sportId, sportName, isActive, statusGroups[]]
 export const SportSchemaForEventsList = z.tuple([
   z.number(),
   z.string(),
@@ -92,7 +72,6 @@ export const SportSchemaForEventsList = z.tuple([
   z.array(StatusGroupSchema),
 ]);
 
-// Top-level response for events list
 export const PinnacleEventsResponseSchema = z.object({
   code: z.number(),
   data: z.tuple([
@@ -106,11 +85,7 @@ export const PinnacleEventsResponseSchema = z.object({
   success: z.boolean().optional(),
 });
 
-// ============================================================
-// Single Event Markets Response Schema
-// ============================================================
 
-// Sport schema for single event endpoint (different structure)
 export const SportSchemaForSingleEvent = z.tuple([
   z.number(),
   z.string(),
@@ -118,7 +93,6 @@ export const SportSchemaForSingleEvent = z.tuple([
   z.array(LeagueSchema),
 ]);
 
-// Top-level response for single event markets
 export const PinnacleEventMarketsResponseSchema = z.object({
   code: z.number(),
   data: z.array(SportSchemaForSingleEvent),
@@ -127,9 +101,6 @@ export const PinnacleEventMarketsResponseSchema = z.object({
   success: z.boolean().optional(),
 });
 
-// ============================================================
-// Type Exports
-// ============================================================
 
 export type PinnacleEventsResponse = z.infer<
   typeof PinnacleEventsResponseSchema
@@ -142,6 +113,5 @@ export type PinnaclePeriod = z.infer<typeof PeriodSchema>;
 export type PinnacleMarket = z.infer<typeof MarketSchema>;
 export type PinnacleOutcome = z.infer<typeof OutcomeSchema>;
 
-// Legacy alias for backward compatibility
 export const PinnacleResponseSchema = PinnacleEventsResponseSchema;
 export type PinnacleResponse = PinnacleEventsResponse;

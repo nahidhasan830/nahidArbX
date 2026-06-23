@@ -1,19 +1,3 @@
-/**
- * GET /api/ml/pipeline — comprehensive ML Optimizer pipeline stats.
- *
- * Single endpoint that returns the full picture: data collection health,
- * training readiness, inference status, feature-contract diagnostics,
- * rejected model reasons, score bucket ROI/CLV, and paper evaluation.
- * The UI polls this every 15 seconds.
- *
- * Query plan:
- *   Wave 1 — 12 independent SELECTs + 2 engine RPCs fire in one Promise.all.
- *   Wave 2 — 3 SELECTs that depend on the deployed model's policy edge
- *            threshold fire in a second Promise.all.
- *
- * Replaces a previously serial 14-query path that took ~Cloud-SQL-RTT × 14
- * per UI poll.
- */
 import { NextResponse } from "next/server";
 import { sql, and, eq, isNotNull, desc } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -68,7 +52,6 @@ interface SchedulerStatus {
   lastTickAt: number | null;
   lastError: string | null;
   totalRetrainTriggers: number;
-  /** Absolute step (in training examples) that triggers an auto-retrain since the last deployed model. */
   retrainStep: number;
 }
 
@@ -105,9 +88,6 @@ function intOrZero(value: unknown): number {
 export async function GET() {
   try {
     const generatedAtMs = Date.now();
-    // ── Reusable SQL expressions ─────────────────────────────────────
-    // Defined up front so wave 1 and wave 2 queries can share them.
-    // Use unit returns instead of null pnl for unplaced bets.
     const unitReturnExpr = sql`
       CASE ${bets.outcome}
         WHEN 'won'       THEN (${bets.softOdds} - 1) * (1 - COALESCE(${bets.softCommissionPct}, 0) / 100)
@@ -135,7 +115,6 @@ export async function GET() {
       ) * 100
     `;
 
-    // ── Wave 1: 12 independent SELECTs + 2 engine RPCs in parallel ──
     const [
       accounting,
       [{ totalBets }],
@@ -166,7 +145,6 @@ export async function GET() {
             isNotNull(bets.mlFeatures),
           ),
         ),
-      // Recent feature extraction health: % of last 100 bets that have features
       db
         .select({
           hasFeatures: sql<boolean>`${bets.mlFeatures} IS NOT NULL`,
@@ -300,14 +278,12 @@ export async function GET() {
       engineGet<EngineSchedulerStatus>("/engine/ml/scheduler"),
     ]);
 
-    // ── Recent feature extraction health ─────────────────────────────
     const recentWithFeatures = recentBets.filter((r) => r.hasFeatures).length;
     const recentFeatureRate =
       recentBets.length > 0
         ? Math.round((recentWithFeatures / recentBets.length) * 100)
         : 0;
 
-    // ── Feature contract diagnostics ─────────────────────────────────
     const semanticBetsRow =
       (semanticBetsResult.rows[0] as Record<string, unknown> | undefined) ?? {};
     const semanticTrainingRow =
@@ -357,9 +333,7 @@ export async function GET() {
       windowHours: 24,
       betsWithFeatures: recent24hWithFeatures,
       betsWithValidTier: recent24hWithValidTier,
-      // null when window is empty — distinguishes "no traffic" from "0%".
       validTierPct: recentTierValidPct,
-      // Below this the enrichment cache is probably stuck.
       healthy: recent24hWithFeatures === 0 || recentTierValidPct! >= 80,
     };
 
@@ -387,7 +361,6 @@ export async function GET() {
 
     const totalAvailableSamples = accounting.trainerExpectedSamples;
 
-    // ── Resolve deployed-model policy threshold (drives wave 2) ──────
     const deployedPolicyRow = deployedPolicyRowSelect[0];
     const deployedPolicyThreshold = deployedPolicyRow
       ? resolvePolicyEdgeThreshold(deployedPolicyRow.trainingReport)
@@ -397,7 +370,6 @@ export async function GET() {
         };
     const mlPolicyThresholdPct = deployedPolicyThreshold.thresholdPct;
 
-    // ── Wave 2: 3 SELECTs that depend on mlPolicyThresholdPct ────────
     const [bucketPerformance, paperMetricsResult, paperTrendResult] =
       await Promise.all([
         db.execute(sql`
@@ -566,7 +538,6 @@ export async function GET() {
         `),
       ]);
 
-    // ── Score-bucket ROI/CLV ─────────────────────────────────────────
     const bucketOrder = ["≤0%", "0–2%", "2–5%", "5–10%", "10–20%", "≥20%"];
     const bucketMap = Object.fromEntries(
       bucketPerformance.rows.map((row) => {
@@ -583,7 +554,6 @@ export async function GET() {
       avgEdge: roundOrNull(bucketMap[b]?.avg_edge, 2),
     }));
 
-    // ── Paper-only evaluation ────────────────────────────────────────
     const metricLabels = {
       detected_baseline: "Detection Baseline",
       simple_ev_core: "Simple EV Rule",
@@ -663,7 +633,6 @@ export async function GET() {
       }),
     };
 
-    // ── Training stats ───────────────────────────────────────────────
     const deployed = allModels.find((m) => m.status === "deployed") ?? null;
     const latest = allModels[0] ?? null;
     const toModelSummary = (m: (typeof allModels)[number] | null) =>
@@ -678,13 +647,9 @@ export async function GET() {
           }
         : null;
 
-    // Champion/challenger removed — the deployed model is the only "active"
-    // model. Validated models stay as candidates; if a new one is validated,
-    // the deployment gate retires the previous deployed model and deploys it.
     const trainingModels = allModels.filter((m) => m.status === "training");
     const modelsInTraining = trainingModels.length;
 
-    // Active training model info — for real-time UI hydration on page load
     const activeTrainingModel = trainingModels[0] ?? null;
     const activeTraining = activeTrainingModel
       ? {
@@ -729,11 +694,6 @@ export async function GET() {
         pbo: m.pbo != null ? Number(m.pbo) : null,
       }));
 
-    // Retraining readiness — auto-retrain triggers after
-    // ≥ML_RETRAIN_GROWTH_STEP new training examples since the last deployed
-    // model, or since the latest rejected/failed run with the current feature
-    // contract. The terminal-run baseline prevents repeated near-identical
-    // auto-retrains after a candidate fails the deployment gate.
     let readyToRetrain = false;
     let newDataSinceLastTrain = 0;
     let examplesUntilRetrain = ML_RETRAIN_GROWTH_STEP;
@@ -765,7 +725,6 @@ export async function GET() {
         newDataSinceLastTrain >= ML_RETRAIN_GROWTH_STEP;
     }
 
-    // ── Inference status (engine proxy) ──────────────────────────────
     let inference: ScorerStatus = {
       modelLoaded: false,
       modelVersion: null,
@@ -790,7 +749,6 @@ export async function GET() {
       deploymentGate = gate ?? null;
     }
 
-    // ── Scheduler status (engine proxy) ──────────────────────────────
     let scheduler: SchedulerStatus = {
       active: false,
       lastTickAt: null,
@@ -804,13 +762,10 @@ export async function GET() {
         lastTickAt: schedulerResult.lastTickAt,
         lastError: schedulerResult.lastError ?? null,
         totalRetrainTriggers: schedulerResult.totalRetrainTriggers,
-        // Engine may run an older build without retrainStep — fall back
-        // to the canonical constant so the UI can still display it.
         retrainStep: schedulerResult.retrainStep ?? ML_RETRAIN_GROWTH_STEP,
       };
     }
 
-    // ── Resolve scoring mode label for UI ────────────────────────────
     const permLevel = deploymentGate?.permissionLevel ?? "observe";
     const scoringModeLabels: Record<string, string> = {
       observe: "Observe (log only)",
@@ -879,7 +834,6 @@ export async function GET() {
       scoreBucketROI,
       paperEvaluation,
       rejectedModels,
-      // Model version history for comparison table
       modelHistory: allModels
         .filter((m) => m.version > 0 && m.status !== "training")
         .slice(0, 10)

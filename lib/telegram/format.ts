@@ -1,11 +1,3 @@
-/**
- * HTML formatting helpers shared across all command handlers.
- *
- * Telegram HTML parse_mode reserves only `<`, `>`, and `&` — every other
- * character (including emoji, currency symbols, brackets) renders as-is,
- * so we don't need a heavy escaper. `esc()` covers the three reserved
- * chars; the rest of the helpers produce already-safe substrings.
- */
 
 export function esc(s: string): string {
   return s.replace(/[<>&]/g, (c) => {
@@ -99,9 +91,6 @@ export function statusEmoji(status: string): string {
   return "⚪";
 }
 
-/**
- * Trim long strings while preserving word boundaries when possible.
- */
 export function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   const cut = s.slice(0, max - 1);
@@ -110,16 +99,10 @@ export function truncate(s: string, max: number): string {
   return cut + "…";
 }
 
-/**
- * Section header — bold, prefixed with an icon. Empty trailing line.
- */
 export function header(icon: string, title: string): string {
   return `${icon} ${b(title)}`;
 }
 
-/**
- * Build a "key: value" block. Values are already-formatted strings.
- */
 export function kvList(rows: Array<[string, string]>): string {
   return rows.map(([k, v]) => `• ${esc(k)}: ${v}`).join("\n");
 }

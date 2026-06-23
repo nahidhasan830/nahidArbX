@@ -1,19 +1,3 @@
-/**
- * Surface-name normalization for the entity-resolution system.
- *
- * Mirrors the legacy `lib/matching/normalize.ts` rules (lowercase, NFD
- * diacritic strip, club-token strip, short-form expansion, country
- * adjective→noun, country prefix strip), but lives in the entities/
- * namespace so the resolver path is self-contained and the legacy file
- * can be retired cleanly.
- *
- * Adds a transliteration layer that's missing from the legacy normalizer:
- * Cyrillic, Greek and Vietnamese diacritics that survive NFD all collapse
- * to ASCII so "công an hồ chí minh city" and "ho chi minh city" don't end
- * up in different normalization buckets. The full LaBSE-cosine-similarity
- * fallback for harder transliteration cases (Arabic, CJK) lives in
- * resolver.ts as a pgvector lookup — this file handles the cheap cases.
- */
 
 const COUNTRY_ADJECTIVE_MAP: Record<string, string> = {
   english: "england",
@@ -74,13 +58,7 @@ const SHORT_FORM_MAP: Array<[RegExp, string]> = [
   [/\brgrs\b/g, "rangers"],
 ];
 
-// ── Cyrillic, Greek and Vietnamese transliteration table ────────────────
-//
-// These are the cheap cases — single-char substitutions that NFD doesn't
-// catch. CJK and Arabic remain non-transliterated; we rely on the
-// embedding-cosine fallback in resolver.ts for those.
 const TRANSLIT_MAP: Record<string, string> = {
-  // Cyrillic
   а: "a",
   б: "b",
   в: "v",
@@ -114,7 +92,6 @@ const TRANSLIT_MAP: Record<string, string> = {
   э: "e",
   ю: "yu",
   я: "ya",
-  // Greek
   α: "a",
   β: "b",
   γ: "g",
@@ -140,7 +117,6 @@ const TRANSLIT_MAP: Record<string, string> = {
   χ: "ch",
   ψ: "ps",
   ω: "o",
-  // Vietnamese-only diacritics that survive NFD
   đ: "d",
   Đ: "d",
 };
@@ -153,18 +129,6 @@ function transliterate(s: string): string {
   return out;
 }
 
-/**
- * Normalize a surface name for entity lookup. Pipeline:
- *   1. lowercase
- *   2. NFD diacritic strip
- *   3. transliterate Cyrillic/Greek/Vietnamese
- *   4. punctuation → space
- *   5. expand short forms
- *   6. strip club prefix/suffix tokens (twice for "FC X FC" patterns)
- *
- * Identical-input safety: returns the basic-normalized original if
- * stripping consumed everything (e.g. just "FC").
- */
 export function normalize(s: string): string {
   let out = s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   out = transliterate(out);
@@ -189,13 +153,6 @@ export function normalize(s: string): string {
   return out;
 }
 
-/**
- * Competition-name normalization. After basic normalize, fold country
- * adjectives to nouns ("english" → "england") and strip leading country
- * prefix ("England FA Cup" → "FA Cup"). This keeps the (provider, surface,
- * competition_id) UNIQUE key stable across providers that say "Spanish
- * Liga" vs "Spain La Liga" vs "La Liga".
- */
 export function normalizeCompetition(s: string): string {
   let result = normalize(s);
   for (const { regex, noun } of ADJECTIVE_REGEXES) {
@@ -207,7 +164,6 @@ export function normalizeCompetition(s: string): string {
   return result.trim();
 }
 
-// ── Gender detection (for promoter Tier 0 gate) ──────────────────────
 
 const WOMEN_PATTERNS = [
   /\(wom/i,
@@ -233,31 +189,6 @@ export function gendersDiffer(a: string, b: string): boolean {
   return isWomensTeam(a) !== isWomensTeam(b);
 }
 
-// ── Team-variant detection (U-class, Olympic, Reserves, Futsal, etc.) ─
-//
-// The legacy alias store had no concept of "different team that shares
-// the base name." The harvester would happily merge "Brazil U20" into
-// "Brazil", "Real Madrid B" into "Real Madrid", "Barcelona Futsal" into
-// "Barcelona", and so on — because most of the surrounding text matches.
-//
-// `teamVariantTag(name)` returns a normalised tag for any non-senior
-// variant. Different tags = different teams; promoter Tier 0 rejects
-// candidates whose tag differs from the canonical entity's tag.
-//
-// Categories handled:
-//   age:        U15, U-17, U20, Sub-21, Under-23 → 'u15', 'u17', 'u20', …
-//   olympic:    "Olympic" / "Olímpico" / "OL" (de-facto U23 for men)     → 'olympic'
-//   youth:      "Youth", "Junior", "Cadet", "Juvenile" (no number)       → 'youth'
-//   reserves:   "Reserves", "II", "2nd team", "B", "Castilla", "EDS",
-//               "Academy"                                                → 'reserves'
-//   futsal:     "Futsal", "Sala", "Indoor"                               → 'futsal'
-//   beach:      "Beach", "Beach Soccer", "Sand"                          → 'beach'
-//   esports:    "eSports", "eFootball", "FIFA Pro", "e-Sport", "(E)"     → 'esports'
-//   selects:    "Selects", "All-Stars", "Allstars", "XI"                 → 'selects'
-//   amateur:    "Amateur" / "Amateurs" (e.g. "Bayern Amateurs")          → 'amateur'
-//
-// Order matters — age is checked first because "Brazil U-20 Olympic"
-// should resolve to U-20, not Olympic.
 
 const AGE_PATTERNS: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/\bu[\s-]?(\d{2})\b/i, (m) => `u${m[1]}`], // U17, U-17, U 17
@@ -323,23 +254,6 @@ const SELECTS_PATTERNS = [
   /\bxi\b(?=\s*$)/i, // trailing "XI" (e.g. "Asia XI")
 ];
 
-/**
- * Returns the variant tag for a name, or null if it's the canonical
- * senior team. The tag normalises across languages and abbreviations
- * so "U20", "Sub-20", "Under 20" all → "u20"; "Olympic", "Olímpico"
- * → "olympic"; "Reserves", "II", "B", "Castilla" → "reserves"; etc.
- *
- *   "Brazil U20"            → "u20"
- *   "Argentina Sub-17"      → "u17"
- *   "Mexico Olympic"        → "olympic"
- *   "Bayern II"             → "reserves"
- *   "Real Madrid Castilla"  → "reserves"
- *   "Barcelona Futsal"      → "futsal"
- *   "Brazil Beach Soccer"   → "beach"
- *   "Real Madrid eSports"   → "esports"
- *   "Asia XI"               → "selects"
- *   "Brazil"                → null
- */
 export function teamVariantTag(name: string): string | null {
   for (const [re, mk] of AGE_PATTERNS) {
     const m = name.match(re);
@@ -355,25 +269,10 @@ export function teamVariantTag(name: string): string | null {
   return null;
 }
 
-/**
- * True if two names belong to different team variants. Promoter Tier 0
- * rejects any candidate where this returns true — same gate shape as
- * the gender check.
- *
- *   teamVariantsDiffer("Brazil U20", "Brazil")        → true
- *   teamVariantsDiffer("Brazil U20", "Brazil U-20")   → false
- *   teamVariantsDiffer("Bayern II", "Bayern Munich")  → true
- *   teamVariantsDiffer("Spain Youth", "Spain U17")    → true (different tags)
- *   teamVariantsDiffer("Real Madrid", "Real Madrid CF") → false (both null)
- */
 export function teamVariantsDiffer(a: string, b: string): boolean {
   return teamVariantTag(a) !== teamVariantTag(b);
 }
 
-/** Backwards-compat alias for the old age-class-only check. Now that the
- *  promoter calls teamVariantsDiffer, this is just a thin wrapper for
- *  any external caller that still names the predicate with the older
- *  vocabulary. */
 export function ageClassOf(name: string): string | null {
   return teamVariantTag(name);
 }

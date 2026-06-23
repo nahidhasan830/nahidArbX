@@ -1,9 +1,3 @@
-/**
- * Shared Debug Fetch Types
- *
- * Common type definitions for capturing raw HTTP request/response data
- * during debug fetching. Used by both fixtures and atoms debug adapters.
- */
 
 export interface DebugHttpRequest {
   label?: string;

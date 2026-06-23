@@ -1,8 +1,3 @@
-/**
- * In-memory command registry. `commands/index.ts` registers every command
- * at import time; the long-poll loop dispatches to it via `getCommand`
- * and `listCommands`.
- */
 
 import type { CommandSpec } from "./types";
 

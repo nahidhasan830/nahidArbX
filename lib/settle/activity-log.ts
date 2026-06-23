@@ -1,13 +1,3 @@
-/**
- * In-memory ring buffer of recent settlement-scheduler activity.
- *
- * Feeds the admin "Activity Monitor" UI without requiring a DB round-trip.
- * Entries are ephemeral — on process restart the buffer resets; durable
- * telemetry lives in the `settlement_runs` Postgres table.
- *
- * Also emits each appended entry onto the global event bus so SSE clients
- * can stream them live rather than polling.
- */
 
 import { syncBus } from "../events/event-bus";
 

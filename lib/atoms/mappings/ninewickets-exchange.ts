@@ -1,32 +1,12 @@
-/**
- * NineWickets Exchange Provider Mapping
- *
- * Static lookup tables for mapping NineWickets Exchange markets to atom IDs.
- * Exchange markets are always Full Time.
- *
- * NineWickets Exchange Data Structure:
- * - marketType: "MATCH_ODDS" | "OVER_UNDER_05" | "OVER_UNDER_15" | "OVER_UNDER_25"
- * - selections[].runnerName: Team name for 1X2, "Over/Under X.X" for totals
- * - selections[].availableToBack[0].price: best back odds
- *
- * IMPORTANT: sortPriority is NOT reliable for home/away identification.
- * We use runnerName matching against known team names instead.
- */
 
 import { getFamilyIdByAtom } from "../registry";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
 
-// ============================================
-// Constants
-// ============================================
 
 const DRAW_KEYWORDS = ["draw", "the draw", "x"];
-const SIMILARITY_THRESHOLD = 0.5; // Minimum similarity to consider a match
+const SIMILARITY_THRESHOLD = 0.5;
 
-// ============================================
-// Totals Mapping (marketType based)
-// ============================================
 
 const TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
   OVER_UNDER_05: { over: "ft_total_over_0_5", under: "ft_total_under_0_5" },
@@ -34,13 +14,7 @@ const TOTALS_ATOMS: Record<string, { over: string; under: string }> = {
   OVER_UNDER_25: { over: "ft_total_over_2_5", under: "ft_total_under_2_5" },
 };
 
-// ============================================
-// Helper Functions
-// ============================================
 
-/**
- * Extract over/under direction from runner name
- */
 function getDirection(runnerName: string): "over" | "under" | null {
   const lower = runnerName.toLowerCase();
   if (lower.includes("over")) return "over";
@@ -48,30 +22,20 @@ function getDirection(runnerName: string): "over" | "under" | null {
   return null;
 }
 
-/**
- * Check if runner name represents a draw
- */
 function isDraw(runnerName: string): boolean {
   const lower = runnerName.toLowerCase().trim();
   return DRAW_KEYWORDS.some((kw) => lower === kw || lower.includes(kw));
 }
 
-/**
- * Normalize team name for comparison
- */
 function normalize(name: string): string {
   return name.toLowerCase().trim();
 }
 
-/**
- * Identify if runnerName matches home team, away team, or draw
- */
 function identifyOutcome(
   runnerName: string,
   homeTeam: string,
   awayTeam: string,
 ): "home" | "away" | "draw" | null {
-  // Check for draw first
   if (isDraw(runnerName)) {
     return "draw";
   }
@@ -80,11 +44,9 @@ function identifyOutcome(
   const home = normalize(homeTeam);
   const away = normalize(awayTeam);
 
-  // Calculate similarity scores
   const homeScore = compareTwoStrings(runner, home);
   const awayScore = compareTwoStrings(runner, away);
 
-  // Pick the best match if above threshold
   if (homeScore >= SIMILARITY_THRESHOLD && homeScore > awayScore) {
     return "home";
   }
@@ -92,7 +54,6 @@ function identifyOutcome(
     return "away";
   }
 
-  // Fallback: check if runner contains team name or vice versa
   if (runner.includes(home) || home.includes(runner)) {
     return "home";
   }
@@ -103,20 +64,7 @@ function identifyOutcome(
   return null;
 }
 
-// ============================================
-// Main Mapping Function
-// ============================================
 
-/**
- * Map a NineWickets Exchange selection to an atom ID.
- * Uses team name matching for MATCH_ODDS instead of sortPriority.
- *
- * @param marketType - Exchange market type
- * @param runnerName - Runner name (team name for 1X2, "Over/Under" for totals)
- * @param homeTeam - Known home team name
- * @param awayTeam - Known away team name
- * @returns atom_id or null if unmapped
- */
 export function mapExchangeToAtom(
   marketType: string,
   runnerName: string,
@@ -156,9 +104,6 @@ export function mapExchangeToAtom(
   }
 }
 
-// ============================================
-// Exchange Types
-// ============================================
 
 export interface ExchangeSelection {
   selectionId: number;
@@ -178,19 +123,7 @@ export interface ExchangeMarket {
   selections?: ExchangeSelection[];
 }
 
-// ============================================
-// Extraction Function
-// ============================================
 
-/**
- * Extract normalized odds entries from a NineWickets Exchange market.
- *
- * @param market - Exchange market object
- * @param eventId - Normalized event ID (e.g., "ninewickets-12345")
- * @param homeTeam - Home team name for matching
- * @param awayTeam - Away team name for matching
- * @returns Array of normalized odds entries
- */
 export function extractExchangeOdds(
   market: ExchangeMarket,
   eventId: string,

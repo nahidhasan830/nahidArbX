@@ -1,17 +1,3 @@
-/**
- * AI Decision Cache
- *
- * Persists verdicts for event pairs keyed by a stable canonical fingerprint
- * (team + league canonicals from the alias table — see `computePairKey`).
- * The matcher consults this cache before generating near-match rows, and
- * the match-review route consults it before spending AI quota on a pair.
- *
- * A pair has at most ONE cached entry. The entry always reflects the CURRENT
- * verdict — who decided and what they decided. When a human overrides an
- * earlier AI verdict the entry is fully replaced (not shadowed): `decidedBy`
- * becomes `"human"`. Delete removes the entry so the pair re-surfaces on the
- * next sync for fresh review.
- */
 
 import * as fs from "fs";
 import * as path from "path";
@@ -27,14 +13,8 @@ const FILE = path.join(
   "ai-decision-cache.json",
 );
 
-/** Provenance of a cached verdict. `matcher` is synthesized at read time for
- * auto-merges driven purely by string-similarity (no AI / human involved) —
- * it is NEVER persisted to the cache file. */
 export type DecidedBy = "gemini" | "human" | "matcher";
 
-/** Event-side snapshot stored alongside a cached decision so the Decided
- * tab can render the pair (teams/providers/time) even after sync rotation
- * removes the underlying events from the live store. */
 export interface DecisionSnapshotSide {
   provider: string;
   homeTeam: string;
@@ -43,31 +23,18 @@ export interface DecisionSnapshotSide {
   startTime: string;
 }
 
-/** A single cached verdict — one entry per canonical pair. */
 export interface CachedDecision {
   key: string;
-  /** The verdict itself. */
   verdict: "SAME" | "DIFFERENT" | "UNCERTAIN";
-  /** 0-100. Always 100 for human verdicts (human is authoritative). */
   confidence: number;
-  /** Who decided. */
   decidedBy: DecidedBy;
-  /** ISO timestamp of the verdict. */
   decidedAt: string;
-  /** AI-cited sources (empty array for human verdicts). */
   sources: { url: string; title: string }[];
-  /** Model ID for AI verdicts; undefined for human. */
   model?: string;
-  /** User id for human verdicts; undefined for AI. */
   by?: string;
-  /** Frozen snapshot of the pair at decision time. Optional for backward
-   * compatibility with entries saved before this field existed. */
   snapshot?: { eventA: DecisionSnapshotSide; eventB: DecisionSnapshotSide };
 }
 
-// ============================================
-// Persistence
-// ============================================
 
 interface CacheFile {
   version: number;
@@ -126,50 +93,20 @@ function saveToDisk(): void {
   }
 }
 
-// ============================================
-// Public API
-// ============================================
 
 export function getCachedDecision(key: string): CachedDecision | undefined {
   return getStore().get(key);
 }
 
-/**
- * Confidence threshold for auto-merging an AI SAME verdict. Below this,
- * the verdict still counts as "decided" (the pair leaves To Review) but no
- * merge happens until a human approves.
- *
- * Configurable via env `AI_AUTONOMOUS_THRESHOLD`. Set to `0` for full trust
- * (every SAME verdict auto-merges regardless of confidence).
- */
 export const AI_AUTONOMOUS_THRESHOLD = (() => {
   const envVal = Number(process.env.AI_AUTONOMOUS_THRESHOLD);
   return Number.isFinite(envVal) && envVal >= 0 && envVal <= 100 ? envVal : 70;
 })();
 
-/**
- * Is this pair resolved — should it be hidden from the "To Review" queue
- * and the matcher skip generating new near-match rows for it?
- *
- * Any cached decision counts as resolved:
- *   - Human approve/reject → final.
- *   - AI SAME / DIFFERENT / UNCERTAIN at any confidence → also final.
- *
- * Low-confidence AI verdicts DO NOT auto-merge (see `AI_AUTONOMOUS_THRESHOLD`),
- * but they still move the pair out of the queue and into the Decided tab,
- * where the human can eyeball them at leisure. This matches the user's stated
- * preference: "whatever AI decides is final" for queue purposes.
- */
 export function isPairResolved(key: string): boolean {
   return getStore().has(key);
 }
 
-/**
- * Save an AI verdict. Each new run fully replaces the previous entry — latest
- * decision wins, regardless of who decided before. If a human approved this
- * pair and then the user re-runs Gemini on it (e.g. Try Pro), the AI verdict
- * takes over. The human can always click Approve/Reject again to flip back.
- */
 export function saveAIDecision(params: {
   key: string;
   verdict: CachedDecision["verdict"];
@@ -195,14 +132,6 @@ export function saveAIDecision(params: {
   return entry;
 }
 
-/**
- * Record a human verdict — FULLY REPLACES any existing entry.
- *
- * The AI's previous confidence and sources are discarded. The entry now
- * reflects the human decision as the single source of truth. If the human
- * changes their mind later, calling this again with the other verdict
- * replaces again.
- */
 export function saveHumanVerdict(
   key: string,
   verdict: "approved" | "rejected",

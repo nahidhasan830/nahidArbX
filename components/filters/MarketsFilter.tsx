@@ -1,9 +1,3 @@
-/**
- * MarketsFilter — searchable, grouped market-type picker.
- *
- * Auto-derived from atoms.json so new market types are picked up automatically.
- * Both BetsHistoryToolbar and SpreadsheetToolbar import this.
- */
 
 "use client";
 
@@ -30,7 +24,6 @@ export const MARKET_OPTIONS: MarketOption[] = getMarketOptions();
 const KNOWN_VALUES = new Set(MARKET_OPTIONS.map((o) => o.value));
 const BTN_BASE = cn("h-7 px-2 text-[11px] gap-1.5 font-normal");
 
-// ── Market grouping ───────────────────────────────────────────────────────────
 
 interface MarketGroup {
   label: string;
@@ -96,7 +89,6 @@ function getTimeScopeBadges(marketType: string): TimeScopeLabel[] {
   return TIME_SCOPE_ORDER.filter((ts) => scopes.has(ts));
 }
 
-// Collect any market types that don't appear in any group
 const _groupedTypes = new Set(MARKET_GROUPS.flatMap((g) => g.types));
 
 function getGroupedOptions(allOptions: MarketOption[]): {
@@ -119,7 +111,6 @@ function getGroupedOptions(allOptions: MarketOption[]): {
   return { groups, ungrouped };
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 
 interface MarketsFilterProps {
   selected: string[];
@@ -217,7 +208,6 @@ export function MarketsFilter({
         className="w-[280px] p-0"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        {/* Search */}
         <div className="flex items-center border-b px-3 py-2">
           <input
             ref={inputRef}
@@ -237,7 +227,6 @@ export function MarketsFilter({
           )}
         </div>
 
-        {/* Grouped list */}
         <div className="max-h-[360px] overflow-y-auto py-1">
           {totalVisible === 0 && (
             <p className="px-3 py-4 text-xs text-muted-foreground text-center">
@@ -296,7 +285,6 @@ export function MarketsFilter({
   );
 }
 
-// ── Single item ───────────────────────────────────────────────────────────────
 
 function MarketCheckboxItem({
   label,

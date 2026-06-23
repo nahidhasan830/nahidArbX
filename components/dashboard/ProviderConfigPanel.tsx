@@ -26,11 +26,6 @@ import {
 import { useProviderRuntimeState } from "@/components/hooks/useProviderRuntimeState";
 import { cn } from "@/lib/utils";
 
-/**
- * Icon-trigger popover wrapping the provider on/off grid. Mirrors
- * `BettingStrategyPopover` so the dashboard header can expose both
- * settings surfaces the same way.
- */
 export function ProviderConfigPopover() {
   const [open, setOpen] = useState(false);
   return (
@@ -63,10 +58,6 @@ export function ProviderConfigPopover() {
   );
 }
 
-/**
- * Pure form body — no card wrapper. Used inside the popover; safe to
- * embed elsewhere (settings page, etc.) without modification.
- */
 export function ProviderConfigForm() {
   const providerRuntime = useProviderRuntimeState();
 

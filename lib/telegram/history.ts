@@ -3,20 +3,12 @@ import { telegramCommandHistory } from "@/lib/db/schema";
 import { count, desc } from "drizzle-orm";
 
 export interface CommandHistoryEntry {
-  /** ISO timestamp when the bot received the command. */
   at: string;
-  /** Command name without the leading slash, e.g. "status". */
   command: string;
-  /** Full text the user sent, including args. Truncated to 200 chars. */
   text: string;
-  /** Telegram user id who sent it (for diagnosing rogue chats). */
   fromUserId: number | null;
-  /** "ok" if the handler returned, "denied" if disabled, "unknown" if no
-   *  command, "error" if the handler threw. */
   outcome: "ok" | "denied" | "unknown" | "error";
-  /** Wall-clock duration of the handler in milliseconds. */
   durationMs: number;
-  /** Error message when outcome === "error". */
   error?: string | null;
 }
 
@@ -35,8 +27,6 @@ export async function recordCommandHistory(
       error: entry.error ?? null,
     })
     .catch((err) => {
-      // Swallowing the error ensures bot isn't completely broken
-      // if DB fails, though we log it
       console.error(
         "[history] Failed to write command history ERROR DETAIL:",
         err,
@@ -44,10 +34,6 @@ export async function recordCommandHistory(
     });
 }
 
-/**
- * Per-command all-time dispatch count. Powers the dashboard's
- * "Calls" column.
- */
 export async function getCommandCounts(): Promise<Record<string, number>> {
   const rows = await db
     .select({ command: telegramCommandHistory.command, count: count() })

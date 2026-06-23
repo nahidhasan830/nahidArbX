@@ -1,14 +1,6 @@
-/**
- * Auth Zod Schemas
- *
- * Validation schemas for all auth-related requests.
- */
 
 import { z } from "zod";
 
-// ============================================
-// Login
-// ============================================
 
 export const LoginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -17,9 +9,6 @@ export const LoginSchema = z.object({
 
 export type LoginInput = z.infer<typeof LoginSchema>;
 
-// ============================================
-// Password Setup (after invite)
-// ============================================
 
 export const SetupPasswordSchema = z
   .object({
@@ -44,9 +33,6 @@ export const SetupPasswordSchema = z
 
 export type SetupPasswordInput = z.infer<typeof SetupPasswordSchema>;
 
-// ============================================
-// Change Password
-// ============================================
 
 export const ChangePasswordSchema = z
   .object({
@@ -66,9 +52,6 @@ export const ChangePasswordSchema = z
 
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>;
 
-// ============================================
-// Forgot Password
-// ============================================
 
 export const ForgotPasswordSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -76,9 +59,6 @@ export const ForgotPasswordSchema = z.object({
 
 export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>;
 
-// ============================================
-// Reset Password
-// ============================================
 
 export const ResetPasswordSchema = z
   .object({
@@ -98,9 +78,6 @@ export const ResetPasswordSchema = z
 
 export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>;
 
-// ============================================
-// Invite User
-// ============================================
 
 export const InviteUserSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -109,9 +86,6 @@ export const InviteUserSchema = z.object({
 
 export type InviteUserInput = z.infer<typeof InviteUserSchema>;
 
-// ============================================
-// Update User (admin)
-// ============================================
 
 export const UpdateUserSchema = z.object({
   displayName: z.string().optional(),
@@ -120,9 +94,6 @@ export const UpdateUserSchema = z.object({
 
 export type UpdateUserInput = z.infer<typeof UpdateUserSchema>;
 
-// ============================================
-// Update Permissions (admin)
-// ============================================
 
 export const UpdatePermissionsSchema = z.object({
   permissions: z.record(z.string(), z.boolean()),
@@ -130,9 +101,6 @@ export const UpdatePermissionsSchema = z.object({
 
 export type UpdatePermissionsInput = z.infer<typeof UpdatePermissionsSchema>;
 
-// ============================================
-// Impersonate User (admin)
-// ============================================
 
 export const ImpersonateSchema = z.object({
   userId: z.string().min(1, "User ID is required"),

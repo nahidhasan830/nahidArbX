@@ -1,31 +1,11 @@
 #!/usr/bin/env npx tsx
 import "dotenv/config";
 
-/**
- * ML Pipeline Operations Verification Script
- *
- * Repeatable post-change checks that catch drift quickly:
- *   1. Feature length distribution (DB)
- *   2. Feature version distribution (DB)
- *   3. TS/Python feature contract match (static)
- *   4. Enrichment cache coverage (DB)
- *   5. Trainable sample count (DB)
- *   6. Score bucket performance (DB)
- *   7. Latest model metadata (DB)
- *
- * Usage:
- *   npx tsx scripts/ml-verify.ts            # Run all checks
- *   npx tsx scripts/ml-verify.ts contract    # Contract-only (no DB)
- *   npx tsx scripts/ml-verify.ts db          # DB checks only
- *
- * Exit code 0 = all green, 1 = one or more warnings, 2 = critical failure.
- */
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 
-// ── Static contract check (no DB required) ────────────────────────
 
 import {
   FEATURE_NAMES,
@@ -67,7 +47,6 @@ function push(
   }
 }
 
-// ── Parse Python feature_names.py ─────────────────────────────────
 
 function parsePythonFeatureNames(): {
   names: string[];
@@ -95,19 +74,16 @@ function parsePythonFeatureNames(): {
   return { names, count, version, hash };
 }
 
-// ── Contract checks ───────────────────────────────────────────────
 
 function runContractChecks(): void {
   console.log("\n═══ Feature Contract Checks ═══\n");
 
-  // 1. TS feature count
   if (FEATURE_COUNT === 22) {
     push("TS FEATURE_COUNT", "pass", `${FEATURE_COUNT} (expected 22)`);
   } else {
     push("TS FEATURE_COUNT", "fail", `${FEATURE_COUNT} (expected 22)`);
   }
 
-  // 2. TS feature names length
   if (FEATURE_NAMES.length === FEATURE_COUNT) {
     push(
       "TS FEATURE_NAMES length",
@@ -122,7 +98,6 @@ function runContractChecks(): void {
     );
   }
 
-  // 3. TS shared constants match
   if (
     ML_FEATURE_COUNT === FEATURE_COUNT &&
     ML_FEATURE_VERSION === FEATURE_VERSION
@@ -140,7 +115,6 @@ function runContractChecks(): void {
     );
   }
 
-  // 4. Python ↔ TS alignment
   try {
     const py = parsePythonFeatureNames();
 
@@ -169,7 +143,6 @@ function runContractChecks(): void {
     if (namesMatch) {
       push("Python ↔ TS names", "pass", "All 22 feature names match exactly");
     } else {
-      // Find mismatches
       const diffs: string[] = [];
       for (
         let i = 0;
@@ -211,7 +184,6 @@ function runContractChecks(): void {
     );
   }
 
-  // 5. UI catalog match
   const catalogNames = FEATURE_CATALOG.map((f) => f.name);
   const catalogMatch =
     JSON.stringify(catalogNames) === JSON.stringify(FEATURE_NAMES);
@@ -230,19 +202,16 @@ function runContractChecks(): void {
   }
 }
 
-// ── DB checks ────────────────────────────────────────────────────
 
 async function runDbChecks(): Promise<void> {
   console.log("\n═══ Database Checks ═══\n");
 
-  // Dynamic import to avoid crash when DATABASE_URL is not set
   const { db, ensureDbReady } = await import("../lib/db/client");
   await ensureDbReady();
   const { bets, competitionEnrichments, mlModels, mlTrainingExamples } =
     await import("../lib/db/schema");
   const { sql, isNotNull, desc, eq } = await import("drizzle-orm");
 
-  // 1. Feature length distribution
   console.log("── Feature Length Distribution ──");
   const featureLengths = await db
     .select({
@@ -272,7 +241,6 @@ async function runDbChecks(): Promise<void> {
     );
   }
 
-  // 2. Feature version distribution
   console.log("── Feature Version Distribution ──");
   const featureVersions = await db
     .select({
@@ -302,7 +270,6 @@ async function runDbChecks(): Promise<void> {
     );
   }
 
-  // 3. Enrichment coverage
   console.log("── Enrichment Coverage ──");
   const enrichmentCoverage = await db.execute(sql`
     WITH bet_competitions AS (
@@ -339,7 +306,6 @@ async function runDbChecks(): Promise<void> {
     `${enrichedCount}/${distinctComps} bet competitions enriched (${coveragePct}%), ${highConfidence} high-confidence, ${cacheRows} total cache rows`,
   );
 
-  // 4. Trainable sample count
   console.log("── Training Samples ──");
   const exampleCounts = await db
     .select({
@@ -365,7 +331,6 @@ async function runDbChecks(): Promise<void> {
     detail,
   );
 
-  // Also check settled bets with features (the legacy count)
   const [{ settledWithFeatures }] = await db
     .select({ settledWithFeatures: sql<number>`count(*)::int` })
     .from(bets)
@@ -383,7 +348,6 @@ async function runDbChecks(): Promise<void> {
     `${settledWithFeatures} (cold start threshold: ${ML_COLD_START_THRESHOLD})`,
   );
 
-  // 5. Score bucket performance
   console.log("── Score Bucket Performance ──");
   const buckets = await db
     .select({
@@ -430,7 +394,6 @@ async function runDbChecks(): Promise<void> {
     push("Score buckets", "pass", `${buckets.length} buckets with data`, table);
   }
 
-  // 6. Latest model metadata
   console.log("── Model Metadata ──");
   const [latestModel] = await db
     .select()
@@ -467,7 +430,6 @@ async function runDbChecks(): Promise<void> {
     );
   }
 
-  // Check deployed model separately
   const [deployed] = await db
     .select()
     .from(mlModels)
@@ -489,7 +451,6 @@ async function runDbChecks(): Promise<void> {
     );
   }
 
-  // 7. Outcome distribution sanity check
   console.log("── Outcome Distribution ──");
   const outcomes = await db
     .select({
@@ -515,10 +476,9 @@ async function runDbChecks(): Promise<void> {
   );
 }
 
-// ── Main ─────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const mode = process.argv[2]; // 'contract' | 'db' | undefined (all)
+  const mode = process.argv[2];
 
   console.log("╔══════════════════════════════════════════════╗");
   console.log("║  ML Pipeline Verification                   ║");
@@ -540,7 +500,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── Summary ──────────────────────────────────────────────────────
   console.log("\n═══ Summary ═══\n");
   const passes = results.filter((r) => r.severity === "pass").length;
   const warns = results.filter((r) => r.severity === "warn").length;

@@ -1,4 +1,3 @@
-/** System prompts and JSON schemas for search-grounded sports AI workflows. */
 
 import { format, isValid, parseISO } from "date-fns";
 
@@ -10,7 +9,6 @@ const GENERAL_SPORTS_GROUNDING_RULES = `GENERAL ACCURACY RULES:
 - Preserve home/away orientation exactly when reporting scores or comparing fixtures.
 - If evidence is missing or contradictory, lower confidence instead of guessing.`;
 
-// ── JSON Schemas for structured output ───────────────────────────────
 
 export const ENTITY_MATCH_SCHEMA = {
   type: "object",
@@ -115,7 +113,6 @@ export const GENERIC_QUERY_SCHEMA = {
   required: ["answer", "reasoning"],
 } as const;
 
-// ── Entity matching prompts ──────────────────────────────────────────
 
 export const ENTITY_MATCH_SYSTEM = `You are a sports data expert who determines whether two betting fixtures from different providers refer to the SAME real-world football match.
 
@@ -222,7 +219,6 @@ ${auditContext}
 Do not decide from kickoff fuzziness. The caller only sends exact-kickoff candidates here; use the UTC kickoff timestamp to verify against source evidence. Ignore operator-local or browser-local time renderings.`;
 }
 
-// ── Batch entity matching ────────────────────────────────────────────
 
 export const ENTITY_MATCH_BATCH_SYSTEM = `You are a sports data expert who determines whether betting fixtures from different providers refer to the same real-world football match.
 
@@ -292,12 +288,7 @@ export function entityMatchBatchPrompt(
   return `Determine which of these event pairs are the same real-world match:\n\n${lines.join("\n")}`;
 }
 
-// ── Generic grounded query ───────────────────────────────────────────
 
-/**
- * System prompt for /grounded-query. The current date is injected at call
- * time via `buildGenericSystem()` so the model never has to guess "today".
- */
 export const GENERIC_SYSTEM_TEMPLATE = `You are a precise research assistant focused on football and sports betting analysis.
 
 CURRENT DATE: {{TODAY}}
@@ -322,7 +313,6 @@ export function buildGenericSystem(now: Date = new Date()): string {
   return GENERIC_SYSTEM_TEMPLATE.replace("{{TODAY}}", today);
 }
 
-/** @deprecated Kept for backward compatibility — use buildGenericSystem() instead. */
 export const GENERIC_SYSTEM = GENERIC_SYSTEM_TEMPLATE.replace(
   "{{TODAY}}",
   "(date not provided)",
@@ -337,7 +327,6 @@ export function genericQueryPrompt(question: string, context?: string): string {
   return prompt;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
 
 function formatTime(iso: string): string {
   try {
@@ -346,7 +335,6 @@ function formatTime(iso: string): string {
       return `${formatInZone(d, "UTC")} UTC`;
     }
   } catch {
-    // Fall through.
   }
   return iso;
 }

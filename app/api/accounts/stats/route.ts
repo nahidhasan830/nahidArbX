@@ -1,10 +1,3 @@
-/**
- * GET /api/betting-stats
- *
- * Derives dashboard KPIs + breakdowns from the unified `bets` table.
- * Filters to placed bets only (placed_at IS NOT NULL).
- * Everything scales cleanly with zero rows — empty arrays, zero totals.
- */
 import { NextResponse } from "next/server";
 import { listPlacedBets } from "@/lib/db/repositories/bets";
 import { BETTING_PROVIDERS } from "@/lib/betting/registry";
@@ -124,7 +117,6 @@ function deriveStats(rows: BetRow[]) {
   };
 }
 
-// ---------- helpers ----------
 
 function sum(xs: number[]): number {
   return xs.reduce((a, b) => a + b, 0);

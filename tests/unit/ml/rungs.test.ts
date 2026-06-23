@@ -19,10 +19,6 @@ import { rung12BeatsBaseline } from "@/lib/lab/ml/rungs/12-beats-baseline";
 import { rung13PilotUnlocked } from "@/lib/lab/ml/rungs/13-pilot-unlocked";
 import type { PipelineData } from "@/components/lab/ml/types";
 
-/**
- * Synthetic baseline that passes every rung. Each test mutates the field
- * relevant to the rung under test.
- */
 function makePassingData(): PipelineData {
   return {
     generatedAtMs: Date.now(),
@@ -340,7 +336,6 @@ describe("ML pipeline ladder rungs", () => {
       d.training.modelsInTraining = 0;
       d.training.readyToRetrain = false;
       d.training.newDataSinceLastTrain = 50;
-      // Deployed model is intact from the baseline.
       expect(rung07SchedulerReady.evaluate(d).status).toBe("pass");
     });
   });
@@ -512,7 +507,6 @@ describe("ML pipeline ladder rungs", () => {
       const def = RUNG_REGISTRY.find((r) => r.id === "deployment_gate")!;
       const action = def.actions!.find((a) => a.id === "rollback_previous")!;
       const data = makePassingData();
-      // baseline: only one model in history (v1, deployed) — nothing to roll back to.
       expect(action.visibleWhen!(data)).toBe(false);
     });
 
@@ -547,8 +541,6 @@ describe("ML pipeline ladder rungs", () => {
           createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
         },
       ];
-      // Bump the retired sibling to a different version so the visibleWhen
-      // check (version !== current) actually filters it.
       data.modelHistory[2] = { ...data.modelHistory[2], version: 99 };
       expect(action.visibleWhen!(data)).toBe(true);
       const body = action.body!(data);

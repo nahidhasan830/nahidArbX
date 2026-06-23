@@ -1,18 +1,4 @@
-/**
- * Atoms Module
- *
- * Family/Atom-based market model for value-bet detection.
- * Provides:
- * - Type definitions
- * - Registry lookups
- * - Odds storage
- * - Provider mappings
- * - Value-bet detection (sharp vs. soft)
- */
 
-// ============================================
-// Types
-// ============================================
 
 export type {
   TimeScope,
@@ -27,9 +13,6 @@ export type {
   BestAtomOdds,
 } from "./types";
 
-// ============================================
-// Registry
-// ============================================
 
 export {
   getFamily,
@@ -44,9 +27,6 @@ export {
   getRegistryStats,
 } from "./registry";
 
-// ============================================
-// Store
-// ============================================
 
 export {
   setOdds,
@@ -61,11 +41,7 @@ export {
   getStoreStats,
 } from "./store";
 
-// ============================================
-// Provider Mappings
-// ============================================
 
-// Pinnacle
 export {
   mapPinnacleToAtom,
   extractPinnacleOdds,
@@ -73,7 +49,6 @@ export {
   type PinnacleOutcomeTuple,
 } from "./mappings/pinnacle";
 
-// NineWickets Exchange
 export {
   mapExchangeToAtom,
   extractExchangeOdds,
@@ -81,7 +56,6 @@ export {
   type ExchangeSelection,
 } from "./mappings/ninewickets-exchange";
 
-// NineWickets Sportsbook
 export {
   mapSportsbookToAtom,
   extractSportsbookOdds,

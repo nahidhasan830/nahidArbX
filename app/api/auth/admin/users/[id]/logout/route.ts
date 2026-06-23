@@ -1,8 +1,3 @@
-/**
- * POST /api/auth/admin/users/[id]/logout
- *
- * Force logout a user by revoking all their sessions (admin only).
- */
 
 import { cookies } from "next/headers";
 import { db, users } from "@/lib/auth/db";
@@ -26,7 +21,6 @@ export async function POST(request: Request, context: RouteContext) {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -40,14 +34,12 @@ export async function POST(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Prevent admin from logging themselves out via this endpoint
     if (user.id === session.userId) {
       return apiError(
         "Use the normal logout endpoint for your own session",
@@ -55,10 +47,8 @@ export async function POST(request: Request, context: RouteContext) {
       );
     }
 
-    // Revoke all sessions for the user
     const revokedCount = await revokeAllUserSessions(user.id);
 
-    // Log activity
     await logActivity({
       userId: user.id,
       userEmail: user.email,

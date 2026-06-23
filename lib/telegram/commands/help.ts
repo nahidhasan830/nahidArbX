@@ -1,6 +1,3 @@
-/**
- * /help — auto-generated from the registry. Always enabled.
- */
 
 import { isCommandEnabled } from "../config";
 import { registerCommand, listCommands } from "../registry";

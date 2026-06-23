@@ -1,9 +1,3 @@
-/**
- * GET /api/auth/me
- *
- * Returns current user information.
- * Used by frontend to check auth state.
- */
 
 import { cookies } from "next/headers";
 import { validateSession } from "@/lib/auth/session";
@@ -20,7 +14,6 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
   try {
-    // Dev-mode bypass: return synthetic admin user with every feature enabled.
     if (process.env.NODE_ENV === "development") {
       return NextResponse.json({
         ok: true,
@@ -37,7 +30,6 @@ export async function GET() {
       });
     }
 
-    // Ensure auth is initialized
     await initializeAuth();
 
     const cookieStore = await cookies();
@@ -50,7 +42,6 @@ export async function GET() {
     const session = await validateSession(token);
 
     if (!session) {
-      // Clear invalid cookie
       const response = NextResponse.json(
         { ok: false, error: "Session expired" },
         { status: 401 },
@@ -59,7 +50,6 @@ export async function GET() {
       return response;
     }
 
-    // Get full user data
     const user = await db
       .select()
       .from(users)
@@ -70,7 +60,6 @@ export async function GET() {
       return apiError("User not found", 401);
     }
 
-    // Check if user is suspended
     if (user.status === "suspended") {
       const response = NextResponse.json(
         { ok: false, error: "Account suspended" },
@@ -80,7 +69,6 @@ export async function GET() {
       return response;
     }
 
-    // Get permissions
     const permissions = await getUserPermissions(user.id);
     const hasAccess = await hasAnyPermission(user.id);
 

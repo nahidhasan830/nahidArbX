@@ -56,15 +56,6 @@ export const useBetsList = (
     refetchIntervalInBackground: false,
   });
 
-/**
- * Aggregate counts + ROI for the currently-applied filter set. Runs server-side
- * so the numbers reflect the entire matched population, not just loaded pages.
- * Same refetch cadence as the list so both stay in sync.
- *
- * `preMatchOnly: true` mirrors what `useBetsList` sends so the ROI denominator
- * always matches the table's total — without it, in-play detections leak into
- * the stats roll-up while the table itself hides them.
- */
 export const useBetsStats = (filters: ListFilters) => {
   const effective: ListFilters = { ...filters, preMatchOnly: true };
   return useQuery({

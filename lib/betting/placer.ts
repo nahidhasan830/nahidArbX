@@ -1,24 +1,3 @@
-/**
- * Generic bet placer. Provider-agnostic — it leans entirely on the
- * {@link BettingProviderAdapter} interface.
- *
- * Flow:
- *   1. Dedup check (cross-provider, lifetime)
- *   2. Provider + auto-place toggle check (auto mode only)
- *   3. Balance check via adapter.getAccountInfo()
- *   4. Market limit check via adapter.getMarketLimits()
- *   5. Stake sizing: caller-supplied (Kelly), clamped to [minBetAmount,
- *      maxBetAmount]; abort if clamped stake < minBetAmount
- *   6. adapter.placeBet()
- *   7. DB write ONLY when the book confirms placement:
- *        - status='placed' → row at outcome='pending' (awaiting settlement)
- *        - status='pending' → row at outcome='pending', error='awaiting-ticket'
- *          so reconciliation via myBets can attach the ticket id later.
- *      Rejections (business rules) and errors (transport/auth) never
- *      write to the DB. If the book didn't accept it, we don't record it.
- *   8. notify(bet:placed) for placements, notify(bet:error) for
- *      rejections/errors so the UI still surfaces the failure.
- */
 import { randomUUID } from "node:crypto";
 import { getBettingProvider } from "./registry";
 import { isAutoPlaceEnabled } from "./auto-place-config";
@@ -57,11 +36,6 @@ export type PlacementOutcome =
       ticketId?: string;
     }
   | {
-      /**
-       * Book accepted the bet but is still processing it; no ticket id
-       * yet. We persist the row at outcome='pending' so reconciliation
-       * can attach the ticket later via myBets polling.
-       */
       status: "pending";
       placedBetId: string;
       bookedOdds: number;
@@ -71,20 +45,16 @@ export type PlacementOutcome =
   | {
       status: "skipped";
       reason: string;
-      /** Internal: computed stake for logging (not part of public contract). */
       _logStake?: number;
-      /** Internal: provider balance at decision time for logging. */
       _logBalance?: number;
     }
   | {
-      /** Book rejected on a business rule. Not persisted to DB. */
       status: "rejected";
       reason: string;
       _logStake?: number;
       _logBalance?: number;
     }
   | {
-      /** Transport / auth / parse failure. Not persisted to DB. */
       status: "error";
       reason: string;
       _logStake?: number;
@@ -93,41 +63,14 @@ export type PlacementOutcome =
 
 export interface PlaceForValueBetArgs {
   valueBet: ValueBetRow;
-  /**
-   * The stake to attempt (raw Kelly in account currency). Will be
-   * clamped to the market's [min, max] at placement time; if the clamp
-   * would push it above Kelly we take the clamp, if it would push it
-   * below Kelly we refuse to place.
-   */
   kellyStake: number;
-  /**
-   * ML-adjusted Kelly multiplier from `computeKellyMultiplier()`.
-   * Applied to the freshly-derived fullKelly in auto mode before
-   * `computeStake()`. Ignored in manual mode.
-   *
-   * - undefined/null: no ML effect (use base fullKelly)
-   * - 0: the ML gate skipped this bet (should not reach placer,
-   *   but handled defensively)
-   * - 0 < x <= 1.0: stake_reduce (shrink fullKelly)
-   * - x > 1.0: stake_increase (grow fullKelly, capped at 2.0)
-   */
   mlKellyMultiplier?: number | null;
-  /** Raw ML score used by the auto-placer gate; logged for audit. */
   mlScore?: number | null;
-  /** Deployed model version that produced `mlScore`, if known. */
   mlModelVersion?: number | null;
-  /** Feature vector used for the placement-time ML score. */
   mlFeatures?: number[] | null;
   mlFeatureVersion?: number | null;
   mlFeatureCount?: number | null;
   mlFeatureNamesHash?: string | null;
-  /**
-   * Optional pre-resolved provider refs (book-native marketId /
-   * selectionId / etc.). When omitted the placer calls
-   * `adapter.resolveProviderRefs` — that's the standard path. Tests
-   * and debug tooling can pass a literal refs dict to bypass the
-   * resolver.
-   */
   providerRefs?: Record<string, string | number>;
   mode: "auto" | "manual";
 }
@@ -146,16 +89,6 @@ interface PlacementMlSnapshot {
   placedMlFeatureNamesHash: string | null;
 }
 
-/**
- * In-flight placements, keyed by `<eventId>|<familyId>|<atomId>`. Two
- * calls that arrive for the same selection while one is already running
- * share the original promise instead of each submitting their own bet
- * to the book. Without this guard a race between concurrent maybeAutoPlace
- * invocations slips through the DB-level `isAlreadyPlaced` check (which
- * is SELECT-then-INSERT, no row-lock) and the book deduplicates into a
- * single ticket id — the reconciler then attaches that one ticket to
- * every duplicate DB row and the operator sees N identical notifications.
- */
 const inflightPlacements = new Map<string, Promise<PlacementOutcome>>();
 
 export function placeBetForValueBet(
@@ -164,11 +97,6 @@ export function placeBetForValueBet(
   const key = `${args.valueBet.eventId}|${args.valueBet.familyId}|${args.valueBet.atomId}`;
   const existing = inflightPlacements.get(key);
   if (existing) {
-    // Tag the outcome so the caller can tell it was a dedup merge, not
-    // a fresh placement. Return a cloned skipped outcome instead of the
-    // original — it's important that *this* caller not report a
-    // successful placement (the notify for the real placement fires
-    // once, from whichever caller owns the original promise).
     const result: PlacementOutcome = {
       status: "skipped",
       reason: "Placement already in flight for this selection",
@@ -180,7 +108,6 @@ export function placeBetForValueBet(
   }
   const promise = placeBetForValueBetImpl(args)
     .then((outcome) => {
-      // Log for auto-mode placements. Manual placements don't go to the log.
       if (args.mode === "auto") {
         logAutoPlacerOutcome(args, outcome);
       }
@@ -193,11 +120,6 @@ export function placeBetForValueBet(
   return promise;
 }
 
-/**
- * Map PlacementOutcome to an auto_placer_log row (fire-and-forget).
- * The gate is inferred from the outcome's reason string when not
- * explicitly provided.
- */
 function logAutoPlacerOutcome(
   args: PlaceForValueBetArgs,
   outcome: PlacementOutcome,
@@ -207,13 +129,8 @@ function logAutoPlacerOutcome(
   const betId = `${vb.eventId}|${vb.familyId}|${vb.atomId}`;
   const gate = gateOverride ?? inferGate(outcome);
 
-  // Compute EV% from the value bet's own fields — the reactor already
-  // calculated this, but the bets row stores the raw inputs, not evPct
-  // directly. Use computeEvPctSafe which handles commission.
   const evPct = computeEvPctSafe(vb, Number(vb.softOdds));
 
-  // Stake/balance from outcome metadata (set by placeBetForValueBetImpl
-  // for gates that fire after sizing/balance checks).
   const logStake =
     "stake" in outcome
       ? outcome.stake
@@ -359,15 +276,7 @@ async function placeBetForValueBetImpl(
     };
   }
 
-  // 1. Dedup now lives at step 6 (reservePlacement) — an atomic
-  // INSERT ... ON CONFLICT DO UPDATE WHERE placed_at IS NULL against
-  // the bets table. That replaces the previous SELECT-then-INSERT race
-  // and the in-memory `hasPendingConfirmation` window that both allowed
-  // cross-cycle duplicates (tickets 11057135/39/42 for Randers vs
-  // Fredericia on 2026-04-24). The `inflightPlacements` map above is
-  // still a cheap first-line filter for concurrent calls in-process.
 
-  // 2. Auto-place toggle — manual bypasses this.
   if (mode === "auto" && !isAutoPlaceEnabled(providerId)) {
     return {
       status: "skipped",
@@ -375,8 +284,6 @@ async function placeBetForValueBetImpl(
     } as PlacementOutcome;
   }
 
-  // 3. Resolve book-native refs (marketId, selectionId, etc.) unless
-  // caller pre-supplied them.
   let providerRefs = args.providerRefs;
   if (!providerRefs) {
     providerRefs = (await adapter.resolveProviderRefs({
@@ -395,7 +302,6 @@ async function placeBetForValueBetImpl(
     } as PlacementOutcome;
   }
 
-  // 4. Account state.
   let accountInfo;
   try {
     accountInfo = await adapter.getAccountInfo();
@@ -413,16 +319,6 @@ async function placeBetForValueBetImpl(
     } as PlacementOutcome;
   }
 
-  // 4. Market limits — three-tier lookup:
-  //   a) In-memory cache populated by the odds-ingest adapter on every
-  //      sync. This is the authoritative per-market min/max because the
-  //      odds pipeline overlays the authenticated account-tier limits;
-  //      using it avoids an extra HTTP round-trip on every placement.
-  //   b) Book-live fetch via adapter.getMarketLimits() — kept as a
-  //      fallback in case the cache is cold (e.g. right after a restart).
-  //   c) Account-global minBet from accountInfo — last-resort only.
-  //      This value (~1 BDT on 9W) is far below real market minimums,
-  //      which is why the auto-mode floor (step 5) has to backstop it.
   const cached = getCachedMarketLimits(
     providerId as ProviderKey,
     valueBet.eventId,
@@ -445,16 +341,6 @@ async function placeBetForValueBetImpl(
   const minBet = limits?.minBetAmount ?? accountInfo.minBet;
   const maxBet = limits?.maxBetAmount ?? Infinity;
 
-  // 5. Stake sizing.
-  //
-  // Auto mode: the caller's `kellyStake` is IGNORED. Stake is computed
-  // fresh from the saved strategy + live bankroll so the number is
-  // always tied to the operator's latest dashboard settings and the
-  // provider's current balance. The detector's stored `kellyStake` is
-  // a display-time estimate only.
-  //
-  // Manual mode: the caller's `kellyStake` passes through unchanged
-  // (fractional amounts allowed; the operator typed it in).
   const { row: settings } = await getBettingSettings();
   let targetStake: number;
 
@@ -467,8 +353,6 @@ async function placeBetForValueBetImpl(
       softCommissionPct: Number(valueBet.softCommissionPct),
       sharpTrueProb: Number(valueBet.sharpTrueProb),
     });
-    // Hard EV floor at placement time — softOdds can decay between
-    // detection and placement so we recheck against the current snapshot.
     if (evPct < MIN_EV_PCT) {
       return {
         status: "skipped",
@@ -477,10 +361,6 @@ async function placeBetForValueBetImpl(
       };
     }
 
-    // ── ML Kelly adjustment ────────────────────────────────────────────
-    // Apply the ML multiplier to fullKelly before stake computation.
-    // This is where ML permission levels (stake_reduce / stake_increase)
-    // actually affect the submitted stake.
     const mlMult = args.mlKellyMultiplier;
     let adjustedFullKelly = fullKelly;
     if (mlMult != null && mlMult !== 0) {
@@ -490,8 +370,6 @@ async function placeBetForValueBetImpl(
         `ML adjust: fullKelly=${fullKelly.toFixed(4)} × ${mlMult.toFixed(3)} = ${adjustedFullKelly.toFixed(4)}`,
       );
     } else if (mlMult === 0) {
-      // ML gate says skip — should have been caught by auto-placer,
-      // but handle defensively.
       return {
         status: "skipped",
         reason: "ML model gated this bet (multiplier=0)",
@@ -545,8 +423,6 @@ async function placeBetForValueBetImpl(
       _logBalance: accountInfo.balance,
     };
   }
-  // If maxBet < target we take the cap — but in auto-mode keep the
-  // result on the settings-defined grid too.
   let stake = Math.min(targetStake, maxBet);
   if (mode === "auto") {
     const bucket = settings.stakeBucketBdt;
@@ -562,15 +438,6 @@ async function placeBetForValueBetImpl(
   }
   const odds = Number(valueBet.softOdds);
 
-  // 5b. Atomic DB reservation — the single source of truth for dedup.
-  //
-  // INSERT ... ON CONFLICT DO UPDATE WHERE placed_at IS NULL. If a
-  // racing caller or an earlier cycle already reserved / placed this
-  // selection, the conditional WHERE returns zero rows and we bail
-  // BEFORE hitting the book. This is what prevents the duplicate
-  // placements (tickets 11057135/39/42 on 2026-04-24) that slipped
-  // past the in-memory `inflightPlacements` / `hasPendingConfirmation`
-  // windows once the first sync cycle's confirmation cleared.
   const reservation = await reservePlacement({
     eventId: valueBet.eventId,
     familyId: valueBet.familyId,
@@ -606,7 +473,6 @@ async function placeBetForValueBetImpl(
   }
   const reservedBetId = reservation.id;
 
-  // 6. Place via adapter.
   logger.info("BetPlacer", "submitting to book", {
     provider: providerId,
     eventId: valueBet.eventId,
@@ -629,8 +495,6 @@ async function placeBetForValueBetImpl(
       currency: adapter.currency,
     });
   } catch (err) {
-    // Adapter threw (transport/auth failure). Roll the reservation back
-    // so the next valid tick can retry this selection.
     await releaseReservation(reservedBetId).catch((relErr) => {
       logger.error(
         "BetPlacer",
@@ -639,9 +503,6 @@ async function placeBetForValueBetImpl(
     });
     throw err;
   }
-  // Structured audit log: always record the outcome, and include the
-  // raw book response when the book rejected or errored so we can grow
-  // the error-translation table without guessing what the book returned.
   if (attempt.status === "placed" || attempt.status === "pending") {
     logger.info("BetPlacer", `book ${attempt.status}`, {
       provider: providerId,
@@ -650,12 +511,6 @@ async function placeBetForValueBetImpl(
       stake,
       requestedOdds: odds,
     });
-    // Flag response-level odds drift. This catches the book shifting
-    // the price between our request and its accept ("the line moved a
-    // tick, here's your bet at the new number"). The
-    // confirmation-tracker downstream does its own drift check against
-    // the bet-history feed, but this log lets us see it immediately in
-    // the audit trail rather than waiting 30s+ for the feed pass.
     if (
       typeof attempt.bookedOdds === "number" &&
       Math.abs(attempt.bookedOdds - odds) > 0.02
@@ -690,7 +545,6 @@ async function placeBetForValueBetImpl(
     providerTicketId: attempt.ticketId ?? null,
   };
 
-  // 7. Persist + notify — DB write ONLY when the book accepts the bet.
   if (attempt.status === "placed" || attempt.status === "pending") {
     const bookedOdds = attempt.bookedOdds ?? odds;
     const placementMl = buildPlacementMlSnapshot(
@@ -699,14 +553,6 @@ async function placeBetForValueBetImpl(
       Number(valueBet.softCommissionPct ?? 0),
     );
 
-    // 7a. Confirmation-required providers (9W Sportsbook):
-    //     DON'T persist to the DB yet. Hand off to the confirmation
-    //     tracker — it polls the book's bet-history feed every 30s for
-    //     up to 2 minutes, writes the row (and fires Telegram) once a
-    //     matching ticket appears, or sends a failure Telegram and
-    //     drops if the deadline elapses without a match. This makes
-    //     the provider's bet-history feed the source of truth instead
-    //     of the book's raw placement response.
     if (providerRequiresPlacementConfirmation(providerId)) {
       const isVelki = providerId === "velki-sportsbook";
       const placementId = isVelki ? velkiNewPlacementId() : newPlacementId();
@@ -761,8 +607,6 @@ async function placeBetForValueBetImpl(
     const isPending = attempt.status === "pending";
     let row;
     try {
-      // In merged schema, the row already exists (persisted by value detector).
-      // insertPlacedBet will find it by id and update placement fields.
       row = await insertPlacedBet({
         id: baseInsert.id,
         eventId: baseInsert.eventId,
@@ -792,13 +636,6 @@ async function placeBetForValueBetImpl(
         ...placementMl,
       });
     } catch (err) {
-      // UNIQUE-index collision on (event_id, family_id, atom_id): another
-      // caller already wrote a row for this selection (race slipped past
-      // the in-process inflight lock, e.g. after HMR or a second worker).
-      // The book likely deduplicated our submission against the first
-      // request and returned the same ticket; the first row is the
-      // authoritative one. Don't write a second row and don't fire a
-      // second Telegram — just return skipped so callers noop.
       if (err instanceof DuplicatePlacedBetError) {
         logger.warn(
           "BetPlacer",
@@ -815,8 +652,6 @@ async function placeBetForValueBetImpl(
       throw err;
     }
 
-    // For pending placements, tag the DB row so a later reconciliation
-    // job can find it and attach a ticket id from myBets.
     if (isPending) {
       logger.info(
         "BetPlacer",
@@ -825,11 +660,6 @@ async function placeBetForValueBetImpl(
       );
     }
 
-    // Telegram notify — ONLY on confirmed placements. Pending
-    // placements (book accepted but still processing) are notified
-    // later by the reconciler once a matching ticket appears in
-    // myBets. This avoids false-positive "Bet placed" pings that
-    // could turn into silent rejections a few seconds later.
     if (!isPending) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
       await notify({
@@ -867,7 +697,6 @@ async function placeBetForValueBetImpl(
     };
   }
 
-  // Rejection or error — no DB write. Still notify so the UI surfaces it.
   const errorMsg = attempt.error ?? "Unknown placement failure";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
   await notify({
@@ -899,8 +728,6 @@ async function placeBetForValueBetImpl(
     dashboardUrl: appUrl ? `${appUrl}/dashboard` : undefined,
   });
 
-  // Book rejected / errored — release the reservation so the next
-  // valid sync cycle can retry this selection.
   await releaseReservation(reservedBetId).catch((relErr) => {
     logger.error(
       "BetPlacer",
@@ -914,12 +741,6 @@ async function placeBetForValueBetImpl(
   };
 }
 
-/**
- * Bucket the book's raw error string into a stable category so the
- * notifier can pick an icon / label without string-matching, and ops
- * can aggregate failures by cause. Falls back to `book_rejection` /
- * `adapter_error` based on which status the adapter returned.
- */
 function classifyRejectReason(
   error: string,
   status: "rejected" | "error",
@@ -982,9 +803,6 @@ function computeEvPctSafe(row: ValueBetRow, bookedOdds: number): number {
   return round2((adjusted * Number(row.sharpTrueProb) - 1) * 100);
 }
 
-// Best-effort sport inference from competition name. The events store
-// has a sport slug but it isn't on the value_bets row — this fallback
-// gives us the right emoji most of the time.
 function inferSport(competition: string | null | undefined): string | null {
   if (!competition) return null;
   const c = competition.toLowerCase();

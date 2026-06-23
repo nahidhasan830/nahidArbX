@@ -1,17 +1,3 @@
-/**
- * Unified Activity Logger — middleware for all AI operations.
- *
- * Captures both LLM and Search providers with a single schema:
- * - system:    'search' | 'llm'
- * - trigger:   'manual' | 'auto' | 'scheduler' | 'playground'
- * - status:   'success' | 'error' | 'partial'
- * - endpoint: specific operation type (e.g., 'grounding', 'entity-match', 'generate')
- *
- * Usage:
- *   const result = await withAiActivity('search', 'brave', 'grounding', async () => {
- *     return await braveProvider.search(query, maxResults);
- *   });
- */
 
 import { recordAiLog } from "@/lib/db/repositories/ai-logs";
 import {
@@ -22,7 +8,6 @@ import { logger } from "@/lib/shared/logger";
 
 const tag = "AiActivity";
 
-// ── Types ────────────────────────────────────────────────────────────
 
 export type AiSystem = "search" | "llm";
 export type AiTrigger =
@@ -47,7 +32,6 @@ export interface AiActivityOptions {
   metadata?: unknown;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
 
 function toLogValue<T>(value: T | undefined, fallback: T): T {
   return value !== undefined ? value : fallback;
@@ -62,13 +46,7 @@ function resolvePayload<T>(
     : payload;
 }
 
-// ── Core functions ─────────────────────────────────────────────
 
-/**
- * Wrap an AI call with quota checking + activity logging.
- * - Fails fast if quota exhausted
- * - Always logs outcome (success or error)
- */
 export async function withAiActivity<T>(
   options: AiActivityOptions,
   fn: () => Promise<T>,
@@ -88,21 +66,17 @@ export async function withAiActivity<T>(
     metadata,
   } = options;
 
-  // 1. Check quota before call
   if (!(await hasQuota(provider))) {
     logger.warn(tag, `${provider} quota exhausted, rejecting ${endpoint}`);
     throw new Error(`${provider} quota exhausted`);
   }
 
   try {
-    // 2. Execute the AI call
     const result = await fn();
 
-    // 3. Increment usage (ignores failure - quota already checked)
     await incrementUsage(provider);
     const durationMs = Date.now() - startTime;
 
-    // 4. Log success with response
     await recordAiLog({
       system,
       trigger,
@@ -127,7 +101,6 @@ export async function withAiActivity<T>(
     const durationMs = Date.now() - startTime;
     const error = err instanceof Error ? err.message : String(err);
 
-    // Log error (still record for audit)
     await recordAiLog({
       system,
       trigger,
@@ -146,15 +119,10 @@ export async function withAiActivity<T>(
       metadata: metadata ?? null,
     });
 
-    // Re-throw so caller knows it failed
     throw err;
   }
 }
 
-/**
- * Lightweight wrapper - only logs activity, assumes quota already handled.
- * Use when provider has its own quota logic.
- */
 export async function logAiActivity<T>(
   options: AiActivityOptions,
   fn: () => Promise<T>,

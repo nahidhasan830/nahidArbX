@@ -33,7 +33,6 @@ export default function ForgotPasswordPage() {
         return;
       }
 
-      // Check if email wasn't actually sent
       if (data.data?.emailNotConfigured && data.data?.resetUrl) {
         setResetUrl(data.data.resetUrl);
       }
@@ -58,7 +57,6 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="w-full max-w-md px-4">
         <div className="bg-slate-900 rounded-xl shadow-xl p-8 border border-slate-800">
-          {/* Logo/Title */}
           <div className="text-center mb-8">
             <BrandLogo size="lg" />
             <p className="text-gray-400 mt-2">Reset your password</p>
@@ -67,7 +65,6 @@ export default function ForgotPasswordPage() {
           {success ? (
             <div className="text-center">
               {resetUrl ? (
-                /* Email not configured - show manual link */
                 <div className="space-y-4 text-left">
                   <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
                     <div className="flex items-start gap-3">
@@ -114,7 +111,6 @@ export default function ForgotPasswordPage() {
                   </Link>
                 </div>
               ) : (
-                /* Normal success message */
                 <div className="mb-4 p-4 rounded-lg bg-green-500/20 border border-green-500/50 text-green-200">
                   <p className="font-medium">Check your email</p>
                   <p className="text-sm mt-1">
@@ -132,7 +128,6 @@ export default function ForgotPasswordPage() {
             </div>
           ) : (
             <>
-              {/* Error Message */}
               {error && (
                 <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200 text-sm">
                   {error}
@@ -144,7 +139,6 @@ export default function ForgotPasswordPage() {
                 your password.
               </p>
 
-              {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
                   <label
@@ -173,7 +167,6 @@ export default function ForgotPasswordPage() {
                 </button>
               </form>
 
-              {/* Back to Login */}
               <div className="mt-6 text-center">
                 <Link
                   href="/login"

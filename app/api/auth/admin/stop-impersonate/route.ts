@@ -1,8 +1,3 @@
-/**
- * POST /api/auth/admin/stop-impersonate
- *
- * Stop impersonating and return to admin session.
- */
 
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -26,7 +21,6 @@ export async function POST() {
       return apiError("Not authenticated", 401);
     }
 
-    // Validate current (impersonation) session
     const currentSession = await validateSession(currentToken);
 
     if (!currentSession || !currentSession.isImpersonation) {
@@ -37,31 +31,26 @@ export async function POST() {
       return apiError("Admin session not found. Please log in again.", 400);
     }
 
-    // Validate admin token
     const adminSession = await validateSession(adminToken);
 
     if (!adminSession || adminSession.role !== "admin") {
       return apiError("Admin session invalid. Please log in again.", 400);
     }
 
-    // Get impersonated user for logging
     const impersonatedUser = await db
       .select()
       .from(users)
       .where(eq(users.id, currentSession.userId))
       .get();
 
-    // Get admin user
     const adminUser = await db
       .select()
       .from(users)
       .where(eq(users.id, adminSession.userId))
       .get();
 
-    // Revoke impersonation session
     await revokeSession(currentSession.sessionId);
 
-    // Log activity
     if (impersonatedUser) {
       await logActivity({
         userId: impersonatedUser.id,
@@ -72,10 +61,8 @@ export async function POST() {
       });
     }
 
-    // Get admin permissions
     const permissions = adminUser ? await getUserPermissions(adminUser.id) : {};
 
-    // Restore admin session
     const response = NextResponse.json({
       ok: true,
       user: adminUser
@@ -90,7 +77,6 @@ export async function POST() {
         : null,
     });
 
-    // Restore admin token as auth token
     response.cookies.set("auth_token", adminToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -99,7 +85,6 @@ export async function POST() {
       maxAge: 24 * 60 * 60,
     });
 
-    // Clear admin token cookie
     response.cookies.delete("admin_token");
 
     return response;

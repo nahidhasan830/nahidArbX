@@ -3,18 +3,14 @@
 import { cn } from "@/lib/utils";
 
 export interface HeatmapCell {
-  dow: number; // 0 = Sun, 6 = Sat
-  hour: number; // 0..23
+  dow: number;
+  hour: number;
   bets: number;
   stake: number;
 }
 
 const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/**
- * Day-of-week × hour activity heatmap. Intensity is scaled by the
- * *stake* in each cell so dense-volume windows stand out.
- */
 export function Heatmap({
   cells,
   currency = "BDT",
@@ -29,10 +25,6 @@ export function Heatmap({
 
   const maxStake = Math.max(1, ...cells.map((c) => c.stake));
 
-  // Derive quick stats so the card doesn't leave dead space below the
-  // grid. Peak hour + busiest day are cheap computations off the same
-  // cells array and give the operator something actionable ("place
-  // your biggest stakes at the usual window").
   const totalBets = cells.reduce((s, c) => s + c.bets, 0);
   const totalStake = cells.reduce((s, c) => s + c.stake, 0);
   const peakCell = cells.reduce<HeatmapCell | null>(
@@ -50,11 +42,7 @@ export function Heatmap({
 
   return (
     <div className="w-full h-full flex flex-col gap-2">
-      {/* Grid — flex-1 so rows stretch to fill the card's vertical
-          space; cells inherit row height via h-full and stop leaving
-          the card half-empty when the sibling chart is taller. */}
       <div className="flex-1 grid grid-cols-[auto_1fr] gap-x-2 grid-rows-[auto_repeat(7,minmax(0,1fr))] min-h-[168px]">
-        {/* hour ticks row */}
         <div className="col-start-2 grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[2px] text-[9px] text-muted-foreground">
           {Array.from({ length: 24 }, (_, h) => (
             <div
@@ -70,7 +58,6 @@ export function Heatmap({
           ))}
         </div>
 
-        {/* day rows */}
         {grid.map((row, dow) => (
           <div key={dow} className="contents">
             <div className="text-[10px] text-muted-foreground flex items-center justify-end pr-1 min-w-[28px]">
@@ -103,9 +90,6 @@ export function Heatmap({
         ))}
       </div>
 
-      {/* Footer — legend on the left, derived stats on the right. When
-          there's no activity yet, the stat tiles show placeholders so
-          the column doesn't collapse. */}
       <div className="flex items-center justify-between gap-2 pl-8 text-[10px] text-muted-foreground/70">
         <div className="flex items-center gap-1.5">
           <span>Low</span>

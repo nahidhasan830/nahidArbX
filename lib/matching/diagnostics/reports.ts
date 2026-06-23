@@ -1,16 +1,7 @@
-/**
- * Diagnostic Reports
- *
- * Generates reports from near-match data, detecting patterns
- * and providing actionable recommendations.
- */
 
 import type { NearMatch, FailurePattern } from "./types";
 import { getNearMatches, getDiagnosticStats, setPatterns } from "./store";
 
-// ============================================
-// Types
-// ============================================
 
 export interface DiagnosticReport {
   generatedAt: Date;
@@ -26,25 +17,17 @@ export interface DiagnosticReport {
   recommendations: string[];
 }
 
-// ============================================
-// Report Generation
-// ============================================
 
-/**
- * Generate a comprehensive diagnostic report.
- */
 export function generateDiagnosticReport(): DiagnosticReport {
   const nearMatches = getNearMatches();
   const stats = getDiagnosticStats();
 
-  // Count by provider
   const byProvider: Record<string, number> = {};
   for (const nm of nearMatches) {
     byProvider[nm.eventA.provider] = (byProvider[nm.eventA.provider] || 0) + 1;
     byProvider[nm.eventB.provider] = (byProvider[nm.eventB.provider] || 0) + 1;
   }
 
-  // Count by failure type
   const byFailureType: Record<string, number> = {};
   for (const nm of nearMatches) {
     for (const reason of nm.failureReasons) {
@@ -52,7 +35,6 @@ export function generateDiagnosticReport(): DiagnosticReport {
     }
   }
 
-  // Score distribution
   const scoreDistribution = [
     { range: "0.70-0.74", count: 0 },
     { range: "0.75-0.79", count: 0 },
@@ -65,13 +47,10 @@ export function generateDiagnosticReport(): DiagnosticReport {
     else scoreDistribution[0].count++;
   }
 
-  // Detect patterns
   const patterns = detectFailurePatterns(nearMatches);
 
-  // Update stored patterns for API access
   setPatterns(patterns);
 
-  // Generate recommendations
   const recommendations = generateRecommendations(patterns, byFailureType);
 
   return {
@@ -89,17 +68,10 @@ export function generateDiagnosticReport(): DiagnosticReport {
   };
 }
 
-// ============================================
-// Pattern Detection
-// ============================================
 
-/**
- * Detect recurring failure patterns.
- */
 function detectFailurePatterns(nearMatches: NearMatch[]): FailurePattern[] {
   const patterns: FailurePattern[] = [];
 
-  // Group by team name pairs (for team aliases)
   const teamPairs = groupByTeamPairs(nearMatches);
   for (const [key, matches] of teamPairs) {
     if (matches.length >= 2) {
@@ -114,7 +86,6 @@ function detectFailurePatterns(nearMatches: NearMatch[]): FailurePattern[] {
     }
   }
 
-  // Group by competition pairs
   const compPairs = groupByCompetitionPairs(nearMatches);
   for (const [key, matches] of compPairs) {
     if (matches.length >= 2) {
@@ -129,31 +100,23 @@ function detectFailurePatterns(nearMatches: NearMatch[]): FailurePattern[] {
     }
   }
 
-  // Detect time offset patterns by provider pair
   const timePatterns = detectTimeOffsetPatterns(nearMatches);
   patterns.push(...timePatterns);
 
-  // Sort by occurrences
   return patterns.sort((a, b) => b.occurrences - a.occurrences);
 }
 
-/**
- * Group near-matches by team name pairs.
- */
 function groupByTeamPairs(nearMatches: NearMatch[]): Map<string, NearMatch[]> {
   const teamPairs = new Map<string, NearMatch[]>();
 
   for (const nm of nearMatches) {
-    // Check if team mismatch was a failure reason
     const hasTeamMismatch = nm.failureReasons.some(
       (r) => r.type === "team_mismatch",
     );
     if (!hasTeamMismatch) continue;
 
-    // Use the actual team that had low similarity
     const orientation = nm.breakdown.bestOrientation;
 
-    // Home team comparison
     const homeA = nm.eventA.homeTeam.toLowerCase();
     const homeB =
       orientation === "normal"
@@ -167,7 +130,6 @@ function groupByTeamPairs(nearMatches: NearMatch[]): Map<string, NearMatch[]> {
       teamPairs.set(key, existing);
     }
 
-    // Away team comparison
     const awayA = nm.eventA.awayTeam.toLowerCase();
     const awayB =
       orientation === "normal"
@@ -185,16 +147,12 @@ function groupByTeamPairs(nearMatches: NearMatch[]): Map<string, NearMatch[]> {
   return teamPairs;
 }
 
-/**
- * Group near-matches by competition pairs.
- */
 function groupByCompetitionPairs(
   nearMatches: NearMatch[],
 ): Map<string, NearMatch[]> {
   const compPairs = new Map<string, NearMatch[]>();
 
   for (const nm of nearMatches) {
-    // Check if competition mismatch was a failure reason
     const hasCompMismatch = nm.failureReasons.some(
       (r) => r.type === "competition_mismatch",
     );
@@ -214,9 +172,6 @@ function groupByCompetitionPairs(
   return compPairs;
 }
 
-/**
- * Detect time offset patterns between provider pairs.
- */
 function detectTimeOffsetPatterns(nearMatches: NearMatch[]): FailurePattern[] {
   const patterns: FailurePattern[] = [];
   const timeOffsets = new Map<
@@ -225,7 +180,6 @@ function detectTimeOffsetPatterns(nearMatches: NearMatch[]): FailurePattern[] {
   >();
 
   for (const nm of nearMatches) {
-    // Check if time mismatch was a failure reason
     const hasTimeMismatch = nm.failureReasons.some(
       (r) => r.type === "time_mismatch",
     );
@@ -259,20 +213,13 @@ function detectTimeOffsetPatterns(nearMatches: NearMatch[]): FailurePattern[] {
   return patterns;
 }
 
-// ============================================
-// Recommendations
-// ============================================
 
-/**
- * Generate actionable recommendations based on patterns.
- */
 function generateRecommendations(
   patterns: FailurePattern[],
   byFailureType: Record<string, number>,
 ): string[] {
   const recommendations: string[] = [];
 
-  // Team alias recommendations
   const teamPatterns = patterns.filter((p) => p.patternType === "team_alias");
   if (teamPatterns.length > 0) {
     const topPatterns = teamPatterns.slice(0, 3);
@@ -282,7 +229,6 @@ function generateRecommendations(
     );
   }
 
-  // Competition alias recommendations
   const compPatterns = patterns.filter(
     (p) => p.patternType === "competition_alias",
   );
@@ -294,7 +240,6 @@ function generateRecommendations(
     );
   }
 
-  // Time tolerance recommendations
   const timeCount = byFailureType["time_mismatch"] || 0;
   if (timeCount > 10) {
     recommendations.push(
@@ -302,7 +247,6 @@ function generateRecommendations(
     );
   }
 
-  // High-confidence near-matches
   const highScoreCount = patterns
     .flatMap((p) => p.examples)
     .filter((nm) => nm.breakdown.finalScore >= 0.82).length;
@@ -315,13 +259,7 @@ function generateRecommendations(
   return recommendations;
 }
 
-// ============================================
-// Summary Functions
-// ============================================
 
-/**
- * Get a quick summary of near-match status.
- */
 export function getNearMatchSummary(): {
   pending: number;
   patterns: number;

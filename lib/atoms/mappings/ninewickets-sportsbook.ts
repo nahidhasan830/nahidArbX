@@ -1,21 +1,3 @@
-/**
- * NineWickets Sportsbook Provider Mapping
- *
- * Dynamic mapping that matches API markets to our atoms registry.
- * Uses market name patterns to auto-detect market type, time scope, and line.
- *
- * Key patterns:
- * - Match Result, 1x2 → MATCH_RESULT
- * - Over/Under, Total Goals → TOTAL_GOALS
- * - Asian Handicap, Handicap → ASIAN_HANDICAP
- * - Both Teams To Score, BTTS → BTTS
- * - Draw No Bet → DNB
- * - Team Total Goals → HOME_TEAM_TOTAL / AWAY_TEAM_TOTAL
- * - Corners Total → CORNERS
- * - Clean Sheet → CLEAN_SHEET
- * - Win To Nil → WIN_TO_NIL
- * - Odd/Even → ODD_EVEN_GOALS
- */
 
 import { getFamilyIdByAtom, isValidAtom } from "../registry";
 import { matchTeamSide } from "../../shared/team-matching";
@@ -27,27 +9,13 @@ import {
 } from "../../formatting/lines";
 import { logger } from "../../shared/logger";
 
-// ============================================
-// Entity Resolution Helper
-// ============================================
 
-/**
- * Resolve a NW selection/market name to a canonical name using
- * pre-resolved entity mappings.  Falls back to the original name
- * when no mapping exists.
- *
- * The resolvedSelections map is populated by the GeniusSportsSyncService
- * via the Entity Resolution system which maps NW surface names
- * (e.g. "Boldklubben af 1893") to Pinnacle-canonical names ("B 93").
- */
 function resolveSelection(
   name: string,
   resolvedSelections?: Record<string, string>,
 ): string {
   if (!resolvedSelections) return name;
-  // Exact match
   if (resolvedSelections[name]) return resolvedSelections[name];
-  // Case-insensitive fallback (NW names may have diacritics)
   const lower = name.toLowerCase();
   for (const [key, value] of Object.entries(resolvedSelections)) {
     if (key.toLowerCase() === lower) return value;
@@ -61,18 +29,13 @@ import type {
   AtomMarketType,
 } from "../types";
 
-// Re-export line utilities for backward compatibility
 export { formatLine, formatHandicapLine, extractLine, extractSignedLine };
 
-// ============================================
-// Unmapped Market Observability
-// ============================================
 
 const unmappedCounts = new Map<string, number>();
 let lastUnmappedLogTs = 0;
 const UNMAPPED_LOG_INTERVAL_MS = 60_000;
 
-/** Track an unmapped market name. Logs top names periodically. */
 function trackUnmappedMarket(marketName: string) {
   unmappedCounts.set(marketName, (unmappedCounts.get(marketName) ?? 0) + 1);
 
@@ -93,9 +56,6 @@ function trackUnmappedMarket(marketName: string) {
   unmappedCounts.clear();
 }
 
-// ============================================
-// Sportsbook Types
-// ============================================
 
 export interface SportsbookSelection {
   selectionName: string;
@@ -112,22 +72,16 @@ export interface SportsbookMarket {
   geniusSportsSelection?: SportsbookSelection[];
 }
 
-// ============================================
-// Market Type Detection
-// ============================================
 
 interface DetectedMarket {
   marketType: AtomMarketType;
   timeScope: TimeScope;
   line?: number;
-  signedLine?: number; // for handicap markets where sign matters
-  isHomeTeam?: boolean; // for team-specific markets
-  marketName?: string; // raw market name for team detection in CS/WTN
+  signedLine?: number;
+  isHomeTeam?: boolean;
+  marketName?: string;
 }
 
-/**
- * Detect time scope from market name
- */
 function detectTimeScope(marketName: string): TimeScope {
   const lower = marketName.toLowerCase();
   if (
@@ -144,10 +98,6 @@ function detectTimeScope(marketName: string): TimeScope {
   return "FT";
 }
 
-/**
- * Detect market type from market name.
- * Uses apiSiteMarketType to override time scope for known HT market types.
- */
 function detectMarketType(
   marketName: string,
   apiSiteMarketType?: number,
@@ -158,7 +108,6 @@ function detectMarketType(
     .replace(/over\/under/g, "over / under");
   const line = extractLine(marketName) ?? handicap ?? null;
 
-  // Use apiSiteMarketType to detect Half-Time markets (more reliable than name patterns)
   let timeScope = detectTimeScope(marketName);
   if (
     apiSiteMarketType === SPORTSBOOK_MARKET_TYPES.HALF_TIME_TOTALS ||
@@ -167,12 +116,10 @@ function detectMarketType(
     timeScope = "1H";
   }
 
-  // Skip combo markets (and, &) - too complex to map
   if (lower.includes(" and ") || lower.includes(" & ")) {
     return null;
   }
 
-  // Match Result (1x2) - use exact match to avoid collision with "Rest of Match Result"
   if (
     lower === "match result" ||
     lower === "1x2" ||
@@ -182,7 +129,6 @@ function detectMarketType(
     return { marketType: "MATCH_RESULT", timeScope };
   }
 
-  // Both Teams To Score - use exact match to avoid collision with "Both Teams To Score 2 or More Goals"
   if (
     lower === "both teams to score" ||
     lower === "half time both teams to score" ||
@@ -191,7 +137,6 @@ function detectMarketType(
     return { marketType: "BTTS", timeScope };
   }
 
-  // Double Chance - use exact match
   if (
     lower === "double chance" ||
     lower === "half time double chance" ||
@@ -200,7 +145,6 @@ function detectMarketType(
     return { marketType: "DOUBLE_CHANCE", timeScope };
   }
 
-  // Draw No Bet - use exact match
   if (
     lower === "draw no bet" ||
     lower === "half time draw no bet" ||
@@ -209,10 +153,6 @@ function detectMarketType(
     return { marketType: "DNB", timeScope };
   }
 
-  // Asian Handicap - use startsWith for exact pattern matching
-  // NW-SB shows positive lines in market names (+0.5, +1.5)
-  // Both NW-SB and Pinnacle: home GIVES handicap, away RECEIVES
-  // Negate line to convert NW-SB's "+X" to our "-X" convention
   if (
     (lower.startsWith("asian handicap ") ||
       lower.startsWith("half time asian handicap ") ||
@@ -224,10 +164,6 @@ function detectMarketType(
     return { marketType: "ASIAN_HANDICAP", timeScope, line, signedLine };
   }
 
-  // European Handicap (3-way): "Handicap With Tie -1", "Second Half Handicap -1"
-  // NW-SB shows positive lines in market names (+1, +2)
-  // Both NW-SB and Pinnacle: home GIVES handicap, away RECEIVES
-  // Negate line to convert NW-SB's "+X" to our "-X" convention
   if (
     (lower.startsWith("handicap with tie ") ||
       lower.startsWith("half time handicap with tie ") ||
@@ -239,9 +175,6 @@ function detectMarketType(
     return { marketType: "EUROPEAN_HANDICAP", timeScope, line, signedLine };
   }
 
-  // Team Total Corners (Over/Under) - must check BEFORE general corners
-  // Pattern: "{TeamName} Team Total Corners Over/Under +X.X"
-  // apiSiteMarketType: 10747
   if (
     lower.includes("team total corners") &&
     lower.includes("over / under") &&
@@ -250,7 +183,6 @@ function detectMarketType(
     return { marketType: "HOME_CORNERS_TOTAL", timeScope, line, marketName };
   }
 
-  // Corners Total (Over/Under)
   if (
     (lower.includes("corner") || lower.includes("corners")) &&
     (lower.includes("over / under") || lower.includes("total"))
@@ -260,9 +192,6 @@ function detectMarketType(
     }
   }
 
-  // Corners Handicap (3-way European style with Home/Tie/Away)
-  // NW-SB shows positive lines, negate to convert to our convention
-  // Both NW-SB and Pinnacle: home GIVES handicap, away RECEIVES
   if (
     (lower.includes("corner") || lower.includes("corners")) &&
     lower.includes("handicap") &&
@@ -278,7 +207,6 @@ function detectMarketType(
     };
   }
 
-  // Team Total Goals
   if (
     lower.includes("team total goals") ||
     lower.includes("team goals over / under") ||
@@ -289,7 +217,6 @@ function detectMarketType(
     lower === "half time away team total"
   ) {
     if (line !== null) {
-      // Pass marketName so we can match team later
       return {
         marketType: lower.includes("away")
           ? "AWAY_TEAM_TOTAL"
@@ -301,7 +228,6 @@ function detectMarketType(
     }
   }
 
-  // Total Goals (Over/Under) - use startsWith for exact pattern matching
   if (
     (lower.startsWith("total goals over / under ") ||
       lower.startsWith("over / under ") ||
@@ -313,17 +239,12 @@ function detectMarketType(
     return { marketType: "TOTAL_GOALS", timeScope, line };
   }
 
-  // Card Asian Handicap → mapped to BOOKINGS_HANDICAP (check BEFORE cards totals!)
-  // 9W market: "Card Asian Handicap -0.5", Pinnacle: SPREAD with Bookings period.
-  // Same sign convention as regular AH: negate 9W's line.
   if (lower.startsWith("card asian handicap ") && line !== null) {
     const extractedLine = extractSignedLine(marketName);
     const signedLine = extractedLine !== null ? -extractedLine : undefined;
     return { marketType: "BOOKINGS_HANDICAP", timeScope, line, signedLine };
   }
 
-  // Cards Total → mapped to BOOKINGS to align with Pinnacle's "Bookings" period.
-  // Both providers refer to the same real-world market (total yellow/red cards).
   if (
     (lower.includes("card") || lower.includes("cards")) &&
     (lower.includes("over / under") || lower.includes("total")) &&
@@ -332,7 +253,6 @@ function detectMarketType(
     return { marketType: "BOOKINGS", timeScope, line };
   }
 
-  // Odd/Even Goals - use exact match
   if (
     lower === "odd or even total" ||
     lower === "half time odd or even total"
@@ -340,12 +260,10 @@ function detectMarketType(
     return { marketType: "ODD_EVEN_GOALS", timeScope };
   }
 
-  // Clean Sheet
   if (lower.includes("clean sheet")) {
     return { marketType: "CLEAN_SHEET", timeScope, marketName };
   }
 
-  // Win To Nil
   if (lower.includes("win to nil")) {
     return { marketType: "WIN_TO_NIL", timeScope, marketName };
   }
@@ -353,21 +271,10 @@ function detectMarketType(
   return null;
 }
 
-// ============================================
-// Team Name Matching
-// ============================================
 
-// Team matching functions are imported from shared module
-// Re-export parseTeams as alias for backward compatibility
 export { parseTeamsFromEventName as parseTeams } from "../../shared/team-matching";
 
-// ============================================
-// Atom ID Generation
-// ============================================
 
-/**
- * Generate atom ID for a selection
- */
 function generateAtomId(
   detected: DetectedMarket,
   selectionName: string,
@@ -379,7 +286,6 @@ function generateAtomId(
   let selection = selectionName.toLowerCase().trim();
   const lineStr = detected.line !== undefined ? formatLine(detected.line) : "";
 
-  // Normalize "handicap tie" to "draw" for 3-way handicap markets
   if (selection === "handicap tie" || selection === "tie") {
     selection = "draw";
   }
@@ -387,7 +293,6 @@ function generateAtomId(
   switch (detected.marketType) {
     case "MATCH_RESULT": {
       if (selection === "draw") return `${timePrefix}_draw`;
-      // Compare both teams and pick the better match to avoid false positives
       const side = matchTeamSide(
         resolveSelection(selectionName, resolvedSelections),
         homeTeam,
@@ -406,13 +311,9 @@ function generateAtomId(
     }
 
     case "ASIAN_HANDICAP": {
-      // Asian handicap atoms include sign: ft_home_ah_m0_25, ft_away_ah_p0_25
       const signedLine = detected.signedLine ?? detected.line;
       if (signedLine === undefined) return null;
 
-      // Compare both teams and pick the better match
-      // NW-SB uses same convention as Pinnacle: home gives, away receives
-      // Line negation converts "+X" to "-X", selections map directly (no swap needed)
       const ahSide = matchTeamSide(
         resolveSelection(selectionName, resolvedSelections),
         homeTeam,
@@ -438,8 +339,6 @@ function generateAtomId(
       if (selection === "draw") {
         return `${timePrefix}_draw_eh_${ehLine}`;
       }
-      // Compare both teams and pick the better match
-      // NW-SB uses same convention: home gives, away receives (no swap needed)
       const ehSide = matchTeamSide(
         resolveSelection(selectionName, resolvedSelections),
         homeTeam,
@@ -458,7 +357,6 @@ function generateAtomId(
     }
 
     case "DNB": {
-      // Compare both teams and pick the better match
       const dnbSide = matchTeamSide(
         resolveSelection(selectionName, resolvedSelections),
         homeTeam,
@@ -470,9 +368,6 @@ function generateAtomId(
     }
 
     case "DOUBLE_CHANCE": {
-      // Double Chance: 1X (home or draw), 12 (home or away), X2 (draw or away)
-      // Selection names: "Home or Draw", "Home or Away", "Draw or Away"
-      // Also: "1X", "12", "X2"
       if (selection === "1x" || selection === "home or draw")
         return `${timePrefix}_dc_1x`;
       if (selection === "12" || selection === "home or away")
@@ -491,12 +386,9 @@ function generateAtomId(
     }
 
     case "CORNERS_HANDICAP": {
-      // Corners handicap atoms also include sign (2-way Asian style)
       const signedLine = detected.signedLine ?? detected.line;
       if (signedLine === undefined) return null;
 
-      // Compare both teams and pick the better match
-      // NW-SB uses same convention: home gives, away receives (no swap needed)
       const cornersSide = matchTeamSide(
         resolveSelection(selectionName, resolvedSelections),
         homeTeam,
@@ -515,16 +407,13 @@ function generateAtomId(
     }
 
     case "CORNERS_EUROPEAN_HANDICAP": {
-      // Corners European Handicap (3-way: home/draw/away)
       const signedLine = detected.signedLine ?? detected.line;
       if (signedLine === undefined) return null;
       const ehLine = formatHandicapLine(signedLine);
 
-      // Handle "Handicap Tie" (already normalized to "draw")
       if (selection === "draw") {
         return `${timePrefix}_corners_draw_eh_${ehLine}`;
       }
-      // Compare both teams and pick the better match
       const cornersEhSide = matchTeamSide(
         resolveSelection(selectionName, resolvedSelections),
         homeTeam,
@@ -540,19 +429,15 @@ function generateAtomId(
 
     case "HOME_TEAM_TOTAL":
     case "AWAY_TEAM_TOTAL": {
-      // Team Total Goals - detect team from market name
-      // Pattern: "{TeamName} Goals Over / Under {line}"
       if (!lineStr) return null;
       const ttMarket = (detected.marketName ?? "").toLowerCase();
 
-      // Match team name against home/away teams
       let ttTeam: "home" | "away" | null = null;
       if (ttMarket.includes("home")) {
         ttTeam = "home";
       } else if (ttMarket.includes("away")) {
         ttTeam = "away";
       } else {
-        // Extract team name from market (everything before " goals over")
         ttTeam = matchTeamSide(
           resolveSelection(detected.marketName ?? "", resolvedSelections),
           homeTeam,
@@ -575,7 +460,6 @@ function generateAtomId(
     }
 
     case "CLEAN_SHEET": {
-      // Detect team from market name (e.g., "Home Team Clean Sheet", "Brighton Clean Sheet")
       const csMarket = (detected.marketName ?? "").toLowerCase();
       let csTeam: "home" | "away" | null = null;
       if (csMarket.includes("home")) {
@@ -583,7 +467,6 @@ function generateAtomId(
       } else if (csMarket.includes("away")) {
         csTeam = "away";
       } else {
-        // Compare both teams and pick the better match
         csTeam = matchTeamSide(
           resolveSelection(detected.marketName ?? "", resolvedSelections),
           homeTeam,
@@ -597,7 +480,6 @@ function generateAtomId(
     }
 
     case "WIN_TO_NIL": {
-      // Detect team from market name (e.g., "Home Win To Nil", "Brighton Win To Nil")
       const wtnMarket = (detected.marketName ?? "").toLowerCase();
       let wtnTeam: "home" | "away" | null = null;
       if (wtnMarket.includes("home")) {
@@ -605,7 +487,6 @@ function generateAtomId(
       } else if (wtnMarket.includes("away")) {
         wtnTeam = "away";
       } else {
-        // Compare both teams and pick the better match
         wtnTeam = matchTeamSide(
           resolveSelection(detected.marketName ?? "", resolvedSelections),
           homeTeam,
@@ -677,14 +558,7 @@ function generateAtomId(
   }
 }
 
-// ============================================
-// Main Mapping Function
-// ============================================
 
-/**
- * Map a NineWickets Sportsbook selection to an atom ID.
- * Uses dynamic detection based on market name patterns.
- */
 export function mapSportsbookToAtom(
   apiSiteMarketType: number,
   selectionName: string,
@@ -694,11 +568,9 @@ export function mapSportsbookToAtom(
   handicap?: number,
   resolvedSelections?: Record<string, string>,
 ): string | null {
-  // Detect market type from name, using apiSiteMarketType to identify HT markets
   const detected = detectMarketType(marketName, apiSiteMarketType, handicap);
   if (!detected) return null;
 
-  // Generate atom ID
   const atomId = generateAtomId(
     detected,
     selectionName,
@@ -708,11 +580,8 @@ export function mapSportsbookToAtom(
   );
   if (!atomId) return null;
 
-  // Verify atom exists in registry
   if (!isValidAtom(atomId)) {
-    // Try without timeScope variations for FT markets
     if (detected.timeScope === "FT" && atomId.startsWith("ft_")) {
-      // Atom doesn't exist, skip
       return null;
     }
     return null;
@@ -721,13 +590,7 @@ export function mapSportsbookToAtom(
   return atomId;
 }
 
-// ============================================
-// Extraction Function
-// ============================================
 
-/**
- * Extract normalized odds entries from a NineWickets Sportsbook market.
- */
 export function extractSportsbookOdds(
   market: SportsbookMarket,
   eventId: string,
@@ -748,13 +611,10 @@ export function extractSportsbookOdds(
   const timestamp = Date.now();
 
   for (const selection of market.geniusSportsSelection) {
-    // Skip inactive selections
     if (!selection.isActive) continue;
 
-    // Skip invalid odds
     if (selection.odds <= 1) continue;
 
-    // Try static mapping first
     const atomId = mapSportsbookToAtom(
       market.apiSiteMarketType,
       selection.selectionName,
@@ -788,9 +648,6 @@ export function extractSportsbookOdds(
   return entries;
 }
 
-// ============================================
-// Legacy Market Type Constants (for reference)
-// ============================================
 
 export const SPORTSBOOK_MARKET_TYPES = {
   MATCH_RESULT: 2,
@@ -801,16 +658,10 @@ export const SPORTSBOOK_MARKET_TYPES = {
   BTTS: 7079,
 } as const;
 
-// ============================================
-// Alias-Based Atom Derivation
-// ============================================
 
 export type SportsbookMarketType =
   (typeof SPORTSBOOK_MARKET_TYPES)[keyof typeof SPORTSBOOK_MARKET_TYPES];
 
-/**
- * Backward-compatible wrapper used by older tests/scripts.
- */
 export function mapNinewicketsSportsbookToAtom(
   marketName: string,
   selectionName: string,

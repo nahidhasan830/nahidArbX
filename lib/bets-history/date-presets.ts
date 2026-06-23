@@ -1,10 +1,3 @@
-/**
- * Date preset definitions for the Bets History toolbar.
- * Uses date-fns for clean, timezone-safe date math.
- * Each preset resolves to { from?, to? } ISO strings that map
- * directly to the `from`/`to` (captured time) or `eventFrom`/`eventTo`
- * (kickoff time) filter fields.
- */
 import {
   startOfDay,
   endOfDay,
@@ -38,25 +31,19 @@ export type DatePresetKey =
 export type DatePreset = {
   key: DatePresetKey;
   label: string;
-  /** Resolve the preset to from/to ISO strings. "all" returns {}. */
   resolve: () => { from?: string; to?: string };
 };
 
-/** Helper: resolve a preset key to { from?, to? }. Returns {} for "all". */
 export function resolvePreset(key: DatePresetKey): {
   from?: string;
   to?: string;
 } {
   if (key === "all") return {};
-  if (key === "custom") return {}; // custom is handled by the UI
+  if (key === "custom") return {};
   const preset = DATE_PRESETS.find((p) => p.key === key);
   return preset ? preset.resolve() : {};
 }
 
-/**
- * Try to match current from/to filter values to a known preset key.
- * Returns "custom" if no preset matches, "all" if both are undefined.
- */
 export function detectPreset(from?: string, to?: string): DatePresetKey {
   if (!from && !to) return "all";
   for (const p of DATE_PRESETS) {

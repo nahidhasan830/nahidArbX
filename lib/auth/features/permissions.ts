@@ -1,8 +1,3 @@
-/**
- * Permissions Module
- *
- * Functions for checking and managing per-user feature permissions.
- */
 
 import { db, users, userPermissions } from "../db";
 import { eq, and } from "drizzle-orm";
@@ -12,32 +7,18 @@ import {
   isAdminOnlyFeature,
 } from "./registry";
 
-// ============================================
-// Types
-// ============================================
 
 export interface UserPermissions {
   [featureId: string]: boolean;
 }
 
-// ============================================
-// Functions
-// ============================================
 
-/**
- * Get all permissions for a user
- *
- * Admins can self-disable non-admin-only features for testing.
- * Admin-only features are always enabled for admins.
- */
 export async function getUserPermissions(
   userId: string,
 ): Promise<UserPermissions> {
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   const isAdmin = user?.role === "admin";
 
-  // Permission gate removed — all authenticated users have full access.
-  // Admin-only features still require admin role.
   const permissions: UserPermissions = {};
   for (const featureId of FEATURE_IDS) {
     permissions[featureId] = isAdminOnlyFeature(featureId) ? isAdmin : true;
@@ -45,12 +26,6 @@ export async function getUserPermissions(
   return permissions;
 }
 
-/**
- * Check if user has a specific permission
- *
- * Admins can self-disable non-admin-only features for testing.
- * Admin-only features are always enabled for admins.
- */
 export async function hasPermission(
   userId: string,
   featureId: string,
@@ -59,12 +34,10 @@ export async function hasPermission(
 
   const isAdmin = user?.role === "admin";
 
-  // Admin-only features: always true for admins, always false for non-admins
   if (isAdminOnlyFeature(featureId)) {
     return isAdmin;
   }
 
-  // Check explicit permission override in DB
   const userPerm = await db
     .select()
     .from(userPermissions)
@@ -77,23 +50,17 @@ export async function hasPermission(
     .get();
 
   if (userPerm !== undefined) {
-    // Use explicit override (allows admins to self-disable features)
     return userPerm.enabled;
   }
 
-  // No override: admins get true, regular users get registry default
   return isAdmin ? true : getFeatureDefaultEnabled(featureId);
 }
 
-/**
- * Set permission for a user
- */
 export async function setPermission(
   userId: string,
   featureId: string,
   enabled: boolean,
 ): Promise<void> {
-  // Check if permission record exists
   const existing = await db
     .select()
     .from(userPermissions)
@@ -121,15 +88,11 @@ export async function setPermission(
   }
 }
 
-/**
- * Set multiple permissions for a user
- */
 export async function setPermissions(
   userId: string,
   permissions: UserPermissions,
 ): Promise<void> {
   for (const [featureId, enabled] of Object.entries(permissions)) {
-    // Skip admin-only features
     if (isAdminOnlyFeature(featureId)) {
       continue;
     }
@@ -138,12 +101,8 @@ export async function setPermissions(
   }
 }
 
-/**
- * Initialize default permissions for a new user
- */
 export async function initializeUserPermissions(userId: string): Promise<void> {
   for (const featureId of FEATURE_IDS) {
-    // Skip admin-only features
     if (isAdminOnlyFeature(featureId)) {
       continue;
     }
@@ -160,28 +119,18 @@ export async function initializeUserPermissions(userId: string): Promise<void> {
   }
 }
 
-/**
- * Check if user has ANY enabled features (for locked state check)
- */
 export async function hasAnyPermission(userId: string): Promise<boolean> {
   const permissions = await getUserPermissions(userId);
 
   return Object.values(permissions).some((enabled) => enabled);
 }
 
-/**
- * Grant all default permissions to a user
- */
 export async function grantDefaultPermissions(userId: string): Promise<void> {
   await initializeUserPermissions(userId);
 }
 
-/**
- * Grant all permissions to a user (admin use)
- */
 export async function grantAllPermissions(userId: string): Promise<void> {
   for (const featureId of FEATURE_IDS) {
-    // Skip admin-only features for non-admins
     if (isAdminOnlyFeature(featureId)) {
       continue;
     }
@@ -190,9 +139,6 @@ export async function grantAllPermissions(userId: string): Promise<void> {
   }
 }
 
-/**
- * Revoke all permissions from a user
- */
 export async function revokeAllPermissions(userId: string): Promise<void> {
   for (const featureId of FEATURE_IDS) {
     await setPermission(userId, featureId, false);

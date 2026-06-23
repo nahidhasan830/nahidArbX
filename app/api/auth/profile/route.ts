@@ -1,9 +1,3 @@
-/**
- * GET /api/auth/profile
- * PATCH /api/auth/profile
- *
- * Get or update the current user's profile (display name).
- */
 
 import { cookies } from "next/headers";
 import { db, users } from "@/lib/auth/db";
@@ -90,7 +84,6 @@ export async function PATCH(request: Request) {
 
     const { displayName } = parsed.data;
 
-    // Update user
     await db
       .update(users)
       .set({

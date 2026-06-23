@@ -10,8 +10,6 @@ export const config = {
   ),
   providers: {
     pinnacle: {
-      // Token captured via browser automation (betjili → pinnacle)
-      // Credentials in BETJILI_* env vars, token stored in pinnacle-token.json
       baseUrl: "https://www.ps388win.com",
       daysAhead: parseInt(
         process.env.PINNACLE_DAYS_AHEAD || String(PINNACLE_DAYS_AHEAD),

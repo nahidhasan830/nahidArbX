@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * useEventStream - SSE hook for real-time dashboard updates
- *
- * Connects to /api/value-bets/stream and fires callbacks when
- * the server pushes sync events. Replaces polling with event-driven updates.
- *
- * Browser's EventSource handles auto-reconnect natively (retry: 5000ms from server).
- */
 
 import { useEffect, useRef, useCallback, useState } from "react";
 
@@ -31,40 +23,31 @@ export interface FullRefreshSignal {
 }
 
 export interface SSECallbacks {
-  /** Called when odds sync completes — time to refetch dashboard data */
   onSyncComplete?: (data: {
     duration: number;
     valueBetCount: number;
     dirtyFamilies: number;
   }) => void;
-  /** Called when fixtures sync completes — events list changed */
   onFixturesComplete?: (data: {
     matchedEvents: number;
     rawEvents: number;
   }) => void;
-  /** Called when sync phase changes — update progress UI */
   onPhaseChange?: (data: {
     phase: string;
     progress?: { current: number; total: number };
   }) => void;
-  /** Called when value bet count changes */
   onValueChange?: (data: {
     added: number;
     removed: number;
     total: number;
   }) => void;
-  /** Called with delta update — apply changes without full refresh */
   onDelta?: (data: DeltaUpdate) => void;
-  /** Called when full refresh is needed (delta too large or fixtures changed) */
   onFullRefreshNeeded?: (data: FullRefreshSignal) => void;
 }
 
 interface UseEventStreamReturn {
-  /** Whether the SSE connection is open */
   isConnected: boolean;
-  /** Current server data version (for ETag) */
   serverVersion: number;
-  /** Number of connected SSE clients (from heartbeat) */
   clientCount: number;
 }
 
@@ -76,15 +59,11 @@ export function useEventStream(
   const [serverVersion, setServerVersion] = useState(0);
   const [clientCount, setClientCount] = useState(0);
 
-  // Ref to always use latest callbacks without re-creating EventSource
   const callbacksRef = useRef(callbacks);
   useEffect(() => {
     callbacksRef.current = callbacks;
   }, [callbacks]);
 
-  // Ref so the connect callback can read the latest version without
-  // closing over the state variable (which would force the React
-  // Compiler to add it as a dependency and trigger reconnections).
   const serverVersionRef = useRef(serverVersion);
   useEffect(() => {
     serverVersionRef.current = serverVersion;
@@ -95,13 +74,11 @@ export function useEventStream(
   const connect = useCallback(() => {
     if (!enabled) return;
 
-    // Close any existing connection
     sourceRef.current?.close();
 
     const es = new EventSource("/api/value-bets/stream");
     sourceRef.current = es;
 
-    // -- Connection lifecycle --
     es.addEventListener("connected", (e) => {
       const data = JSON.parse((e as MessageEvent).data);
       setIsConnected(true);
@@ -114,7 +91,6 @@ export function useEventStream(
       setClientCount(data.clients ?? 0);
     });
 
-    // -- Sync events --
     es.addEventListener("sync:complete", (e) => {
       const data = JSON.parse((e as MessageEvent).data);
       setServerVersion(data.version ?? serverVersionRef.current);
@@ -136,7 +112,6 @@ export function useEventStream(
       callbacksRef.current.onValueChange?.(data);
     });
 
-    // -- Delta updates --
     es.addEventListener("data:delta", (e) => {
       const data = JSON.parse((e as MessageEvent).data);
       if (data.type === "delta") {
@@ -148,10 +123,8 @@ export function useEventStream(
       }
     });
 
-    // -- Error handling --
     es.onerror = () => {
       setIsConnected(false);
-      // EventSource auto-reconnects; no manual logic needed
     };
 
     es.onopen = () => {

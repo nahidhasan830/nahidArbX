@@ -1,20 +1,3 @@
-/**
- * Unified Health Manager
- *
- * Coordinates health monitoring and auto-healing across all system components.
- * Provides a single source of truth for system health status.
- *
- * Components monitored:
- * - Provider connections (BetConstruct WebSocket, Pinnacle API, NineWickets API)
- * - Circuit breakers (per-provider resilience)
- * - Score WebSocket (Pinnacle live scores)
- * - Background sync scheduler
- *
- * Healing strategies:
- * 1. Component-level: Individual reconnect attempts
- * 2. Circuit breaker: Fail fast and recover automatically
- * 3. Process-level: Exit for PM2 restart (last resort)
- */
 
 import {
   getAllCircuitBreakerStats,
@@ -24,9 +7,6 @@ import { logger } from "./logger";
 import { singleton } from "@/lib/util/singleton";
 import { getDataHealthProviderIds } from "../providers/registry";
 
-// ============================================
-// Types
-// ============================================
 
 export type ComponentStatus = "healthy" | "degraded" | "unhealthy" | "unknown";
 
@@ -45,13 +25,9 @@ export interface SystemHealth {
   lastHealthCheck: number;
 }
 
-// Callback types for component health providers
 type HealthProvider = () => ComponentHealth;
 type HealingAction = () => Promise<boolean>;
 
-// ============================================
-// Health Manager State — singleton for HMR safety
-// ============================================
 
 const hmState = singleton("health-manager:state", () => ({
   startTime: Date.now(),
@@ -62,20 +38,13 @@ const hmState = singleton("health-manager:state", () => ({
   healthCheckInterval: null as NodeJS.Timeout | null,
 }));
 
-// Thresholds for healing actions
-const DEGRADED_THRESHOLD = 3; // Failures before marking as degraded
-const UNHEALTHY_THRESHOLD = 5; // Failures before marking as unhealthy
-const FATAL_THRESHOLD = 10; // Failures before triggering process restart
+const DEGRADED_THRESHOLD = 3;
+const UNHEALTHY_THRESHOLD = 5;
+const FATAL_THRESHOLD = 10;
 
-const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+const HEALTH_CHECK_INTERVAL = 30000;
 
-// ============================================
-// Component Registration
-// ============================================
 
-/**
- * Register a health provider for a component
- */
 export function registerHealthProvider(
   componentId: string,
   provider: HealthProvider,
@@ -84,9 +53,6 @@ export function registerHealthProvider(
   hmState.componentFailures.set(componentId, 0);
 }
 
-/**
- * Register a healing action for a component
- */
 export function registerHealingAction(
   componentId: string,
   action: HealingAction,
@@ -94,20 +60,11 @@ export function registerHealingAction(
   hmState.healingActions.set(componentId, action);
 }
 
-/**
- * Set callback for fatal failures (process restart)
- */
 export function onFatalFailure(callback: () => void): void {
   hmState.onFatalCallback = callback;
 }
 
-// ============================================
-// Health Checks
-// ============================================
 
-/**
- * Get health status for a specific component
- */
 export function getComponentHealth(componentId: string): ComponentHealth {
   const provider = hmState.healthProviders.get(componentId);
   if (!provider) {
@@ -133,24 +90,11 @@ export function getComponentHealth(componentId: string): ComponentHealth {
   }
 }
 
-/**
- * Get full system health status
- *
- * Status logic:
- * - "healthy": All components working
- * - "degraded": Some components down, but app can still function
- * - "unhealthy": Critical components down, app cannot function
- *
- * Critical components: scheduler (must be running)
- * Data providers: betconstruct, pinnacle, ninewickets-* (need at least 1)
- */
 export function getSystemHealth(): SystemHealth {
   const components: Record<string, ComponentHealth> = {};
   let unhealthyCount = 0;
 
-  // Critical components that must be healthy
   const CRITICAL = ["scheduler"];
-  // Data providers - need at least one working for the app to be useful
   const dataProviders = getDataHealthProviderIds();
 
   for (const [id] of hmState.healthProviders) {
@@ -162,28 +106,25 @@ export function getSystemHealth(): SystemHealth {
     }
   }
 
-  // Check critical components
   const criticalHealthy = CRITICAL.every((id) => {
     const comp = components[id];
     return comp && comp.status !== "unhealthy";
   });
 
-  // Check if at least one data provider works
   const hasWorkingProvider = dataProviders.some((id) => {
     const comp = components[id];
     return comp && comp.status === "healthy";
   });
 
-  // Determine overall status
   let status: ComponentStatus;
   if (!criticalHealthy) {
-    status = "unhealthy"; // Critical components down
+    status = "unhealthy";
   } else if (!hasWorkingProvider) {
-    status = "degraded"; // No data providers, but app runs
+    status = "degraded";
   } else if (unhealthyCount > 0) {
-    status = "degraded"; // Some components down, but functional
+    status = "degraded";
   } else {
-    status = "healthy"; // All good
+    status = "healthy";
   }
 
   return {
@@ -195,15 +136,11 @@ export function getSystemHealth(): SystemHealth {
   };
 }
 
-/**
- * Record a failure for a component
- */
 export function recordFailure(componentId: string): number {
   const current = hmState.componentFailures.get(componentId) || 0;
   const newCount = current + 1;
   hmState.componentFailures.set(componentId, newCount);
 
-  // Check if we need to trigger healing
   if (newCount >= UNHEALTHY_THRESHOLD) {
     triggerHealing(componentId, newCount);
   }
@@ -211,27 +148,15 @@ export function recordFailure(componentId: string): number {
   return newCount;
 }
 
-/**
- * Record a success for a component (resets failure count)
- */
 export function recordSuccess(componentId: string): void {
   hmState.componentFailures.set(componentId, 0);
 }
 
-/**
- * Get failure count for a component
- */
 export function getFailureCount(componentId: string): number {
   return hmState.componentFailures.get(componentId) || 0;
 }
 
-// ============================================
-// Healing Actions
-// ============================================
 
-/**
- * Trigger healing for a component
- */
 async function triggerHealing(
   componentId: string,
   failureCount: number,
@@ -241,7 +166,6 @@ async function triggerHealing(
     `Component ${componentId} has ${failureCount} failures, attempting healing`,
   );
 
-  // Check for fatal threshold first
   if (failureCount >= FATAL_THRESHOLD) {
     logger.error(
       "HealthManager",
@@ -253,7 +177,6 @@ async function triggerHealing(
     return;
   }
 
-  // Try component-specific healing
   const healAction = hmState.healingActions.get(componentId);
   if (healAction) {
     try {
@@ -270,9 +193,6 @@ async function triggerHealing(
   }
 }
 
-/**
- * Manually trigger healing for a component
- */
 export async function healComponent(componentId: string): Promise<boolean> {
   const healAction = hmState.healingActions.get(componentId);
   if (!healAction) {
@@ -299,9 +219,6 @@ export async function healComponent(componentId: string): Promise<boolean> {
   }
 }
 
-/**
- * Heal all unhealthy components
- */
 export async function healAll(): Promise<Record<string, boolean>> {
   const results: Record<string, boolean> = {};
 
@@ -315,17 +232,10 @@ export async function healAll(): Promise<Record<string, boolean>> {
   return results;
 }
 
-// ============================================
-// Background Health Monitoring
-// ============================================
 
-/**
- * Start background health monitoring
- */
 export function startHealthMonitoring(): void {
   if (hmState.healthCheckInterval) return;
 
-  // Register memory health provider on first start
   if (!hmState.healthProviders.has("memory")) {
     registerMemoryHealthProvider();
   }
@@ -337,7 +247,6 @@ export function startHealthMonitoring(): void {
   hmState.healthCheckInterval = setInterval(() => {
     const health = getSystemHealth();
 
-    // Only log when status changes (avoid spam)
     if (health.status !== "healthy" && health.status !== lastLoggedStatus) {
       const unhealthyComponents = Object.entries(health.components)
         .filter(([, h]) => h.status !== "healthy")
@@ -347,7 +256,6 @@ export function startHealthMonitoring(): void {
         .filter(([, h]) => h.status === "healthy")
         .map(([id]) => id);
 
-      // More informative message
       if (healthyComponents.length > 0) {
         logger.info(
           "HealthManager",
@@ -365,7 +273,6 @@ export function startHealthMonitoring(): void {
       lastLoggedStatus = "healthy";
     }
 
-    // Check circuit breakers
     const openCircuits = Object.entries(health.circuitBreakers)
       .filter(([, stats]) => stats.state === "open")
       .map(([id]) => id);
@@ -379,9 +286,6 @@ export function startHealthMonitoring(): void {
   }, HEALTH_CHECK_INTERVAL);
 }
 
-/**
- * Stop background health monitoring
- */
 export function stopHealthMonitoring(): void {
   if (hmState.healthCheckInterval) {
     clearInterval(hmState.healthCheckInterval);
@@ -390,16 +294,10 @@ export function stopHealthMonitoring(): void {
   }
 }
 
-// ============================================
-// Memory Monitoring
-// ============================================
 
 const MEMORY_DEGRADED_MB = 500;
 const MEMORY_UNHEALTHY_MB = 750;
 
-/**
- * Get current memory stats with alert threshold
- */
 export function getMemoryStats(): {
   heapUsedMB: number;
   rssMB: number;
@@ -424,10 +322,6 @@ export function getMemoryStats(): {
   return { heapUsedMB, rssMB, heapPct, alert };
 }
 
-/**
- * Register the memory health provider.
- * Call this during app startup (e.g., from startHealthMonitoring).
- */
 function registerMemoryHealthProvider(): void {
   registerHealthProvider("memory", () => {
     const { rssMB, heapPct, alert } = getMemoryStats();
@@ -454,22 +348,13 @@ function registerMemoryHealthProvider(): void {
   });
 }
 
-// ============================================
-// Utility Functions
-// ============================================
 
-/**
- * Convert failure count to status
- */
 export function failureCountToStatus(count: number): ComponentStatus {
   if (count >= UNHEALTHY_THRESHOLD) return "unhealthy";
   if (count >= DEGRADED_THRESHOLD) return "degraded";
   return "healthy";
 }
 
-/**
- * Get uptime in human-readable format
- */
 export function getUptimeString(): string {
   const uptime = Date.now() - hmState.startTime;
   const hours = Math.floor(uptime / 3600000);

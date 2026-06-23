@@ -1,30 +1,5 @@
-/**
- * Standalone Engine Entry Point
- *
- * Runs all background subsystems (sync, detection, settlement, WebSockets,
- * Telegram) as a separate Node.js process, decoupled from the Next.js
- * web server.
- *
- * Usage:
- *   node --import tsx engine.ts          (dev)
- *   node --import tsx engine.ts          (production, via PM2)
- *
- * Why separate:
- *   Next.js Turbopack dev server has a ~350MB heap memory watchdog that
- *   force-restarts the process. With 13 background subsystems sharing
- *   the same process, heap climbs past the threshold within 2 minutes,
- *   creating an infinite restart loop. Separating the engine means
- *   Next.js only compiles UI code (stays under 200MB), and the engine
- *   runs as a plain Node.js process with no memory watchdog.
- *
- * The engine shares the same `lib/` code as `instrumentation.ts`.
- * No business logic is duplicated — only the lifecycle differs.
- */
-
 import "dotenv/config";
 
-// Signal to instrumentation.ts that the engine is running separately.
-// When Next.js sees this env var, it skips all background boot.
 process.env.NAHIDARBX_ENGINE = "1";
 
 async function main() {
@@ -57,12 +32,10 @@ async function main() {
   logger.info("Engine", `PID: ${process.pid} | Node: ${process.version}`);
   logger.info("Engine", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-  // ── Initialize database pool ────────────────────────────────────────
   const { ensureDbReady } = await import("./lib/db/client");
   await ensureDbReady();
   logger.info("Boot", "Database pool initialized");
 
-  // ── ML feature contract diagnostic ──────────────────────────────────
   const { FEATURE_VERSION, FEATURE_COUNT, FEATURE_NAMES_HASH } =
     await import("./lib/ml/feature-contract");
   logger.info(
@@ -70,7 +43,6 @@ async function main() {
     `ML feature contract: FEATURE_VERSION=${FEATURE_VERSION} FEATURE_COUNT=${FEATURE_COUNT} hash=${FEATURE_NAMES_HASH}`,
   );
 
-  // ── Import all subsystems (same as instrumentation.ts) ──────────────
   const [
     { startScheduler, stopScheduler, isSchedulerRunning },
     {
@@ -114,8 +86,6 @@ async function main() {
     import("./lib/log-retention"),
   ]);
 
-  // ── Startup diagnostics ─────────────────────────────────────────────
-
   const hasTelegramCreds =
     Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
     Boolean(process.env.TELEGRAM_CHAT_ID);
@@ -143,8 +113,6 @@ async function main() {
     }
   }
 
-  // ── Start schedulers ────────────────────────────────────────────────
-
   if (!isSchedulerRunning()) {
     startScheduler();
     logger.info("Boot", "Sync scheduler started");
@@ -166,13 +134,11 @@ async function main() {
   startLogRetentionScheduler();
   logger.info("Boot", "Log retention scheduler started");
 
-  // Entity-resolution cache listener
   if (!isResolverCacheListenerActive()) {
     await startResolverCacheListener();
     logger.info("Boot", "Entity-resolver cache listener started");
   }
 
-  // Real-time data sources
   pinnacleSyncService.start();
   logger.info("Boot", "Pinnacle WebSocket sync service started");
 
@@ -199,16 +165,12 @@ async function main() {
     );
   }
 
-  // Reactive detector MUST start after real-time sync services
   startReactiveDetector();
   logger.info(
     "Boot",
     "Reactive value detector started (event-driven, 500ms debounce)",
   );
 
-  // ML scorer warmup — check for deployed model metadata.
-  // Non-blocking: scorer returns null (fail-open) when the Vertex AI Prediction
-  // endpoint is unreachable or no model is deployed yet.
   import("./lib/ml/scorer")
     .then(({ ensureModel }) => ensureModel())
     .then(() => {
@@ -225,8 +187,6 @@ async function main() {
     });
   logger.info("Boot", "ML scorer warmup initiated (non-blocking)");
 
-  // Warm up competition enrichment cache (non-blocking). Detection never
-  // waits for AI; unknown competitions use tier 1 until the warmer catches up.
   import("./lib/ml/competition-enrichment")
     .then(({ startCompetitionEnrichmentWarmer }) =>
       startCompetitionEnrichmentWarmer(),
@@ -234,7 +194,6 @@ async function main() {
     .catch(() => {});
   logger.info("Boot", "Competition enrichment warmer started (non-blocking)");
 
-  // Telegram bot
   if (!isTelegramBotRunning()) {
     const started = startTelegramBot();
     logger.info(
@@ -245,14 +204,9 @@ async function main() {
     );
   }
 
-  // ── Engine HTTP API ──────────────────────────────────────────────────
-  // Exposes in-memory state to the Next.js web process. Start this before
-  // emitting boot payloads so frontend reachability checks observe readiness.
   const { startEngineHttp, stopEngineHttp, ENGINE_PORT } =
     await import("./lib/shared/engine-http");
   await startEngineHttp();
-
-  // ── Boot notification ───────────────────────────────────────────────
 
   if (hasTelegramCreds) {
     const settleStatus = getAutoSettleStatus();
@@ -300,8 +254,6 @@ async function main() {
   );
   logger.info("Engine", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-  // ── Graceful shutdown ───────────────────────────────────────────────
-
   let isShuttingDown = false;
 
   async function shutdown(signal: string) {
@@ -311,22 +263,20 @@ async function main() {
     logger.info("Shutdown", `Received ${signal} — stopping all services...`);
 
     try {
-      // Stop in reverse order of start
       await stopEngineHttp();
       stopReactiveDetector();
-      // Stop ML model watcher (clean up interval timer)
       try {
         const { stopModelWatcher } = await import("./lib/ml/scorer");
         stopModelWatcher();
       } catch {
-        /* scorer may not have been loaded */
+        void 0;
       }
       try {
         const { stopCompetitionEnrichmentWarmer } =
           await import("./lib/ml/competition-enrichment");
         stopCompetitionEnrichmentWarmer();
       } catch {
-        /* enrichment warmer may not have been loaded */
+        void 0;
       }
       pinnacleSyncService.stop();
       geniusSportsSyncService.stop();
@@ -339,13 +289,12 @@ async function main() {
       stopModelRetrainingScheduler();
       stopLogRetentionScheduler();
 
-      // Clean up SofaScore transport (no-op for curl_cffi, kept for API compat)
       try {
         const { closeSofaScoreSession } =
           await import("./lib/settle/sources/sofascore-browser");
         await closeSofaScoreSession();
       } catch {
-        /* sofascore-browser may not have been loaded */
+        void 0;
       }
 
       logger.info("Shutdown", "Engine stopped cleanly.");
@@ -356,15 +305,12 @@ async function main() {
       );
     }
 
-    // Give pending I/O 2 seconds to flush, then force exit
     setTimeout(() => process.exit(0), 2000);
   }
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
-  // Process stays alive via active timers, WebSocket connections,
-  // and polling loops — no keep-alive setInterval needed.
 }
 
 main().catch((err) => {

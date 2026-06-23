@@ -1,9 +1,3 @@
-/**
- * ML Feature Catalog — shared metadata for the 22-dimension feature vector.
- *
- * Used by the ML Optimizer dashboard and the feature inspection surfaces in
- * bets history. The order must match FEATURE_NAMES exactly.
- */
 
 import { FEATURE_NAMES } from "./feature-contract";
 

@@ -1,9 +1,3 @@
-/**
- * GET /api/auth/admin/users
- *
- * Returns list of all users (admin only).
- * Includes online status based on last activity.
- */
 
 import { cookies } from "next/headers";
 import { db, users, sessions } from "@/lib/auth/db";
@@ -15,14 +9,12 @@ import { initializeAuth } from "@/lib/auth/bootstrap";
 import { apiError, apiServerError } from "@/lib/shared/api-response";
 import { NextResponse } from "next/server";
 
-// Consider user "online" if active in last 5 minutes
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
 export async function GET() {
   try {
     await initializeAuth();
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -36,26 +28,20 @@ export async function GET() {
       return apiError("Admin access required", 403);
     }
 
-    // Get all users
     const allUsers = await db
       .select()
       .from(users)
       .orderBy(desc(users.createdAt));
 
-    // Get active sessions to determine online status
     const now = new Date();
     const _onlineThreshold = new Date(now.getTime() - ONLINE_THRESHOLD_MS);
 
-    // Build user list with additional data
     const userList = await Promise.all(
       allUsers.map(async (user) => {
-        // Get permissions
         const permissions = await getUserPermissions(user.id);
 
-        // Get activity summary
         const activitySummary = await getUserActivitySummary(user.id);
 
-        // Get active session info and determine online status
         let isOnline = false;
         let currentDevice = null;
         if (user.currentSessionId) {

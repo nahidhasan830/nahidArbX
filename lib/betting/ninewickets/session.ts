@@ -1,20 +1,3 @@
-/**
- * 9wkts (NineWickets) session manager.
- *
- * Uses the shared Cloudflare bridge pipeline:
- *   Step 0 – Navigate to 9wktsbest.com → CF solves automatically
- *   Step 1 – page.evaluate(fetch('/login'))       → accessToken
- *   Step 2 – page.evaluate(fetch('/getGameUrl'))  → queryPass (jsessionid)
- *
- * No form filling, no lobby navigation, no localStorage polling, no
- * network interception. ~5s total. The exchange hosts (gakvx/gakqv.seofmi.live)
- * are plain HTTP and take the captured queryPass directly.
- *
- * Lifecycle:
- *   getSession()        returns a valid cached session; refreshes when expired
- *   captureSession()    one-shot CF-solve + API login; persists to disk
- *   invalidateSession() wipes the cache — call on 401/403 from exchange
- */
 import * as fs from "fs";
 import * as path from "path";
 import type { NineWicketsSession } from "./types";
@@ -32,14 +15,11 @@ import {
   extractBetconstructAccessToken,
 } from "@/lib/betting/shared/betconstruct-login";
 
-// ── Constants ────────────────────────────────────────────────────────────
 
 const SESSION_FILE = path.join("sessions", "9wkts", "session.json");
 
-/** Refresh if access token is within this window of expiry. */
 const REFRESH_BUFFER_MS = 10 * 60 * 1000;
 
-// ── Bridge instance ──────────────────────────────────────────────────────
 
 const bridge = createCloudflareBridge({
   browserKey: "ninewickets.session",
@@ -78,8 +58,6 @@ const bridge = createCloudflareBridge({
     gameCode: "CRICKETV2",
   }),
 
-  // The CRICKETV2 vendor returns the jsessionid (queryPass) directly
-  // as the gameUrl value — no redirect following needed.
   processGameUrlResult: async (json) => {
     const data = (json as { data?: { gameUrl?: string } }).data;
     const queryPass = data?.gameUrl;
@@ -88,11 +66,9 @@ const bridge = createCloudflareBridge({
   },
 });
 
-// ── Concurrency guard ────────────────────────────────────────────────────
 
 let inflight: Promise<NineWicketsSession> | null = null;
 
-// ── Public API ───────────────────────────────────────────────────────────
 
 export async function getSession(
   forceRefresh = false,
@@ -101,12 +77,8 @@ export async function getSession(
     const cached = readStoredSession();
     if (cached && !isExpiring(cached)) return cached;
   }
-  // Auto-login kill switch — when the operator is using 9W manually,
-  // they flip this off so our Playwright login doesn't kick them off.
   const autoConfig = getAutoLoginConfig();
   if (!autoConfig.enabled) {
-    // If we have an expiring-but-usable cached session, hand it back
-    // rather than failing — the caller can decide how strict to be.
     const cached = readStoredSession();
     if (cached) return cached;
     throw new AutoLoginDisabledError(autoConfig.reason);
@@ -122,16 +94,13 @@ export function invalidateSession() {
   try {
     if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
   } catch {
-    // ignore
   }
 }
 
-/** Shut down any active capture browser if running. */
 export async function shutdownSessionBrowser(): Promise<void> {
   await bridge.shutdown();
 }
 
-// ── Capture flow ─────────────────────────────────────────────────────────
 
 export async function captureSession(): Promise<NineWicketsSession> {
   const username = process.env.NINEWICKETS_USERNAME;
@@ -142,7 +111,6 @@ export async function captureSession(): Promise<NineWicketsSession> {
   const result: CaptureResult = await bridge.capture();
   const { queryPass } = result.providerData as { queryPass: string };
 
-  // Decode JWT exp from accessToken
   const accessTokenExp = decodeJwtExp(result.accessToken);
 
   const session: NineWicketsSession = {
@@ -158,7 +126,6 @@ export async function captureSession(): Promise<NineWicketsSession> {
   return session;
 }
 
-// ── Storage ──────────────────────────────────────────────────────────────
 
 function readStoredSession(): NineWicketsSession | null {
   try {

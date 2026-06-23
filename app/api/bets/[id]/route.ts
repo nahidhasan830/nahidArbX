@@ -18,7 +18,6 @@ const BodySchema = z.object({
       "lost",
       "half_lost",
       "void",
-      // Legacy alias — collapsed to void below.
       "push",
     ])
     .transform((v) => (v === "push" ? ("void" as const) : v)),

@@ -67,12 +67,6 @@ import {
 } from "../event-matcher";
 import { notifyProviderHealthTransitions } from "../providers/health-telegram";
 
-/**
- * How often to poll the book's myBets feed for pending-bet
- * confirmations. 30s is tight enough that confirmations feel instant
- * to the operator without hammering the book; orphan-purge uses a
- * separate 5-minute TTL (see `lib/betting/ninewickets/reconciler.ts`).
- */
 const RECONCILE_INTERVAL_MS = 30_000;
 
 interface FixtureFetchResult {
@@ -107,11 +101,6 @@ function getStoredEventsForProvider(provider: Provider): NormalizedEvent[] {
   return events;
 }
 
-// Pinned to globalThis so route-handler inspectors (isSchedulerRunning,
-// isSchedulerPausedState) see the same flags as the scheduler loops
-// running from instrumentation.ts. Without this, every module-context
-// copy starts inactive/unpaused and POSTs from the route would start a
-// second scheduler while the first keeps running.
 const sch = singleton("fetcher:scheduler", () => ({
   active: false,
   fixtureTimer: null as ReturnType<typeof setTimeout> | null,
@@ -123,11 +112,6 @@ const sch = singleton("fetcher:scheduler", () => ({
   paused: false,
 }));
 
-/**
- * Pause the Tier 1 scheduler.
- * Current in-flight sync finishes, then syncs are skipped until resumed.
- * The scheduler timers keep ticking so resume is instant.
- */
 export function pauseScheduler(): void {
   if (sch.active && !sch.paused) {
     sch.paused = true;
@@ -138,9 +122,6 @@ export function pauseScheduler(): void {
   }
 }
 
-/**
- * Resume a paused Tier 1 scheduler.
- */
 export function resumeScheduler(): void {
   if (sch.paused) {
     sch.paused = false;
@@ -152,10 +133,6 @@ export function isSchedulerPausedState(): boolean {
   return sch.paused;
 }
 
-/**
- * Phase 1-2: Fetch fixtures from all providers and match them
- * Runs every 2 minutes (events don't change often)
- */
 export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
   if (sch.fixturesSyncing) {
     logger.debug("Sync", "Fixtures sync already in progress, skipping");
@@ -166,7 +143,6 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
   const startTime = Date.now();
 
   try {
-    // Proactive token refresh - refresh Pinnacle token if expiring within 20 mins
     const ttl = getTokenTTL();
     if (ttl !== null && ttl > 0) {
       const mins = Math.round(ttl / 60000);
@@ -179,7 +155,6 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
       }
     }
 
-    // Phase 1: Fixtures
     setSyncStatus({
       isSyncing: true,
       lastSyncStart: new Date(),
@@ -201,7 +176,6 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
 
     const allEvents: NormalizedEvent[] = [];
 
-    // Pull events from all providers in parallel
     const results = await Promise.allSettled<FixtureFetchResult>(
       adapters.map(async (adapter) => {
         const policy = getProviderPolicy(adapter.name);
@@ -238,7 +212,6 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
       }),
     );
 
-    // Collect all events
     const fetchBatchId = `fixtures-${Date.now()}`;
     const snapshotInputs: Parameters<typeof captureProviderSnapshots>[0] = [];
     for (const result of results) {
@@ -273,10 +246,6 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
       );
     });
 
-    // Guard: if ALL adapters returned 0 events but we previously had data,
-    // this is almost certainly a transient failure (timeouts, circuit breakers,
-    // network issues). Preserve the existing events store to avoid wiping the
-    // table while the badge still shows stale value bet counts.
     const existingEventCount = getMatchedEvents().length;
     if (allEvents.length === 0 && existingEventCount > 0) {
       logger.warn(
@@ -303,13 +272,10 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
       return getMatchedEvents();
     }
 
-    // Phase 2: Matching
     setSyncStatus({ currentPhase: "matching", phaseProgress: null });
 
-    // Match events across providers
     const matchedEvents = await matchEvents(allEvents);
 
-    // Count events with multiple providers
     const multiProviderCount = matchedEvents.filter(
       (e) => Object.keys(e.providers).length > 1,
     ).length;
@@ -319,61 +285,29 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
       `Matched: ${multiProviderCount} events across providers`,
     );
 
-    // Register event ID mappings for multi-source score tracking
     registerScoreEventMappings(matchedEvents);
 
-    // Start BC score polling for events currently playing or about to kick off.
-    //
-    // This is SETTLEMENT support — we placed these bets pre-match and need
-    // live scores to resolve outcomes, NOT in-play value detection. The value
-    // detector / odds fetcher are gated to pre-match only (see filter below
-    // and in the odds-fetch return path). See `in-play.md`.
     startBCScorePollingForLiveEvents(matchedEvents);
 
-    // Store matched events with raw count for stats
     setEvents(matchedEvents, allEvents.length);
 
-    // If the events store is now legitimately empty (all events expired or
-    // genuinely removed), clear stale value bets to prevent the badge from
-    // showing a count while the table is empty.
     if (matchedEvents.length === 0) {
       setValueBets([]);
     }
 
-    // NOTE: we intentionally do NOT call resetValueCache() here.
-    // The incremental detector already prunes events that leave the
-    // active set (value-detector.ts L104-111). Resetting after
-    // fixtures caused value bets to be lost: the matching phase can
-    // hang for several minutes, so by the time
-    // the post-fixture odds sync runs, sharp odds are stale (>90s
-    // staleness gate) and the full recompute returns zero bets.
-    // Removing this reset lets valid cached value bets survive across
-    // fixture boundaries.
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     logger.info("Sync", `Fixtures complete in ${duration}s`);
 
-    // Notify SSE clients
     syncBus.emitBus({
       type: "fixtures:complete",
       matchedEvents: multiProviderCount,
       rawEvents: allEvents.length,
     });
 
-    // Fixtures changed — signal full refresh for delta tracking
     const fixturesDelta = signalFixturesChanged(syncBus.version);
     syncBus.emitBus({ type: "data:delta", delta: fixturesDelta });
 
-    // Return matched events for odds fetching. Strategy & limits controls
-    // whether value-detection odds are kept for pre-match, in-play, or both.
-    // The default remains pre-match only. A small +5 min pre-match grace is
-    // retained so closing-line capture succeeds for events that kick off
-    // between sync cycles.
-    //
-    // Note: score polling and score-event-mapping registration happen
-    // ABOVE this filter — they intentionally see the full matched set so
-    // settlement can track scores for pre-match bets whose matches are now
-    // live or finished.
     const nowMs = Date.now();
     const closingCaptureGraceMs = 5 * 60 * 1000;
     const inPlayOddsWindowMs = 3 * 60 * 60 * 1000;
@@ -418,36 +352,23 @@ export async function syncFixturesOnly(): Promise<NormalizedEvent[]> {
   } finally {
     sch.fixturesSyncing = false;
 
-    // Notify queue scheduler that fixtures are done
     if (sch.onFixDone) {
       sch.onFixDone();
     }
   }
 }
 
-/**
- * Full sync: fixtures + matching, then trigger reactive detection.
- * Used for initial sync and manual "Sync Now".
- */
 export async function syncAll(): Promise<void> {
   const startTime = Date.now();
 
-  // Phase 1-2: Fixtures + Matching
   await syncFixturesOnly();
 
-  // Trigger reactive detection immediately (consumes any dirty families
-  // that accumulated during fixture sync)
   triggerDetection();
 
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
   logger.info("Sync", `Full sync complete in ${duration}s`);
 }
 
-/**
- * Start scheduler:
- * - Fixtures every 2 minutes (events don't change often)
- * - Value detection is event-driven via reactive-detector.ts
- */
 export function startScheduler(): void {
   if (sch.active) {
     logger.debug("Sync", "Scheduler already active");
@@ -465,11 +386,7 @@ export function startScheduler(): void {
     `Scheduler started (fixtures: ${sch.fixtureInterval / 1000}s, detection: event-driven)`,
   );
 
-  // ==========================================
-  // Register Health Providers
-  // ==========================================
 
-  // BetConstruct WebSocket health — only register when BC is enabled
   if (isProviderRuntimeEnabled("betconstruct")) {
     registerHealthProvider("betconstruct", () => {
       const health = getBCConnectionHealth();
@@ -491,7 +408,6 @@ export function startScheduler(): void {
     });
   }
 
-  // Scores WebSocket health
   registerHealthProvider("scores", () => {
     const health = getScoresConnectionHealth();
     return {
@@ -507,20 +423,13 @@ export function startScheduler(): void {
     };
   });
 
-  // Pinnacle health: token validity + WebSocket liveness.
-  // A valid token with a dead or silent STOMP socket is the one failure
-  // mode that silently zeroes sharp odds (and with them all detection),
-  // so the WS state must be part of this check — token-only health
-  // reported "healthy" through exactly that failure.
   registerHealthProvider("pinnacle", () => {
     const ttl = getTokenTTL();
     const hasValidToken = ttl !== null && ttl > 0;
-    const isExpiringSoon = ttl !== null && ttl < 300000; // < 5 minutes
+    const isExpiringSoon = ttl !== null && ttl < 300000;
 
     const ws = pinnacleWsClient.getConnectionStatus();
     const wsDisconnected = ws.subscribedEvents > 0 && !ws.connected;
-    // Connected but no STOMP message for >5 min while subscribed —
-    // likely a zombie socket that closed without firing close events.
     const wsSilent =
       ws.subscribedEvents > 0 &&
       ws.connected &&
@@ -547,7 +456,6 @@ export function startScheduler(): void {
     };
   });
 
-  // NineWickets Exchange health (HTTP-based)
   registerHealthProvider("ninewickets-exchange", () => {
     const providerStatus = getAllProviderStatus();
     const nwExchange = providerStatus["ninewickets-exchange"];
@@ -555,7 +463,7 @@ export function startScheduler(): void {
     const lastFetch = nwExchange?.lastFetch;
     const isStale = lastFetch
       ? Date.now() - new Date(lastFetch).getTime() > 300000
-      : true; // > 5 min
+      : true;
 
     return {
       status: isOk && !isStale ? "healthy" : isOk ? "degraded" : "unhealthy",
@@ -569,7 +477,6 @@ export function startScheduler(): void {
     };
   });
 
-  // NineWickets Sportsbook health (HTTP-based)
   registerHealthProvider("ninewickets-sportsbook", () => {
     const providerStatus = getAllProviderStatus();
     const nwSportsbook = providerStatus["ninewickets-sportsbook"];
@@ -577,7 +484,7 @@ export function startScheduler(): void {
     const lastFetch = nwSportsbook?.lastFetch;
     const isStale = lastFetch
       ? Date.now() - new Date(lastFetch).getTime() > 300000
-      : true; // > 5 min
+      : true;
 
     return {
       status: isOk && !isStale ? "healthy" : isOk ? "degraded" : "unhealthy",
@@ -591,7 +498,6 @@ export function startScheduler(): void {
     };
   });
 
-  // Scheduler health (self-check)
   registerHealthProvider("scheduler", () => {
     return {
       status: sch.active ? "healthy" : "unhealthy",
@@ -603,11 +509,7 @@ export function startScheduler(): void {
     };
   });
 
-  // ==========================================
-  // Register Healing Actions
-  // ==========================================
 
-  // BetConstruct reconnect
   registerHealingAction("betconstruct", async () => {
     logger.info("Sync", "Healing BetConstruct connection...");
     try {
@@ -619,7 +521,6 @@ export function startScheduler(): void {
     }
   });
 
-  // Scores WebSocket reconnect
   registerHealingAction("scores", async () => {
     logger.info("Sync", "Healing Scores WebSocket connection...");
     try {
@@ -631,7 +532,6 @@ export function startScheduler(): void {
     }
   });
 
-  // Pinnacle token refresh + WS reconnect
   registerHealingAction("pinnacle", async () => {
     logger.info("Sync", "Healing Pinnacle (token + WebSocket)...");
     try {
@@ -640,8 +540,6 @@ export function startScheduler(): void {
       const tokenOk = ttl !== null && ttl > 0;
       if (!tokenOk) return false;
 
-      // If the STOMP socket is dead or silent while subscribed, force a
-      // reconnect (resubscribe happens via onConnect).
       const ws = pinnacleWsClient.getConnectionStatus();
       const wsSilent =
         ws.connected &&
@@ -657,9 +555,6 @@ export function startScheduler(): void {
     }
   });
 
-  // ==========================================
-  // Fatal Failure Handler (Health Manager)
-  // ==========================================
   onHealthFatalFailure(() => {
     logger.error(
       "Sync",
@@ -668,17 +563,9 @@ export function startScheduler(): void {
     process.exit(1);
   });
 
-  // ==========================================
-  // Start Health Monitoring
-  // ==========================================
   startHealthMonitoring();
 
-  // ==========================================
-  // Provider Auto-Heal Callbacks
-  // ==========================================
 
-  // When BetConstruct reconnects after failure, re-subscribe all events
-  // (Swarm subscriptions are lost when the session reconnects) and trigger detection
   if (isProviderRuntimeEnabled("betconstruct")) {
     onBCReconnect(() => {
       logger.info(
@@ -686,7 +573,6 @@ export function startScheduler(): void {
         "BetConstruct reconnected - re-subscribing all events",
       );
       invalidateResponseCache();
-      // Lazy import to avoid circular dependency
       import("../services/betconstruct-sync-service").then(
         ({ betconstructSyncService }) => {
           betconstructSyncService.resubscribeAll();
@@ -695,19 +581,15 @@ export function startScheduler(): void {
       triggerDetection();
     });
 
-    // When BetConstruct fails catastrophically (5+ consecutive reconnect failures),
-    // restart the entire server process
     onBCFatalFailure(() => {
       logger.error(
         "Sync",
         "FATAL: BetConstruct connection unrecoverable after 5 attempts - restarting server",
       );
-      // Exit with code 1 - process manager (pm2, docker, systemd) will restart us
       process.exit(1);
     });
   }
 
-  // When Scores WebSocket reconnects, log it (subscriptions auto-restore)
   onScoresReconnect(() => {
     logger.info(
       "Sync",
@@ -715,12 +597,7 @@ export function startScheduler(): void {
     );
   });
 
-  // Event matcher runs in-process against provider snapshots captured during
-  // fixture sync. The lab can run the same path manually.
 
-  // Initial fixture sync (reactive detector handles value detection).
-  // Must not float: a first-boot failure (e.g. matchEvents throwing) would
-  // otherwise become an unhandled rejection and kill the process.
   syncAll().catch((err) => {
     logger.error(
       "Sync",
@@ -728,25 +605,13 @@ export function startScheduler(): void {
     );
   });
 
-  // ==========================================
-  // Queue-Based Scheduler (setTimeout chains)
-  // No cycles are ever skipped. After each task
-  // completes, the next run is scheduled with
-  // the remaining interval time.
-  // ==========================================
 
-  // Each schedule* loop arms exactly ONE timer per cycle and passes the
-  // next delay through recursion. The previous shape armed a full-interval
-  // timer, ran the task, then armed an inner "remaining time" timer whose
-  // callback re-entered the outer function — which armed ANOTHER full
-  // interval. Effective period was ~2× the configured interval.
   function scheduleNextFixtures(delayMs: number = sch.fixtureInterval): void {
     if (!sch.active) return;
 
     sch.fixtureTimer = setTimeout(async () => {
       if (!sch.active) return;
       if (sch.paused) {
-        // Skip this cycle but keep scheduling
         scheduleNextFixtures();
         return;
       }
@@ -754,14 +619,10 @@ export function startScheduler(): void {
       const syncStart = Date.now();
       await syncFixturesOnly();
 
-      // After fixtures complete, trigger reactive detection
-      // (new events may have new dirty families)
       if (sch.active) {
         triggerDetection();
       }
 
-      // Schedule next fixture run after the remaining interval time
-      // (accounts for how long this cycle took)
       if (sch.active) {
         const elapsed = Date.now() - syncStart;
         scheduleNextFixtures(Math.max(0, sch.fixtureInterval - elapsed));
@@ -769,11 +630,6 @@ export function startScheduler(): void {
     }, delayMs);
   }
 
-  // Pending-bet reconciliation loop. Independent of the fixtures/odds
-  // cadence — bets placed with async confirmation need their own faster
-  // tick so we surface ticket ids (and fire Telegram) within ~30s of the
-  // book confirming them. Orphaned pendings older than the TTL are
-  // deleted in the same pass.
   function scheduleNextReconcile(
     delayMs: number = RECONCILE_INTERVAL_MS,
   ): void {
@@ -869,7 +725,6 @@ export function startScheduler(): void {
           });
         }
       } catch (_err) {
-        // Silent catch for matcher errors
       } finally {
         if (sch.active) {
           scheduleNextMl(Math.max(0, intervalMs - (Date.now() - start)));
@@ -888,15 +743,12 @@ export function restartScheduler(fixtureIntervalMs?: number): void {
     sch.fixtureInterval = fixtureIntervalMs;
   }
 
-  // Stop existing scheduler
   stopScheduler();
 
-  // Restart with new intervals
   startScheduler();
 }
 
 export function stopScheduler(): void {
-  // Stop health monitoring
   stopHealthMonitoring();
 
   sch.active = false;
@@ -914,7 +766,6 @@ export function stopScheduler(): void {
     sch.mlTimer = null;
   }
 
-  // Release any state
   sch.onFixDone = null;
 
   setSyncStatus({ isSchedulerActive: false });
@@ -925,19 +776,11 @@ export function isSchedulerRunning(): boolean {
   return sch.active;
 }
 
-// ============================================
-// Multi-Source Score Integration
-// ============================================
 
-/**
- * Register provider event ID mappings for all matched events
- * This allows the multi-source score store to correlate scores across providers
- */
 function registerScoreEventMappings(events: NormalizedEvent[]): void {
   let registered = 0;
 
   for (const event of events) {
-    // Only register events with multiple providers
     if (Object.keys(event.providers).length < 2) continue;
 
     const mappings: Partial<Record<ScoreSource, string>> = {};
@@ -963,22 +806,16 @@ function registerScoreEventMappings(events: NormalizedEvent[]): void {
   }
 }
 
-/**
- * Start BC score polling for live events with both Pinnacle and BC
- */
 function startBCScorePollingForLiveEvents(events: NormalizedEvent[]): void {
   const now = Date.now();
   const THREE_HOURS = 3 * 60 * 60 * 1000;
 
-  // Find live events with BC provider
   const bcEventIds: string[] = [];
 
   for (const event of events) {
-    // Must have BC provider
     const bcId = event.providers.betconstruct?.eventId;
     if (!bcId) continue;
 
-    // Check if event is live or about to start (within 3 hours)
     const startTime = new Date(event.startTime).getTime();
     const isLiveOrNear =
       startTime < now + THREE_HOURS && startTime > now - THREE_HOURS;

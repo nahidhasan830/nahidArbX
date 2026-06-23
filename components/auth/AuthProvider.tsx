@@ -10,9 +10,6 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 
-// ============================================
-// Types
-// ============================================
 
 export interface User {
   id: string;
@@ -39,15 +36,9 @@ interface AuthContextValue {
   refreshUser: () => Promise<void>;
 }
 
-// ============================================
-// Context
-// ============================================
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// ============================================
-// Provider
-// ============================================
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -58,7 +49,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch current user
   const fetchUser = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/me");
@@ -75,7 +65,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
@@ -88,7 +77,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, [fetchUser]);
 
-  // Heartbeat to update last activity and detect session revocation (every 30 seconds)
   useEffect(() => {
     if (!user) return;
 
@@ -96,27 +84,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         const res = await fetch("/api/auth/heartbeat", { method: "POST" });
 
-        // Session was revoked (logged in from another device)
         if (res.status === 401) {
           setUser(null);
           router.push("/login?reason=session_revoked");
           router.refresh();
         }
       } catch {
-        // Network error - ignore
       }
     };
 
-    // Check every 30 seconds for faster session revocation detection
     const interval = setInterval(checkSession, 30 * 1000);
 
-    // Initial heartbeat
     checkSession();
 
     return () => clearInterval(interval);
   }, [user, router]);
 
-  // Login
   const login = async (email: string, password: string) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
@@ -135,7 +118,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     router.refresh();
   };
 
-  // Logout
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     setUser(null);
@@ -143,13 +125,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     router.refresh();
   };
 
-  // Permission gate removed — all authenticated users have full access.
-  // Re-enable per-feature gating here if needed in the future.
   const hasPermission = (_featureId: string): boolean => {
     return !!user;
   };
 
-  // Refresh user data
   const refreshUser = async () => {
     await fetchUser();
   };
@@ -169,11 +148,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// ============================================
-// Hook
-// ============================================
 
-// Default value for when context is not available (e.g., during SSG)
 const defaultAuthValue: AuthContextValue = {
   user: null,
   isLoading: true,
@@ -193,8 +168,6 @@ const defaultAuthValue: AuthContextValue = {
 export function useAuth() {
   const context = useContext(AuthContext);
 
-  // Return default value if context is not available
-  // This can happen during SSG or when used outside provider
   if (!context) {
     return defaultAuthValue;
   }
@@ -202,41 +175,15 @@ export function useAuth() {
   return context;
 }
 
-// ============================================
-// Permission-based rendering components
-// ============================================
-
-// ============================================
-// useFeature Hook - Easy permission checking
-// ============================================
 
 import type { FeatureId } from "@/lib/auth/features/registry";
 
 interface UseFeatureResult {
-  /** Whether the user has permission for this feature */
   enabled: boolean;
-  /** Whether auth is still loading */
   loading: boolean;
-  /** Whether the user is authenticated */
   authenticated: boolean;
 }
 
-/**
- * Hook to check if a feature is enabled for the current user.
- *
- * Usage:
- * ```tsx
- * const { enabled } = useFeature("sync-all");
- * if (!enabled) return null;
- * ```
- *
- * Or with loading state:
- * ```tsx
- * const { enabled, loading } = useFeature("export-data");
- * if (loading) return <Skeleton />;
- * if (!enabled) return <UpgradePrompt />;
- * ```
- */
 export function useFeature(featureId: FeatureId | string): UseFeatureResult {
   const { hasPermission, isLoading, isAuthenticated } = useAuth();
 
@@ -247,15 +194,6 @@ export function useFeature(featureId: FeatureId | string): UseFeatureResult {
   };
 }
 
-/**
- * Hook to check multiple features at once.
- *
- * Usage:
- * ```tsx
- * const features = useFeatures(["sync-all", "export-data", "copy-odds"]);
- * if (features["sync-all"]) { ... }
- * ```
- */
 export function useFeatures(
   featureIds: (FeatureId | string)[],
 ): Record<string, boolean> {
@@ -268,36 +206,14 @@ export function useFeatures(
   return result;
 }
 
-// ============================================
-// Feature Component - Declarative permission rendering
-// ============================================
 
 interface FeatureProps {
-  /** Feature ID to check permission for */
   id: FeatureId | string;
-  /** Content to render if feature is enabled */
   children: ReactNode;
-  /** Optional fallback if feature is disabled */
   fallback?: ReactNode;
-  /** Optional loading state while auth loads */
   loading?: ReactNode;
 }
 
-/**
- * Declarative component to conditionally render based on feature permission.
- *
- * Usage:
- * ```tsx
- * <Feature id="sync-all">
- *   <SyncButton />
- * </Feature>
- *
- * // With fallback
- * <Feature id="export-data" fallback={<UpgradeButton />}>
- *   <ExportButton />
- * </Feature>
- * ```
- */
 export function Feature({
   id,
   children,
@@ -312,9 +228,6 @@ export function Feature({
   return <>{children}</>;
 }
 
-// ============================================
-// Legacy Components (kept for compatibility)
-// ============================================
 
 interface RequirePermissionProps {
   permission: string;
@@ -322,7 +235,6 @@ interface RequirePermissionProps {
   fallback?: ReactNode;
 }
 
-/** @deprecated Use `<Feature id="..." />` instead */
 export function RequirePermission({
   permission,
   children,

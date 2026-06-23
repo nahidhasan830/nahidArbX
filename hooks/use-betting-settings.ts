@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * Client hook that fetches the singleton /api/betting-settings once per
- * mount and returns the row. The hook is intentionally thin — no SWR, no
- * global cache — because the backend read path is already memoized in-process
- * and the settings change at most a few times a day.
- */
 import { useCallback, useEffect, useState } from "react";
 
 export interface BettingSettingsClient {

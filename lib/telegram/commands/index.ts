@@ -1,7 +1,3 @@
-/**
- * Side-effect: importing this file registers every command in the bot's
- * registry. Order doesn't matter — the registry is keyed by command name.
- */
 
 import "./help";
 import "./system";

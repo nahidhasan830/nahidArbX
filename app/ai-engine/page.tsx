@@ -15,11 +15,9 @@ import { AppShell } from "@/components/nav/AppShell";
 import { OverviewTab, type StatsData, type HealthData } from "./OverviewTab";
 import { useAiProviders } from "./useAiProviders";
 
-// ── Constants ────────────────────────────────────────────────────────────
 
 const POLL_MS = 3_000;
 
-// ── Page ────────────────────────────────────────────────────────
 
 export default function AiSearchDashboard() {
   const [health, setHealth] = useState<HealthData | null>(null);
@@ -27,7 +25,6 @@ export default function AiSearchDashboard() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [initialLoad, setInitialLoad] = useState(true);
 
-  // Use unified provider hook
   const {
     providers,
     searchProviders,
@@ -39,7 +36,6 @@ export default function AiSearchDashboard() {
     error: providerError,
   } = useAiProviders({ pollMs: POLL_MS });
 
-  // Health check (separate since different endpoint)
   const loadHealth = useCallback(async () => {
     try {
       const res = await fetch("/api/ai-engine/healthz", { cache: "no-store" });
@@ -61,7 +57,6 @@ export default function AiSearchDashboard() {
     }
   }, [refresh, loadHealth]);
 
-  // Initial load — fire once after mount, then let polling via useAiProviders handle refreshes
   const didInitRef = useRef(false);
   useEffect(() => {
     if (didInitRef.current) return;
@@ -69,7 +64,6 @@ export default function AiSearchDashboard() {
     void load();
   }, [load]);
 
-  // Combined toggle handler - just call the hook, it handles everything including refresh
   const handleToggleProvider = useCallback(
     async (providerName: string, enabled: boolean) => {
       await toggleProvider(providerName, enabled);
@@ -84,12 +78,10 @@ export default function AiSearchDashboard() {
     [toggleProvider],
   );
 
-  // Derive toggle busy sets from the hook's internal state
   const [toggleBusySet, llmToggleBusySet] = (() => {
     const search = new Set<string>();
     const llm = new Set<string>();
     for (const p of providers) {
-      // toggleBusy stores UI names ("deepseek"/"gemini"), not DB names ("deepseek-flash")
       const uiName = p.name.startsWith("deepseek")
         ? "deepseek"
         : p.name.startsWith("gemini")
@@ -103,7 +95,6 @@ export default function AiSearchDashboard() {
     return [search, llm];
   })();
 
-  // Convert hook data to StatsData format for OverviewTab
   const hasLoadedProviderState = !isLoading || searchProviders.length > 0;
   const statsData: StatsData | null = hasLoadedProviderState
     ? {
@@ -142,7 +133,6 @@ export default function AiSearchDashboard() {
                     ? p.name.startsWith("deepseek")
                     : p.name.startsWith("gemini"),
                 );
-                // Use the -lite variant as the representative (matches toggle mapping in useAiProviders)
                 const representative =
                   familyProviders.find((p) => p.name === `${family}-lite`) ??
                   familyProviders[0];

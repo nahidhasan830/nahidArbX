@@ -232,9 +232,6 @@ describe("buildDecisionReason", () => {
 
   describe("multiplier chain", () => {
     it("shows full chain for boosted decisions", () => {
-      // A genuine boost now requires the sharp to agree — the model edge is
-      // capped at the sharp's vig-removed probability. Set a high sharp prob so
-      // the edge-scaling factor reaches its 1.5× ceiling.
       const features = makeFeatures({
         [FEATURE_INDEX.sharp_true_prob]: 0.95,
         [IDX_TICK_COUNT]: 20,

@@ -1,17 +1,8 @@
-/**
- * Email Module
- *
- * Using Resend for transactional emails (invites, password resets).
- */
 
 import { Resend } from "resend";
 import { BRAND } from "@/lib/branding";
 
-// ============================================
-// Configuration
-// ============================================
 
-// Lazy initialization to avoid build-time errors
 let _resend: Resend | null = null;
 
 function getResend(): Resend {
@@ -25,13 +16,7 @@ const FROM_EMAIL = process.env.EMAIL_FROM || BRAND.email.from;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const APP_NAME = BRAND.email.name;
 
-// ============================================
-// Email Templates
-// ============================================
 
-/**
- * Send invite email to new user
- */
 export async function sendInviteEmail(
   email: string,
   token: string,
@@ -45,7 +30,6 @@ export async function sendInviteEmail(
   const setupUrl = `${APP_URL}/setup-password?token=${token}`;
 
   try {
-    // Check if API key is set
     if (!process.env.RESEND_API_KEY) {
       console.log("[Email] RESEND_API_KEY not set - email not sent");
       console.log(`[Email] Manual invite URL for ${email}: ${setupUrl}`);
@@ -112,9 +96,6 @@ export async function sendInviteEmail(
   }
 }
 
-/**
- * Send password reset email
- */
 export async function sendPasswordResetEmail(
   email: string,
   token: string,
@@ -127,7 +108,6 @@ export async function sendPasswordResetEmail(
   const resetUrl = `${APP_URL}/reset-password?token=${token}`;
 
   try {
-    // Check if API key is set
     if (!process.env.RESEND_API_KEY) {
       console.log("[Email] RESEND_API_KEY not set - email not sent");
       console.log(`[Email] Manual reset URL for ${email}: ${resetUrl}`);

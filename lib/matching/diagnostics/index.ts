@@ -1,10 +1,4 @@
-/**
- * Match Diagnostics Module
- *
- * Exports all diagnostic functionality.
- */
 
-// Types
 export type {
   MatchScoreBreakdown,
   NearMatch,
@@ -22,7 +16,6 @@ export {
   NEAR_MATCH_MAX_AGE_MS,
 } from "./types";
 
-// Store
 export {
   addNearMatch,
   getNearMatches,
@@ -37,7 +30,6 @@ export {
   forceReloadStore,
 } from "./store";
 
-// Analyzer
 export {
   computeDetailedScore,
   analyzeFailureReasons,
@@ -46,7 +38,6 @@ export {
   isFullMatch,
 } from "./analyzer";
 
-// Reports
 export {
   generateDiagnosticReport,
   getNearMatchSummary,

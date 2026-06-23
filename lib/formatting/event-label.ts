@@ -1,8 +1,3 @@
-/**
- * Shared string helpers for rendering an event (or a pair) as human-readable
- * text. Centralizes the "A vs B" / "A vs B ↔ C vs D" format used across the
- * UI, toasts, logs, and the Gemini prompt so they stay consistent.
- */
 
 import { format, isValid, parseISO } from "date-fns";
 
@@ -11,16 +6,10 @@ export interface EventLabelSide {
   awayTeam: string;
 }
 
-/** "Home vs Away" — one side of a pair. */
 export function eventLabel(e: EventLabelSide): string {
   return `${e.homeTeam} vs ${e.awayTeam}`;
 }
 
-/**
- * Two sides of a pair, collapsed to one label when the teams are textually
- * identical. Returned object splits sideA / sideB so callers can render them
- * as separate truncatable lines OR join them with " ↔ " as a single string.
- */
 export function pairLabelSides(
   a: EventLabelSide,
   b: EventLabelSide,
@@ -33,19 +22,11 @@ export function pairLabelSides(
   };
 }
 
-/**
- * Single-line representation of a pair. Returns "A vs B" when both sides are
- * textually identical, otherwise "A vs B ↔ C vs D".
- */
 export function pairLabel(a: EventLabelSide, b: EventLabelSide): string {
   const { sideA, sideB } = pairLabelSides(a, b);
   return sideB ? `${sideA} ↔ ${sideB}` : sideA;
 }
 
-/**
- * "Home vs Away | Competition | YYYY-MM-DD HH:mm" — the dense one-line format
- * used inside the Gemini prompt so the model sees all disambiguating fields.
- */
 export function eventPromptLine(e: {
   homeTeam: string;
   awayTeam: string;

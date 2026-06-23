@@ -1,12 +1,3 @@
-/**
- * Repository for the auto_placer_log table.
- *
- * Write side: `recordDecision` — called from auto-placer.ts and placer.ts
- * to capture every decision point (skip, reject, error, placed, pending).
- *
- * Read side: `listAutoPlacerLog` — paginated query for the UI with
- * filtering by status, provider, date range, and search.
- */
 import { and, desc, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
 import {
@@ -16,14 +7,9 @@ import {
 } from "../schema";
 import { logger } from "@/lib/shared/logger";
 
-// ─── Write ────────────────────────────────────────────────────────────────────
 
 export type LogDecisionInput = Omit<NewAutoPlacerLogRow, "id" | "createdAt">;
 
-/**
- * Fire-and-forget — never blocks the auto-placer pipeline. Failures
- * are logged but never propagated.
- */
 export async function recordDecision(input: LogDecisionInput): Promise<void> {
   try {
     await db.insert(autoPlacerLog).values(input);
@@ -35,20 +21,13 @@ export async function recordDecision(input: LogDecisionInput): Promise<void> {
   }
 }
 
-// ─── Read ─────────────────────────────────────────────────────────────────────
 
 export type AutoPlacerLogFilters = {
-  /** ISO date lower bound (createdAt). */
   from?: string;
-  /** ISO date upper bound (createdAt). */
   to?: string;
-  /** Filter by status(es). */
   statuses?: string[];
-  /** Filter by gate(s). */
   gates?: string[];
-  /** Filter by soft provider(s). */
   softProviders?: string[];
-  /** Text search across teams/competition. */
   search?: string;
   limit?: number;
   offset?: number;

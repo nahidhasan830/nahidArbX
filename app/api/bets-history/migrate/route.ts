@@ -1,12 +1,3 @@
-/**
- * One-off migration runner — executes pending .sql files under
- * lib/db/migrations. Dev-only. Idempotent (uses CREATE IF NOT EXISTS).
- *
- * POST /api/bets-history/migrate
- *
- * Delete this file once Drizzle-kit proper is wired up for the Cloud SQL
- * connector.
- */
 
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -26,8 +17,6 @@ export async function POST() {
   try {
     const dir = path.join(process.cwd(), "lib/db/migrations");
     const entries = await readdir(dir);
-    // Skip auto-generated drizzle migrations (0000, 0001) — those are already
-    // applied. Run only the hand-written ones we name with a suffix tag.
     const sqlFiles = entries
       .filter((f) => f.endsWith(".sql") && /^\d{4}_[a-z_]+\.sql$/.test(f))
       .filter(

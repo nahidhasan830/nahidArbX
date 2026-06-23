@@ -1,24 +1,3 @@
-/**
- * Settlement-specific alias helpers.
- *
- * Two concerns on top of the entity-resolution store:
- *
- *   1. A thin wrapper that consults the entity-resolver to canonicalize
- *      a team name before settlement runs fuzzy matching against score
- *      sources. Replaces the old in-memory `getTeamAliases()` lookup.
- *
- *   2. A `competition_slugs.json` store that maps a normalized
- *      competition string to the slug a given score source uses
- *      (ESPN, football-data, SofaScore, etc.). This is per-source
- *      mapping data, NOT alias data — kept separate from entities
- *      because it's source-specific URL routing, not identity.
- *
- * No automatic AI is involved. Alias confirmations from settlement
- * paths flow through `recordObservation` with `source='settle'`, which
- * the promoter weights heavily because score-source matches are a
- * stronger truth signal than mere "two providers happened to match
- * fixtures at the same minute."
- */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -34,12 +13,9 @@ import {
 const DATA_DIR = path.join(process.cwd(), "data", "aliases");
 const SLUG_FILE = path.join(DATA_DIR, "competition-slugs.json");
 
-// ─── Competition-slug store (source-specific URL routing) ────────────────
 
 const SlugEntry = z.object({
-  /** Normalized competition string from value_bets. */
   competition: z.string(),
-  /** Which tier owns this slug — "espn", "football-data", "sofascore". */
   source: z.string(),
   slug: z.string(),
   addedAt: z.string(),
@@ -93,10 +69,6 @@ const ensureCache = (): Map<string, SlugEntryT> => {
   return slugCache;
 };
 
-/**
- * Normalize a competition string for the slug-lookup table. Mirrors what
- * the ESPN/SofaScore adapters use so lookups hit consistently.
- */
 export const normalizeCompetition = (raw: string | null): string =>
   (raw ?? "")
     .toLowerCase()
@@ -148,59 +120,24 @@ export const learnCompetitionSlug = (
   slugCache = null;
 };
 
-// ─── Team-name canonicalization (entity-resolver bridge) ─────────────────
-//
-// The settlement score-source matchers (espn.ts, api-football.ts, sofascore.ts)
-// call `applyTeamAlias(name)` synchronously inside tight fuzzy-match loops.
-// To avoid making every comparison async, we use a two-phase approach:
-//
-//   1. **Pre-resolve** (async, batch): before the fuzzy-matching loop starts,
-//      call `preResolveTeams(names)` which queries the entity DB for canonical
-//      names and populates an in-memory cache.
-//
-//   2. **Apply** (sync, hot path): `applyTeamAlias(name)` checks the cache
-//      first; if a canonical entity name was found during pre-resolve, it
-//      returns that. Otherwise falls back to pure string normalization.
-//
-// This means every team merge in Matcher Lab immediately lifts settlement
-// matching accuracy — when "Ypiranga FC" and "Ypiranga-RS" share the same
-// entity, both resolve to the entity's `canonical_name` before the fuzzy
-// comparison, guaranteeing a perfect 1.0 similarity.
 
 import { resolveTeamSurface } from "../matching/entities";
 
-/**
- * In-memory cache: normalized surface → canonical entity name.
- * Populated by `preResolveTeams()`, consumed by `applyTeamAlias()`.
- * Cleared at the start of each batch to avoid stale data.
- */
 const canonicalCache = new Map<string, string>();
 
-/**
- * Pre-resolve a batch of team names against the entity DB. Call this
- * once at the top of each score-source fetch function with all unique
- * team names in the batch. The results are cached so the synchronous
- * `applyTeamAlias()` can return canonical names without await.
- *
- * Pass `provider` and `competitionRaw` when available to get
- * tournament-scoped resolution (the most accurate tier).
- */
 export async function preResolveTeams(
   names: string[],
   opts: { provider?: string; competitionRaw?: string | null } = {},
 ): Promise<void> {
-  // Dedupe and normalize
   const unique = [...new Set(names.filter(Boolean))];
   if (unique.length === 0) return;
 
-  // Resolve competition entity ID if we have the raw string
   let competitionId: string | null = null;
   if (opts.competitionRaw) {
     try {
       const compEntity = await ensureCompetitionEntity(opts.competitionRaw);
       competitionId = compEntity?.id ?? null;
     } catch {
-      // Non-fatal — proceed without competition scoping
     }
   }
 
@@ -219,48 +156,19 @@ export async function preResolveTeams(
         canonicalCache.set(norm, resolved.entity.canonicalName);
       }
     } catch {
-      // Non-fatal — applyTeamAlias will fall back to pure normalization
     }
   }
 }
 
-/**
- * Clear the canonical cache. Called at the start of each settlement batch
- * to ensure we don't serve stale resolutions across runs.
- */
 export function clearCanonicalCache(): void {
   canonicalCache.clear();
 }
 
-/**
- * Sync team-name normalization used by the score-source matchers
- * (espn.ts, sofascore.ts) before they fuzzy-compare against scoreboard
- * data.
- *
- * Resolution order:
- *   1. Check the pre-resolved canonical cache (populated by `preResolveTeams()`)
- *      → returns the entity's canonical_name if known.
- *   2. Fall back to pure string normalization (lowercase + NFD diacritic
- *      strip + transliteration + club-token strip).
- */
 export function applyTeamAlias(raw: string): string {
   const norm = entityNormalize(raw);
-  // If we have a canonical name from the entity DB, use it — this is
-  // where Matcher Lab knowledge actually lifts settlement accuracy.
   return canonicalCache.get(norm) ?? norm;
 }
 
-/**
- * Record a confirmed team-name equivalence from a settlement source
- * match. Builds (or fetches) the canonical entity and writes a positive
- * observation. The promoter weights `source='settle'` heavily because
- * scoreboard sources are tied to actual match results — a much stronger
- * truth signal than provider-vs-provider fuzzy fixture matching.
- *
- * Two-arg overload kept for backwards-compatible callsites
- * (`learnTeamAlias(ourName, theirName)`); pass `provider` / `competition`
- * via the third options param when you have them.
- */
 export async function learnTeamAlias(
   surfaceRaw: string,
   canonicalName: string,

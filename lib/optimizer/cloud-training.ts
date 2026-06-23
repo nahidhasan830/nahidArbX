@@ -1,24 +1,3 @@
-/**
- * Cloud Training Trigger — shared between the manual API route and the
- * auto-retrain scheduler.
- *
- * Owns the full lifecycle of starting a Cloud Build + Cloud Run Job
- * training pipeline:
- *
- *   1. Guard against duplicate `training` rows in `ml_models`.
- *   2. Reconcile missing settled examples + read current accounting.
- *   3. Resolve next version + insert a `version=0 status=training` placeholder
- *      fingerprinted with the current trainer sample count.
- *   4. Resolve a git short-SHA for image tagging + audit.
- *   5. Spawn `scripts/cloud-train.sh` detached, with stdout/stderr piped
- *      into the progress writer.
- *   6. Run a 15s heartbeat alongside the child.
- *   7. Mark the row as `failed` on non-zero exit.
- *   8. Send Telegram notification (best-effort, time-boxed).
- *
- * Both entry points (`POST /api/ml/retrain` and the scheduler tick)
- * must call this helper rather than re-implementing the flow.
- */
 
 import { spawn, execSync } from "child_process";
 import path from "path";
@@ -42,9 +21,7 @@ const NOTIFY_TIMEOUT_MS = 10_000;
 export type TrainingTrigger = "manual" | "auto";
 
 export interface TriggerCloudTrainingOptions {
-  /** "manual" from API, "auto" from scheduler. Used in Telegram notify and logs. */
   trigger: TrainingTrigger;
-  /** Optional callback fired exactly once after the child process is spawned. */
   onSpawned?: () => void;
 }
 
@@ -80,7 +57,6 @@ export async function triggerCloudTraining(
   const { mlModels } = await import("@/lib/db/schema");
   const { sql, eq, desc } = await import("drizzle-orm");
 
-  // ── 1. Guard against duplicate training runs ─────────────────────────
   const [existing] = await db
     .select({ id: mlModels.id })
     .from(mlModels)
@@ -96,12 +72,6 @@ export async function triggerCloudTraining(
     };
   }
 
-  // ── 2. Reconcile + read current accounting ───────────────────────────
-  //
-  // The scheduler's repeat guard compares terminal row `trainingSamples`
-  // against the current trainer sample count. Stamp the placeholder before
-  // spawning Cloud Build so infrastructure/export failures still carry the
-  // input fingerprint and cannot retrigger the same failed run every tick.
   const { reconcileMissingSettledExamples } =
     await import("@/lib/ml/training-example-writer");
   const { getCurrentCorpusAccounting } =
@@ -109,7 +79,6 @@ export async function triggerCloudTraining(
   await reconcileMissingSettledExamples(500);
   const accounting = await getCurrentCorpusAccounting(db);
 
-  // ── 3. Resolve next version + insert placeholder ─────────────────────
   const [{ maxVersion }] = await db
     .select({
       maxVersion: sql<number>`COALESCE(MAX(${mlModels.version}), 0)::int`,
@@ -121,9 +90,6 @@ export async function triggerCloudTraining(
   const nowIso = new Date().toISOString();
 
   try {
-    // Use version 0 for the training placeholder — the Python job assigns
-    // the real version number only on success. This prevents failed
-    // attempts from wasting version numbers.
     await db.insert(mlModels).values({
       id: modelId,
       version: 0,
@@ -151,7 +117,6 @@ export async function triggerCloudTraining(
     TRAINING_ESTIMATE_MS,
   );
 
-  // ── 4. Resolve git SHA ───────────────────────────────────────────────
   const repoRoot = process.cwd();
   let shortSha: string;
   try {
@@ -162,7 +127,6 @@ export async function triggerCloudTraining(
     shortSha = `${opts.trigger}-${Date.now().toString(36)}`;
   }
 
-  // ── 5. Spawn the build → deploy → run pipeline ───────────────────────
   const scriptPath = path.join(repoRoot, "scripts/cloud-train.sh");
   const child = spawn("bash", [scriptPath], {
     cwd: repoRoot,
@@ -208,7 +172,6 @@ export async function triggerCloudTraining(
     }
   });
 
-  // ── 6. Heartbeat while the pipeline runs ─────────────────────────────
   const heartbeat = setInterval(() => {
     void writeCloudTrainingProgress(
       modelId,
@@ -238,7 +201,6 @@ export async function triggerCloudTraining(
       try {
         child.kill(signal);
       } catch {
-        /* best effort */
       }
     }
   };
@@ -280,7 +242,6 @@ export async function triggerCloudTraining(
     });
   });
 
-  // ── 7. Mark row failed on non-zero exit ──────────────────────────────
   child.on("exit", async (code) => {
     if (terminalMarked) return;
     terminalMarked = true;
@@ -294,7 +255,6 @@ export async function triggerCloudTraining(
           trainingSamples: accounting.trainerExpectedSamples,
         });
       } catch {
-        /* best effort */
       }
     } else if (code === 0) {
       logger.info(tag, "Cloud training pipeline completed successfully");
@@ -308,7 +268,6 @@ export async function triggerCloudTraining(
     `Started cloud training (trigger=${opts.trigger}): SHA=${shortSha}`,
   );
 
-  // ── 8. Telegram notification (best-effort, time-boxed) ───────────────
   void withTimeout(
     (async () => {
       const [prevModel] = await db

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Zap,
   AlertTriangle,
@@ -31,10 +31,6 @@ import type { ProviderKey } from "@/lib/providers/registry";
 
 const DISPLAY_CURRENCY = "BDT";
 const UI_MIN_STAKE_FLOOR = 119;
-// Balance threshold above which we paint the header balance green.
-// Under this, the balance is technically usable but thin enough that
-// we keep the color neutral (not a red warning — only over-balance
-// stakes paint red).
 const BALANCE_HEALTHY_THRESHOLD = 2000;
 
 interface MarketLimits {
@@ -134,36 +130,30 @@ export function PlaceBetPanel({
     chosenProvider !== null
       ? providerValues.find((p) => p.provider === chosenProvider)?.odds
       : null;
-  // Operator-chosen min-stake floor overrides the hardcoded UI baseline
-  // when available. Keeps the panel's "Stake below UI floor" warning
-  // consistent with what the backend placer actually enforces.
   const { settings: bettingSettings } = useBettingSettings();
   const floorStake = bettingSettings?.minStakeBdt ?? UI_MIN_STAKE_FLOOR;
   const strategyLabel = `kelly-${KELLY_FRACTION}`;
 
   const kellySuggested = selectedMetrics.metrics.suggested;
+  const limitsMinBet = limits?.minBet;
   useEffect(() => {
     if (kellySuggested > 0) {
       setStake(String(kellySuggested));
       return;
     }
-    // Seed with the UI floor so the Place button isn't disabled while
-    // /market-limits is in flight. If the market min turns out to be
-    // higher, the backend placer will catch it — the frontend doesn't
-    // gate on it anymore (belowMarketMin is a warning, not a block).
-    if (limits) {
-      setStake(String(Math.max(limits.minBet, floorStake)));
+    if (limitsMinBet != null) {
+      setStake(String(Math.max(limitsMinBet, floorStake)));
     } else {
       setStake(String(floorStake));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     selected,
     customOdds,
     customCommission,
     kellySuggested,
-    limits?.minBet,
+    limitsMinBet,
     floorStake,
+    setStake,
   ]);
 
   const [confirmNonValue, setConfirmNonValue] = useState(false);
@@ -178,10 +168,6 @@ export function PlaceBetPanel({
     setConfirmNonValue(false);
   }, [selected, customOdds, customCommission]);
 
-  // --- Stake derived from mode (Risk = amount to stake, Win = target profit)
-  // The underlying `stake` state is always the stake in BDT (risk amount).
-  // When mode === "win", the input reflects target profit and we convert
-  // back to stake internally.
   const stakeNum = Number(stake);
   const stakeValidNumber = Number.isFinite(stakeNum) && stakeNum > 0;
 
@@ -210,9 +196,6 @@ export function PlaceBetPanel({
   };
 
   const belowFloor = stakeValidNumber && stakeNum < floorStake;
-  // `belowMarketMin` is informational — the operator-set UI floor (119)
-  // is the real provider minimum; the book's reported minBet is often
-  // 1 BDT which is misleading. Shown as a hint, never blocks placement.
   const belowMarketMin =
     !!limits && stakeValidNumber && stakeNum < limits.minBet;
   const aboveMarketMax =
@@ -228,7 +211,6 @@ export function PlaceBetPanel({
 
   const suspended = !!limits?.suspended;
 
-  // EV-zero does NOT require confirmation — only truly negative EV does.
   const needsEvOverride = isNegativeEv;
   const canPlace =
     !placing &&
@@ -253,7 +235,7 @@ export function PlaceBetPanel({
     );
   };
 
-  async function handlePlace() {
+  const handlePlace = useCallback(async () => {
     if (!eventId || !chosenProvider || chosenOdds == null) return;
     setPlacing(true);
     setResult(null);
@@ -284,8 +266,6 @@ export function PlaceBetPanel({
       });
       const body = (await res.json()) as PlaceBetPanelProps["result"];
       setResult(body);
-      // Toast feedback — the in-panel banner covers the detail, but
-      // toasts persist even if the modal is closed early.
       if (body?.status === "placed" || body?.status === "pending") {
         const label = outcomeLabel
           ? `${outcomeLabel} @ ${providerShort}`
@@ -313,14 +293,24 @@ export function PlaceBetPanel({
     } finally {
       setPlacing(false);
     }
-  }
+  }, [
+    eventId,
+    chosenProvider,
+    chosenOdds,
+    setPlacing,
+    setResult,
+    stake,
+    placementContext,
+    details.sharpProvider,
+    details.sharpOdds,
+    details.trueProb,
+    selectedMetrics.metrics.commissionPct,
+    outcomeLabel,
+    providerShort,
+  ]);
 
   const balance = limits?.balance ?? 0;
 
-  // Balance color logic:
-  //   - over-balance stake attempt  → red (error)
-  //   - balance ≥ BALANCE_HEALTHY   → green (comfortable headroom)
-  //   - otherwise (incl. unknown)   → neutral
   const balanceTone: "neutral" | "positive" | "negative" = !limits
     ? "neutral"
     : aboveBalance
@@ -329,17 +319,16 @@ export function PlaceBetPanel({
         ? "positive"
         : "neutral";
 
-  const adjustStake = (delta: number) => {
+  const adjustStake = useCallback((delta: number) => {
     const current = Number.isFinite(stakeNum) ? stakeNum : 0;
     const next = Math.max(0, Math.round(current + delta));
     setStake(String(next));
-  };
+  }, [setStake, stakeNum]);
 
   const potentialReturn =
     stakeValidNumber && chosenOdds != null ? stakeNum * chosenOdds : 0;
   const potentialProfit = potentialReturn - (stakeValidNumber ? stakeNum : 0);
 
-  // Validation message (priority-ordered)
   let validationMsg: string | null = null;
   if (!providerConfigured && selected !== null && selected !== "custom") {
     validationMsg = `${providerShort} is not configured for placement`;
@@ -363,14 +352,11 @@ export function PlaceBetPanel({
 
   const disabledQuick = placing || !providerConfigured;
 
-  // --- Keyboard shortcuts (scoped to this panel)
-  // Enter → place; ↑/↓ → ±100; Shift+↑/↓ → ±1000
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
 
       if (e.key === "Enter" && !e.shiftKey) {
-        // Allow Enter both inside and outside the stake input to submit.
         if (
           target instanceof HTMLInputElement &&
           target !== stakeInputRef.current &&
@@ -390,8 +376,6 @@ export function PlaceBetPanel({
         !e.metaKey &&
         !e.ctrlKey
       ) {
-        // Only swallow arrows when the stake input is focused — otherwise
-        // we'd break dialog scrolling.
         if (target !== stakeInputRef.current) return;
         e.preventDefault();
         const base = e.shiftKey ? 1000 : 100;
@@ -400,10 +384,8 @@ export function PlaceBetPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canPlace, placing, stakeNum]);
+  }, [canPlace, placing, handlePlace, adjustStake]);
 
-  // --- Edge label + tone ---
   const evLabel =
     evTone === "positive"
       ? `+${selectedMetrics.metrics.evPct.toFixed(2)}%`
@@ -418,7 +400,6 @@ export function PlaceBetPanel({
         ? "negative"
         : "neutral";
 
-  // --- Success state replaces the form ---
   if (result?.status === "placed" || result?.status === "pending") {
     return (
       <SuccessPanel
@@ -436,7 +417,6 @@ export function PlaceBetPanel({
 
   return (
     <div className="mt-2 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      {/* Header */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/40">
         <Zap className="size-3.5 text-amber-500 shrink-0" />
         <div className="text-xs font-semibold shrink-0">Place Bet</div>
@@ -452,7 +432,6 @@ export function PlaceBetPanel({
           </div>
         )}
 
-        {/* Status badges */}
         <div className="flex items-center justify-end gap-1.5 shrink-0 ml-auto">
           {limitsLoading && (
             <Loader2 className="size-3 animate-spin text-muted-foreground" />
@@ -473,7 +452,6 @@ export function PlaceBetPanel({
         </div>
       </div>
 
-      {/* Metrics strip */}
       <div className="grid grid-cols-4 gap-px bg-border/50">
         <MetricCell label="Book" value={providerShort} />
         <MetricCell
@@ -496,7 +474,6 @@ export function PlaceBetPanel({
       </div>
 
       <div className="p-2.5 space-y-2">
-        {/* Limits error */}
         {limitsError && (
           <div className="flex items-start gap-1.5 rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1 text-[10px] text-rose-700 dark:text-rose-300">
             <AlertTriangle className="size-3 shrink-0 mt-0.5" />
@@ -504,9 +481,7 @@ export function PlaceBetPanel({
           </div>
         )}
 
-        {/* Stake input row */}
         <div className="flex items-center gap-1.5">
-          {/* Risk / To-Win toggle */}
           <div
             className="flex shrink-0 rounded-md border border-border bg-muted/40 p-0.5 text-[10px] font-bold uppercase tracking-wider"
             role="group"
@@ -568,10 +543,6 @@ export function PlaceBetPanel({
           </div>
         </div>
 
-        {/* Book min/max hint — visible reference so the operator can
-            see the provider's stake window without having to type a
-            failing amount. Does NOT block placement; the real gate is
-            the UI floor (119) + balance. */}
         <MarketLimitsHint
           limits={limits}
           limitsLoading={limitsLoading}
@@ -579,9 +550,6 @@ export function PlaceBetPanel({
           belowMarketMin={belowMarketMin}
         />
 
-        {/* Return meter bar — always rendered so the layout doesn't jump
-            when the user clicks between providers (valid) and Custom/unset
-            (no odds). Invalid states render a dimmed placeholder. */}
         <ReturnMeter
           stake={stakeValidNumber ? stakeNum : 0}
           profit={potentialProfit}
@@ -590,7 +558,6 @@ export function PlaceBetPanel({
           active={providerConfigured && stakeValidNumber && chosenOdds != null}
         />
 
-        {/* Increment buttons */}
         <div className="grid grid-cols-5 gap-1">
           {STAKE_INCREMENTS.map((delta) => (
             <IncrementBtn
@@ -612,7 +579,6 @@ export function PlaceBetPanel({
           </Button>
         </div>
 
-        {/* Details disclosure — replaces the old Calculation panel */}
         <button
           type="button"
           onClick={() => setShowDetails((v) => !v)}
@@ -674,9 +640,6 @@ export function PlaceBetPanel({
           </div>
         )}
 
-        {/* Fixed-height alerts slot — reserves space so switching between
-            positive/zero/negative EV (or clicking Custom) doesn't shift
-            the Place button up and down. Exactly one row is rendered. */}
         <div className="min-h-[32px] flex items-stretch">
           {providerConfigured && isNegativeEv ? (
             <label className="flex items-center gap-2 w-full rounded border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 cursor-pointer select-none">
@@ -718,7 +681,6 @@ export function PlaceBetPanel({
           )}
         </div>
 
-        {/* Place button with Enter hint */}
         <LoadingButton
           onClick={handlePlace}
           disabled={!canPlace}
@@ -745,7 +707,6 @@ export function PlaceBetPanel({
           )}
         </LoadingButton>
 
-        {/* Failure result banner (success/pending replaces the whole panel above) */}
         {result && isFailureResult(result) && (
           <FailureBanner result={result} onDismiss={() => setResult(null)} />
         )}
@@ -754,17 +715,8 @@ export function PlaceBetPanel({
   );
 }
 
-// ============================================================================
-// Subcomponents
-// ============================================================================
-
 const STAKE_INCREMENTS = [100, 500, 1000, 5000] as const;
 
-/**
- * Compact hint row showing the provider's reported stake window plus
- * our UI floor. Informational only — the Place button is gated by the
- * UI floor (`floorStake`), not by `limits.minBet`.
- */
 function MarketLimitsHint({
   limits,
   limitsLoading,
@@ -903,15 +855,6 @@ function DetailRow({
   );
 }
 
-/**
- * Horizontal payout bar. The stake slice occupies `1/odds` of the width and
- * the profit slice takes the remainder. Gives an instant visual read of the
- * risk/reward ratio implied by the odds.
- *
- * Always rendered (even when `active` is false) so the containing panel's
- * height is stable across provider selection / invalid stake states. When
- * inactive, the bar shows a dimmed placeholder with em-dash numbers.
- */
 function ReturnMeter({
   stake,
   profit,
@@ -925,9 +868,6 @@ function ReturnMeter({
   odds: number | null;
   active: boolean;
 }) {
-  // Derive proportions. When the meter is inactive but we still have odds,
-  // show the odds-implied split faintly so the user can see the payout
-  // shape of the currently-selected market before typing a stake.
   let stakePct: number;
   if (active && total > 0 && stake > 0) {
     stakePct = (stake / total) * 100;
@@ -1050,13 +990,7 @@ function FailureBanner({
   );
 }
 
-// Poll cadence while the backend is still matching the bet on the
-// provider side. Backend polls the book feed every 30s so a faster
-// frontend cadence mostly reveals the DB transition (which is
-// effectively instant once the book ticket surfaces).
 const PENDING_POLL_MS = 3_000;
-// How long to keep polling before giving up on the frontend side. The
-// backend deadline is 2 min; add slack for clock drift + one final tick.
 const PENDING_POLL_DEADLINE_MS = 3 * 60 * 1000;
 
 type LivePlacementStatus = "placed" | "pending" | "timeout";
@@ -1086,10 +1020,6 @@ function SuccessPanel({
   onDismiss: () => void;
   onClose?: () => void;
 }) {
-  // Live status mirrors the authoritative backend state. Starts from
-  // the server's initial reply and upgrades to "placed" once the
-  // backend's confirmation tracker writes the DB row, or to "timeout"
-  // if the book dropped the bet silently.
   const [live, setLive] = useState<{
     status: LivePlacementStatus;
     ticketId?: string;
@@ -1133,7 +1063,6 @@ function SuccessPanel({
           });
         }
       } catch {
-        // Transient fetch failure — keep polling.
       }
     };
 

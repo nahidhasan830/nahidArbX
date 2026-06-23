@@ -1,15 +1,3 @@
-/**
- * Rich tooltip body for the bet outcome chip in the bets table.
- *
- * Shows the cached match-score breakdown that produced the stored outcome:
- *   - FT score (and HT, ET, PEN when applicable)
- *   - Optional corners / booking points (only for markets that need them)
- *   - Source attribution + confidence
- *   - Footer hint to edit the outcome
- *
- * Stays inside a `<TooltipContent>` — never opens a popover, never owns
- * its own portal. The parent tooltip controls visibility.
- */
 
 import { cn } from "@/lib/utils";
 import { prettySettledBy } from "@/lib/bets-history/resettle";
@@ -31,7 +19,6 @@ const STATUS_LABEL: Record<string, string> = {
   POSTPONED: "Postponed",
 };
 
-/** Whether this market needs corners enrichment in the score breakdown. */
 const isCornersMarket = (m: string): boolean =>
   m === "CORNERS" ||
   m === "CORNERS_HANDICAP" ||
@@ -39,7 +26,6 @@ const isCornersMarket = (m: string): boolean =>
   m === "HOME_CORNERS_TOTAL" ||
   m === "AWAY_CORNERS_TOTAL";
 
-/** Whether this market needs booking points enrichment. */
 const isBookingsMarket = (m: string): boolean =>
   m === "BOOKINGS" || m === "BOOKINGS_HANDICAP";
 
@@ -80,7 +66,6 @@ export interface OutcomeStatusTooltipContentProps {
     matchScore?: BetMatchScore | null;
   };
   outcomeLabel: string;
-  /** Optional footer hint shown below the score block (defaults to edit hint). */
   footerHint?: string;
 }
 
@@ -91,7 +76,6 @@ export function OutcomeStatusTooltipContent({
 }: OutcomeStatusTooltipContentProps) {
   const score = row.matchScore;
 
-  // No score yet — keep the tooltip useful without a score block.
   if (!score) {
     return (
       <div className="flex flex-col gap-1.5 py-0.5">
@@ -114,14 +98,10 @@ export function OutcomeStatusTooltipContent({
   const badgeCls = STATUS_BADGE[status] ?? STATUS_BADGE.FT;
   const statusFullLabel = STATUS_LABEL[status] ?? status;
 
-  // ABD/POSTPONED don't have a meaningful score block — show status only.
   const isVoidStatus = status === "ABD" || status === "POSTPONED";
 
-  // HT row only when we have data (some sources don't capture HT).
   const hasHt = score.htHome != null && score.htAway != null;
-  // ET row only for AET/PEN with values present.
   const hasEt = score.etHome != null && score.etAway != null;
-  // PEN row only for PEN status with values present.
   const hasPen = score.penHome != null && score.penAway != null;
 
   const showCorners =
@@ -138,7 +118,6 @@ export function OutcomeStatusTooltipContent({
 
   return (
     <div className="flex w-[260px] flex-col gap-2 py-0.5">
-      {/* Header: status badge + outcome label */}
       <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
@@ -154,7 +133,6 @@ export function OutcomeStatusTooltipContent({
         </span>
       </div>
 
-      {/* Team names — small and subdued, on the same row to anchor scores below */}
       <div className="flex items-baseline justify-between gap-3 border-b border-border/40 pb-1.5 text-[11px]">
         <span className="truncate text-foreground/85" title={row.homeTeam}>
           {row.homeTeam}
@@ -209,7 +187,6 @@ export function OutcomeStatusTooltipContent({
         </div>
       )}
 
-      {/* Footer: source + confidence + edit hint */}
       <div className="flex flex-col gap-0.5 border-t border-border/40 pt-1.5">
         <div className="flex items-baseline justify-between gap-2 text-[10px]">
           <span className="text-muted-foreground">Source</span>

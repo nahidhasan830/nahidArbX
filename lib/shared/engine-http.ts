@@ -1,23 +1,9 @@
-/**
- * Engine HTTP API Server
- *
- * Lightweight HTTP server that runs inside the engine process and
- * exposes in-memory state (events, value bets, connection health,
- * SSE stream) to the Next.js web process.
- *
- * Next.js API routes proxy to this server for any data that lives
- * only in the engine's memory (populated by the 13 background
- * subsystems).
- *
- * Default port: 3001 (configurable via ENGINE_PORT env var).
- */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { logger } from "./logger";
 
 export const ENGINE_PORT = parseInt(process.env.ENGINE_PORT || "3001", 10);
 
-// ── Route handler type ────────────────────────────────────────────────
 
 type RouteHandler = (
   req: IncomingMessage,
@@ -32,7 +18,6 @@ function addRoute(method: string, path: string, handler: RouteHandler) {
   routes.get(method)!.set(path, handler);
 }
 
-// ── Helper: parse URL without query ───────────────────────────────────
 
 function pathname(req: IncomingMessage): string {
   const idx = (req.url ?? "/").indexOf("?");
@@ -52,13 +37,9 @@ function jsonResponse(res: ServerResponse, data: unknown, status = 200) {
   res.end(JSON.stringify(data));
 }
 
-// ── Register routes ───────────────────────────────────────────────────
 
 export function registerEngineRoutes() {
-  // These imports are lazy — they resolve to the engine's in-memory
-  // singletons (already populated by the time any request arrives).
 
-  // ── GET /engine/value-bets ──────────────────────────────────────────
   addRoute("GET", "/engine/value-bets", async (_req, res) => {
     const {
       getAllProviderStatus,
@@ -73,7 +54,6 @@ export function registerEngineRoutes() {
     const params = queryParams(_req);
     const fieldsParam = params.get("fields");
 
-    // Fast path: field-selection (e.g. ?fields=connectionHealth)
     if (fieldsParam) {
       const fields = new Set(fieldsParam.split(",").map((f) => f.trim()));
       const response: Record<string, unknown> = {};
@@ -122,15 +102,11 @@ export function registerEngineRoutes() {
       return jsonResponse(res, response);
     }
 
-    // Full response — proxy the entire analyzed payload.
-    // We re-use the same analysis logic as the Next.js route but
-    // running inside the engine where the stores are populated.
     const { analyzeAndSerialize } = await import("./engine-value-bets");
     const result = await analyzeAndSerialize(params);
     return jsonResponse(res, result);
   });
 
-  // ── GET /engine/health ──────────────────────────────────────────────
   addRoute("GET", "/engine/health", async (_req, res) => {
     const { buildConnectionHealth } = await import("./engine-health-builder");
     const { getSyncStatus, getEvents, getValueBets } = await import("../store");
@@ -218,7 +194,6 @@ export function registerEngineRoutes() {
     return jsonResponse(res, response);
   });
 
-  // ── GET /engine/memory-diagnostic ─────────────────────────────────
   addRoute("GET", "/engine/memory-diagnostic", async (_req, res) => {
     const { getEvents, getValueBets } = await import("../store");
     const { getStoreStats } = await import("../atoms/store");
@@ -312,7 +287,6 @@ export function registerEngineRoutes() {
     return jsonResponse(res, response);
   });
 
-  // ── GET /engine/stream — SSE ────────────────────────────────────────
   addRoute("GET", "/engine/stream", async (_req, res) => {
     const { syncBus } = await import("../events/event-bus");
 
@@ -334,7 +308,6 @@ export function registerEngineRoutes() {
         msg += `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
         res.write(msg);
       } catch {
-        /* closed */
       }
     }
 
@@ -367,7 +340,6 @@ export function registerEngineRoutes() {
     });
   });
 
-  // ── POST /engine/providers ──────────────────────────────────────────
   addRoute("POST", "/engine/providers", async (_req, res, body) => {
     const { toggleProviderAction, setDisabledProvidersAction } =
       await import("../providers/actions");
@@ -436,7 +408,6 @@ export function registerEngineRoutes() {
     return jsonResponse(res, { error: `Unknown action: ${action}` }, 400);
   });
 
-  // ── POST /engine/scheduler ──────────────────────────────────────────
   addRoute("POST", "/engine/scheduler", async (_req, res, body) => {
     const {
       startScheduler,
@@ -492,7 +463,6 @@ export function registerEngineRoutes() {
     });
   });
 
-  // ── POST /engine/health ─────────────────────────────────────────────
   addRoute("POST", "/engine/health", async (_req, res, body) => {
     let parsed: Record<string, unknown>;
     try {
@@ -530,7 +500,6 @@ export function registerEngineRoutes() {
     return jsonResponse(res, { ok: false, error: "Unknown action" }, 400);
   });
 
-  // ── GET /engine/settlement ────────────────────────────────────────────
   addRoute("GET", "/engine/settlement", async (_req, res) => {
     const { getAutoSettleStatus } = await import("../settle/scheduler");
     const { getActivityLog } = await import("../settle/activity-log");
@@ -548,7 +517,6 @@ export function registerEngineRoutes() {
     });
   });
 
-  // ── POST /engine/settlement ───────────────────────────────────────────
   addRoute("POST", "/engine/settlement", async (_req, res, body) => {
     const {
       getAutoSettleStatus,
@@ -602,7 +570,6 @@ export function registerEngineRoutes() {
     }
   });
 
-  // ── GET /engine/ml/status ── live ML scorer state ──────────────────
   addRoute("GET", "/engine/ml/status", async (_req, res) => {
     try {
       const { getScorerStatus } = await import("../ml/scorer");
@@ -627,7 +594,6 @@ export function registerEngineRoutes() {
     }
   });
 
-  // ── GET /engine/ml/scheduler ── retraining scheduler state ─────────
   addRoute("GET", "/engine/ml/scheduler", async (_req, res) => {
     try {
       const { getModelRetrainingSchedulerStatus } =
@@ -644,7 +610,6 @@ export function registerEngineRoutes() {
   });
 }
 
-// ── Server lifecycle ──────────────────────────────────────────────────
 
 let server: ReturnType<typeof createServer> | null = null;
 
@@ -653,7 +618,6 @@ export function startEngineHttp(): Promise<void> {
     registerEngineRoutes();
 
     server = createServer(async (req, res) => {
-      // CORS preflight
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
@@ -674,7 +638,6 @@ export function startEngineHttp(): Promise<void> {
         return;
       }
 
-      // Read body for POST
       let body = "";
       if (method === "POST") {
         body = await new Promise<string>((resolveBody) => {

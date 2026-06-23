@@ -11,24 +11,10 @@ import {
 } from "@/lib/db/repositories/bets";
 import { settleBatch } from "@/lib/settle/settle-batch";
 
-/**
- * Operator settlement endpoint. Wraps the source-only waterfall
- * (`settleBatch`). Operator-triggered runs bypass Tier 0 by default so
- * manual re-settle verifies against freshly resolved source data.
- *
- * Bets that remain pending after the waterfall are returned as-is so
- * the UI can surface them for manual verification.
- */
 const MAX_IDS = 500;
 
 const BodySchema = z.object({
   ids: z.array(z.string().min(1)).min(1).max(MAX_IDS),
-  /**
-   * Skip the DB cache so the waterfall re-resolves scores even when a
-   * stale entry exists. Defaults true because this endpoint is only used
-   * for operator-triggered settlement/re-settlement; the scheduler calls
-   * settleBatch directly and keeps cache enabled.
-   */
   bypassCache: z.boolean().default(true),
 });
 

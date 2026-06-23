@@ -1,9 +1,3 @@
-/**
- * Pinnacle Events Adapter
- *
- * Fetches normalized events from Pinnacle API.
- * Uses shared schemas and client from ./pinnacle/ module.
- */
 
 import axios from "axios";
 import type { ProviderAdapter, NormalizedEvent } from "../types";
@@ -22,7 +16,6 @@ import { buildEventsUrl } from "./pinnacle/urls";
 import { pinnacleClient } from "./pinnacle/client";
 import type { DebugFixturesFetchResult } from "./debug-fetch";
 
-// Re-export for backward compatibility with debug endpoints
 export { SOCCER_SPORT_ID, PinnacleResponseSchema } from "./pinnacle/schemas";
 export type {
   PinnacleResponse,
@@ -31,9 +24,6 @@ export type {
 } from "./pinnacle/schemas";
 export { buildEventsUrl } from "./pinnacle/urls";
 
-// ============================================================
-// Parser Functions (exported for debug endpoints)
-// ============================================================
 
 export function parseEvent(
   rawEvent: PinnacleEvent,
@@ -44,10 +34,8 @@ export function parseEvent(
   const awayTeam = rawEvent[3];
   const periods = rawEvent[5];
 
-  // Skip events without valid team names
   if (!homeTeam || !awayTeam) return null;
 
-  // Find start time from first period
   let startTime = new Date();
   if (periods.length > 0) {
     startTime = new Date(periods[0][2]);
@@ -99,9 +87,6 @@ export function parseResponse(
   return events;
 }
 
-// ============================================================
-// Adapter Export
-// ============================================================
 
 async function fetchWithToken(token: string): Promise<NormalizedEvent[]> {
   const url = buildEventsUrl();
@@ -109,7 +94,6 @@ async function fetchWithToken(token: string): Promise<NormalizedEvent[]> {
     headers: { Authorization: token },
   });
 
-  // Validate response structure
   const parsed = validateAndParse(
     response.data,
     PinnacleEventsResponseSchema,
@@ -119,7 +103,6 @@ async function fetchWithToken(token: string): Promise<NormalizedEvent[]> {
     throw new Error("Pinnacle events response failed schema validation");
   }
 
-  // Check API response code
   if (parsed.code !== 200) {
     throw new Error(`Pinnacle API error ${parsed.code}: ${parsed.message}`);
   }
@@ -132,7 +115,6 @@ export const pinnacleAdapter: ProviderAdapter = {
   name: "pinnacle",
 
   async fetchEvents(): Promise<NormalizedEvent[]> {
-    // Get token (auto-refreshes if expired)
     const token = await getPinnacleToken();
     if (!token) {
       throw new Error("No valid Pinnacle token available");
@@ -143,10 +125,9 @@ export const pinnacleAdapter: ProviderAdapter = {
     } catch (error) {
       let finalError = error;
 
-      // On 401, clear invalid token and force refresh
       if (axios.isAxiosError(error) && error.response?.status === 401) {
-        clearStoredToken(); // Clear the invalid cached token
-        const freshToken = await getPinnacleToken(true); // force refresh
+        clearStoredToken();
+        const freshToken = await getPinnacleToken(true);
         if (freshToken) {
           try {
             return await fetchWithToken(freshToken);
@@ -160,7 +141,7 @@ export const pinnacleAdapter: ProviderAdapter = {
                 "Pinnacle",
                 "Retry also got 401 - token capture may have failed",
               );
-              clearStoredToken(); // Clear the bad new token too
+              clearStoredToken();
             } else {
               logger.error("Pinnacle", "Retry failed after token refresh");
             }
@@ -185,9 +166,6 @@ export const pinnacleAdapter: ProviderAdapter = {
   },
 };
 
-// ============================================================
-// Debug Fetch (for debug pipeline)
-// ============================================================
 
 export async function debugFetchPinnacleEvents(): Promise<DebugFixturesFetchResult> {
   const result: DebugFixturesFetchResult = {
@@ -199,7 +177,6 @@ export async function debugFetchPinnacleEvents(): Promise<DebugFixturesFetchResu
   };
 
   try {
-    // Get token
     const token = await getPinnacleToken();
     if (!token) {
       return result;
@@ -208,7 +185,6 @@ export async function debugFetchPinnacleEvents(): Promise<DebugFixturesFetchResu
     const urlPath = buildEventsUrl();
     const fullUrl = `${config.providers.pinnacle.baseUrl}${urlPath}`;
 
-    // Capture request
     result.providerRequests.push({
       label: "Fetch Events",
       url: fullUrl,
@@ -216,21 +192,18 @@ export async function debugFetchPinnacleEvents(): Promise<DebugFixturesFetchResu
       headers: { Authorization: "Bearer [REDACTED]" },
     });
 
-    // Execute with timing
     const startTime = Date.now();
     const response = await pinnacleClient.get(urlPath, {
       headers: { Authorization: token },
     });
     const durationMs = Date.now() - startTime;
 
-    // Capture response
     result.rawResponses.push({
       status: response.status,
       data: response.data,
       durationMs,
     });
 
-    // Parse and normalize
     const parsed = validateAndParse(
       response.data,
       PinnacleEventsResponseSchema,

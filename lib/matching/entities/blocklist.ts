@@ -1,14 +1,3 @@
-/**
- * Override blocklist — Layer 1 of the error-mitigation strategy
- * (reversibility). When the operator overrides an auto-decision, the
- * (provider, surface, competition, blocked_entity) tuple lands here for
- * 30 days. The auto-resolver consults this BEFORE any potential
- * auto-confirm so the same wrong decision can't be re-applied by the
- * next sync.
- *
- * After 30 days the entry expires (the model has had time to retrain on
- * the negative training signal by then).
- */
 
 import { db } from "../../db/client";
 import { sql } from "drizzle-orm";
@@ -24,11 +13,6 @@ export interface BlocklistEntry {
   reason: "manual-reject" | "manual-confirm-undone" | "tainted-cascade";
 }
 
-/**
- * Add a blocklist entry. Defaults to a 30-day expiry; callers can
- * override for tainted-cascade entries (which should expire when the
- * model has retrained, ~7 days).
- */
 export async function addBlocklistEntry(
   entry: BlocklistEntry,
   expiryDays = 30,
@@ -47,14 +31,6 @@ export async function addBlocklistEntry(
   }
 }
 
-/**
- * Check if an auto-confirm is blocked. True = blocked → auto-resolver
- * must NOT auto-confirm; if the candidate is otherwise strong, it goes
- * to the operator inbox instead.
- *
- * Filters by `expires_at > now()` at query time (the index can't be
- * partial because now() isn't IMMUTABLE — see migration 0034).
- */
 export async function isBlocked(opts: {
   provider: string;
   surfaceNormalized: string;
@@ -75,16 +51,10 @@ export async function isBlocked(opts: {
     return n > 0;
   } catch (err) {
     logger.warn(tag, `isBlocked check failed: ${(err as Error).message}`);
-    // Fail-open: if the blocklist check itself errors, don't auto-confirm
-    // (we'd rather over-escalate than re-apply a known-bad decision).
     return true;
   }
 }
 
-/**
- * Sweep expired entries. Called from a tiny daily cron — keeps the table
- * bounded so the partial-index workaround stays cheap.
- */
 export async function sweepExpiredBlocklist(): Promise<number> {
   try {
     const r = await db.execute<{ n: number }>(sql`

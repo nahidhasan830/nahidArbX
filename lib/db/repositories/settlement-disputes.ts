@@ -1,14 +1,3 @@
-/**
- * Repository for settlement_disputes — the cross-check log.
- *
- * Flow:
- *   1. A secondary source resolves an event that already
- *      has a cached score.
- *   2. If the new FT score disagrees with the cached one, we log a
- *      dispute row instead of blindly overwriting the cache.
- *   3. A human reviews the row and either accepts the new score (with
- *      upsertScoreForce) or keeps the cached one.
- */
 
 import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -24,7 +13,6 @@ export const maybeLogDispute = async (
   cached: MatchScore,
   fresh: MatchScore,
 ): Promise<boolean> => {
-  // Ignore when the cached FT and the fresh FT match — no disagreement.
   if (cached.ftHome === fresh.ftHome && cached.ftAway === fresh.ftAway) {
     return false;
   }

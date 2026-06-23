@@ -1,8 +1,3 @@
-/**
- * Destructive commands — every one of these has a confirm-tap flow.
- *   /place <valueBetId> [stake], /mark <betId> <outcome>, /delete <betId>,
- *   /autoplaceon <provider>.
- */
 
 import {
   applySettlement,
@@ -38,7 +33,6 @@ registerCommand({
     const idArg = args[0];
     const stakeArg = args[1] ? parseFloat(args[1]) : null;
     const all = storeGetValueBets();
-    // Try exact match first, then prefix match, then "atomId" suffix match.
     const vb =
       all.find((v) => `${v.eventId}:${v.familyId}:${v.atomId}` === idArg) ??
       all.find((v) =>
@@ -70,8 +64,6 @@ registerCommand({
       chatId,
       messageId,
       run: async () => {
-        // Build a runtime descriptor from the in-memory value bet — no need
-        // to pre-persist; the placer's own persistence handles it.
         const runtimeRow = {
           id: `${vb.eventId}|${vb.familyId}|${vb.atomId}`,
           eventId: vb.eventId,
@@ -124,7 +116,6 @@ registerCommand({
   },
 });
 
-// ── /mark <betId> <outcome> ──────────────────────────────────────────────
 
 const ALLOWED_OUTCOMES = new Set([
   "won",
@@ -192,7 +183,6 @@ registerCommand({
             outcome !== "pending" &&
             existing.outcome !== outcome
           ) {
-            // Placed bet → use applySettlement so pnl gets recomputed.
             await applySettlement({
               betId: existing.id,
               outcome: outcome as
@@ -217,7 +207,6 @@ registerCommand({
   },
 });
 
-// ── /delete <betId> ──────────────────────────────────────────────────────
 
 registerCommand({
   name: "delete",
@@ -267,11 +256,6 @@ registerCommand({
   },
 });
 
-// ── /autoplaceon <provider> ──────────────────────────────────────────────
-// Lifted out of the read-only /autoplace command into its own
-// confirm-gated destructive command — turning auto-place ON enables real
-// money to flow without operator review, so it gets the same treatment as
-// /place.
 
 registerCommand({
   name: "autoplaceon",

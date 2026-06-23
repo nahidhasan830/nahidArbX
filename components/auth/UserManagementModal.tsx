@@ -29,10 +29,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-// ============================================
-// Types
-// ============================================
-
 interface UserData {
   id: string;
   email: string;
@@ -78,10 +74,6 @@ interface UserManagementModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-// ============================================
-// Helper Functions
-// ============================================
 
 function formatDate(dateStr: string): string {
   return format(parseISO(dateStr), "MMM d, yyyy");
@@ -161,7 +153,6 @@ function getActionIcon(action: string) {
   return Activity;
 }
 
-// Action filter options
 const ACTION_FILTERS = [
   { value: "all", label: "All Activity" },
   { value: "login", label: "Logins" },
@@ -171,10 +162,6 @@ const ACTION_FILTERS = [
 ] as const;
 
 type ActionFilter = (typeof ACTION_FILTERS)[number]["value"];
-
-// ============================================
-// Main Component
-// ============================================
 
 export function UserManagementModal({
   isOpen,
@@ -187,16 +174,13 @@ export function UserManagementModal({
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Invite state
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteSetupUrl, setInviteSetupUrl] = useState<string | null>(null);
 
-  // Delete confirmation state
   const [userToDelete, setUserToDelete] = useState<UserData | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Fetch users
   const fetchUsers = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -208,7 +192,6 @@ export function UserManagementModal({
       }
 
       setUsers(data.users);
-      // Update selected user if it exists (using functional update to avoid stale closure)
       setSelectedUser((prev) => {
         if (!prev) return null;
         const updated = data.users.find((u: UserData) => u.id === prev.id);
@@ -225,13 +208,11 @@ export function UserManagementModal({
     if (isOpen) {
       fetchUsers();
     } else {
-      // Reset state when closing
       setSelectedUser(null);
       setSearchTerm("");
     }
   }, [isOpen, fetchUsers]);
 
-  // Filter users by search
   const filteredUsers = users.filter((user) => {
     const search = searchTerm.toLowerCase();
     return (
@@ -240,7 +221,6 @@ export function UserManagementModal({
     );
   });
 
-  // Handle invite
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteLoading(true);
@@ -260,7 +240,6 @@ export function UserManagementModal({
         throw new Error(data.error || "Failed to send invite");
       }
 
-      // Check if email wasn't actually sent
       if (data.data?.emailNotConfigured && data.data?.setupUrl) {
         setInviteSetupUrl(data.data.setupUrl);
         toast.warning("⚠️ Email not configured", {
@@ -281,7 +260,6 @@ export function UserManagementModal({
     }
   };
 
-  // Handle suspend/activate
   const handleToggleStatus = async (user: UserData) => {
     const newStatus = user.status === "suspended" ? "active" : "suspended";
     const action = newStatus === "suspended" ? "Suspend" : "Activate";
@@ -310,12 +288,10 @@ export function UserManagementModal({
     }
   };
 
-  // Handle delete - show confirmation dialog
   const handleDelete = (user: UserData) => {
     setUserToDelete(user);
   };
 
-  // Confirm delete - actually delete the user
   const confirmDelete = async () => {
     if (!userToDelete) return;
 
@@ -345,7 +321,6 @@ export function UserManagementModal({
     }
   };
 
-  // Handle impersonate
   const handleImpersonate = async (user: UserData) => {
     try {
       const res = await fetch("/api/auth/admin/impersonate", {
@@ -367,7 +342,6 @@ export function UserManagementModal({
     }
   };
 
-  // Handle force logout
   const handleForceLogout = async (user: UserData) => {
     if (!confirm(`Force logout ${user.email}?`)) return;
 
@@ -397,19 +371,15 @@ export function UserManagementModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
 
-      {/* Modal */}
       <div className="relative w-full max-w-5xl h-[85vh] bg-slate-900 rounded-xl shadow-xl border border-slate-800 flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-semibold text-white flex items-center gap-2">
               <Users className="w-5 h-5 text-cyan-400" />
               User Management
             </h2>
-            {/* Tabs */}
             <div className="flex gap-1 bg-slate-800 rounded-lg p-1">
               <button
                 onClick={() => setActiveTab("users")}
@@ -442,13 +412,10 @@ export function UserManagementModal({
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 flex overflow-hidden">
           {activeTab === "users" ? (
             <>
-              {/* User List (Left Panel) */}
               <div className="w-80 border-r border-slate-800 flex flex-col shrink-0">
-                {/* Search */}
                 <div className="p-3 border-b border-slate-800">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -462,7 +429,6 @@ export function UserManagementModal({
                   </div>
                 </div>
 
-                {/* List */}
                 <div className="flex-1 overflow-y-auto">
                   {isLoading ? (
                     <div className="p-4 text-center text-gray-400">
@@ -484,13 +450,11 @@ export function UserManagementModal({
                               : "hover:bg-slate-800/50"
                           }`}
                         >
-                          {/* Avatar */}
                           <div className="relative">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-white font-medium">
                               {(user.displayName ||
                                 user.email)[0].toUpperCase()}
                             </div>
-                            {/* Online indicator */}
                             <div
                               className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-900 ${
                                 user.isOnline ? "bg-green-500" : "bg-gray-500"
@@ -498,7 +462,6 @@ export function UserManagementModal({
                             />
                           </div>
 
-                          {/* Info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-white truncate">
@@ -515,7 +478,6 @@ export function UserManagementModal({
                             </div>
                           </div>
 
-                          {/* Status badge */}
                           <div
                             className={`px-2 py-0.5 text-[10px] font-medium rounded ${
                               user.status === "active"
@@ -535,7 +497,6 @@ export function UserManagementModal({
                   )}
                 </div>
 
-                {/* Refresh button */}
                 <div className="p-3 border-t border-slate-800">
                   <button
                     onClick={fetchUsers}
@@ -550,7 +511,6 @@ export function UserManagementModal({
                 </div>
               </div>
 
-              {/* User Details (Right Panel) */}
               <div className="flex-1 flex flex-col overflow-hidden">
                 {selectedUser ? (
                   <UserDetailsPanel
@@ -572,11 +532,9 @@ export function UserManagementModal({
               </div>
             </>
           ) : (
-            /* Invite Tab */
             <div className="flex-1 flex items-center justify-center p-6">
               <div className="w-full max-w-md">
                 {inviteSetupUrl ? (
-                  /* Show manual setup URL when email not configured */
                   <div className="space-y-4">
                     <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
                       <div className="flex items-start gap-3">
@@ -624,7 +582,6 @@ export function UserManagementModal({
                     </button>
                   </div>
                 ) : (
-                  /* Normal invite form */
                   <>
                     <form onSubmit={handleInvite} className="space-y-4">
                       <div>
@@ -661,7 +618,6 @@ export function UserManagementModal({
         </div>
       </div>
 
-      {/* Delete Confirmation Dialog */}
       {userToDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div
@@ -744,10 +700,6 @@ export function UserManagementModal({
   );
 }
 
-// ============================================
-// User Details Panel
-// ============================================
-
 interface UserDetailsPanelProps {
   user: UserData;
   onRefresh: () => void;
@@ -806,7 +758,6 @@ function UserDetailsPanel({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* User Header */}
       <div className="p-4 border-b border-slate-800 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -828,9 +779,7 @@ function UserDetailsPanel({
             </div>
           </div>
 
-          {/* Actions - Admin can do anything */}
           <div className="flex items-center gap-2">
-            {/* Hide impersonate for admin accounts */}
             {user.role !== "admin" && (
               <button
                 onClick={() => onImpersonate(user)}
@@ -883,7 +832,6 @@ function UserDetailsPanel({
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 px-4 py-2 border-b border-slate-800 bg-slate-800/30 shrink-0">
         <button
           onClick={() => setActiveTab("activity")}
@@ -931,7 +879,6 @@ function UserDetailsPanel({
         </button>
       </div>
 
-      {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {activeTab === "activity" && <ActivityTab userId={user.id} />}
         {activeTab === "sessions" && <SessionsTab userId={user.id} />}
@@ -944,10 +891,6 @@ function UserDetailsPanel({
   );
 }
 
-// ============================================
-// Activity Tab
-// ============================================
-
 function ActivityTab({ userId }: { userId: string }) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -956,13 +899,12 @@ function ActivityTab({ userId }: { userId: string }) {
   const [filter, setFilter] = useState<ActionFilter>("all");
   const limit = 30;
 
-  const fetchLogs = useCallback(
-    async (reset = false) => {
+  const fetchLogsAt = useCallback(
+    async (nextOffset: number, reset = false) => {
+      setIsLoading(true);
       try {
-        setIsLoading(true);
-        const newOffset = reset ? 0 : offset;
         const res = await fetch(
-          `/api/auth/admin/users/${userId}/activity?limit=${limit}&offset=${newOffset}`,
+          `/api/auth/admin/users/${userId}/activity?limit=${limit}&offset=${nextOffset}`,
         );
         const data = await res.json();
 
@@ -973,25 +915,22 @@ function ActivityTab({ userId }: { userId: string }) {
             setLogs((prev) => [...prev, ...data.logs]);
           }
           setHasMore(data.pagination.hasMore);
-          setOffset(newOffset + data.logs.length);
+          setOffset(nextOffset + data.logs.length);
         }
       } catch {
-        // Ignore errors
       } finally {
         setIsLoading(false);
       }
     },
-    [userId, offset],
+    [userId],
   );
 
   useEffect(() => {
     setLogs([]);
     setOffset(0);
-    fetchLogs(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    fetchLogsAt(0, true);
+  }, [userId, fetchLogsAt]);
 
-  // Filter logs based on selected filter
   const filteredLogs = logs.filter((log) => {
     if (filter === "all") return true;
     if (filter === "login")
@@ -1027,7 +966,6 @@ function ActivityTab({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Filter */}
       <div className="flex items-center gap-2">
         <Filter className="w-4 h-4 text-gray-500" />
         <div className="flex gap-1 flex-wrap">
@@ -1047,7 +985,6 @@ function ActivityTab({ userId }: { userId: string }) {
         </div>
       </div>
 
-      {/* Logs */}
       <div className="space-y-2">
         {filteredLogs.length === 0 ? (
           <div className="text-center text-gray-500 py-6 text-sm">
@@ -1062,14 +999,12 @@ function ActivityTab({ userId }: { userId: string }) {
                 className="p-3 rounded-lg bg-slate-800/50 border border-slate-700/50 hover:border-slate-600/50 transition"
               >
                 <div className="flex items-start gap-3">
-                  {/* Icon */}
                   <div
                     className={`p-2 rounded-lg bg-slate-700/50 ${getActionColor(log.action)}`}
                   >
                     <ActionIcon className="w-4 h-4" />
                   </div>
 
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
@@ -1092,23 +1027,19 @@ function ActivityTab({ userId }: { userId: string }) {
                       </div>
                     </div>
 
-                    {/* Details row */}
                     <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
-                      {/* IP Address - prominent */}
                       {log.ipAddress && (
                         <span className="flex items-center gap-1.5 text-gray-300 font-mono bg-slate-700/50 px-2 py-0.5 rounded">
                           <Globe className="w-3 h-3 text-gray-500" />
                           {log.ipAddress}
                         </span>
                       )}
-                      {/* Location */}
                       {log.geoLocation && (
                         <span className="flex items-center gap-1.5 text-gray-400">
                           <MapPin className="w-3 h-3" />
                           {log.geoLocation.city}, {log.geoLocation.country}
                         </span>
                       )}
-                      {/* Device */}
                       {log.deviceInfo && (
                         <span className="flex items-center gap-1.5 text-gray-400">
                           <Laptop className="w-3 h-3" />
@@ -1129,10 +1060,9 @@ function ActivityTab({ userId }: { userId: string }) {
         )}
       </div>
 
-      {/* Load more */}
       {hasMore && filter === "all" && (
         <button
-          onClick={() => fetchLogs()}
+          onClick={() => fetchLogsAt(offset)}
           disabled={isLoading}
           className="w-full py-2 text-sm text-cyan-400 hover:text-cyan-300 transition"
         >
@@ -1142,10 +1072,6 @@ function ActivityTab({ userId }: { userId: string }) {
     </div>
   );
 }
-
-// ============================================
-// Sessions Tab
-// ============================================
 
 interface SessionData {
   id: string;
@@ -1174,7 +1100,6 @@ function SessionsTab({ userId }: { userId: string }) {
       const res = await fetch(`/api/auth/admin/users/${userId}/sessions`);
       const data = await res.json();
 
-      // API returns { ok: true, data: { sessions, activeCount } }
       if (res.ok && data.data?.sessions) {
         setSessions(data.data.sessions);
         setActiveCount(data.data.activeCount || 0);
@@ -1255,7 +1180,6 @@ function SessionsTab({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Active Sessions */}
       <div>
         <h4 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
           <Zap className="w-4 h-4 text-green-400" />
@@ -1293,7 +1217,6 @@ function SessionsTab({ userId }: { userId: string }) {
                     </div>
 
                     <div className="space-y-1.5 text-sm">
-                      {/* IP */}
                       <div className="flex items-center gap-2">
                         <Globe className="w-4 h-4 text-gray-500" />
                         <span className="font-mono text-gray-300">
@@ -1301,7 +1224,6 @@ function SessionsTab({ userId }: { userId: string }) {
                         </span>
                       </div>
 
-                      {/* Location */}
                       {session.geoLocation && (
                         <div className="flex items-center gap-2 text-gray-400">
                           <MapPin className="w-4 h-4" />
@@ -1312,7 +1234,6 @@ function SessionsTab({ userId }: { userId: string }) {
                         </div>
                       )}
 
-                      {/* Device */}
                       <div className="flex items-center gap-2 text-gray-400">
                         <Laptop className="w-4 h-4" />
                         <span className="truncate">
@@ -1320,7 +1241,6 @@ function SessionsTab({ userId }: { userId: string }) {
                         </span>
                       </div>
 
-                      {/* Times */}
                       <div className="flex items-center gap-4 text-xs text-gray-500 mt-2">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
@@ -1333,7 +1253,6 @@ function SessionsTab({ userId }: { userId: string }) {
                     </div>
                   </div>
 
-                  {/* Revoke button */}
                   {!session.isCurrent && (
                     <button
                       onClick={() => revokeSession(session.id)}
@@ -1350,7 +1269,6 @@ function SessionsTab({ userId }: { userId: string }) {
         )}
       </div>
 
-      {/* Expired/Revoked Sessions */}
       {expiredSessions.length > 0 && (
         <div>
           <h4 className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
@@ -1366,7 +1284,6 @@ function SessionsTab({ userId }: { userId: string }) {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0 space-y-1.5 text-sm">
-                    {/* IP */}
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-gray-500" />
                       <span className="font-mono text-gray-400">
@@ -1374,7 +1291,6 @@ function SessionsTab({ userId }: { userId: string }) {
                       </span>
                     </div>
 
-                    {/* Location */}
                     {session.geoLocation && (
                       <div className="flex items-center gap-2 text-gray-500">
                         <MapPin className="w-4 h-4" />
@@ -1385,7 +1301,6 @@ function SessionsTab({ userId }: { userId: string }) {
                       </div>
                     )}
 
-                    {/* Device */}
                     <div className="flex items-center gap-2 text-gray-500">
                       <Laptop className="w-4 h-4" />
                       <span className="truncate">
@@ -1393,7 +1308,6 @@ function SessionsTab({ userId }: { userId: string }) {
                       </span>
                     </div>
 
-                    {/* Times */}
                     <div className="flex items-center gap-4 text-xs text-gray-500 mt-2">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
@@ -1431,11 +1345,6 @@ function SessionsTab({ userId }: { userId: string }) {
   );
 }
 
-// ============================================
-// Permissions Tab
-// ============================================
-
-// Category display info
 const CATEGORY_INFO: Record<string, { label: string; icon: typeof Eye }> = {
   view: { label: "View Features", icon: Eye },
   action: { label: "Actions", icon: Zap },
@@ -1464,7 +1373,6 @@ function PermissionsTab({
           setPermissions(data.permissions || []);
         }
       } catch {
-        // Ignore errors
       } finally {
         setIsLoading(false);
       }
@@ -1512,7 +1420,6 @@ function PermissionsTab({
     }
   };
 
-  // Bulk toggle for a category (only implemented features)
   const toggleCategory = async (category: string, enabled: boolean) => {
     const categoryPerms = visiblePermissions.filter(
       (p) => p.category === category && p.implemented !== false,
@@ -1564,7 +1471,6 @@ function PermissionsTab({
 
   const visiblePermissions = permissions.filter((p) => !p.adminOnly);
 
-  // Filter by search
   const filteredPermissions = visiblePermissions.filter((p) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
@@ -1575,7 +1481,6 @@ function PermissionsTab({
     );
   });
 
-  // Group by category
   const groupedPermissions = filteredPermissions.reduce(
     (acc, perm) => {
       const cat = perm.category || "other";
@@ -1586,7 +1491,6 @@ function PermissionsTab({
     {} as Record<string, PermissionData[]>,
   );
 
-  // Category order
   const categoryOrder = ["view", "action", "data"];
 
   if (visiblePermissions.length === 0) {
@@ -1602,7 +1506,6 @@ function PermissionsTab({
 
   return (
     <div className="space-y-3">
-      {/* Search + Stats */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -1619,7 +1522,6 @@ function PermissionsTab({
         </div>
       </div>
 
-      {/* Permissions by category */}
       {filteredPermissions.length === 0 ? (
         <div className="text-center text-gray-500 py-6 text-sm">
           No permissions match &quot;{searchTerm}&quot;
@@ -1631,7 +1533,6 @@ function PermissionsTab({
 
           const catInfo = CATEGORY_INFO[category];
           const CatIcon = catInfo?.icon || Shield;
-          // Only consider implemented features for bulk toggle state
           const implementedPerms = perms.filter((p) => p.implemented !== false);
           const allEnabled =
             implementedPerms.length > 0 &&
@@ -1641,7 +1542,6 @@ function PermissionsTab({
 
           return (
             <div key={category} className="space-y-1">
-              {/* Category header */}
               <div className="flex items-center justify-between py-1.5 px-2 bg-slate-800/30 rounded-lg">
                 <div className="flex items-center gap-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
                   <CatIcon className="w-3.5 h-3.5" />
@@ -1661,7 +1561,6 @@ function PermissionsTab({
                 )}
               </div>
 
-              {/* Permission items - compact */}
               <div className="space-y-0.5">
                 {perms.map((perm) => {
                   const isImplemented = perm.implemented !== false;
@@ -1727,10 +1626,6 @@ function PermissionsTab({
   );
 }
 
-// ============================================
-// Info Tab
-// ============================================
-
 function InfoTab({ user }: { user: UserData }) {
   return (
     <div className="space-y-4">
@@ -1775,7 +1670,6 @@ function InfoTab({ user }: { user: UserData }) {
         </div>
       </div>
 
-      {/* Activity Summary */}
       <div className="p-4 rounded-lg bg-slate-800/50 border border-slate-700/50">
         <h4 className="text-sm font-medium text-gray-300 mb-3">
           Login Summary

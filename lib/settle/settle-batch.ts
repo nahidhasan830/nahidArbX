@@ -1,14 +1,3 @@
-/**
- * settleBatch — top-level settlement entry point.
- *
- * Given a list of value-bet row IDs:
- *   1. Dedupe to unique eventIds.
- *   2. Run the free waterfall to resolve each eventId's final score once.
- *   3. Apply deterministic `settleBet(row, score)` per bet.
- * Bets whose market isn't covered by the pure settler (or whose event
- * couldn't be resolved at any tier) are returned with outcome "pending"
- * and a reason the caller can use to decide whether to escalate.
- */
 
 import { getBetsByIds } from "../db/repositories/bets";
 import type { ValueBetRow } from "@/lib/bets-history/types";
@@ -24,15 +13,7 @@ import type { Outcome } from "../bets-history/types";
 import { clearCanonicalCache, preResolveTeams } from "./aliases";
 
 export interface SettleBatchOptions {
-  /**
-   * Skip Tier 0 (DB cache) so the waterfall re-resolves events even when
-   * an old score is cached. Useful for "Re-run default pipeline" in the UI.
-   */
   bypassCache?: boolean;
-  /**
-   * Auto-settlement retry backoff passes only the events eligible for network
-   * sources. Cache is still checked for every event.
-   */
   networkEventIds?: Set<string>;
 }
 
@@ -93,9 +74,6 @@ export async function settleBatch(
   const found = new Set(rows.map((r) => r.id));
   const missing = ids.filter((id) => !found.has(id));
 
-  // Dedupe by eventId, keeping a single metadata copy per event. When the
-  // same event appears on multiple bets the team/time fields are identical
-  // by construction (denormalized at persist time), so the first row wins.
   const eventMap = new Map<string, SettleEvent>();
   const eventRequirements = new Map<string, SettlementDataRequirements>();
   for (const r of rows) {
@@ -117,23 +95,12 @@ export async function settleBatch(
     eventRequirements.set(r.eventId, req);
   }
 
-  // ── Pre-resolve team names via entity DB ─────────────────────────────
-  //
-  // Before the waterfall fuzzy-matches our team names against score
-  // sources, look up canonical names from the entity-resolution DB.
-  // Every merge in Matcher Lab feeds this — if "Ypiranga FC" and
-  // "Ypiranga-RS" share the same entity, both resolve to the canonical
-  // name, guaranteeing a 1.0 similarity score.
   clearCanonicalCache();
   const allTeamNames = rows.flatMap((r) => [r.homeTeam, r.awayTeam]);
   await preResolveTeams(allTeamNames, { provider: "settle" });
   const needsCorners = rows.some((r) => CORNER_MARKETS.has(r.marketType));
   const needsBookings = rows.some((r) => BOOKING_MARKETS.has(r.marketType));
 
-  // If any bet uses a non-FT scope, the waterfall MUST resolve HT scores.
-  // Without this flag, Tier 0 happily accepts cached ESPN rows that lack
-  // HT data — then settleBet() returns "pending" because it can't compute
-  // the 1H/2H scope.
   const needsHtScore = rows.some(
     (r) => r.timeScope === "1H" || r.timeScope === "2H",
   );

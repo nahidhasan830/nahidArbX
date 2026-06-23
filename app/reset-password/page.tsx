@@ -144,7 +144,6 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="w-full max-w-md px-4">
         <div className="bg-slate-900 rounded-xl shadow-xl p-8 border border-slate-800">
-          {/* Logo/Title */}
           <div className="text-center mb-8">
             <BrandLogo size="lg" />
             <p className="text-gray-400 mt-2">Create new password</p>

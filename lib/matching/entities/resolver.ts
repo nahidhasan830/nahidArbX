@@ -1,25 +1,3 @@
-/**
- * Lookup hot path — resolves a (provider, surface, competition) tuple to
- * an entity. Replaces the legacy `applyTeamAlias` / `applyCompetitionAlias`
- * functions in `lib/matching/normalize.ts`.
- *
- * Strategy (cheapest first, stop on hit):
- *   1. Tournament-scoped exact lookup (the common case, ~95% hit when
- *      the candidate has been promoted).
- *   2. Cross-provider fallback within the same competition (a NW-SB
- *      surface might match a Pinnacle-learned alias for the same team).
- *   3. Global fallback — only fires when there's a SINGLE active row
- *      across all competitions for this surface (unambiguous names).
- *   4. Embedding-cosine fallback (pgvector) — only when a `competition_id`
- *      is known. Catches the transliteration class of bugs (Cyrillic /
- *      Vietnamese / Arabic). Off by default until the entity-classifier
- *      Job has populated embeddings; gated by `EMBEDDING_LOOKUP_ENABLED`
- *      env (set to "true" once the classifier Job has landed embeddings).
- *
- * In-process LRU cache keyed by (provider, surface_normalized,
- * competition_id) with a 30s TTL — Postgres LISTEN/NOTIFY invalidates on
- * any entity_names mutation so multi-worker views stay consistent.
- */
 
 import { Client } from "pg";
 import { Connector, IpAddressTypes } from "@google-cloud/cloud-sql-connector";
@@ -47,13 +25,6 @@ interface CacheEntry {
 const CACHE_TTL_MS = 30_000;
 const CACHE_MAX_SIZE = 5_000;
 
-// MEMORY-LEAK GUARD — DO NOT REMOVE.
-// Pinned to globalThis via singleton(). Without this, every Next.js HMR
-// reload of this module would create a fresh empty Map; the previous
-// Map (referenced by the LISTEN client below and by in-flight resolver
-// promises) would survive in memory and the new Map would start cold,
-// doubling DB-lookup pressure during long dev sessions.
-// Same pattern as lib/store.ts and lib/scores/websocket.ts.
 const cache = singleton(
   "entities:resolver:cache",
   () => new Map<string, CacheEntry>(),
@@ -69,7 +40,6 @@ function cacheKey(
 
 function pruneCacheIfNeeded(): void {
   if (cache.size <= CACHE_MAX_SIZE) return;
-  // Drop the oldest 20% — Map iterates in insertion order so this is O(n).
   const target = Math.floor(CACHE_MAX_SIZE * 0.8);
   let removed = 0;
   for (const key of cache.keys()) {
@@ -80,11 +50,6 @@ function pruneCacheIfNeeded(): void {
   logger.info(tag, `LRU cache pruned: removed ${removed}`);
 }
 
-/** Clears the entire process-local LRU cache. Called by the promoter
- *  after every promotion/demotion, and on alias-related mutations from
- *  the UI. The cross-worker invalidation pathway is the LISTEN/NOTIFY
- *  channel — see `subscribeToInvalidations()` below.
- */
 export function clearResolverCache(): void {
   if (cache.size) {
     logger.info(tag, `Resolver cache cleared (${cache.size} entries)`);
@@ -95,16 +60,9 @@ export function clearResolverCache(): void {
 export interface ResolvedSurface {
   entity: EntityRow;
   source: "exact" | "cross-provider" | "global" | "embedding";
-  /** Original surface_normalized (the cache key for diagnostics). */
   surfaceNormalized: string;
 }
 
-/**
- * Resolve a team surface name to an entity. Returns null if no active
- * row matches and the embedding fallback also fails — caller should
- * treat the surface as "unknown" and let the recordObservation path
- * (called from the matcher) seed a new candidate.
- */
 export async function resolveTeamSurface(opts: {
   provider: string;
   surface: string;
@@ -129,11 +87,6 @@ export async function resolveTeamSurface(opts: {
   return result;
 }
 
-/**
- * Resolve a competition surface to a competition entity. Same algorithm
- * but always uses `competitionId = null` since competitions ARE the top
- * level of the hierarchy.
- */
 export async function resolveCompetitionSurface(opts: {
   provider: string;
   surface: string;
@@ -160,7 +113,6 @@ async function runResolveSteps(opts: {
   surfaceNormalized: string;
   competitionId: string | null;
 }): Promise<ResolvedSurface | null> {
-  // 1. Tournament-scoped exact (provider + competition + surface)
   const exact = await findActiveEntityNameForLookup({
     provider: opts.provider,
     surfaceNormalized: opts.surfaceNormalized,
@@ -177,15 +129,11 @@ async function runResolveSteps(opts: {
     }
   }
 
-  // 2. Cross-provider, same competition
   if (opts.competitionId !== null) {
     const crossProv = await findActiveByCompetitionAnyProvider({
       surfaceNormalized: opts.surfaceNormalized,
       competitionId: opts.competitionId,
     });
-    // If exactly one entity owns this surface in this competition (across
-    // any provider) we can adopt it. Multiple = conflict, surface to the
-    // operator via the candidate flow rather than guessing.
     const distinctEntityIds = new Set(crossProv.map((r) => r.entityId));
     if (distinctEntityIds.size === 1) {
       const ent = await getEntityById([...distinctEntityIds][0]);
@@ -199,8 +147,6 @@ async function runResolveSteps(opts: {
     }
   }
 
-  // 3. Global fallback (only for unambiguous names — exactly one match
-  //    across all comps and all providers).
   const globalRows = await findActiveByGlobalSurface(opts.surfaceNormalized);
   const distinctGlobalEntityIds = new Set(globalRows.map((r) => r.entityId));
   if (distinctGlobalEntityIds.size === 1) {
@@ -214,10 +160,6 @@ async function runResolveSteps(opts: {
     }
   }
 
-  // 4. Embedding-cosine fallback. Disabled until the classifier Job has
-  //    populated the surface_embedding column. When enabled, runs an
-  //    ivfflat NN search bounded to the same competition_id; only adopts
-  //    when a SINGLE active row sits within the cosine cutoff.
   if (
     process.env.EMBEDDING_LOOKUP_ENABLED === "true" &&
     opts.competitionId !== null
@@ -255,7 +197,6 @@ async function runResolveSteps(opts: {
         }
       }
     } catch (err) {
-      // Don't let embedding failures break the matching hot path.
       logger.warn(tag, `Embedding fallback failed: ${(err as Error).message}`);
     }
   }
@@ -263,11 +204,6 @@ async function runResolveSteps(opts: {
   return null;
 }
 
-// ── Embedding bridge ──────────────────────────────────────────────────
-//
-// Delegates to the Vertex embedding client. Batch jobs populate
-// `entity_names.surface_embedding`; this runtime path embeds the incoming
-// surface to compare against existing rows.
 async function embedSurface(surface: string): Promise<number[] | null> {
   return embedViaMatcher(surface);
 }
@@ -276,20 +212,12 @@ function formatVectorLiteral(v: number[]): string {
   return `[${v.join(",")}]`;
 }
 
-// ── Cross-worker cache invalidation (Postgres LISTEN / NOTIFY) ──────
-//
-// Dropped if the LISTEN channel can't be set up — the 30 s LRU TTL is
-// the fallback consistency floor. `autoResolve()` calls
-// `notifyResolverInvalidation()` on every status flip; every Next.js
-// worker subscribed via `startResolverCacheListener()` clears its local
-// cache on receipt.
 export const ENTITY_CACHE_INVAL_CHANNEL = "entities_invalidate";
 
 export async function notifyResolverInvalidation(): Promise<void> {
   try {
     await db.execute(sql.raw(`NOTIFY ${ENTITY_CACHE_INVAL_CHANNEL}`));
   } catch {
-    // best-effort
   }
 }
 
@@ -302,17 +230,6 @@ const listenerState = singleton<ListenerState>(
   () => ({ active: false, client: null }),
 );
 
-/**
- * Subscribe to the cache-invalidation NOTIFY channel. Idempotent — the
- * singleton means HMR reloads in dev don't multiply listeners. Failures
- * are logged but don't throw — the resolver still works without it
- * (just relying on the 30 s LRU TTL for consistency).
- *
- * Uses Cloud SQL Connector when CLOUD_SQL_INSTANCE is set, matching
- * the dual-path logic in lib/db/client.ts. Without this, the raw
- * DATABASE_URL (often pointing to localhost:5432) would fail when no
- * local Postgres is running.
- */
 export async function startResolverCacheListener(): Promise<void> {
   if (listenerState.active) return;
   const url = process.env.DATABASE_URL;
@@ -325,7 +242,6 @@ export async function startResolverCacheListener(): Promise<void> {
     let client: Client;
 
     if (instance) {
-      // Cloud SQL path — use the Connector for IAM/TLS transport
       const parsed = new URL(url);
       const user = decodeURIComponent(parsed.username);
       const password = decodeURIComponent(parsed.password);
@@ -338,7 +254,6 @@ export async function startResolverCacheListener(): Promise<void> {
       });
       client = new Client({ ...clientOpts, user, password, database });
     } else {
-      // Local Postgres fallback
       client = new Client({ connectionString: url });
     }
 

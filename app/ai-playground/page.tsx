@@ -31,11 +31,6 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-/**
- * Markdown renderer for AI answers — supports GFM (tables, strikethrough,
- * task lists), inline + fenced code, links, blockquotes, and headings.
- * Styled to fit the dark playground theme without relying on @tailwindcss/typography.
- */
 function Markdown({ text }: { text: string }) {
   return (
     <div className="text-[13.5px] leading-relaxed text-foreground/90 [&_*+*]:mt-2 [&>*:first-child]:mt-0">
@@ -178,9 +173,6 @@ interface SearchPlan {
   queries?: PlannedSearchQuery[];
 }
 
-// ── LLM family/tier organisation ──────────────────────────────────────────
-// Display order for the 2-step provider selector. The hook returns whatever
-// rows exist in `ai_provider_config`; this maps them to a (family, tier) grid.
 
 type LlmFamily = "deepseek" | "gemini";
 type LlmTier = "lite" | "flash" | "pro";
@@ -212,14 +204,12 @@ function getTier(p: AiProvider): LlmTier | null {
 }
 
 export default function AIPlayground() {
-  // ── Providers from DB ────────────────────────────────────────────
   const {
     llmProviders,
     searchProviders,
     isLoading: llmLoading,
   } = useAiProviders();
 
-  // ── Composer + model state ────────────────────────────────────────────
   const [query, setQuery] = useState("");
   const [executedQuery, setExecutedQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState<AiProvider | null>(
@@ -228,7 +218,6 @@ export default function AIPlayground() {
   const [useWebSearch, setUseWebSearch] = useState(true);
   const [searchProvider, setSearchProvider] = useState<string>("auto");
 
-  // ── Run state ────────────────────────────────────────────────
   const [isExecuting, setIsExecuting] = useState(false);
   const [step1State, setStep1State] = useState<
     "idle" | "running" | "done" | "error"
@@ -251,11 +240,6 @@ export default function AIPlayground() {
   const [copied, setCopied] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
 
-  // Default selection priority once providers load:
-  //   1. deepseek-flash (the explicit, most-cost-effective default)
-  //   2. any other enabled DeepSeek tier (preferring flash → pro → lite)
-  //   3. any enabled Gemini tier (preferring flash → pro → lite)
-  //   4. any enabled provider as last resort
   useEffect(() => {
     if (llmLoading || llmProviders.length === 0 || selectedProvider) return;
 
@@ -347,7 +331,6 @@ export default function AIPlayground() {
                 ? errBody.detail
                 : JSON.stringify(errBody.detail ?? ""));
           } catch {
-            /* not JSON */
           }
           throw new Error(
             detail
@@ -419,8 +402,6 @@ export default function AIPlayground() {
   const showTrace =
     step1State !== "idle" || step2State !== "idle" || executedQuery;
 
-  // Football-contextual suggestions. Live queries when web grounding is on,
-  // analytical questions otherwise.
   const suggestions = useWebSearch
     ? [
         "Today's Premier League fixtures and predicted lineups",
@@ -846,10 +827,8 @@ export default function AIPlayground() {
           </div>
         </div>
 
-        {/* Right: Configuration panel */}
         <aside className="w-80 border-l border-border/40 bg-card/20 flex flex-col overflow-y-auto shrink-0">
           <div className="p-4 space-y-5">
-            {/* Step 1: LLM Provider */}
             <section className="space-y-2">
               <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
                 LLM Provider
@@ -922,7 +901,6 @@ export default function AIPlayground() {
 
             <div className="h-px bg-border/40" />
 
-            {/* Step 2: Grounding */}
             <section className="space-y-2">
               <div className="flex items-center justify-between">
                 <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
@@ -1047,7 +1025,6 @@ export default function AIPlayground() {
 
             <div className="h-px bg-border/40" />
 
-            {/* Telemetry */}
             <section className="space-y-2">
               <h3 className="font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
                 Telemetry

@@ -1,10 +1,3 @@
-/**
- * ML Operations Verification Tests
- *
- * Ensures TS, Python, and UI feature contracts stay aligned,
- * constants are in sync, and the feature catalog is complete.
- * These run in CI without a database connection.
- */
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

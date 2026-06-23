@@ -91,24 +91,16 @@ export function BetsHistorySpreadsheet() {
   const [settleCandidates, setSettleCandidates] = useState<ValueBetRow[]>([]);
   const [settleResponse, setSettleResponse] =
     useState<SettlementResponse | null>(null);
-  // Ids currently being re-run individually via the per-row dropdown. Kept
-  // separate from bulk progress so the UI can show a spinner only on the
-  // specific row a user triggered.
   const [rerunningIds, setRerunningIds] = useState<Set<string>>(new Set());
 
   const [settlementMonitorOpen, setSettlementMonitorOpen] = useState(false);
 
-  // Rolling date presets re-resolve on each tick so "Last 1h" always means
-  // the trailing 60 minutes from *now*, not from when the preset was picked.
-  // Aligned with the React Query refetch interval so the new query key
-  // lines up with the refetch boundary.
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
 
-  // Cross-page hand-off: dashboard accounts panel links here with
   useEffect(() => {
     const p = searchParams.get("provider");
     const s = searchParams.get("status");
@@ -124,6 +116,7 @@ export function BetsHistorySpreadsheet() {
   }, [searchParams, setFilters, router]);
 
   const effectiveFilters = useMemo<ListFilters>(() => {
+    void tick;
     const f: ListFilters = { ...filters };
     if (capturedPreset !== "all" && capturedPreset !== "custom") {
       const { from, to } = resolvePreset(capturedPreset);
@@ -136,18 +129,11 @@ export function BetsHistorySpreadsheet() {
       f.eventTo = to;
     }
     return f;
-    // `tick` is intentionally in deps so rolling windows refresh every interval.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, capturedPreset, kickoffPreset, tick]);
 
   const list = useBetsList(effectiveFilters);
-  // Server-side aggregation over the full filter-matched population. Drives
-  // the toolbar's ROI / win-loss cluster so numbers reflect every bet the
-  // filter hits, not just the rows the user has scrolled into view.
   const statsQuery = useBetsStats(effectiveFilters);
   const rows = useMemo<ValueBetRow[]>(() => {
-    // Dedupe by id across pages — offset pagination can duplicate a row when a
-    // new insert shifts page boundaries between fetches.
     const seen = new Set<string>();
     const flat = list.data?.pages.flatMap((p) => p.rows) ?? [];
     return flat.filter((r) => {
@@ -164,8 +150,6 @@ export function BetsHistorySpreadsheet() {
   const deleteMutation = useDeleteBet();
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
-  // Settlement orchestration — batches server calls transparently so users can
-  // select any number of rows without hitting the server's per-call cap.
   const [settlementRunning, setSettlementRunning] = useState(false);
   const [settlementProgress, setSettlementProgress] = useState<{
     done: number;
@@ -197,10 +181,6 @@ export function BetsHistorySpreadsheet() {
   const clearSelection = () => setSelectedIds(new Set());
   const selectAllLoaded = () => setSelectedIds(new Set(visibleIds));
 
-  // Reset selection whenever the partition the user is looking at changes —
-  // i.e. outcome tab, ready-to-settle / needs-review toggles, or the placed-
-  // only pill. Generic filter tweaks (search text, providers, dates) should
-  // NOT clear selection, so those are intentionally excluded.
   const partitionKey = `${filters.outcome ?? ""}|${filters.readyToSettle ? 1 : 0}|${filters.needsReview ? 1 : 0}|${
     filters.placedOnly === undefined
       ? "any"
@@ -213,8 +193,6 @@ export function BetsHistorySpreadsheet() {
   }, [partitionKey]);
 
   const handleSortChange = (key: typeof sortKey) => {
-    // Tri-state cycle on the active column: desc → asc → none.
-    // Clicking a different column always starts at desc.
     if (key !== sortKey) {
       setSort({ key, dir: "desc" });
       return;
@@ -279,9 +257,7 @@ export function BetsHistorySpreadsheet() {
     });
   };
 
-  // Server caps at 50 per call; batch client-side so N rows always works.
   const SETTLEMENT_BATCH_SIZE = 50;
-  // Fire 2 batches concurrently to cut wall-clock ~in half.
   const SETTLEMENT_BATCH_CONCURRENCY = 2;
 
   const runSettlement = async (
@@ -316,10 +292,6 @@ export function BetsHistorySpreadsheet() {
 
     let anyErr: Error | null = null;
 
-    // Accumulate tier stats locally so the final toast reflects the
-    // *actual* distribution across all batches. Reading from
-    // `settleResponse` state in the closure would miss the last
-    // batch's hits because state updates haven't been flushed yet.
     const summary = {
       resolved: 0,
       attempted: 0,
@@ -331,8 +303,6 @@ export function BetsHistorySpreadsheet() {
     };
     const seenProposalIds = new Set<string>();
 
-    // Worker-pool style: at most SETTLEMENT_BATCH_CONCURRENCY in flight; results
-    // stream into settleResponse as each batch returns.
     let nextIndex = 0;
     const runOne = async (): Promise<void> => {
       while (nextIndex < chunks.length) {
@@ -365,8 +335,6 @@ export function BetsHistorySpreadsheet() {
           );
         } catch (err) {
           anyErr = err as Error;
-          // Record every row in this chunk as an error so the user sees what
-          // happened rather than silently-missing entries.
           const errorResponse: SettlementResponse = {
             proposals: chunk.map((id) => ({
               id,
@@ -411,8 +379,6 @@ export function BetsHistorySpreadsheet() {
             ? `${pieces.join(" · ")} · ⏱️ ${seconds}s`
             : `Took ${seconds}s`,
       });
-      // Whole batch finished — drop the selection so the user doesn't
-      // accidentally re-trigger on the same rows.
       clearSelection();
     }
   };
@@ -455,9 +421,6 @@ export function BetsHistorySpreadsheet() {
     }
   };
 
-  // Count of currently-selected rows that are safe to re-settle (match
-  // over OR already settled). Recomputed whenever selection / row data
-  // changes so the toolbar can disable the bulk button accordingly.
   const resettleEligibleCount = useMemo(() => {
     let n = 0;
     for (const id of selectedIds) {
@@ -483,12 +446,6 @@ export function BetsHistorySpreadsheet() {
     runSettlement(ids, { bypassCache: true });
   };
 
-  /**
-   * Re-run a single proposal and splice the fresh result back into
-   * `settleResponse`. Re-fires the full source waterfall (bypassing Tier 0
-   * so the source can actually change). Errors from the API surface as
-   * an error row the dialog already knows how to render.
-   */
   const handleRerunProposal = async (id: string) => {
     setRerunningIds((cur) => {
       const next = new Set(cur);

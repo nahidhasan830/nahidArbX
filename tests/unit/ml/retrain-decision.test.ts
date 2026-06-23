@@ -134,14 +134,10 @@ describe("decideRetrain", () => {
           },
         }),
       );
-      // null !== HASH_A → guard does not fire → falls through to cold-start branch.
       expect(d).toEqual({ should: true, reason: "cold_start_first_train" });
     });
 
     it("guard takes priority over deployed-model growth check", () => {
-      // Even when there's a deployed model and growth would normally fire,
-      // a recent same-contract rejection should block until another full
-      // retrain step has accumulated.
       const d = decideRetrain(
         baseInputs({
           deployedModel: { trainingSamples: 4500 },

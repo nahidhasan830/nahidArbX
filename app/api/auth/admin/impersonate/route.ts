@@ -1,10 +1,3 @@
-/**
- * POST /api/auth/admin/impersonate
- *
- * Start impersonating a user (admin only).
- * Creates a new session for the target user, marked as impersonation.
- * The real user's session is NOT revoked.
- */
 
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -27,7 +20,6 @@ export async function POST(request: Request) {
   try {
     await initializeAuth();
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -41,7 +33,6 @@ export async function POST(request: Request) {
       return apiError("Admin access required", 403);
     }
 
-    // Already impersonating?
     if (session.isImpersonation) {
       return apiError(
         "Already impersonating. Stop current impersonation first.",
@@ -49,7 +40,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Parse body
     const body = await request.json();
     const parsed = ImpersonateSchema.safeParse(body);
 
@@ -59,7 +49,6 @@ export async function POST(request: Request) {
 
     const { userId } = parsed.data;
 
-    // Get target user
     const targetUser = await db
       .select()
       .from(users)
@@ -70,28 +59,23 @@ export async function POST(request: Request) {
       return apiNotFound("User not found");
     }
 
-    // Cannot impersonate yourself
     if (targetUser.id === session.userId) {
       return apiError("Cannot impersonate yourself", 400);
     }
 
-    // Note: Admins CAN impersonate other admins - full control
 
-    // Get admin user for logging
     const adminUser = await db
       .select()
       .from(users)
       .where(eq(users.id, session.userId))
       .get();
 
-    // Get request metadata
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
     const userAgent = request.headers.get("user-agent");
     const deviceInfo = parseDeviceInfo(userAgent);
     const geo = await getGeoLocation(ip);
 
-    // Create impersonation session (doesn't revoke target user's session)
     const { token: impersonationToken } = await createSession(targetUser.id, {
       ipAddress: ip,
       deviceInfo,
@@ -101,7 +85,6 @@ export async function POST(request: Request) {
       realUserEmail: adminUser?.email,
     });
 
-    // Log activity (only visible to admin)
     await logActivity({
       userId: targetUser.id,
       userEmail: targetUser.email,
@@ -113,10 +96,8 @@ export async function POST(request: Request) {
       metadata: { adminEmail: adminUser?.email },
     });
 
-    // Get target user's permissions
     const permissions = await getUserPermissions(targetUser.id);
 
-    // Set cookies
     const response = NextResponse.json({
       ok: true,
       user: {
@@ -130,7 +111,6 @@ export async function POST(request: Request) {
       },
     });
 
-    // Set new auth token
     response.cookies.set("auth_token", impersonationToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -139,7 +119,6 @@ export async function POST(request: Request) {
       maxAge: 24 * 60 * 60,
     });
 
-    // Store admin's original token to return to
     response.cookies.set("admin_token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

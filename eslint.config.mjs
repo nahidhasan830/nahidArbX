@@ -5,7 +5,6 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Honor `_`-prefix convention for intentionally-unused vars / args / destructure leftovers.
   {
     rules: {
       "@typescript-eslint/no-unused-vars": [
@@ -20,7 +19,6 @@ const eslintConfig = defineConfig([
       ],
     },
   },
-  // Override default ignores of eslint-config-next.
   globalIgnores([
     ".next/**",
     "out/**",

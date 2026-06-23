@@ -1,48 +1,20 @@
-/**
- * ADWIN Drift Detector — concept drift detection for ML model performance.
- *
- * ADWIN (ADaptive WINdowing) maintains a variable-length window of recent
- * observations and shrinks it whenever two sub-windows show a statistically
- * significant difference in their means. Window shrinkage = concept drift.
- *
- * This module wraps ADWIN to track multiple performance metrics for the
- * deployed ML model. When drift is detected on any metric, the retraining
- * scheduler is notified (potentially triggering a shorter cadence retrain).
- *
- * Metrics tracked:
- *   - unitReturn: per-bet unit return (settled OOS bets only)
- *   - winRate:   0/1 outcome signals
- *   - mlScoreBias: difference between predicted score and actual outcome
- *
- * References:
- *   - Bifet & Gavaldà (2007), "Learning from Time-Changing Data with Adaptive Windowing"
- *   - Based on Python library's ADWIN and river's implementation
- */
 
 import { singleton } from "../util/singleton";
 import { logger } from "../shared/logger";
 
-// ── ADWIN algorithm parameters ───────────────────────────────────────
 
-/** Confidence parameter δ — lower = more sensitive to drift, higher = fewer false positives. */
 const DELTA = 0.002;
 
-/** Minimum sub-window length for comparison. Prevents spurious drift on tiny windows. */
 const MIN_SUB_WINDOW = 10;
 
-/** Minimum window length before checking for drift. */
 const MIN_WINDOW = 30;
 
-/** Maximum window length — cap to bound memory. */
 const MAX_WINDOW = 5000;
 
-/** Minimum number of window shrinks before triggering a drift alert. */
 const MIN_SHRINKS_FOR_ALERT = 3;
 
-/** Cooldown period between drift alerts (ms). Prevents retrain storm. */
-const ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const ALERT_COOLDOWN_MS = 60 * 60 * 1000;
 
-// ── Config ════════════════════════════════════════════════════════════
 
 interface AdwinConfig {
   delta: number;
@@ -51,14 +23,10 @@ interface AdwinConfig {
   maxWindow: number;
 }
 
-// ── Types ─────────────────────────────────────────────────────────────
 
 interface AdwinBucket {
-  /** Sum of values in this bucket. */
   total: number;
-  /** Variance accumulator: sum of (value - mean)^2. */
   variance: number;
-  /** Number of observations in this bucket. */
   count: number;
 }
 
@@ -80,16 +48,11 @@ class AdwinInstance {
     this.totalObservations = 0;
   }
 
-  /**
-   * Observe a new value and check for drift.
-   * @returns true if concept drift was detected (window was shrunk).
-   */
   observe(value: number): boolean {
     if (!Number.isFinite(value)) return false;
 
     this.totalObservations++;
 
-    // Insert new bucket with singleton observation
     const newBucket: AdwinBucket = {
       total: value,
       variance: 0,
@@ -98,18 +61,14 @@ class AdwinInstance {
 
     this.buckets.push(newBucket);
 
-    // Compress: merge first two buckets if the total count exceeds maxWindow
     while (this.getWindowLength() > this.config.maxWindow) {
       this.compressBuckets(0, 1);
     }
 
-    // Not enough data for drift detection
     if (this.getWindowLength() < this.config.minWindow) return false;
 
-    // Drift detection: search for cut point
     let driftDetected = false;
     for (let cut = 0; cut < this.buckets.length; cut++) {
-      // Check if both sub-windows are large enough
       const w0Count = this.bucketSum(cut + 1, this.buckets.length);
       const w1Count = this.bucketSum(0, cut + 1);
 
@@ -128,19 +87,14 @@ class AdwinInstance {
 
       if (Math.abs(mu0 - mu1) < 1e-12) continue;
 
-      // Hoeffding bound-based test
-      // n = 1 / (1/w0Count + 1/w1Count) — harmonic mean
       const nHarmonic = 1 / (1 / w0Count + 1 / w1Count);
-      // δ' = δ / log(n) — Bonferroni-like correction for window length
       const deltaPrime = this.config.delta / Math.log(this.totalObservations);
 
-      // epsilon = sqrt(1/(2 * nHarmonic) * ln(2/deltaPrime))
       const epsilon = Math.sqrt(
         (1 / (2 * nHarmonic)) * Math.log(2 / deltaPrime),
       );
 
       if (Math.abs(mu0 - mu1) > epsilon) {
-        // Drift detected: drop older sub-window (w0)
         this.buckets = this.buckets.slice(cut + 1);
         driftDetected = true;
         break;
@@ -177,17 +131,14 @@ class AdwinInstance {
     };
   }
 
-  /** Number of observations in buckets [start, end). */
   private bucketSum(start: number, end: number): number {
     return this.buckets.slice(start, end).reduce((s, b) => s + b.count, 0);
   }
 
-  /** Sum of values in buckets [start, end). */
   private bucketSumTotal(start: number, end: number): number {
     return this.buckets.slice(start, end).reduce((s, b) => s + b.total, 0);
   }
 
-  /** Merge bucket at idx into idx+1 for memory compression. */
   private compressBuckets(idxA: number, idxB: number): void {
     const a = this.buckets[idxA];
     const b = this.buckets[idxB];
@@ -203,7 +154,6 @@ class AdwinInstance {
   }
 }
 
-// ── Multi-metric drift tracker ────────────────────────────────────────
 
 interface DriftTrackerState {
   unitReturn: AdwinInstance;
@@ -213,11 +163,8 @@ interface DriftTrackerState {
   totalObservations: number;
   consecutiveShrinks: number;
   lastAlertAt: number;
-  /** Permission level before drift degradation (null if no active degradation). */
   preDriftPermissionLevel: string | null;
-  /** Whether permission has been degraded due to drift. */
   permissionDegraded: boolean;
-  /** When the degradation was applied (for cooldown). */
   degradedAt: number;
 }
 
@@ -234,11 +181,10 @@ const tracker = singleton<DriftTrackerState>("ml:drift-tracker", () => ({
   degradedAt: 0,
 }));
 
-// ── Types ─────────────────────────────────────────────────────────────
 
 export interface DriftObservation {
   unitReturn: number | null;
-  outcome: 1 | 0 | null; // 1 = win, 0 = loss (void excluded)
+  outcome: 1 | 0 | null;
   mlScore: number | null;
 }
 
@@ -255,12 +201,7 @@ export interface DriftStatus {
   retrainCooldownRemainingMs: number;
 }
 
-// ── Public API ────────────────────────────────────────────────────────
 
-/**
- * Feed a settled bet observation into the drift detector.
- * Void outcomes are skipped (no signal).
- */
 export function observeBet(obs: DriftObservation): void {
   if (obs.unitReturn != null && Number.isFinite(obs.unitReturn)) {
     tracker.unitReturn.observe(obs.unitReturn);
@@ -275,7 +216,6 @@ export function observeBet(obs: DriftObservation): void {
     obs.outcome != null &&
     Number.isFinite(obs.mlScore)
   ) {
-    // Score bias: positive = overconfident (predicted higher than actual)
     const bias = obs.mlScore - obs.outcome;
     tracker.mlScoreBias.observe(bias);
   }
@@ -283,7 +223,6 @@ export function observeBet(obs: DriftObservation): void {
   tracker.lastObservationAt = Date.now();
   tracker.totalObservations++;
 
-  // Track consecutive shrinks across metrics
   const totalShrinks =
     tracker.unitReturn.getShrinks() +
     tracker.winRate.getShrinks() +
@@ -296,12 +235,6 @@ export function observeBet(obs: DriftObservation): void {
   }
 }
 
-/**
- * Check whether concept drift has been detected.
- *
- * Returns drift status with details on which metrics drifted and whether
- * retraining is recommended (respecting cooldown).
- */
 export function checkDrift(): DriftStatus {
   const unitReturnShrinks = tracker.unitReturn.getShrinks();
   const winRateShrinks = tracker.winRate.getShrinks();
@@ -314,7 +247,6 @@ export function checkDrift(): DriftStatus {
 
   const driftDetected = metrics.length > 0;
 
-  // Cooldown check
   const now = Date.now();
   const retrainCooldownRemainingMs = Math.max(
     0,
@@ -340,9 +272,6 @@ export function checkDrift(): DriftStatus {
   };
 }
 
-/**
- * Get detailed ADWIN stats for diagnostics.
- */
 export function getDriftStats() {
   return {
     unitReturn: tracker.unitReturn.getStats(),
@@ -355,7 +284,6 @@ export function getDriftStats() {
   };
 }
 
-// ── Calibration decay monitoring
 const PERMISSION_ORDER: Record<string, number> = {
   observe: 0,
   gate_only: 1,
@@ -370,19 +298,10 @@ const PERMISSION_NAMES: Record<number, string> = {
   3: "stake_increase",
 };
 
-/**
- * Degrade the current permission level one step due to drift.
- *
- * Called immediately when drift is detected — the model steps back BEFORE
- * retraining completes. This prevents a drifting model from continuing
- * to affect live bets while we wait for a new one.
- *
- * @returns the new (degraded) permission level, or null if no degradation needed.
- */
 export function computeDriftDegradation(currentLevel: string): string | null {
   const currentIdx = PERMISSION_ORDER[currentLevel];
   if (currentIdx === undefined || currentIdx <= 0) {
-    return null; // Already at shadow, can't go lower
+    return null;
   }
 
   const newIdx = currentIdx - 1;
@@ -402,10 +321,6 @@ export function computeDriftDegradation(currentLevel: string): string | null {
   return newLevel;
 }
 
-/**
- * Clear drift degradation (called when a new model successfully deploys).
- * Restores the original permission level if the degradation was active.
- */
 export function clearDriftDegradation(): string | null {
   if (!tracker.permissionDegraded) return null;
 
@@ -423,9 +338,6 @@ export function clearDriftDegradation(): string | null {
   return restored;
 }
 
-/**
- * Get current drift degradation status for diagnostics.
- */
 export function getDriftDegradationStatus() {
   return {
     degraded: tracker.permissionDegraded,
@@ -438,7 +350,6 @@ export function getDriftDegradationStatus() {
   };
 }
 
-// ── Calibration decay monitoring ─────────────────────────────────────
 
 const CAL_CHECK_WINDOW = 200;
 const CAL_ECE_THRESHOLD = 0.15;

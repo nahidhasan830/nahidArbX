@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * AiActivityToolbar — filter toolbar for the AI activity log page.
- *
- * Filters: status, system, trigger, date range, search.
- * Stats strip: success/error/partial counts, total cost, avg duration.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, ChevronDown, Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -39,8 +32,6 @@ import {
 import { cn } from "@/lib/utils";
 import type { AiLogStats } from "@/lib/db/repositories/ai-logs";
 
-// ── Status tabs ──
-
 type StatusFilter = "all" | "success" | "error" | "partial";
 
 const STATUS_TABS: { id: StatusFilter; label: string; title: string }[] = [
@@ -54,8 +45,6 @@ const STATUS_TABS: { id: StatusFilter; label: string; title: string }[] = [
   { id: "partial", label: "Partial", title: "Partially completed operations" },
 ];
 
-// ── System filter options ──
-
 const SYSTEM_OPTIONS: { value: string; label: string }[] = [
   { value: "search", label: "Search" },
   { value: "llm", label: "LLM" },
@@ -65,8 +54,6 @@ const SYSTEM_OPTIONS: { value: string; label: string }[] = [
   { value: "analysis", label: "Analysis" },
   { value: "propose", label: "Propose" },
 ];
-
-// ── Trigger filter options ──
 
 const TRIGGER_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
@@ -109,8 +96,6 @@ const TRACE_PRESETS: {
     endpoints: ["search", "entity-match"],
   },
 ];
-
-// ── Date preset helpers ──
 
 const DATE_PRESET_GROUPS: { title: string; keys: DatePresetKey[] }[] = [
   {
@@ -162,12 +147,8 @@ function getCompactPresetLabel(key: DatePresetKey) {
   );
 }
 
-// ── Shared style primitives ──
-
 const CTRL_H = "h-7";
 const BTN_BASE = cn(CTRL_H, "px-2 text-[11px] gap-1.5 font-normal");
-
-// ── Date preset panel ──
 
 function PresetGrid({
   activePreset,
@@ -210,8 +191,6 @@ function PresetGrid({
   );
 }
 
-// ── Filters type ──
-
 export type AiActivityFilters = {
   from?: string;
   to?: string;
@@ -221,8 +200,6 @@ export type AiActivityFilters = {
   endpoints?: string[];
   search?: string;
 };
-
-// ── Props ──
 
 type Props = {
   filters: AiActivityFilters;
@@ -235,8 +212,6 @@ type Props = {
   statsLoading?: boolean;
   loading?: boolean;
 };
-
-// ── Component ──
 
 export function AiActivityToolbar({
   filters,
@@ -256,36 +231,39 @@ export function AiActivityToolbar({
     [filters, onFiltersChange],
   );
 
-  // ── Debounced search ──
-  const [localSearch, setLocalSearch] = useState(filters.search ?? "");
+  const externalSearch = filters.search ?? "";
+  const [searchDraft, setSearchDraft] = useState({
+    external: externalSearch,
+    value: externalSearch,
+  });
+  const localSearch =
+    searchDraft.external === externalSearch ? searchDraft.value : externalSearch;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    setLocalSearch(filters.search ?? "");
-  }, [filters.search]);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, [externalSearch]);
 
   const commitSearch = useCallback(
     (value: string) => {
       update({ search: value || undefined });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters],
+    [update],
   );
 
   const handleSearchChange = useCallback(
     (value: string) => {
-      setLocalSearch(value);
+      setSearchDraft({ external: externalSearch, value });
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => commitSearch(value), 300);
     },
-    [commitSearch],
+    [commitSearch, externalSearch],
   );
 
   const clearSearch = useCallback(() => {
-    setLocalSearch("");
+    setSearchDraft({ external: externalSearch, value: "" });
     if (debounceRef.current) clearTimeout(debounceRef.current);
     update({ search: undefined });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [externalSearch, update]);
 
   useEffect(() => {
     return () => {
@@ -293,7 +271,6 @@ export function AiActivityToolbar({
     };
   }, []);
 
-  // ── Status filter ──
   const selectedStatuses = filters.statuses ?? [];
   const toggleStatus = (status: StatusFilter) => {
     if (status === "all") {
@@ -306,7 +283,6 @@ export function AiActivityToolbar({
     update({ statuses: current.size > 0 ? Array.from(current) : undefined });
   };
 
-  // ── System filter ──
   const selectedSystems = filters.systems ?? [];
   const toggleSystem = (sys: string) => {
     const current = new Set(selectedSystems);
@@ -315,7 +291,6 @@ export function AiActivityToolbar({
     update({ systems: current.size > 0 ? Array.from(current) : undefined });
   };
 
-  // ── Trigger filter ──
   const selectedTriggers = filters.triggers ?? [];
   const toggleTrigger = (trig: string) => {
     const current = new Set(selectedTriggers);
@@ -356,7 +331,7 @@ export function AiActivityToolbar({
       endpoints: undefined,
       search: undefined,
     });
-    setLocalSearch("");
+    setSearchDraft({ external: externalSearch, value: "" });
   };
 
   return (

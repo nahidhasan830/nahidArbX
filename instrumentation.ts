@@ -1,20 +1,7 @@
-/**
- * Next.js server-boot hook. Runs once per server process, before any
- * request is served.
- *
- * In the dual-process architecture, Next.js is UI-only — all background
- * subsystems (sync, detection, settlement, WebSockets, Telegram) run
- * in the standalone engine process (engine.ts). This file only
- * initialises the DB pool and sends a lightweight frontend-boot
- * Telegram notification.
- */
-
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (process.env.NEXT_PHASE === "phase-production-build") return;
 
-  // Initialize database pool — needed for DB-backed API routes
-  // (bets, settlement, settings, accounts, etc.)
   const { ensureDbReady } = await import("./lib/db/client");
   await ensureDbReady();
 
@@ -24,7 +11,6 @@ export async function register() {
     "Next.js running in web-only mode (engine runs separately)",
   );
 
-  // Send frontend-boot Telegram notification
   const hasTgCreds =
     Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
     Boolean(process.env.TELEGRAM_CHAT_ID);
@@ -34,8 +20,6 @@ export async function register() {
     const { waitForEngineReachable, ENGINE_BASE_URL } =
       await import("./lib/engine-proxy");
     const reachable = await waitForEngineReachable();
-    // Access Node.js-only globals indirectly to avoid Edge Runtime
-    // static-analysis warnings (this code is guarded by NEXT_RUNTIME check above)
     const proc = globalThis.process;
     const frontendPayload = {
       type: "system:boot" as const,
@@ -51,9 +35,6 @@ export async function register() {
     const { isUnifiedBoot, writeBootPayload, waitForBootPayloads } =
       await import("./lib/notifier/unified-boot");
     if (isUnifiedBoot()) {
-      // Write our own payload, then give the engine process a short window
-      // to publish its ready payload before sending the combined notification.
-      // (AI search is co-located with frontend; no separate payload.)
       writeBootPayload("frontend", frontendPayload);
       const payloads = await waitForBootPayloads(["engine", "frontend"]);
       const engine = payloads.find((p) => p.role === "engine");

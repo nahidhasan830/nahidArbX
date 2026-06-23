@@ -1,12 +1,3 @@
-/**
- * Near-Match Store
- *
- * File-based store for near-matches (pairs that almost matched).
- * Used for diagnostics and alias learning.
- *
- * Persists to disk to ensure data survives across API route contexts.
- */
-
 import fs from "fs";
 import path from "path";
 import { logger } from "../../shared/logger";
@@ -15,16 +6,8 @@ import { MAX_NEAR_MATCHES, NEAR_MATCH_MAX_AGE_MS } from "./types";
 import { computePairKey } from "../pair-key";
 import { applyTeamAlias, applyCompetitionAlias } from "../normalize";
 
-// ============================================
-// File Storage Path
-// ============================================
-
 const DATA_DIR = path.join(process.cwd(), "rawData");
 const STORE_FILE = path.join(DATA_DIR, "near-matches.json");
-
-// ============================================
-// Store State (in-memory cache + file persistence)
-// ============================================
 
 interface DiagnosticsStoreData {
   nearMatches: Record<string, NearMatch>;
@@ -33,7 +16,6 @@ interface DiagnosticsStoreData {
   version: number;
 }
 
-// In-memory cache - use globalThis to survive Next.js hot reloads
 interface DiagnosticsCache {
   nearMatches: Map<string, NearMatch>;
   lastAnalysis: Date | null;
@@ -59,21 +41,15 @@ function getCache(): DiagnosticsCache {
   return globalThis.__diagnosticsCache;
 }
 
-// Alias for backward compatibility (used throughout this file)
 const cache = new Proxy({} as DiagnosticsCache, {
   get(_, prop) {
     return getCache()[prop as keyof DiagnosticsCache];
   },
   set(_, prop, value) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (getCache() as any)[prop as string] = value;
+    Reflect.set(getCache(), prop, value);
     return true;
   },
 });
-
-// ============================================
-// File Operations
-// ============================================
 
 function ensureDataDir(): void {
   if (!fs.existsSync(DATA_DIR)) {
@@ -91,16 +67,13 @@ function loadFromFile(): void {
     const raw = fs.readFileSync(STORE_FILE, "utf-8");
     const data: DiagnosticsStoreData = JSON.parse(raw);
 
-    // Only reload if file version changed
     if (data.version === cache.fileVersion && cache.loaded) {
       return;
     }
 
-    // Parse near-matches with date conversion
     cache.nearMatches = new Map();
     for (const [id, nm] of Object.entries(data.nearMatches)) {
       try {
-        // Convert string dates back to Date objects
         const parsed: NearMatch = {
           ...nm,
           eventA: {
@@ -116,7 +89,6 @@ function loadFromFile(): void {
         };
         cache.nearMatches.set(id, parsed);
       } catch {
-        // Skip invalid entries
       }
     }
 
@@ -137,7 +109,6 @@ function saveToFile(): void {
   try {
     ensureDataDir();
 
-    // Convert Map to object for JSON serialization
     const nearMatchesObj: Record<string, NearMatch> = {};
     for (const [id, nm] of cache.nearMatches) {
       nearMatchesObj[id] = nm;
@@ -160,7 +131,6 @@ function saveToFile(): void {
   }
 }
 
-// Auto-save debounce
 let saveTimeout: NodeJS.Timeout | null = null;
 function scheduleSave(): void {
   if (saveTimeout) {
@@ -179,25 +149,12 @@ function getStore() {
   return cache;
 }
 
-/**
- * Force reload from file (for when we need fresh data)
- */
 export function forceReloadStore(): void {
   cache.loaded = false;
-  cache.fileVersion = -1; // Reset version to force full reload
+  cache.fileVersion = -1;
   loadFromFile();
 }
 
-// ============================================
-// Near-Match Operations
-// ============================================
-
-/**
- * Compute the canonical pair key for a near-match so we can dedupe entries
- * that describe the same real-world pairing (provider APIs sometimes rotate
- * internal event IDs between syncs, which would otherwise create new entries
- * for the identical fixture pair).
- */
 function canonicalKeyFor(nm: NearMatch): string {
   return computePairKey(
     {
@@ -214,24 +171,13 @@ function canonicalKeyFor(nm: NearMatch): string {
   );
 }
 
-/**
- * Add a near-match to the store.
- * Dedupes by canonical pair key (team + league identity) so the list never
- * contains multiple rows for the same real fixture pairing. Enforces max
- * capacity by removing oldest pending entries.
- */
 export function addNearMatch(nearMatch: NearMatch): void {
   const store = getStore();
 
-  // Internal-ID duplicate
   if (store.nearMatches.has(nearMatch.id)) {
     return;
   }
 
-  // Canonical-pair duplicate: a different store entry already describes this
-  // fixture pair. Replace it only if the new one has a better score OR the
-  // existing one is stale (older than 1 hour). This keeps the store sized
-  // to real distinct pairs rather than ballooning with re-sync churn.
   const newKey = canonicalKeyFor(nearMatch);
   for (const [id, existing] of store.nearMatches) {
     if (existing.status !== "pending") continue;
@@ -245,11 +191,10 @@ export function addNearMatch(nearMatch: NearMatch): void {
       store.nearMatches.delete(id);
       break;
     } else {
-      return; // existing is at least as good and not stale — keep it
+      return;
     }
   }
 
-  // Enforce capacity limit - remove oldest pending entries
   if (store.nearMatches.size >= MAX_NEAR_MATCHES) {
     const pendingByAge = Array.from(store.nearMatches.entries())
       .filter(([, nm]) => nm.status === "pending")
@@ -258,7 +203,6 @@ export function addNearMatch(nearMatch: NearMatch): void {
     if (pendingByAge.length > 0) {
       store.nearMatches.delete(pendingByAge[0][0]);
     } else {
-      // All are confirmed/rejected - remove oldest overall
       const oldest = Array.from(store.nearMatches.entries()).sort(
         ([, a], [, b]) => a.detectedAt.getTime() - b.detectedAt.getTime(),
       )[0];
@@ -270,9 +214,6 @@ export function addNearMatch(nearMatch: NearMatch): void {
   scheduleSave();
 }
 
-/**
- * Get all near-matches, optionally filtered.
- */
 export function getNearMatches(filter?: {
   status?: NearMatch["status"];
   minScore?: number;
@@ -298,22 +239,15 @@ export function getNearMatches(filter?: {
     );
   }
 
-  // Sort by score descending (highest potential matches first)
   return results.sort(
     (a, b) => b.breakdown.finalScore - a.breakdown.finalScore,
   );
 }
 
-/**
- * Get a single near-match by ID.
- */
 export function getNearMatchById(id: string): NearMatch | undefined {
   return getStore().nearMatches.get(id);
 }
 
-/**
- * Update near-match status (for manual confirmation/rejection).
- */
 export function updateNearMatchStatus(
   id: string,
   status: "confirmed" | "rejected",
@@ -336,10 +270,6 @@ export function updateNearMatchStatus(
   return nearMatch;
 }
 
-/**
- * Remove old pending near-matches.
- * Keeps confirmed/rejected for audit trail.
- */
 export function pruneOldNearMatches(
   maxAgeMs: number = NEAR_MATCH_MAX_AGE_MS,
 ): number {
@@ -362,9 +292,6 @@ export function pruneOldNearMatches(
   return removed;
 }
 
-/**
- * Clear all near-matches (for testing).
- */
 export function clearNearMatches(): void {
   const store = getStore();
   store.nearMatches.clear();
@@ -373,13 +300,6 @@ export function clearNearMatches(): void {
   scheduleSave();
 }
 
-// ============================================
-// Pattern Operations
-// ============================================
-
-/**
- * Set detected failure patterns.
- */
 export function setPatterns(patterns: FailurePattern[]): void {
   const store = getStore();
   store.patterns = patterns;
@@ -387,20 +307,10 @@ export function setPatterns(patterns: FailurePattern[]): void {
   scheduleSave();
 }
 
-/**
- * Get current failure patterns.
- */
 export function getPatterns(): FailurePattern[] {
   return getStore().patterns;
 }
 
-// ============================================
-// Statistics
-// ============================================
-
-/**
- * Get diagnostic statistics.
- */
 export function getDiagnosticStats(): DiagnosticStats {
   const store = getStore();
   const nearMatches = Array.from(store.nearMatches.values());
@@ -428,9 +338,6 @@ export function getDiagnosticStats(): DiagnosticStats {
   };
 }
 
-/**
- * Get count of pending near-matches.
- */
 export function getPendingCount(): number {
   const store = getStore();
   let count = 0;

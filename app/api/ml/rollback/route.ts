@@ -1,21 +1,3 @@
-/**
- * POST /api/ml/rollback — atomically swap the deployed model version.
- *
- * Body: { targetVersion: number }
- *
- * Behaviour:
- *   1. Verify a model row at `targetVersion` exists and is in a deployable
- *      state (currently `retired` or `deployed`).
- *   2. Inside a single transaction:
- *        a. Mark the current deployed row (if any) as `retired` with a
- *           timestamp.
- *        b. Mark the target row as `deployed` with a fresh `deployed_at`.
- *   3. The Vertex AI scorer's model-version watcher (60s poll) picks up
- *      the change automatically.
- *
- * This is a destructive operation against shared state. The UI gates it
- * behind a confirmation dialog before invoking.
- */
 
 import { NextResponse } from "next/server";
 import { logger } from "@/lib/shared/logger";
@@ -73,7 +55,6 @@ export async function POST(req: Request) {
     const result = await db.transaction(async (tx) => {
       const now = new Date().toISOString();
 
-      // Retire whatever's currently deployed.
       const [previous] = await tx
         .select({ id: mlModels.id, version: mlModels.version })
         .from(mlModels)
@@ -89,7 +70,6 @@ export async function POST(req: Request) {
           );
       }
 
-      // Promote the target back to deployed.
       const updated = await tx
         .update(mlModels)
         .set({ status: "deployed", deployedAt: now, retiredAt: null })

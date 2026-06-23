@@ -1,9 +1,3 @@
-/**
- * Pinnacle Atoms Adapter
- *
- * Fetches raw market data from Pinnacle and extracts odds directly into atoms store.
- * Uses shared schemas and client from lib/adapters/pinnacle/ module.
- */
 
 import { BaseAtomsAdapter, type FetchContext } from "./base";
 
@@ -30,25 +24,18 @@ import {
 } from "../../adapters/pinnacle/index";
 import { buildEventMarketsUrl } from "../../adapters/pinnacle/urls";
 
-// Re-export for backward compatibility
 export {
   SOCCER_SPORT_ID,
   PinnacleEventMarketsResponseSchema,
 } from "../../adapters/pinnacle/schemas";
 export { buildEventMarketsUrl } from "../../adapters/pinnacle/urls";
 
-// ============================================
-// Types
-// ============================================
 
 interface PinnacleRawData {
   parsed: PinnacleEventMarketsResponse;
   providerEventId: string;
 }
 
-// ============================================
-// Adapter Class
-// ============================================
 
 export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = "pinnacle";
@@ -89,13 +76,9 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     const allEntries: NormalizedOddsEntry[] = [];
     let rawMarketCount = 0;
 
-    // Get live score for handicap adjustment
-    // Try multi-source store first (has fallback to BC), then legacy Pinnacle-only store
-    // SPREAD markets will be adjusted from "running ball" to "full match" semantics
     let scoreContext: ScoreContext | undefined;
     let cornersScoreContext: CornersScoreContext | undefined;
 
-    // Try multi-source store (keyed by normalized event ID)
     const multiScore = getMultiSourceScore(ctx.normalizedEventId);
     if (multiScore?.primary) {
       scoreContext = {
@@ -103,7 +86,6 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
         awayScore: multiScore.primary.awayScore,
       };
 
-      // Log warning if using low-confidence score
       if (multiScore.confidence === "low") {
         logger.warn(
           "PinnacleAtoms",
@@ -112,7 +94,6 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
         );
       }
 
-      // Extract corners from multi-source if available
       if (multiScore.primary.homeCorners !== undefined) {
         cornersScoreContext = {
           homeCorners: multiScore.primary.homeCorners,
@@ -121,7 +102,6 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
       }
     }
 
-    // Fallback to legacy Pinnacle-only store (keyed by Pinnacle event ID)
     if (!scoreContext) {
       const liveScore = getLiveScore(providerEventId);
       if (liveScore) {
@@ -132,7 +112,6 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
       }
     }
 
-    // Get corners from legacy store if not from multi-source
     if (!cornersScoreContext) {
       const cornersLiveScore = getCornersScore(providerEventId);
       if (cornersLiveScore) {
@@ -171,7 +150,6 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
       }
     }
 
-    // Log only when extraction fails
     if (allEntries.length === 0 && rawMarketCount > 0) {
       logger.warn(
         "PinnacleAtoms",
@@ -182,12 +160,6 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     return allEntries;
   }
 
-  /**
-   * Override base implementation to:
-   * 1. Suppress the noisy "token expired in fast mode" error path that's
-   *    expected during single-event live refreshes.
-   * 2. Use `logger.error` (vs base's `logger.warn`) for genuine failures.
-   */
   async fetchAndStoreOdds(
     providerEventId: string,
     normalizedEventId: string,
@@ -195,23 +167,13 @@ export class PinnacleAtomsAdapter extends BaseAtomsAdapter {
     awayTeam: string,
     _options: AtomsFetchOptions = {},
   ): Promise<number> {
-    // LEGACY: The 15-second polling loop calls this.
-    // We now use real-time STOMP WebSockets (`ws-client.ts`), so we do not
-    // fetch odds via REST anymore to avoid duplicate work and API rate limits.
-    // The X-Ray diagnostics UI still uses `debugFetchAndStoreOdds` below.
     return 0;
   }
 }
 
-// ============================================
-// Singleton instance
-// ============================================
 
 const adapterInstance = new PinnacleAtomsAdapter();
 
-// ============================================
-// Legacy Function Exports (Backward Compatibility)
-// ============================================
 
 export async function fetchAndStorePinnacleOdds(
   providerEventId: string,

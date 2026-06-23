@@ -1,25 +1,11 @@
-/**
- * Admin Bootstrap
- *
- * Auto-creates admin user from environment variables on first run.
- * Also handles database initialization.
- */
 
 import { db, users, userPermissions } from "./db";
 import { hashPassword } from "./password";
 import { FEATURE_IDS } from "./features/registry";
 import { eq } from "drizzle-orm";
 
-// ============================================
-// Database Initialization
-// ============================================
 
-/**
- * Initialize database tables
- */
 export async function initializeDatabase(): Promise<void> {
-  // Create tables if they don't exist
-  // Using raw SQL since Drizzle doesn't have built-in migration for better-sqlite3
 
   const sqlite = (db as unknown as { $client: { exec: (sql: string) => void } })
     .$client;
@@ -100,13 +86,7 @@ export async function initializeDatabase(): Promise<void> {
   console.log("[Auth] Database tables initialized");
 }
 
-// ============================================
-// Admin Bootstrap
-// ============================================
 
-/**
- * Bootstrap admin user from environment variables
- */
 export async function bootstrapAdmin(): Promise<void> {
   const adminEmail = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -118,7 +98,6 @@ export async function bootstrapAdmin(): Promise<void> {
     return;
   }
 
-  // Check if admin exists
   const existing = await db
     .select()
     .from(users)
@@ -126,7 +105,6 @@ export async function bootstrapAdmin(): Promise<void> {
     .get();
 
   if (existing) {
-    // Update password if it changed
     const passwordHash = await hashPassword(adminPassword);
     await db
       .update(users)
@@ -142,7 +120,6 @@ export async function bootstrapAdmin(): Promise<void> {
     return;
   }
 
-  // Create admin user
   const adminId = crypto.randomUUID();
   const passwordHash = await hashPassword(adminPassword);
   const now = new Date();
@@ -158,7 +135,6 @@ export async function bootstrapAdmin(): Promise<void> {
     updatedAt: now,
   });
 
-  // Grant all permissions to admin
   for (const featureId of FEATURE_IDS) {
     await db.insert(userPermissions).values({
       id: crypto.randomUUID(),
@@ -172,15 +148,9 @@ export async function bootstrapAdmin(): Promise<void> {
   console.log("[Auth] Admin user created:", adminEmail);
 }
 
-// ============================================
-// Combined Initialization
-// ============================================
 
 let initialized = false;
 
-/**
- * Initialize auth system (call once at app startup)
- */
 export async function initializeAuth(): Promise<void> {
   if (initialized) {
     return;

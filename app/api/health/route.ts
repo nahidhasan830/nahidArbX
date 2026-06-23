@@ -1,16 +1,3 @@
-/**
- * Health Check API Endpoint
- *
- * Uses engine HTTP API for detailed health when in web-only mode.
- *
- * Endpoints:
- * - GET /api/health - Full health check (detailed, proxied from engine)
- * - GET /api/health?simple=true - Simple health check (always OK if responding)
- *
- * Response codes:
- * - 200: Healthy
- * - 503: Unhealthy
- */
 
 import { NextResponse } from "next/server";
 import { engineGet, enginePost } from "@/lib/engine-proxy";
@@ -22,12 +9,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const simple = searchParams.get("simple") === "true";
 
-  // Simple check: if this endpoint responds, the web server is up
   if (simple) {
     return NextResponse.json({ status: "ok" }, { status: 200 });
   }
 
-  // Full health check — proxy from engine
   const engineHealth =
     await engineGet<Record<string, unknown>>("/engine/health");
 
@@ -38,7 +23,6 @@ export async function GET(request: Request) {
     );
   }
 
-  // Engine unreachable — return degraded status
   return NextResponse.json(
     {
       status: "degraded",
@@ -51,22 +35,17 @@ export async function GET(request: Request) {
   );
 }
 
-/**
- * POST /api/health - Trigger healing actions (proxied to engine)
- */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { action } = body;
 
     if (action === "restart") {
-      // Restart is local to this process
       console.log("[Health] Restart requested via API");
       setTimeout(() => process.exit(0), 100);
       return NextResponse.json({ ok: true, message: "Restart initiated" });
     }
 
-    // Forward heal actions to engine
     const result = await enginePost("/engine/health", body);
     if (result === null) {
       return NextResponse.json(

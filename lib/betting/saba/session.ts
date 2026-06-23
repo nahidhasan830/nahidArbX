@@ -1,10 +1,3 @@
-/**
- * SABA session manager.
- *
- * SABA uses the same BetConstruct-style login envelope as 9W:
- * POST /api/bt/v2_1/user/login returns a main-site accessToken. The
- * provider launch URL opens SABA's football board.
- */
 import * as fs from "fs";
 import * as path from "path";
 import type { SabaSession } from "./types";
@@ -92,7 +85,6 @@ export function invalidateSession(): void {
   try {
     if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
   } catch {
-    // ignore
   }
 }
 

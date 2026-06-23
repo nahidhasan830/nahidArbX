@@ -48,7 +48,6 @@ export class TavilySearchProvider {
         }
       }
     } catch {
-      // Best-effort
     }
   }
 
@@ -111,7 +110,6 @@ export class TavilySearchProvider {
       throw new Error("Tavily API key not configured");
     }
 
-    // Check and increment quota
     if (!(await this.checkQuotaAndIncrement())) {
       throw new Error("Tavily quota exhausted");
     }
@@ -186,7 +184,6 @@ export class TavilySearchProvider {
         }
       }
     } catch {
-      // Usage sync is best-effort
     }
   }
 }

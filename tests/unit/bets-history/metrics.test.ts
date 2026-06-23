@@ -44,7 +44,6 @@ function makeRow(overrides: Partial<ValueBetRow> = {}): ValueBetRow {
   };
 }
 
-// ── computeFlatMetrics ────────────────────────────────────────────────────────
 
 describe("computeFlatMetrics", () => {
   it("returns zeros for empty array", () => {
@@ -98,7 +97,6 @@ describe("computeFlatMetrics", () => {
   });
 });
 
-// ── computeKellyQMetrics ──────────────────────────────────────────────────────
 
 describe("computeKellyQMetrics", () => {
   it("returns zeros for empty array", () => {
@@ -123,17 +121,14 @@ describe("computeKellyQMetrics", () => {
   });
 
   it("returns zero roiPct when total kelly stake is zero", () => {
-    // softOdds=1.2, sharpTrueProb=0.8 → fair=1.25 → soft below fair → kelly=0
     const rows = [
       makeRow({ outcome: "lost", softOdds: 1.2, sharpTrueProb: 0.8 }),
     ];
     const m = computeKellyQMetrics(rows);
-    // Kelly = max(0, ...) = 0, so totalStake = 0 → roiPct = 0
     expect(m.roiPct).toBe(0);
   });
 });
 
-// ── brierScore ────────────────────────────────────────────────────────────────
 
 describe("brierScore", () => {
   it("returns null for empty array", () => {
@@ -167,7 +162,6 @@ describe("brierScore", () => {
   });
 });
 
-// ── winZScore ─────────────────────────────────────────────────────────────────
 
 describe("winZScore", () => {
   it("returns null when fewer than 10 decided bets", () => {
@@ -178,7 +172,6 @@ describe("winZScore", () => {
   });
 
   it("returns positive z when wins > expected", () => {
-    // 15 wins, all p=0.3 → expected = 4.5, much higher actual
     const rows = Array.from({ length: 15 }, () =>
       makeRow({ outcome: "won", sharpTrueProb: 0.3 }),
     );
@@ -197,7 +190,6 @@ describe("winZScore", () => {
   });
 });
 
-// ── clvPct ────────────────────────────────────────────────────────────────────
 
 describe("clvPct", () => {
   it("returns null when closingSharpOdds is null", () => {
@@ -215,7 +207,6 @@ describe("clvPct", () => {
   });
 });
 
-// ── summarizeClv ──────────────────────────────────────────────────────────────
 
 describe("summarizeClv", () => {
   it("returns zero withClosing when no rows have closing odds", () => {
@@ -236,7 +227,6 @@ describe("summarizeClv", () => {
   });
 });
 
-// ── bucket helpers ────────────────────────────────────────────────────────────
 
 describe("evBucket", () => {
   it("neg for negative EV", () => {

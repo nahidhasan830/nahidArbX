@@ -20,16 +20,10 @@ const BodySchema = z.object({
             "lost",
             "half_lost",
             "void",
-            // Legacy alias — collapsed to void below.
             "push",
           ])
           .transform((v) => (v === "push" ? ("void" as const) : v)),
-        /**
-         * Which part of the pipeline produced this outcome. Optional —
-         * manual edits from the UI default to "manual" on the server.
-         */
         source: z.string().max(40).optional(),
-        /** Optional scoped final score (`home-away`) for placed-bet notifications. */
         score: z.string().max(20).optional(),
       }),
     )
@@ -49,9 +43,6 @@ export async function POST(request: NextRequest) {
     return apiBadRequest(parsed.error.issues[0]?.message ?? "Invalid body");
   }
   try {
-    // Default missing source to "manual" — the backtest UI sends this
-    // route when a human applied overrides via the settle dialog or
-    // inline outcome dropdown.
     const updates = parsed.data.updates.map((u) => ({
       ...u,
       source: u.source ?? "manual",

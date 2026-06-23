@@ -1,9 +1,3 @@
-/**
- * NineWickets Event Schemas
- *
- * Zod schemas for NineWickets Exchange event/fixture responses.
- * Used by the NineWickets Exchange event adapter.
- */
 
 import { z } from "zod";
 

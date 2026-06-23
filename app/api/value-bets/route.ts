@@ -1,13 +1,3 @@
-/**
- * Value Bets API — Proxy to Engine
- *
- * In web-only mode (NAHIDARBX_ENGINE=1), the in-memory stores
- * (events, value bets, odds, connection health) live in the
- * engine process. This route proxies to the engine HTTP API.
- *
- * GET  → proxies to engine /engine/value-bets (all query params forwarded)
- * POST → proxies to engine /engine/scheduler (action forwarding)
- */
 
 import { NextResponse } from "next/server";
 import { engineGet, enginePost } from "@/lib/engine-proxy";
@@ -17,7 +7,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const queryString = url.search; // includes the leading ?
+  const queryString = url.search;
   const enginePath = `/engine/value-bets${queryString}`;
 
   const data = await engineGet(enginePath);
@@ -53,7 +43,6 @@ export async function GET(request: Request) {
     );
   }
 
-  // Forward the engine's ETag if present
   const etag = (data as Record<string, unknown>)._etag as string | undefined;
   const headers: Record<string, string> = {
     "Cache-Control": "private, no-cache",

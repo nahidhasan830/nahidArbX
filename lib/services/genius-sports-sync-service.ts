@@ -13,7 +13,6 @@ import {
   type SportsbookMarket,
 } from "../atoms/adapters/ninewickets-sportsbook";
 
-// Unauthenticated 9W endpoint
 const NW_ENDPOINT =
   "https://gakvx.seofmi.live/exchange/member/playerService/queryGeniusSportsEvent";
 
@@ -77,7 +76,6 @@ interface SyncState {
   resolvedSelections?: Record<string, string>;
 }
 
-/** Minimal shape of a NormalizedEvent consumed by the sync loop. */
 interface SyncEntity {
   id: string;
   homeTeam: string;
@@ -85,7 +83,6 @@ interface SyncEntity {
   competition: string;
 }
 
-/** A single Genius Sports market as returned by the catalog/odds endpoints. */
 interface GeniusMarket {
   id: string | number;
   selectionTs?: number;
@@ -109,7 +106,6 @@ export class GeniusSportsSyncService {
   private intervalId?: NodeJS.Timeout;
   private busUnsubscribe?: () => void;
 
-  // Track state per normalizedEventId
   private nwStates = new Map<string, SyncState>();
   private velkiStates = new Map<string, SyncState>();
 
@@ -124,9 +120,8 @@ export class GeniusSportsSyncService {
     this.syncTrackedEntities();
     this.intervalId = setInterval(() => {
       this.syncTrackedEntities();
-    }, 60 * 1000); // Re-evaluate active fixtures every minute
+    }, 60 * 1000);
 
-    // React immediately when fixtures finish matching (eliminates 60s boot lag)
     this.busUnsubscribe = syncBus.subscribe((event) => {
       if (event.type === "fixtures:complete") {
         this.syncTrackedEntities();
@@ -154,7 +149,6 @@ export class GeniusSportsSyncService {
     const tracked = getMatchedEvents();
     if (!tracked || tracked.length === 0) return;
 
-    // NW Sportsbook
     if (isProviderRuntimeEnabled("ninewickets-sportsbook")) {
       const activeIds = new Set<string>();
       for (const entity of tracked) {
@@ -170,7 +164,6 @@ export class GeniusSportsSyncService {
               lastLimitsOverlayTs: 0,
             };
             this.nwStates.set(entity.id, state);
-            // Fire and forget
             this.startLoop(
               "ninewickets-sportsbook",
               providerMapping.eventId,
@@ -198,7 +191,6 @@ export class GeniusSportsSyncService {
       this.nwStates.clear();
     }
 
-    // Velki Sportsbook
     if (isProviderRuntimeEnabled("velki-sportsbook")) {
       const activeIds = new Set<string>();
       for (const entity of tracked) {
@@ -214,7 +206,6 @@ export class GeniusSportsSyncService {
               lastLimitsOverlayTs: 0, // Velki provides limits inherently via auth
             };
             this.velkiStates.set(entity.id, state);
-            // Fire and forget
             this.startLoop(
               "velki-sportsbook",
               providerMapping.eventId,
@@ -261,12 +252,10 @@ export class GeniusSportsSyncService {
     const adapter = getAtomsAdapter(providerId);
     if (!adapter) return;
 
-    // Access processRawOdds from BaseAtomsAdapter
     const baseAdapter = adapter as unknown as {
       processRawOdds?: (rawData: unknown, ctx: Record<string, unknown>) => void;
     };
 
-    // Initial catalog fetch
     try {
       if (!state.isRunning) return;
       const catalog = await catalogFn(providerEventId);
@@ -277,8 +266,6 @@ export class GeniusSportsSyncService {
         state.selectionTsList = allMarkets.map((m) => m.selectionTs ?? -1);
       }
 
-      // Pre-resolve aliases for the soft provider's own team names (if available) so that downstream
-      // sync extraction can deterministically match them against Pinnacle's names.
       if (!state.resolvedSelections && catalog.eventName) {
         const { parseTeamsFromEventName } =
           await import("../shared/team-matching");
@@ -340,12 +327,11 @@ export class GeniusSportsSyncService {
       return;
     }
 
-    // Continuous polling
     while (state.isRunning) {
       try {
         if (state.marketIds.length === 0) {
           await new Promise((r) => setTimeout(r, 5000));
-          break; // re-fetch catalog
+          break;
         }
 
         const oddsData = await oddsFn(
@@ -364,7 +350,6 @@ export class GeniusSportsSyncService {
           oddsData.geniusSportsMarkets &&
           oddsData.geniusSportsMarkets.length > 0
         ) {
-          // Update timestamps for next delta request
           for (const m of oddsData.geniusSportsMarkets) {
             const idx = state.marketIds.indexOf(String(m.id));
             if (idx !== -1 && m.selectionTs !== undefined) {
@@ -373,7 +358,6 @@ export class GeniusSportsSyncService {
           }
 
           const now = Date.now();
-          // Authenticated Limits Overlay for 9W (once per minute)
           if (
             providerId === "ninewickets-sportsbook" &&
             now - state.lastLimitsOverlayTs > 60 * 1000
@@ -384,7 +368,6 @@ export class GeniusSportsSyncService {
             );
             state.lastLimitsOverlayTs = now;
           } else if (providerId === "ninewickets-sportsbook") {
-            // Strip guest-tier limits so we don't overwrite valid account limits
             for (const m of oddsData.geniusSportsMarkets) {
               delete (m as unknown as Record<string, unknown>)["min"];
               delete (m as unknown as Record<string, unknown>)["max"];
@@ -410,7 +393,6 @@ export class GeniusSportsSyncService {
           }
         }
 
-        // Sleep to avoid hammering (Cloudflare protection)
         await new Promise((r) => setTimeout(r, 1500));
       } catch (err) {
         logger.error(
@@ -432,7 +414,6 @@ export class GeniusSportsSyncService {
       );
     }
   }
-  /** Get active polling loop counts for the UI engine status bar. */
   public getActiveLoopCounts(): {
     ninewickets: number;
     velki: number;

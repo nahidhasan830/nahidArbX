@@ -1,8 +1,3 @@
-/**
- * TriggerBadge — shared pill badge for filter dropdown triggers.
- * Matches the BetsHistoryToolbar pattern exactly.
- * Active state: primary color accent. Inactive: secondary muted.
- */
 
 import { cn } from "@/lib/utils";
 

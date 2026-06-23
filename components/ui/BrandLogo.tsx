@@ -2,9 +2,7 @@ import { BRAND, BRAND_STYLES } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
 interface BrandLogoProps {
-  /** Size variant */
   size?: "sm" | "md" | "lg";
-  /** Additional className */
   className?: string;
 }
 
@@ -14,10 +12,6 @@ const sizeClasses = {
   lg: "text-3xl",
 } as const;
 
-/**
- * Styled brand logo component with gradient text.
- * Uses centralized branding from lib/branding.ts
- */
 export function BrandLogo({ size = "md", className }: BrandLogoProps) {
   return (
     <span

@@ -64,7 +64,6 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
 
   return (
     <>
-      {/* Impersonation Banner - Fixed at top of screen */}
       {isImpersonating && (
         <div className="fixed top-0 left-0 right-0 z-[100] bg-yellow-500/90 px-4 py-2 flex items-center justify-center gap-3 shadow-lg">
           <AlertTriangle className="w-5 h-5 text-yellow-900" />
@@ -145,12 +144,10 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Change Password Modal */}
       {isChangingPassword && (
         <ChangePasswordModal onClose={() => setIsChangingPassword(false)} />
       )}
 
-      {/* Edit Profile Modal */}
       {isEditingProfile && (
         <EditProfileModal
           currentDisplayName={user.displayName}
@@ -165,9 +162,6 @@ export function ProfileMenu({ onOpenUserManagement }: ProfileMenuProps) {
   );
 }
 
-// ============================================
-// Change Password Modal
-// ============================================
 
 function EditProfileModal({
   currentDisplayName,
@@ -272,9 +266,6 @@ function EditProfileModal({
   );
 }
 
-// ============================================
-// Change Password Modal
-// ============================================
 
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [currentPassword, setCurrentPassword] = useState("");

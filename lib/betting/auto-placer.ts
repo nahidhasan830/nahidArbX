@@ -1,26 +1,3 @@
-/**
- * Auto-place orchestrator. Called from the reactive detector on every
- * tick that emits a value bet — brand-new rows AND re-confirmations of
- * existing ones. Re-firing on updates is necessary because a bet skipped
- * on tick 1 (toggle off, cold market-refs cache, balance not yet loaded,
- * etc.) would otherwise never get another shot.
- *
- * Duplicate placement is prevented downstream by `placeBetForValueBet`:
- * isAlreadyPlaced (DB UNIQUE index on event/family/atom), the in-flight
- * promise map, and the 9W pending-confirmation tracker.
- *
- * Same code path as manual placement — converges on
- * `placeBetForValueBet`, which handles ref resolution, dedup, balance,
- * limits, adapter call, ledger write, and Telegram notify.
- *
- * Gates:
- *   1. Per-provider toggle (auto-place must be ON for the soft provider)
- *   2. Provider must have a registered adapter
- *   3. ML gate:
- *      - observe/no model: pass through baseline staking
- *      - gate_only+: requires a scored bet and learned-policy approval
- *   4. Market phase gate (pre-match / in-play) from Strategy & limits
- */
 import { isAutoPlaceEnabled } from "./auto-place-config";
 import { getBettingProvider } from "./registry";
 import { placeBetForValueBet } from "./placer";
@@ -41,33 +18,16 @@ import {
 } from "@/lib/betting/market-phase";
 
 export interface MaybeAutoPlaceOptions {
-  /** Calibrated ML win probability [0, 1]; null when not scored. */
   mlScore?: number | null;
-  /**
-   * ML multiplier for fullKelly (undefined/null = no ML gate decision;
-   * 0 = skip; 1 = pass-through; 0<x<1 = reduce; x>1 = increase).
-   */
   mlKellyMultiplier?: number | null;
-  /** Deployed model version that produced this score, if known. */
   mlModelVersion?: number | null;
-  /** Feature vector used for the placement-time score. */
   mlFeatures?: number[] | null;
   mlFeatureVersion?: number | null;
   mlFeatureCount?: number | null;
   mlFeatureNamesHash?: string | null;
-  /** Current deployed model permission. Defaults to shadow to fail closed. */
   permissionLevel?: MLPermissionLevel;
 }
 
-/**
- * Called by the reactive detector after persistence of changed bets.
- * Safe to call on updates too — the placer's dedup index guarantees
- * idempotency.
- *
- * @param vb - The value bet to consider for auto-placement
- * @param options - ML audit context plus the permission level that decides
- * whether ML may control real auto-placement.
- */
 export async function maybeAutoPlace(
   vb: ValueBet,
   options: MaybeAutoPlaceOptions = {},
@@ -76,10 +36,6 @@ export async function maybeAutoPlace(
   const mlScore = options.mlScore ?? null;
   const permissionLevel = options.permissionLevel ?? "observe";
 
-  // Minimal context for early-gate log entries (before we have the DB row).
-  // ValueBet from the detector doesn't carry event display fields (homeTeam,
-  // awayTeam, etc.) — those are enriched during DB persistence. We log what
-  // we have; the placer will log richer context for later gates.
   const logBase = {
     betId: stableId,
     softProvider: vb.softProvider,
@@ -119,10 +75,6 @@ export async function maybeAutoPlace(
     return;
   }
 
-  // ── ML gate ────────────────────────────────────────────────────────
-  // observe means "score and log only" and must not change baseline
-  // auto-placement. Active permissions (gate_only+) fail closed if the
-  // bet cannot be scored or the model score fails the learned policy gate.
   const { row: settings } = await getBettingSettings();
   const mlMultiplier = options.mlKellyMultiplier;
   if (permissionLevel !== "observe") {
@@ -235,8 +187,4 @@ export async function maybeAutoPlace(
     `[${vb.softProvider}] ${stableId} → ${outcome.status}${tail}`,
   );
 
-  // The placer records its own log entries for outcomes it produces
-  // (balance, dedup, book reject, placed, etc.). We only need to record
-  // here for gates checked in this function (toggle, adapter,
-  // ml_score, row_missing, phase). The placer handles the rest.
 }

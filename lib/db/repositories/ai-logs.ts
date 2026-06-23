@@ -1,13 +1,3 @@
-/**
- * Repository for the unified ai_logs table.
- *
- * Write path: fire-and-forget logging from all AI operations:
- * - ai-search proxy (grounding, entity-match)
- * - Entity matching (ML models)
- * - Analysis (Propose rules)
- *
- * Read path: paginated query for the UI + stats aggregation.
- */
 
 import { and, desc, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
@@ -16,18 +6,11 @@ import { logger } from "@/lib/shared/logger";
 
 export type AiLogInput = Omit<NewAiLogRow, "id" | "createdAt">;
 
-/**
- * Keep the exact JSON payload that was sent to or returned from the provider.
- * AI-log inspection relies on seeing the full prompt/evidence chain.
- */
 function toJsonPayload(obj: unknown): unknown {
   if (obj === null || obj === undefined) return null;
   return obj;
 }
 
-/**
- * Fire-and-forget — never blocks the AI pipeline.
- */
 export async function recordAiLog(input: AiLogInput): Promise<void> {
   try {
     await db.insert(aiLogs).values({

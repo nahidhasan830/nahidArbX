@@ -1,20 +1,6 @@
-/**
- * Common Formatting Helpers
- *
- * Shared utility functions for formatting dates, numbers, and percentages
- * used across UI components, Telegram messages, and API responses.
- *
- * NOTE: `fmtSeen` and `fmtRelative` measure elapsed time universally (seconds
- * are the same in any timezone). `fmtDateTime` lets the runtime/browser render
- * local date parts from the timestamp.
- */
 
 import { format, isToday, isTomorrow, isValid, parseISO } from "date-fns";
 
-/**
- * Format an ISO timestamp to a human-readable local date/time label.
- * e.g., "Today 21:00" or "15 Jan 21:00"
- */
 export function fmtDateTime(iso: string): string {
   const d = parseISO(iso);
   if (!isValid(d)) return iso;
@@ -24,11 +10,6 @@ export function fmtDateTime(iso: string): string {
   return format(d, "d MMM HH:mm");
 }
 
-/**
- * Format elapsed time since `iso` as a terse badge: "now", "Nm", "Nh", "Nd".
- * Intended for table cells like "Seen" / "Settled" where a one-glance age
- * matters more than precision. For future-facing "in Xm" use `fmtRelative`.
- */
 export function fmtSeen(iso: string): string {
   const d = new Date(iso);
   const diffMin = (Date.now() - d.getTime()) / 60000;
@@ -38,10 +19,6 @@ export function fmtSeen(iso: string): string {
   return `${Math.floor(diffMin / 1440)}d`;
 }
 
-/**
- * Format a relative time duration.
- * e.g., 60000ms → "1m", 3600000ms → "1h"
- */
 export function fmtRelative(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now();
   if (Math.abs(ms) < 60_000) return "just now";
@@ -60,10 +37,6 @@ export function durationLabel(ms: number): string {
   return hrem === 0 ? `${days}d` : `${days}d ${hrem}h`;
 }
 
-/**
- * Format money/currency values.
- * e.g., 1000.50 → "৳ 1,000.50"
- */
 export function fmtMoney(amount: number, currency: string = "BDT"): string {
   const symbol = currency === "BDT" ? "৳" : currency;
   return `${symbol} ${amount.toLocaleString(undefined, {
@@ -72,10 +45,6 @@ export function fmtMoney(amount: number, currency: string = "BDT"): string {
   })}`;
 }
 
-/**
- * Format a signed percentage.
- * e.g., 2.5 → "+2.50%", -1.2 → "−1.20%"
- */
 export function fmtSignedPct(value: number): string {
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}${Math.abs(value).toFixed(2)}%`;

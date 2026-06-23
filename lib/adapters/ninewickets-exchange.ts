@@ -1,13 +1,3 @@
-/**
- * NineWickets Exchange Adapter
- *
- * Fetches events and markets from the NineWickets Exchange API.
- * Exchange offers 4 markets: MATCH_ODDS, OVER_UNDER_05, OVER_UNDER_15, OVER_UNDER_25
- *
- * API Flow:
- * 1. Fetch events: POST gakvx.seofmi.live/exchange/member/playerService/queryEvents
- * 2. Fetch markets: POST awskvx.seofmi.live/exchange/member/playerService/queryMarkets
- */
 
 import type { ProviderAdapter, NormalizedEvent, Provider } from "../types";
 import { formatError } from "../shared/errors";
@@ -27,21 +17,14 @@ import {
 } from "../shared/schemas/ninewickets-events";
 import { mapExchangeToAtom } from "../atoms/mappings/ninewickets-exchange";
 
-// ============================================
-// Constants
-// ============================================
 
 const PROVIDER_NAME: Provider = "ninewickets-exchange";
 
-// API Endpoints
 const FIXTURES_BASE_URL = "https://gakvx.seofmi.live";
 const MARKETS_BASE_URL = "https://awskvx.seofmi.live";
 const EVENTS_ENDPOINT = "/exchange/member/playerService/queryEvents";
 const MARKETS_ENDPOINT = "/exchange/member/playerService/queryMarkets";
 
-// ============================================
-// Axios Clients
-// ============================================
 
 const eventsClient = createProviderClient({
   baseURL: FIXTURES_BASE_URL,
@@ -53,11 +36,7 @@ const marketsClient = createProviderClient({
   contentType: "form-urlencoded",
 });
 
-// ============================================
-// URL Params Helpers
-// ============================================
 
-/** Default parameters for event queries */
 const DEFAULT_EVENT_PARAMS = {
   eventType: "1", // Football
   competitionTs: "-1",
@@ -74,7 +53,6 @@ function buildEventParams(type: number): URLSearchParams {
   });
 }
 
-// Re-export schemas and types for backward compatibility
 export {
   NineWicketsEventSchema,
   NineWicketsEventsResponseSchema,
@@ -82,9 +60,6 @@ export {
 } from "../shared/schemas/ninewickets-events";
 export { mapExchangeToAtom };
 
-// ============================================
-// Normalized Market Type
-// ============================================
 
 export interface NormalizedMarket {
   marketType: string;
@@ -93,27 +68,21 @@ export interface NormalizedMarket {
   timestamp: number;
 }
 
-// ============================================
-// Helper Functions
-// ============================================
 
 export function parseTeamNames(eventName: string): {
   home: string;
   away: string;
 } {
-  // Format: "Team A v Team B"
   const parts = eventName.split(" v ");
   if (parts.length === 2) {
     return { home: parts[0].trim(), away: parts[1].trim() };
   }
-  // Fallback if format is different
   return { home: eventName, away: "" };
 }
 
 function transformEvent(event: NineWicketsEvent): NormalizedEvent | null {
   const { home, away } = parseTeamNames(event.eventName);
 
-  // Skip events without proper team names
   if (!home || !away) {
     return null;
   }
@@ -134,9 +103,6 @@ function transformEvent(event: NineWicketsEvent): NormalizedEvent | null {
   };
 }
 
-// ============================================
-// Event Fetching
-// ============================================
 
 async function fetchEventsForType(type: number): Promise<NormalizedEvent[]> {
   const events: NormalizedEvent[] = [];
@@ -171,18 +137,7 @@ async function fetchEventsForType(type: number): Promise<NormalizedEvent[]> {
   return events;
 }
 
-// ============================================
-// Market Fetching
-// ============================================
 
-/**
- * Fetch markets for a single event.
- *
- * @param providerEventId - NineWickets' internal event ID
- * @param homeTeam - Home team name (required for accurate 1X2 mapping)
- * @param awayTeam - Away team name (required for accurate 1X2 mapping)
- * @returns Array of normalized markets with odds
- */
 export async function fetchMarkets(
   providerEventId: string,
   homeTeam: string,
@@ -238,35 +193,26 @@ export async function fetchMarkets(
       }
     }
   } catch {
-    // Silently handle per-event fetch errors
   }
 
   return markets;
 }
 
-// ============================================
-// Provider Adapter
-// ============================================
 
 export const ninewicketsExchangeAdapter: ProviderAdapter = {
   name: PROVIDER_NAME,
 
   async fetchEvents(): Promise<NormalizedEvent[]> {
-    // Fetch both live (type=1) and upcoming (type=6) in parallel
     const [liveResult, upcomingResult] = await Promise.all([
       fetchEventsForType(1),
       fetchEventsForType(6),
     ]);
 
-    // Combine and dedupe by eventId
     const events = deduplicateById([...liveResult, ...upcomingResult]);
     return events;
   },
 };
 
-// ============================================
-// Debug Fetch (for debug pipeline)
-// ============================================
 
 export async function debugFetchNinewicketsExchangeEvents(): Promise<DebugFixturesFetchResult> {
   const result: DebugFixturesFetchResult = {
@@ -277,7 +223,6 @@ export async function debugFetchNinewicketsExchangeEvents(): Promise<DebugFixtur
     eventCount: 0,
   };
 
-  // Fetch both types with debug capture
   for (const type of [1, 6]) {
     const label =
       type === 1 ? "Live Events (type=1)" : "Upcoming Events (type=6)";
@@ -307,7 +252,6 @@ export async function debugFetchNinewicketsExchangeEvents(): Promise<DebugFixtur
       };
       result.rawResponses.push(debugResponse);
 
-      // Parse events
       const parsed = validateAndParse(
         response.data,
         NineWicketsEventsResponseSchema,
@@ -330,7 +274,6 @@ export async function debugFetchNinewicketsExchangeEvents(): Promise<DebugFixtur
     }
   }
 
-  // Dedupe by eventId
   result.normalizedEvents = deduplicateById(result.normalizedEvents);
   result.eventCount = result.normalizedEvents.length;
 

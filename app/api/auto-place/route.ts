@@ -1,8 +1,3 @@
-/**
- * Per-provider auto-place toggle.
- *   GET  /api/auto-place            → list all providers + their toggle state
- *   POST /api/auto-place { provider, enabled }  → set a toggle
- */
 import { NextResponse } from "next/server";
 import {
   listAutoPlaceStates,

@@ -1,7 +1,3 @@
-/**
- * One-shot migration: create ai_engine_config table.
- * Run with: npx tsx lib/db/migrations/0060_ai_engine_config.run.ts
- */
 import { ensureDbReady, db } from "@/lib/db/client";
 import { sql } from "drizzle-orm";
 

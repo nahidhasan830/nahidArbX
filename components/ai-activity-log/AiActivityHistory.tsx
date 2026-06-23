@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * AiActivityHistory — main component for the /logs/ai-activity page.
- *
- * Displays ALL AI operations from the unified `ai_logs` table —
- * settlement, grounding, entity matching, analysis, and proposals.
- * Enables diagnosing AI spend, latency, and failure patterns.
- */
 
 import { useMemo, useCallback } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -26,12 +19,10 @@ import { AiActivityLogTable } from "./AiActivityTable";
 import type { AiLogRow } from "@/lib/db/schema";
 import type { AiLogStats } from "@/lib/db/repositories/ai-logs";
 
-// ── Constants ──
 
 const PAGE_SIZE = 100;
 const REFRESH_INTERVAL_MS = 15_000;
 
-// ── API client ──
 
 async function fetchLog(
   filters: AiActivityFilters & { limit: number; offset: number },
@@ -72,7 +63,6 @@ async function fetchLogStats(filters: AiActivityFilters): Promise<AiLogStats> {
   return res.json();
 }
 
-// ── Component ──
 
 export function AiActivityHistory() {
   const {
@@ -82,7 +72,6 @@ export function AiActivityHistory() {
     setDatePreset,
   } = useAiActivityPrefs();
 
-  // Build effective filters with resolved date preset
   const effectiveFilters = useMemo<AiActivityFilters>(() => {
     const base: AiActivityFilters = { ...rawFilters };
     if (datePreset !== "all" && datePreset !== "custom") {
@@ -93,7 +82,6 @@ export function AiActivityHistory() {
     return base;
   }, [rawFilters, datePreset]);
 
-  // ── Data fetching — infinite scroll ──
   const logQuery = useInfiniteQuery({
     queryKey: ["ai-activity-log", "infinite", effectiveFilters, PAGE_SIZE],
     queryFn: ({ pageParam }) =>
@@ -121,7 +109,6 @@ export function AiActivityHistory() {
     refetchIntervalInBackground: false,
   });
 
-  // Flatten all pages into a single array
   const allRows = useMemo(
     () => logQuery.data?.pages.flatMap((p) => p.rows) ?? [],
     [logQuery.data],
@@ -129,7 +116,6 @@ export function AiActivityHistory() {
   const totalCount = logQuery.data?.pages[0]?.total ?? 0;
   const filteredCount = allRows.length;
 
-  // ── Filter handlers ──
   const handleFiltersChange = useCallback(
     (f: AiActivityFilters) => {
       setFilters({
@@ -150,7 +136,6 @@ export function AiActivityHistory() {
     [setDatePreset],
   );
 
-  // Build filters from rawFilters
   const toolbarFilters: AiActivityFilters = {
     from: rawFilters.from,
     to: rawFilters.to,
@@ -165,7 +150,6 @@ export function AiActivityHistory() {
     <TooltipProvider delayDuration={200}>
       <div className="flex flex-col gap-0 w-full flex-1 min-h-0">
         <Card className="flex flex-col flex-1 min-h-0 relative overflow-hidden py-0 gap-0">
-          {/* ── Toolbar ── */}
           <AiActivityToolbar
             filters={toolbarFilters}
             onFiltersChange={handleFiltersChange}

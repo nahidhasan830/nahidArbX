@@ -1,9 +1,5 @@
 "use client";
 
-/**
- * Collapsible per-tab "How to use this" banner. Expanded by default the first
- * time a user visits; preference saved in localStorage as `lab.help.<id>`.
- */
 
 import * as React from "react";
 import { ChevronDown, Lightbulb } from "lucide-react";

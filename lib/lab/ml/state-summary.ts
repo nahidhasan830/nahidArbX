@@ -1,13 +1,6 @@
 import type { PipelineData } from "@/components/lab/ml/types";
 import type { EvaluatedRung } from "./rungs";
 
-/**
- * Build the one-sentence "what's happening right now" summary for the
- * page header. The summary picks the first failing or pending rung
- * after the data-collection block and weaves in a fact from the data.
- *
- * Output is intentionally short — the ladder below carries the detail.
- */
 export function buildStateSummary(
   data: PipelineData,
   rungs: EvaluatedRung[],
@@ -18,7 +11,6 @@ export function buildStateSummary(
   } | null;
   const inTraining = data.training.modelsInTraining;
 
-  // Find the first rung that's not green and not blocked.
   const firstIssue = rungs.find(
     (r) => r.verdict.status === "fail" || r.verdict.status === "warn",
   );
@@ -55,7 +47,6 @@ export function buildStateSummary(
     };
   }
 
-  // No deployed model yet; report the cold-start picture.
   const have = data.dataCollection.qualifiedForTraining;
   const need = data.dataCollection.coldStartThreshold;
   if (have >= need) {

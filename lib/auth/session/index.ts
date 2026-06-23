@@ -1,9 +1,3 @@
-/**
- * Session Management Module
- *
- * Handles session creation, validation, and revocation.
- * Implements single-device policy with admin impersonation exception.
- */
 
 import { db, users, sessions, type Session } from "../db";
 import { eq, and, lt } from "drizzle-orm";
@@ -11,9 +5,6 @@ import { signJwt, verifyJwt } from "../jwt";
 
 import type { GeoLocation } from "../geo";
 
-// ============================================
-// Types
-// ============================================
 
 export interface CreateSessionOptions {
   deviceInfo?: string;
@@ -34,19 +25,10 @@ export interface ValidatedSession {
   realUserEmail?: string;
 }
 
-// ============================================
-// Session Duration
-// ============================================
 
-const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 
-// ============================================
-// Functions
-// ============================================
 
-/**
- * Create a new session for a user
- */
 export async function createSession(
   userId: string,
   options: CreateSessionOptions = {},
@@ -61,8 +43,6 @@ export async function createSession(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + SESSION_DURATION_MS);
 
-  // Single-device policy: Revoke previous session
-  // EXCEPTION: Don't revoke if this is an impersonation session
   if (!options.isImpersonation && user.currentSessionId) {
     await db
       .update(sessions)
@@ -70,7 +50,6 @@ export async function createSession(
       .where(eq(sessions.id, user.currentSessionId));
   }
 
-  // Create new session record
   await db.insert(sessions).values({
     id: sessionId,
     userId,
@@ -85,7 +64,6 @@ export async function createSession(
     impersonatedBy: options.impersonatedBy || null,
   });
 
-  // Update user's current session (skip for impersonation)
   if (!options.isImpersonation) {
     await db
       .update(users)
@@ -93,7 +71,6 @@ export async function createSession(
       .where(eq(users.id, userId));
   }
 
-  // Sign JWT
   const token = await signJwt({
     sub: userId,
     email: user.email,
@@ -106,19 +83,14 @@ export async function createSession(
   return { token, sessionId };
 }
 
-/**
- * Validate a session token
- */
 export async function validateSession(
   token: string,
 ): Promise<ValidatedSession | null> {
-  // Verify JWT
   const payload = await verifyJwt(token);
   if (!payload) {
     return null;
   }
 
-  // Check session in database
   const session = await db
     .select()
     .from(sessions)
@@ -129,17 +101,14 @@ export async function validateSession(
     return null;
   }
 
-  // Check if session is revoked
   if (session.revokedAt) {
     return null;
   }
 
-  // Check if session is expired
   if (session.expiresAt < new Date()) {
     return null;
   }
 
-  // Check user status
   const user = await db
     .select()
     .from(users)
@@ -161,9 +130,6 @@ export async function validateSession(
   };
 }
 
-/**
- * Revoke a session
- */
 export async function revokeSession(sessionId: string): Promise<void> {
   await db
     .update(sessions)
@@ -171,9 +137,6 @@ export async function revokeSession(sessionId: string): Promise<void> {
     .where(eq(sessions.id, sessionId));
 }
 
-/**
- * Revoke all sessions for a user
- */
 export async function revokeAllUserSessions(userId: string): Promise<void> {
   await db
     .update(sessions)
@@ -191,9 +154,6 @@ export async function revokeAllUserSessions(userId: string): Promise<void> {
     .where(eq(users.id, userId));
 }
 
-/**
- * Get active session for a user
- */
 export async function getActiveSession(
   userId: string,
 ): Promise<Session | null> {
@@ -216,9 +176,6 @@ export async function getActiveSession(
   return session;
 }
 
-/**
- * Get all sessions for a user (including revoked/expired)
- */
 export async function getUserSessions(
   userId: string,
   options?: { activeOnly?: boolean; limit?: number },
@@ -241,13 +198,9 @@ export async function getUserSessions(
   return result;
 }
 
-/**
- * Clean up expired sessions (run periodically)
- */
 export async function cleanupExpiredSessions(): Promise<number> {
   const now = new Date();
 
-  // Get expired sessions that haven't been revoked
   const expiredSessions = await db
     .select()
     .from(sessions)
@@ -258,7 +211,6 @@ export async function cleanupExpiredSessions(): Promise<number> {
       ),
     );
 
-  // Revoke them
   for (const session of expiredSessions) {
     await db
       .update(sessions)

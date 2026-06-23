@@ -1,15 +1,3 @@
-/**
- * Velki Sportsbook post-placement confirmation tracker.
- *
- * Symmetric counterpart to
- * {@link ../ninewickets/placement-confirmation.ts}. Both providers run
- * the same Genius Sports platform — the endpoint shapes, response
- * semantics, and bet-history feed are identical. Only the host, auth,
- * and currency-unit scale differ.
- *
- * See the 9W module's header comment for the full rationale on why we
- * poll the bet-history feed rather than trusting the placement response.
- */
 import { randomUUID } from "node:crypto";
 import {
   insertPlacedBet,
@@ -242,8 +230,6 @@ function findMatchingTicket(
     }
   }
 
-  // Feed amounts are already normalized to BDT by the reconciler, so
-  // comparing t.initPrice against attempt.stake (also BDT) is correct.
   const stakeEq = (a: number, b: number) => Math.abs(a - b) < 0.01;
   const submittedMs = attempt.submittedAt;
 

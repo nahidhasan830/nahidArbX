@@ -1,10 +1,3 @@
-/**
- * ML feature contract.
- *
- * This module is intentionally runtime-light: it must stay safe to import from
- * scripts and tests that only verify feature ordering/hash and do not have a
- * database connection.
- */
 
 import { createHash } from "node:crypto";
 import { ML_FEATURE_COUNT, ML_FEATURE_VERSION } from "@/lib/shared/constants";

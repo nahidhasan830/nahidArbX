@@ -1,31 +1,10 @@
-/**
- * Vertex AI Text Embeddings Client
- *
- * Generates embeddings for entity matching using Vertex AI's text-embedding models.
- * Replaces self-hosted Hugging Face models with managed embeddings API.
- *
- * Uses the Vertex AI REST API directly since the Node.js SDK doesn't expose
- * the embeddings endpoint.
- *
- * Configuration (via .env):
- *   GCP_PROJECT_ID — GCP project ID (already configured)
- *   GCP_REGION — GCP region (already configured)
- *   VERTEX_EMBEDDING_MODEL — model name (default: text-embedding-004)
- *
- * Supported models:
- *   - text-embedding-004 (latest, 768 dims, multilingual)
- *   - text-multilingual-embedding-002 (768 dims, 100+ languages)
- *   - textembedding-gecko@003 (768 dims, legacy)
- *
- * Authentication: uses Application Default Credentials (ADC).
- */
 
 import { GoogleAuth } from "google-auth-library";
 import { logger } from "../../shared/logger";
 
 const tag = "VertexEmbeddingsClient";
 
-export const EMBEDDING_DIM = 768; // text-embedding-004 dimension
+export const EMBEDDING_DIM = 768;
 
 let _auth: GoogleAuth | null = null;
 
@@ -60,12 +39,6 @@ async function getAccessToken(): Promise<string | null> {
   }
 }
 
-/**
- * Generate embeddings for a batch of text strings.
- * Returns 768-dimensional vectors, or null for each input on failure.
- *
- * Batch size limit: 250 texts per request (Vertex AI limit).
- */
 export async function embedBatch(
   texts: string[],
 ): Promise<(number[] | null)[]> {
@@ -113,7 +86,6 @@ export async function embedBatch(
   const url = `https://${region}-aiplatform.googleapis.com/v1/projects/${project}/locations/${region}/publishers/google/models/${model}:predict`;
 
   try {
-    // Vertex AI text embeddings API format
     const instances = nonEmptyIndexes.map(({ text }) => ({ content: text }));
 
     const res = await fetch(url, {
@@ -164,26 +136,16 @@ export async function embedBatch(
   }
 }
 
-/**
- * Generate a single embedding (convenience wrapper).
- */
 export async function embed(text: string): Promise<number[] | null> {
   const results = await embedBatch([text]);
   return results[0];
 }
 
-/**
- * Health check: verify the embedding API is reachable.
- */
 export async function healthCheck(): Promise<boolean> {
   const result = await embed("test");
   return result !== null && result.length === EMBEDDING_DIM;
 }
 
-/**
- * Compute cosine similarity between two embedding vectors.
- * Returns a score in [-1, 1], where 1 = identical, 0 = orthogonal, -1 = opposite.
- */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {
     throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`);

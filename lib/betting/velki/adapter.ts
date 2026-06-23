@@ -1,29 +1,3 @@
-/**
- * Velki Sportsbook adapter — provider-agnostic placement contract.
- *
- * Velki's placement surface is a sister deployment of 9W's Genius
- * Sports stack: same `geniusSportsBet` endpoint shape, same payload
- * fields, same response semantics. The differences are:
- *
- *   • Host:           saapipl.fwick7ets.xyz (vs gakqv.seofmi.live)
- *   • apiSiteType:    4 (vs 5 for 9W)
- *   • Auth:           JSESSIONID captured by Velki's REST/SSO chain
- *                     (no Playwright); attached as `Authorization`
- *                     header AND as `;jsessionid=…` URL fragment.
- *   • Stake/odds units: Velki returns money in 0.01-BDT units (see
- *                     ./units.ts). Scale stake DOWN before sending,
- *                     and scale market limits UP after fetching. Odds
- *                     are not scaled.
- *
- * `providerRefs` expected by placeBet / getMarketLimits:
- *   - apiSiteType      (number, 4)
- *   - eventType        (string, e.g. "1" for soccer)
- *   - eventId          (string, Genius Sports internal id)
- *   - marketId         (string)
- *   - selectionId      (number)
- *   - betfairEventId?  (number, optional — included when available)
- *   - handicap?        (number)
- */
 import { callWithSessionRetry, VelkiSessionExpiredError } from "./session";
 import { mapSportsbookToAtom } from "@/lib/atoms/mappings/velki-sportsbook";
 import {
@@ -70,9 +44,6 @@ export const velkiSportsbookBettingAdapter: BettingProviderAdapter = {
   currency: "BDT",
 
   async getAccountInfo(): Promise<AccountInfo> {
-    // Use the recapture-on-zero helper here too — auto-place flows
-    // depend on this reading not getting tricked by drift-zero into
-    // skipping a placeable selection.
     const { info } = await readPlayerInfoWithRecapture();
     return {
       balance: info.betCredit,
@@ -91,12 +62,6 @@ export const velkiSportsbookBettingAdapter: BettingProviderAdapter = {
     const eventId = str(providerRefs, "eventId");
     if (!marketId || !eventId) return null;
 
-    // The atoms-fetch path already overlays per-market min/max into the
-    // shared market-limits store on every odds tick (Velki reports them
-    // alongside catalog markets). The placer reads that cache first;
-    // this adapter call is the cold-start fallback. Re-pull the catalog
-    // to populate fresh limits — same 2-step flow the atoms adapter
-    // uses, but we only need the catalog leg.
     try {
       const catalog = await queryGeniusSportsCatalog(eventId);
       const markets = catalog.geniusSportsMarkets ?? [];
@@ -136,12 +101,6 @@ export const velkiSportsbookBettingAdapter: BettingProviderAdapter = {
     }
 
     const eventType = sportToEventType(input.sport);
-    // Two-step fetch: the catalog leg (version=0) returns market shells
-    // WITHOUT selections; the odds leg returns the same markets WITH
-    // selections + odds. Skipping the second step here is the bug that
-    // made every UI placement fall through with "couldn't resolve
-    // book-native market/selection" — every market had zero selections
-    // to map against.
     let catalog;
     try {
       catalog = await queryGeniusSportsCatalog(nativeEventId);
@@ -192,13 +151,6 @@ export const velkiSportsbookBettingAdapter: BettingProviderAdapter = {
         );
         if (!atomId || atomId !== input.atomId) continue;
 
-        // ID conventions inherited from 9W's adapter (sister deployment):
-        //   - eventId      = catalog.eventId         (Genius Sports id)
-        //   - marketId     = market.id               (Genius Sports id)
-        //   - selectionId  = selection.id            (Genius Sports id —
-        //                    NOT apiSiteSelectionId; the apiSite id is
-        //                    rejected silently as "Selection is Close!")
-        //   - betfairEventId = the exchange id we passed in (numeric)
         const selectionRecord = selection as unknown as {
           id?: number;
           handicap?: number;
@@ -224,7 +176,6 @@ export const velkiSportsbookBettingAdapter: BettingProviderAdapter = {
   },
 
   async placeBet(req: PlaceBetRequest): Promise<PlaceBetResult> {
-    // Velki money is in 0.01-BDT units — scale stake DOWN before sending.
     const stakeWire = Number((req.stake / VELKI_AMOUNT_SCALE).toFixed(4));
 
     const payloadItem = {
@@ -303,13 +254,6 @@ export const velkiSportsbookBettingAdapter: BettingProviderAdapter = {
   },
 };
 
-// --------------------------------------------------------------------
-// Helpers — bet-response interpretation
-// Velki responses share the SUCCESS / PENDING / FAIL grammar with 9W.
-// Money fields in the response (stake, payout) come in Velki-units
-// (0.01 BDT). We don't rely on them for placement bookkeeping — the
-// stake we sent is what we record.
-// --------------------------------------------------------------------
 
 interface ParsedBetResult {
   status?: string;
@@ -323,11 +267,6 @@ interface ParsedBetResult {
   odds?: number;
   isPending?: boolean;
   pending?: boolean;
-  // Velki nests the real ticket id one level down. `unMatchTicket.id`
-  // is the ticket id used in the bet-history feed; `txn.betId` is the
-  // same value reachable via the transaction record. Either is enough
-  // to mark the placement as "placed" on the spot — no need to wait
-  // for the confirmation poller to re-discover it.
   unMatchTicket?: { id?: string | number } | null;
   txn?: { id?: string | number; betId?: string | number } | null;
 }
@@ -365,12 +304,6 @@ function interpretBetResponse(
   }
 
   const rawStatus = (result.status ?? "").toUpperCase();
-  // Velki returns the ticket id at the top level for some response
-  // shapes and nested under `unMatchTicket` / `txn` for others (the
-  // platform's two delivery modes — instant accept vs. accept-then-
-  // process-asynchronously). Probe every known location so an instant
-  // accept gets marked `placed` straight away instead of bouncing
-  // through the bet-history confirmation poller.
   const ticketId =
     result.ticketId ??
     result.orderId ??
@@ -535,7 +468,4 @@ function sportToEventType(sport?: string): string {
   }
 }
 
-// Re-export `toBDT` so it's clear the units helper is used by this
-// adapter even though the explicit calls are inline. (The lint config
-// is sometimes overzealous about removing imports it can't see used.)
 export { toBDT };

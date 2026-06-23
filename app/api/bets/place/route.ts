@@ -1,22 +1,3 @@
-/**
- * POST /api/bets/place
- *
- * Unified manual-placement entry point. Handles two inputs:
- *
- *   Shape A — by value_bet id (historical/persisted opportunity):
- *     { valueBetId: string, kellyStake: number, providerRefs?: {...} }
- *
- *   Shape B — runtime descriptor (detected in-memory, not yet persisted):
- *     { runtime: { eventId, familyId, atomId, atomLabel, homeTeam,
- *                  awayTeam, competition?, eventStartTime, marketType,
- *                  softProvider, softOdds, sharpProvider, sharpOdds,
- *                  sharpTrueProb, commissionPct },
- *       kellyStake: number,
- *       providerRefs?: {...}
- *     }
- *
- * Both shapes converge on `placeBetForValueBet`.
- */
 import { NextResponse } from "next/server";
 import { getBetById, type ValueBetRow } from "@/lib/db/repositories/bets";
 import { placeBetForValueBet } from "@/lib/betting/placer";
@@ -37,15 +18,6 @@ interface RuntimeDescriptor {
   marketType: string;
   softProvider: string;
   softOdds: number;
-  /**
-   * Sharp baseline is optional. When the operator places a bet on a row
-   * that has no sharp/trueProb data (pure manual placement, no edge
-   * detected) we synthesize a zero-EV baseline from the soft odds so
-   * the persistence layer's NOT NULL constraints are satisfied and the
-   * row is still traceable. Bets placed this way are tagged via
-   * `softCommissionPct` bookkeeping as coming from a synthesized
-   * baseline — they won't pollute real EV-driven metrics.
-   */
   sharpProvider?: string;
   sharpOdds?: number;
   sharpTrueProb?: number;
@@ -68,8 +40,6 @@ export async function POST(request: Request) {
     providerRefs?: Record<string, string | number>;
   };
 
-  // Log every placement attempt up-front with identifying fields but not
-  // the full payload — ops needs to correlate outcomes with requests.
   const logCtx = {
     mode: valueBetId ? "by-id" : runtime ? "runtime" : "invalid",
     valueBetId: valueBetId ?? null,
@@ -136,7 +106,7 @@ export async function POST(request: Request) {
     outcome.status === "placed"
       ? 200
       : outcome.status === "pending"
-        ? 202 // book accepted, ticket arrives async
+        ? 202
         : outcome.status === "skipped"
           ? 200
           : outcome.status === "rejected"
@@ -165,7 +135,6 @@ export async function POST(request: Request) {
   return NextResponse.json(outcome, { status: httpStatus });
 }
 
-/** Strip sharp fields for log output — they're noisy and reproducible from the ids. */
 function safeRuntime(r: RuntimeDescriptor): Partial<RuntimeDescriptor> {
   return {
     eventId: r.eventId,
@@ -195,9 +164,6 @@ function validateRuntime(r: RuntimeDescriptor): string | null {
   if (!Number.isFinite(r.softOdds) || r.softOdds <= 1)
     return "runtime.softOdds must be > 1";
 
-  // Sharp baseline is optional — but if ANY sharp field is supplied,
-  // ALL must be supplied and internally consistent. Half-populated
-  // sharp data is an ambiguous caller bug, not a manual-placement case.
   const anySharp =
     r.sharpProvider != null || r.sharpOdds != null || r.sharpTrueProb != null;
   const allSharp =
@@ -221,22 +187,10 @@ function validateRuntime(r: RuntimeDescriptor): string | null {
   return null;
 }
 
-/**
- * Build a transient ValueBetRow shape from runtime data. This row is
- * NEVER written to the DB — it exists only to satisfy the placer's
- * input contract. When the detector later persists the same opportunity
- * it'll produce its own row with this same stable id.
- */
 function synthesizeRow(r: RuntimeDescriptor): ValueBetRow {
   const nowIso = new Date().toISOString();
   const stableId = `${r.eventId}|${r.familyId}|${r.atomId}`;
 
-  // Synthesize a zero-EV sharp baseline when the caller didn't provide
-  // one (pure manual placement on a row with no sharp data). Using the
-  // soft odds as the sharp proxy and 1/softOdds as trueProb gives EV=0,
-  // which is the correct semantic: "we have no edge signal here, the
-  // operator placed on vibes". Persistence NOT NULL constraints are
-  // satisfied without polluting aggregate EV stats.
   const hasSharp =
     r.sharpProvider != null && r.sharpOdds != null && r.sharpTrueProb != null;
   const sharpProvider = hasSharp ? r.sharpProvider! : r.softProvider;

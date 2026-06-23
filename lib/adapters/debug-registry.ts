@@ -1,9 +1,3 @@
-/**
- * Debug Fixtures Registry
- *
- * Registry of debug fetch functions for each provider.
- * Used by the debug fixtures API endpoint.
- */
 
 import type { ProviderKey } from "../providers/registry";
 import type { DebugFixturesFetchResult } from "./debug-fetch";

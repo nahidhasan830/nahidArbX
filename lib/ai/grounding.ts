@@ -1,10 +1,3 @@
-/**
- * Grounding engine — search-grounded inference orchestrator.
- *
- * Combines SearchRouter (Vertex/Brave) with DeepSeek (primary) or
- * Gemini to produce verdicts backed by web evidence.
- * Ported from services/ai-search/app/grounding.py.
- */
 
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
@@ -36,8 +29,6 @@ import { bestSim } from "../matching/string-sim";
 import { normalize, normalizeCompetition } from "../matching/normalize";
 import { isValid, parseISO } from "date-fns";
 
-// DeepSeek v4 currently supports up to 384K output tokens. Keep the app from
-// imposing small local caps; prompt shape + JSON parsing define the response.
 const DEEPSEEK_MAX_OUTPUT_TOKENS = 384_000;
 const ENTITY_MATCH_QUERY_LIMIT = 10;
 const ENTITY_MATCH_RESULTS_PER_QUERY = 4;
@@ -459,7 +450,6 @@ class GroundingEngine {
     this.search = getSearchRouter();
   }
 
-  // ── Entity matching (single) ───────────────────────────────────────
 
   async matchSingle(
     eventA: EventInfo,
@@ -612,7 +602,6 @@ class GroundingEngine {
     );
   }
 
-  // ── Entity matching (batch) ────────────────────────────────────────
 
   async matchBatch(
     pairs: Array<{ eventA: EventInfo; eventB: EventInfo }>,
@@ -721,7 +710,6 @@ class GroundingEngine {
     );
   }
 
-  // ── Generic grounded query ─────────────────────────────────────────
 
   async query(
     question: string,
@@ -731,23 +719,14 @@ class GroundingEngine {
       model?: string;
       searchQuery?: string;
       searchProviders?: string[];
-      /**
-       * When true, skip the engine's internal web search and use only the
-       * `context.web_search_results` array (if present) as evidence.
-       * The Playground sets this so it can show the user the same sources
-       * the LLM is citing, without doubling search calls.
-       */
       skipSearch?: boolean;
     },
   ): Promise<GroundedAnswer> {
     const provider = opts?.provider || "deepseek";
     const skipSearch = opts?.skipSearch === true;
 
-    // Pull caller-supplied results (from /api/ai-search/search step) first.
     const callerResults = extractResults(context);
 
-    // Run internal search only when the caller didn't already provide
-    // evidence and didn't explicitly opt out.
     let internalResults: SearchResult[] = [];
     if (!skipSearch && callerResults.length === 0) {
       const r = await this.search.search(
@@ -762,9 +741,6 @@ class GroundingEngine {
     const evidenceText = formatEvidence(evidence);
     const sources = resultsToCitations(evidence);
 
-    // Strip web_search_results from the leftover context — they're already
-    // formatted as numbered evidence below. Pass the rest (if any) for
-    // additional caller-supplied hints.
     const sideContext = stripWebResults(context);
     const sideContextStr =
       sideContext && Object.keys(sideContext).length > 0
@@ -886,7 +862,6 @@ class GroundingEngine {
     try {
       const data = JSON.parse(raw) as { answer?: string; reasoning?: string };
       const answer = (data.answer || "").trim();
-      // If the JSON parsed but answer is empty (e.g. truncated), surface raw.
       if (!answer) {
         return { answer: raw, reasoning: data.reasoning || "", sources, model };
       }
@@ -896,7 +871,6 @@ class GroundingEngine {
     }
   }
 
-  // ── Stats ──────────────────────────────────────────────────────────
 
   getStats() {
     return this.search.getStats();
@@ -909,9 +883,6 @@ class GroundingEngine {
     return enabled;
   }
 
-  // ── Query builders ─────────────────────────────────────────────────
-
-  // ── JSON parsers ───────────────────────────────────────────────────
 
   private _parseMatchVerdict(
     raw: string,
@@ -954,7 +925,6 @@ class GroundingEngine {
   }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
 
 function heuristicMatchVerdict(
   eventA: EventInfo,
@@ -1434,12 +1404,10 @@ function diagnosticsFromParsed(
 
 function parseJsonValue(raw: string, finishReason?: string): ParsedJsonValue {
   let text = raw.trim();
-  // Strip markdown fences
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
     return { value: JSON.parse(text), status: "valid", finishReason };
   } catch {
-    // Greedy bracket extraction
     const m = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
     if (m) {
       try {
@@ -1450,7 +1418,6 @@ function parseJsonValue(raw: string, finishReason?: string): ParsedJsonValue {
           warning: "Recovered JSON from surrounding text.",
         };
       } catch {
-        // ignore
       }
     }
     const recoveredObject = recoverPartialJsonObject(text);
@@ -1554,8 +1521,6 @@ function normalizePairIndex(
 ): number {
   const n = typeof value === "number" ? value : parseInt(String(value), 10);
   if (!Number.isFinite(n)) return fallbackIndex;
-  // Prompted pair numbers are 1-based. Accept zero-based values only when the
-  // model explicitly emits 0, which is outside the prompt contract.
   if (n >= 1 && n <= pairCount) return n - 1;
   if (n >= 0 && n < pairCount) return n;
   return fallbackIndex;
@@ -1634,11 +1599,6 @@ function resultsToCitations(results: SearchResult[]): SourceCitation[] {
   return citations;
 }
 
-/**
- * Pull a SearchResult[] out of a free-form context object. The Playground
- * wraps results as `{ web_search_results: [...] }`; some callers pass them
- * under `results` directly. Anything malformed falls through as [].
- */
 function extractResults(context: unknown): SearchResult[] {
   if (!context || typeof context !== "object") return [];
   const obj = context as Record<string, unknown>;
@@ -1667,7 +1627,6 @@ function extractResults(context: unknown): SearchResult[] {
   return [];
 }
 
-/** Drop the web_search_results / results keys; keep any other side context. */
 function stripWebResults(context: unknown): Record<string, unknown> | null {
   if (!context || typeof context !== "object") return null;
   const obj = context as Record<string, unknown>;
@@ -1680,7 +1639,6 @@ function stripWebResults(context: unknown): Record<string, unknown> | null {
   return cleaned;
 }
 
-// ── Singleton ────────────────────────────────────────────────────────
 
 let _instance: GroundingEngine | null = null;
 

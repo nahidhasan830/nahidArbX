@@ -1,20 +1,3 @@
-/**
- * Velki Sportsbook Adapter
- *
- * Pulls fixtures from the Velki PROVIDER tier (bkqawscf.fwick7ets.xyz)
- * via queryEventsWithMarket. We send `pageNumber=-1` so the platform
- * returns the entire live + upcoming surface in one response (~250
- * events) — no pagination walk required.
- *
- * Auth runs through lib/betting/velki/session.ts (DRF token → SSO
- * handoff → JSESSIONID). Per-event sportsbook odds are fetched later
- * by the atoms adapter (queryGeniusSportsEvent).
- *
- * Event-name format is "Team A v Team B" — same as 9W — so the
- * existing event matcher (lib/matching/matcher.ts) will line Velki
- * events up against Pinnacle / NineWickets / BetConstruct without
- * any provider-specific code.
- */
 
 import type { ProviderAdapter, NormalizedEvent, Provider } from "../types";
 import { logger } from "../shared/logger";
@@ -28,9 +11,6 @@ import type { DebugFixturesFetchResult } from "./debug-fetch";
 
 const PROVIDER_NAME: Provider = "velki-sportsbook";
 
-// ============================================================
-// Helpers
-// ============================================================
 
 function parseTeamNames(eventName: string): { home: string; away: string } {
   const parts = eventName.split(" v ");
@@ -44,8 +24,6 @@ function transformEvent(event: VelkiEventListEntry): NormalizedEvent | null {
   const { home, away } = parseTeamNames(event.name);
   if (!home || !away) return null;
 
-  // Velki returns the event-level marketDateTime via the first market
-  // entry; fall back to "now" only if missing (better than rejecting).
   const startMs =
     event.markets && event.markets.length > 0
       ? event.markets[0].marketDateTime
@@ -69,9 +47,6 @@ function transformEvent(event: VelkiEventListEntry): NormalizedEvent | null {
   };
 }
 
-// ============================================================
-// Provider Adapter
-// ============================================================
 
 export const velkiSportsbookAdapter: ProviderAdapter = {
   name: PROVIDER_NAME,
@@ -90,9 +65,6 @@ export const velkiSportsbookAdapter: ProviderAdapter = {
   },
 };
 
-// ============================================================
-// Debug Fetch (for /debug-machine pipeline)
-// ============================================================
 
 export async function debugFetchVelkiSportsbookEvents(): Promise<DebugFixturesFetchResult> {
   const result: DebugFixturesFetchResult = {
@@ -103,8 +75,6 @@ export async function debugFetchVelkiSportsbookEvents(): Promise<DebugFixturesFe
     eventCount: 0,
   };
 
-  // Single-shot request — `pageNumber=-1` disables pagination and
-  // returns the full event list in one response.
   const start = Date.now();
   try {
     const raw = await fetchAllEvents(1);

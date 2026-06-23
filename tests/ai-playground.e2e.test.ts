@@ -1,37 +1,11 @@
-/**
- * AI Playground — end-to-end test.
- *
- * Drives the same two-step flow the /ai-playground page uses:
- *   1. POST /api/ai-search/search           (Web Grounding panel)
- *   2. POST /api/ai-search/grounded-query   (AI Synthesis panel)
- *
- * Plus health probes (/healthz, /llm-stats) and a control run with
- * skip_search=false to confirm the service-side search path also
- * returns proper sources + readable answers.
- *
- * Skips silently if the Next.js dev server (3000) or the ai-search
- * Python service (8090) isn't reachable, so it never blocks CI.
- *
- * Guards against the regression we just fixed:
- *   - Truncated answers leaking raw JSON (`{"answer": "Today, Bangladesh…`)
- *     to the UI when the LLM exceeds max_tokens.
- *
- * Run:
- *   npx vitest run tests/ai-playground.e2e.test.ts
- *   BASE_URL=http://localhost:3000 npx vitest run tests/ai-playground.e2e.test.ts
- */
 
 import { describe, it, expect, beforeAll } from "vitest";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 const MODEL = process.env.AI_PLAYGROUND_MODEL ?? "deepseek-v4-flash";
 
-// LLM calls are slow; allow up to 60s like the proxy route does.
 const LLM_TIMEOUT_MS = 60_000;
 
-// Single, well-known query that reliably produces a non-empty answer.
-// Picked because cricket fixture pages have rich snippets, so Vertex
-// Search returns useful evidence and the LLM has something concrete to say.
 const QUERY = "today cricket match bd";
 
 interface SearchResult {
@@ -81,7 +55,6 @@ async function postJson<T>(
   try {
     parsed = JSON.parse(text);
   } catch {
-    /* leave as text */
   }
   return { status: res.status, body: parsed as T };
 }
@@ -102,7 +75,6 @@ async function getJson<T>(
   try {
     parsed = JSON.parse(text);
   } catch {
-    /* leave as text */
   }
   return { status: res.status, body: parsed as T };
 }
@@ -152,7 +124,6 @@ describe("AI Playground (e2e)", () => {
       expect(providers).toBeTruthy();
       expect(providers.deepseek).toBeTruthy();
       expect(providers.gemini).toBeTruthy();
-      // Whichever engine is selected by the playground must not be disabled.
       const usedProvider = MODEL.startsWith("gemini") ? "gemini" : "deepseek";
       expect(providers[usedProvider].disabled).toBe(false);
     });
@@ -169,14 +140,11 @@ describe("AI Playground (e2e)", () => {
       );
 
       expect(status).toBe(200);
-      // provider_used="none" means every search backend failed — the
-      // playground UI swaps that into a hard error, so the e2e must too.
       expect(body.provider_used).not.toBe("none");
       expect(body.provider_used).toBeTruthy();
       expect(Array.isArray(body.results)).toBe(true);
       expect(body.results.length).toBeGreaterThan(0);
 
-      // Sanity-check shape: every result has a url + title + snippet.
       for (const r of body.results) {
         expect(r.url).toMatch(/^https?:\/\//);
         expect(typeof r.title).toBe("string");
@@ -191,8 +159,6 @@ describe("AI Playground (e2e)", () => {
       async () => {
         if (!servicesUp) return;
 
-        // Mirror exactly what app/ai-playground/page.tsx does:
-        // run search first, then pass results as `context.web_search_results`.
         const search = await postJson<SearchResp>(
           "/api/ai-search/search",
           { query: QUERY, max_results: 5, service: "PlaygroundTest" },
@@ -215,22 +181,14 @@ describe("AI Playground (e2e)", () => {
         expect(status).toBe(200);
         expect(body.model).toBeTruthy();
 
-        // Core regression guards — bug we just fixed:
-        // 1. Answer must NOT be the raw JSON envelope leaking through
-        //    (e.g. `{"answer": "Today, Bangladesh is playing the 2nd`).
         const answer = body.answer.trim();
         expect(answer.length).toBeGreaterThan(20);
         expect(answer.startsWith("{")).toBe(false);
         expect(answer).not.toMatch(/^\s*\{?\s*"answer"\s*:/);
 
-        // 2. Truncation heuristic: the answer should end with normal
-        //    punctuation, not be cut off mid-word or mid-quoted-string.
-        //    A trailing lone double-quote with no closing brace is a
-        //    classic JSON-truncation tell.
         expect(answer.endsWith('"')).toBe(false);
         expect(answer.endsWith("\\")).toBe(false);
 
-        // 3. Reasoning is optional but if present must also be clean.
         if (body.reasoning) {
           expect(body.reasoning.startsWith("{")).toBe(false);
         }
@@ -258,7 +216,6 @@ describe("AI Playground (e2e)", () => {
         expect(body.answer.trim().length).toBeGreaterThan(20);
         expect(body.answer.startsWith("{")).toBe(false);
 
-        // When the service does its own search, sources MUST be populated.
         expect(Array.isArray(body.sources)).toBe(true);
         expect(body.sources.length).toBeGreaterThan(0);
         for (const src of body.sources) {

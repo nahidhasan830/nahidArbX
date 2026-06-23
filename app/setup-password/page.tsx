@@ -19,7 +19,6 @@ function SetupPasswordForm() {
   const [isValidating, setIsValidating] = useState(true);
   const [isInvalid, setIsInvalid] = useState(false);
 
-  // Validate token on mount
   useEffect(() => {
     if (!token) {
       setIsInvalid(true);
@@ -79,7 +78,6 @@ function SetupPasswordForm() {
         return;
       }
 
-      // Redirect to dashboard
       router.push("/dashboard");
       router.refresh();
     } catch {
@@ -210,7 +208,6 @@ export default function SetupPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="w-full max-w-md px-4">
         <div className="bg-slate-900 rounded-xl shadow-xl p-8 border border-slate-800">
-          {/* Logo/Title */}
           <div className="text-center mb-8">
             <BrandLogo size="lg" />
             <p className="text-gray-400 mt-2">Welcome! Set up your account</p>

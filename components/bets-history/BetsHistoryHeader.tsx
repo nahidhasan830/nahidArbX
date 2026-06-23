@@ -11,12 +11,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-// Polls the same cadence as the table so numbers don't drift apart visually.
 const REFRESH_MS = 30_000;
 
-// Mirrors the subset of /api/accounts/stats we actually render. Keeping this
-// narrow rather than importing the route's internal shape avoids coupling the
-// header to every field the stats endpoint happens to expose.
 type AccountsStats = {
   totals: {
     bankroll: number;
@@ -45,12 +41,6 @@ const fmtMoneyPlain = (n: number | null | undefined, currency = "BDT") => {
   return `${Math.round(n).toLocaleString()} ${currency}`;
 };
 
-/**
- * Compact KPI strip rendered next to the "Bets" page title. Replaces the old
- * static subtitle with live numbers sourced from /api/accounts/stats. Every
- * metric carries a plain-English tooltip — the page is visited by non-
- * technical users who shouldn't need to guess what each number means.
- */
 export function BetsHistoryHeader() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["accounts-stats", "bets-header"] as const,
@@ -172,12 +162,6 @@ function Metric({
   );
 }
 
-/**
- * Settlement health indicator — pulls from /api/settlement and shows a
- * traffic light. Shares cadence with the rest of the header. Kept inline
- * rather than reusing the existing <SettlementStatusChip> from
- * SettlementMonitor.tsx so the header styling stays consistent.
- */
 function SettlementChip() {
   const { data, isLoading } = useQuery({
     queryKey: ["settlement", "header-status"] as const,
@@ -206,7 +190,6 @@ function SettlementChip() {
     refetchIntervalInBackground: false,
   });
 
-  // During initial load, show a skeleton instead of false "Unknown" status
   if (isLoading && !data) {
     return (
       <span className="inline-flex items-center gap-1 text-muted-foreground">

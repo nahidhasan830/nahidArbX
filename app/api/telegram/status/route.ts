@@ -1,6 +1,3 @@
-/**
- * GET /api/telegram/status — bot configuration + running state.
- */
 
 import { NextResponse } from "next/server";
 import { isTelegramConfigured } from "@/lib/telegram/client";
@@ -21,7 +18,6 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    /* empty body is fine */
   }
   if (body.action === "start") {
     const started = startTelegramBot();

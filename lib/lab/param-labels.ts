@@ -1,7 +1,3 @@
-/**
- * Friendly labels for optimizer search-space parameter keys.
- * Used by TrialDrawer to render the "Settings tried" section.
- */
 
 import { getProviderShortName } from "@/lib/providers/registry";
 import { formatMarketType } from "@/lib/formatting/labels";

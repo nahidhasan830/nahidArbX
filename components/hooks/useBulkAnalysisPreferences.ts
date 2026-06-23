@@ -4,13 +4,9 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useLocalStorage } from "./useLocalStorage";
 import { PROVIDER_IDS, type ProviderKey } from "@/lib/providers/registry";
 
-// ============================================
-// Types
-// ============================================
 
 export type TimeFilter = "all" | "live" | "upcoming";
 
-/** Click-to-sort columns on the value-bets table. */
 export type TableSortKey = "ko" | "ev" | "kelly" | "captured";
 export type TableSortDir = "asc" | "desc";
 export interface TableSort {
@@ -18,7 +14,6 @@ export interface TableSort {
   dir: TableSortDir;
 }
 
-// Serializable snapshot of all filter settings (for saving as user defaults)
 export interface SavedDefaults {
   selectedProviders: string[];
   showOnlyValue: boolean;
@@ -35,7 +30,6 @@ export interface SavedDefaults {
   selectedSoftProviders: string[];
 }
 
-// System defaults — used when user has no saved defaults
 const SYSTEM_DEFAULTS: SavedDefaults = {
   selectedProviders: [...PROVIDER_IDS],
   showOnlyValue: true,
@@ -53,14 +47,12 @@ const SYSTEM_DEFAULTS: SavedDefaults = {
 };
 
 export interface BulkAnalysisPreferences {
-  // Provider selection (for which providers to include in analysis)
   selectedProviders: Set<ProviderKey>;
   setSelectedProviders: (providers: Set<ProviderKey>) => void;
   toggleProvider: (providerId: ProviderKey) => void;
   selectAllProviders: () => void;
   deselectAllProviders: () => void;
 
-  // Filters
   showOnlyValue: boolean;
   setShowOnlyValue: (value: boolean) => void;
   showOnlySuspicious: boolean;
@@ -79,12 +71,10 @@ export interface BulkAnalysisPreferences {
   suspiciousThresholdPct: number;
   setSuspiciousThresholdPct: (value: number) => void;
 
-  // Column-level click-to-sort
   tableSort: TableSort;
   setTableSort: (sort: TableSort) => void;
   cycleTableSort: (key: TableSortKey) => void;
 
-  // Value bet filters (server-side)
   evRangeMin: number;
   setEvRangeMin: (value: number) => void;
   evRangeMax: number;
@@ -99,34 +89,26 @@ export interface BulkAnalysisPreferences {
   selectAllSoftProviders: () => void;
   deselectAllSoftProviders: () => void;
 
-  // View state
   isFullscreen: boolean;
   setIsFullscreen: (value: boolean) => void;
   toggleFullscreen: () => void;
 
-  // Selected rows for copy
   selectedRows: Set<string>;
   setSelectedRows: (rows: Set<string>) => void;
   toggleRowSelection: (rowId: string) => void;
   selectAllRows: (rowIds: string[]) => void;
   deselectAllRows: () => void;
 
-  // Utility
   resetFilters: () => void;
   hasActiveFilters: boolean;
 
-  // Custom defaults
   saveCurrentAsDefault: () => void;
   clearSavedDefaults: () => void;
   hasSavedDefaults: boolean;
 }
 
-// ============================================
-// Hook
-// ============================================
 
 export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
-  // Provider selection (persisted)
   const [selectedProvidersArray, setSelectedProvidersArray] = useLocalStorage<
     string[]
   >("bulk-analysis-selected-providers", [...PROVIDER_IDS]);
@@ -140,7 +122,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     }
   }, [selectedProvidersArray, setSelectedProvidersArray]);
 
-  // Filters (persisted)
   const [showOnlyValue, setShowOnlyValue] = useLocalStorage<boolean>(
     "bulk-analysis-value-only",
     true, // VALUE BETTING DEFAULT: show value bets by default
@@ -160,14 +141,11 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const [suspiciousThresholdPct, setSuspiciousThresholdPct] =
     useLocalStorage<number>("bulk-analysis-suspicious-threshold", 30);
 
-  // Click-to-sort state for the spreadsheet headers. Persisted so the user's
-  // chosen column sort survives reload.
   const [tableSort, setTableSort] = useLocalStorage<TableSort>(
     "bulk-analysis-table-sort",
     { key: "ev", dir: "desc" },
   );
 
-  // Click a column to cycle through desc → asc → null.
   const cycleTableSort = useCallback(
     (key: TableSortKey) => {
       setTableSort((prev) => {
@@ -179,11 +157,9 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     [setTableSort],
   );
 
-  // Selected market types (persisted) - empty array means "all"
   const [selectedMarketTypesArray, setSelectedMarketTypesArray] =
     useLocalStorage<string[]>("bulk-analysis-selected-markets", []);
 
-  // Value bet filters (persisted, server-side)
   const [evRangeMin, setEvRangeMin] = useLocalStorage<number>(
     "bulk-analysis-ev-range-min",
     0, // Default: no minimum
@@ -216,22 +192,18 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     }
   }, [selectedSoftProvidersArray, setSelectedSoftProvidersArray]);
 
-  // User-saved defaults (null = use system defaults)
   const [savedDefaults, setSavedDefaults] =
     useLocalStorage<SavedDefaults | null>("bulk-analysis-user-defaults", null);
 
-  // Active defaults = user saved or system fallback
   const activeDefaults = useMemo(
     () => savedDefaults ?? SYSTEM_DEFAULTS,
     [savedDefaults],
   );
 
-  // Non-persisted state
   const [searchTerm, setSearchTerm] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedRows, setSelectedRowsState] = useState<Set<string>>(new Set());
 
-  // Convert arrays to Sets
   const selectedProviders = useMemo(
     () => new Set(selectedProvidersArray as ProviderKey[]),
     [selectedProvidersArray],
@@ -247,7 +219,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     [selectedSoftProvidersArray],
   );
 
-  // Provider selection actions
   const setSelectedProviders = useCallback(
     (providers: Set<ProviderKey>) => {
       setSelectedProvidersArray([...providers]);
@@ -278,7 +249,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setSelectedProvidersArray([]);
   }, [setSelectedProvidersArray]);
 
-  // Market type selection actions
   const setSelectedMarketTypes = useCallback(
     (types: Set<string>) => {
       setSelectedMarketTypesArray([...types]);
@@ -312,7 +282,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setSelectedMarketTypesArray([]);
   }, [setSelectedMarketTypesArray]);
 
-  // Soft provider selection actions
   const setSelectedSoftProviders = useCallback(
     (providers: Set<ProviderKey>) => {
       setSelectedSoftProvidersArray([...providers]);
@@ -336,7 +305,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   );
 
   const selectAllSoftProviders = useCallback(() => {
-    // Empty array means "all" - this matches the pattern used for market types
     setSelectedSoftProvidersArray([]);
   }, [setSelectedSoftProvidersArray]);
 
@@ -344,12 +312,10 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setSelectedSoftProvidersArray([]);
   }, [setSelectedSoftProvidersArray]);
 
-  // View state actions
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen((prev) => !prev);
   }, []);
 
-  // Row selection actions
   const setSelectedRows = useCallback((rows: Set<string>) => {
     setSelectedRowsState(rows);
   }, []);
@@ -374,7 +340,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     setSelectedRowsState(new Set());
   }, []);
 
-  // Reset filters to user's saved defaults (or system defaults)
   const resetFilters = useCallback(() => {
     const d = activeDefaults;
     setShowOnlyValue(d.showOnlyValue);
@@ -454,7 +419,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     selectedSoftProviders,
   ]);
 
-  // Save current filter state as user's default
   const saveCurrentAsDefault = useCallback(() => {
     setSavedDefaults({
       selectedProviders: selectedProvidersArray,
@@ -488,7 +452,6 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     selectedSoftProvidersArray,
   ]);
 
-  // Clear saved defaults and reset to system defaults
   const clearSavedDefaults = useCallback(() => {
     setSavedDefaults(null);
   }, [setSavedDefaults]);
@@ -496,14 +459,12 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
   const hasSavedDefaults = savedDefaults !== null;
 
   return {
-    // Provider selection
     selectedProviders,
     setSelectedProviders,
     toggleProvider,
     selectAllProviders,
     deselectAllProviders,
 
-    // Filters
     showOnlyValue,
     setShowOnlyValue,
     showOnlySuspicious,
@@ -522,12 +483,10 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     suspiciousThresholdPct,
     setSuspiciousThresholdPct,
 
-    // Column-level click-to-sort
     tableSort,
     setTableSort,
     cycleTableSort,
 
-    // Value bet filters (server-side)
     evRangeMin,
     setEvRangeMin,
     evRangeMax,
@@ -542,23 +501,19 @@ export function useBulkAnalysisPreferences(): BulkAnalysisPreferences {
     selectAllSoftProviders,
     deselectAllSoftProviders,
 
-    // View state
     isFullscreen,
     setIsFullscreen,
     toggleFullscreen,
 
-    // Selected rows
     selectedRows,
     setSelectedRows,
     toggleRowSelection,
     selectAllRows,
     deselectAllRows,
 
-    // Utility
     resetFilters,
     hasActiveFilters,
 
-    // Custom defaults
     saveCurrentAsDefault,
     clearSavedDefaults,
     hasSavedDefaults,

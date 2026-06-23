@@ -1,13 +1,3 @@
-/**
- * Unified AI Provider Hook
- *
- * Fetches all provider data from DB and provides:
- * - Search providers (vertex, brave, tavily) with quota
- * - LLM providers (deepseek, gemini) with quota
- * - Toggle functionality
- * - Auto-refresh
- */
-
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -62,7 +52,6 @@ export function useAiProviders(
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [toggleBusy, setToggleBusy] = useState<Set<string>>(() => new Set());
   const toggleBusyRef = useRef(toggleBusy);
-  // Keep ref in sync so fetchProviders can read it without stale closure
   useEffect(() => {
     toggleBusyRef.current = toggleBusy;
   }, [toggleBusy]);
@@ -81,7 +70,6 @@ export function useAiProviders(
       }
 
       const data: AiProvider[] = await res.json();
-      // Fixed sort order: Vertex → Brave → Tavily for search providers, then alphabetical for LLMs
       const SEARCH_ORDER: Record<string, number> = {
         vertex: 0,
         brave: 1,
@@ -89,8 +77,6 @@ export function useAiProviders(
       };
       const getOrder = (name: string) => SEARCH_ORDER[name] ?? 99;
       data.sort((a, b) => getOrder(a.name) - getOrder(b.name));
-      // Don't overwrite providers that are currently being toggled
-      // (optimistic update is already showing the new state)
       const busy = toggleBusyRef.current;
       const merged = data.map((p) => {
         const uiName = p.name.startsWith("deepseek")
@@ -99,7 +85,6 @@ export function useAiProviders(
             ? "gemini"
             : p.name;
         if (busy.has(uiName)) {
-          // Preserve optimistic state for this provider
           const existing = providersRef.current.find(
             (ep) => ep.name === p.name,
           );
@@ -129,15 +114,12 @@ export function useAiProviders(
 
   const toggleProvider = useCallback(
     async (name: string, newEnabled: boolean) => {
-      // Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
-      // Note: search providers (brave, vertex, tavily) pass through as-is
       const nameMap: Record<string, string> = {
         deepseek: "deepseek-flash",
         gemini: "gemini-lite",
       };
       const dbName = nameMap[name] ?? name;
 
-      // Optimistic update - update BOTH the UI name and DB name versions
       setProviders((prev) => {
         const updated = prev.map((p) =>
           p.name === name || p.name === dbName
@@ -163,12 +145,7 @@ export function useAiProviders(
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
-
-        // Don't call fetchProviders() here — it races with the polling
-        // interval. Optimistic update already flipped the UI, and the
-        // 3s poll will confirm the actual DB state shortly.
       } catch (err) {
-        // Revert on error
         setProviders((prev) =>
           prev.map((p) =>
             p.name === name || p.name === dbName
@@ -185,10 +162,9 @@ export function useAiProviders(
         });
       }
     },
-    [fetchProviders],
+    [],
   );
 
-  // Initial load
   useEffect(() => {
     if (!enabled) return;
     const abortController = new AbortController();
@@ -196,14 +172,12 @@ export function useAiProviders(
     return () => abortController.abort();
   }, [enabled, fetchProviders]);
 
-  // Polling
   useEffect(() => {
     if (!enabled) return;
     const id = setInterval(load, pollMs);
     return () => clearInterval(id);
   }, [enabled, load, pollMs]);
 
-  // Derived data
   const searchProviders = providers.filter((p) => p.engineType === "search");
   const llmProviders = providers.filter((p) => p.engineType === "llm");
 

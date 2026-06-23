@@ -9,13 +9,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    // Ensure providers are seeded
     await seedProvidersIfEmpty();
 
-    // Get stats from search router (live session data)
     const stats = getSearchRouter().getStats();
 
-    // Get actual quota data from DB
     const providers = await getAllProviders();
 
     return Response.json({

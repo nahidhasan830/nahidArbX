@@ -1,58 +1,38 @@
-/**
- * Matching Feature Configuration
- */
 
 export interface MatchingConfig {
-  /** Scoring weights and thresholds */
   scoring: {
     teamWeight: number;
     competitionWeight: number;
     matchThreshold: number;
-    /** Time bucket size in ms for Tier 1 grouping (60000 = 1 minute = exact time) */
     timeBucketMs: number;
   };
 
-  /** Reject pairs with very different competition names */
   competitionHardGate: {
     enabled: boolean;
-    /** Minimum competition Dice score to proceed (default 0.3) */
     minCompetitionScore: number;
   };
 
-  /** Learn aliases from high-confidence auto-matches */
   aliasHarvesting: {
     enabled: boolean;
-    /** Occurrences needed before promoting a candidate to real alias */
     minOccurrences: number;
-    /** Max Dice distance — reject if names are TOO different (0-1, default 0.5) */
     maxDiceDistance: number;
   };
 
-  /** Escalate uncertain ML pairs to local AI Search (Groq + web grounding)
-   *  before routing to human_review. Tier 2.5 in the matching pipeline. */
   aiSearchEscalation: {
     enabled: boolean;
-    /** Minimum AI Search confidence to auto-decide (0-100, default 70) */
     confidenceThreshold: number;
-    /** Max pairs per AI Search batch request (hard max 20) */
     maxBatchSize: number;
   };
 }
 
-// ============================================
-// Match Source Tracking
-// ============================================
 
 export type MatchSource =
-  | "tier1-auto" // Tier 1 auto-match (score >= threshold)
-  | "tier1-alias" // Tier 1 match that benefited from a learned alias
-  | "ai-confirmed" // Gemini confirmed a near-match
-  | "ai-search-confirmed" // AI Search (Groq + web) confirmed a near-match
-  | "manual"; // Human manually approved
+  | "tier1-auto"
+  | "tier1-alias"
+  | "ai-confirmed"
+  | "ai-search-confirmed"
+  | "manual";
 
-// ============================================
-// Defaults
-// ============================================
 
 const DEFAULT_CONFIG: MatchingConfig = {
   scoring: {
@@ -80,9 +60,6 @@ const DEFAULT_CONFIG: MatchingConfig = {
   },
 };
 
-// ============================================
-// Singleton
-// ============================================
 
 let currentConfig: MatchingConfig = { ...DEFAULT_CONFIG };
 

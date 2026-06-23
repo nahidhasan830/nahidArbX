@@ -1,21 +1,3 @@
-/**
- * ML Model Retraining Scheduler
- *
- * Background loop that decides when a new training run should be
- * triggered. Auto-retraining is gated on a single rule: the canonical
- * training corpus has grown by ≥`ML_RETRAIN_GROWTH_STEP` (200 new
- * examples) since the last deployed model. There is no cadence, no
- * enabled toggle, no tunable threshold — manual retraining stays
- * available via `POST /api/ml/retrain`.
- *
- * The same loop also drives drift detection, calibration health checks,
- * pilot/A-B test evaluation, deployed-model notifications, and the
- * training status poller. Those subsystems are NOT scheduling — they
- * react to live state and remain intact.
- *
- * Pattern mirrors `lib/settle/scheduler.ts`: singleton state, idempotent
- * (HMR-safe), errors logged + swallowed (don't poison the loop).
- */
 
 import { logger } from "../shared/logger";
 import { singleton } from "../util/singleton";
@@ -27,7 +9,7 @@ import { processPendingModelNotifications } from "./notifier-tick";
 import { failStaleTrainingRuns } from "./training-watchdog";
 
 const tag = "ModelRetrainingScheduler";
-const POLL_INTERVAL_MS = 60_000; // 60s — auto-retrain readiness checks don't need to be frequent
+const POLL_INTERVAL_MS = 60_000;
 
 interface SchedulerState {
   active: boolean;
@@ -45,34 +27,13 @@ const state = singleton<SchedulerState>("ml:retrain-scheduler", () => ({
   totalRetrainTriggers: 0,
 }));
 
-/**
- * Check if retraining should be triggered. Criteria:
- *   1. No model is currently in 'training' status.
- *   2. At least `ML_COLD_START_THRESHOLD` qualified training samples exist.
- *   3. Either no model has been deployed yet, OR the qualified sample
- *      count has grown by ≥`ML_RETRAIN_GROWTH_STEP` (200 examples)
- *      since the last deployed model's training set.
- */
-/**
- * Inputs the retrain decision considers. Pure data — no DB or imports.
- * Exposed so the decision logic can be unit-tested without mocking the DB.
- */
 export interface RetrainDecisionInputs {
-  /** Count of `ml_models` rows currently in `status = 'training'`. */
   inTrainingCount: number;
-  /** Trainer-expected sample count from `getCurrentCorpusAccounting`. */
   totalAvailableSamples: number;
-  /** ML_COLD_START_THRESHOLD constant — minimum samples before any training. */
   coldStartThreshold: number;
-  /** ML_RETRAIN_GROWTH_STEP — required growth since last deploy. */
   growthStep: number;
-  /** Current feature contract hash. Used as the second axis of the
-   *  identical-inputs guard so a code change automatically un-blocks. */
   currentFeatureNamesHash: string;
-  /** Latest `ml_models` row at status='deployed', or null. */
   deployedModel: { trainingSamples: number } | null;
-  /** Most recent terminal-non-deployed `ml_models` row (rejected or failed),
-   *  ordered by `created_at DESC`. Null when no such row exists. */
   lastTerminalNonDeployed: {
     status: "rejected" | "failed";
     trainingSamples: number;
@@ -93,20 +54,6 @@ export type RetrainDecision =
         | "growth_below_step";
     };
 
-/**
- * Decide whether the auto-retrain scheduler should fire a new training run.
- *
- * Pure function. Encodes four guards in priority order:
- *
- *   1. A run is already in progress → wait.
- *   2. Corpus is below cold-start → wait.
- *   3. The most recent terminal-non-deployed run used the same feature
- *      contract and the corpus has not grown by a full retrain step since
- *      then → wait. Tiny sample increments after a rejection usually
- *      resubmit the same candidate.
- *   4. No deployed model and corpus is above cold-start → train.
- *   5. Otherwise: train iff growth since last deploy ≥ growthStep.
- */
 export function decideRetrain(input: RetrainDecisionInputs): RetrainDecision {
   if (input.inTrainingCount > 0) {
     return { should: false, reason: "training_in_progress" };
@@ -116,11 +63,6 @@ export function decideRetrain(input: RetrainDecisionInputs): RetrainDecision {
     return { should: false, reason: "below_cold_start" };
   }
 
-  // Terminal-inputs guard. If the most recent rejected/failed run used the
-  // same feature contract, wait for a full retrain step before auto-retrying.
-  // Manual retrain can still bypass this after an operator fixes config or
-  // infrastructure, and feature contract changes automatically unblock code
-  // fixes.
   const last = input.lastTerminalNonDeployed;
   if (last && last.featureNamesHash === input.currentFeatureNamesHash) {
     const growthSinceTerminal =
@@ -146,10 +88,6 @@ export function decideRetrain(input: RetrainDecisionInputs): RetrainDecision {
   return { should: false, reason: "growth_below_step" };
 }
 
-/**
- * Check if retraining should be triggered. Wraps `decideRetrain` with the
- * DB lookups required to populate its inputs.
- */
 async function shouldRetrain(): Promise<boolean> {
   try {
     const { db } = await import("../db/client");
@@ -212,9 +150,6 @@ async function shouldRetrain(): Promise<boolean> {
       lastTerminalNonDeployed,
     });
 
-    // Diagnostic logging — silence the noisy "training in progress" + "growth
-    // below step" cases since they fire on most ticks. Surface the new guard
-    // and the ready-to-train signal.
     if (decision.should) {
       logger.info(tag, `shouldRetrain → fire (${decision.reason})`);
     } else if (
@@ -235,20 +170,6 @@ async function shouldRetrain(): Promise<boolean> {
   }
 }
 
-/**
- * Trigger Cloud Run training: build fresh image → deploy → execute.
- *
- * Uses scripts/cloud-train.sh which calls Cloud Build to rebuild the
- * Docker image from current source, then runs the Cloud Run Job.
- * This guarantees no stale images — the image is always rebuilt.
- */
-/**
- * Trigger Cloud Run training: build fresh image → deploy → execute.
- *
- * Delegates to the shared `triggerCloudTraining` helper in
- * `lib/optimizer/cloud-training.ts` so the manual API route and this
- * scheduler tick share one audited implementation.
- */
 async function triggerRetraining(): Promise<void> {
   const { triggerCloudTraining } = await import("./cloud-training");
   const result = await triggerCloudTraining({
@@ -268,7 +189,6 @@ async function triggerRetraining(): Promise<void> {
 async function tick(): Promise<void> {
   state.lastTickAt = Date.now();
 
-  // 1. Repair stale training placeholders before scheduling decisions.
   try {
     await failStaleTrainingRuns();
   } catch (err) {
@@ -276,7 +196,6 @@ async function tick(): Promise<void> {
     logger.warn(tag, `training watchdog failed: ${msg}`);
   }
 
-  // 2. Check for pending model deployment notifications
   try {
     await processPendingModelNotifications();
   } catch (err) {
@@ -284,9 +203,6 @@ async function tick(): Promise<void> {
     logger.warn(tag, `processPendingModelNotifications failed: ${msg}`);
   }
 
-  // 3. Drift detection + pilot evaluation. Both subsystems only make sense
-  //    when a model is actually deployed. Cold-start systems with no
-  //    deployed model fall through to the auto-retrain check below.
   let deployedModel: {
     deployedAt: string | null;
     permissionLevel: string | null;
@@ -305,7 +221,6 @@ async function tick(): Promise<void> {
       .limit(1);
     deployedModel = row ?? null;
   } catch {
-    // Non-critical — fall through to auto-retrain
   }
 
   if (deployedModel) {
@@ -320,7 +235,6 @@ async function tick(): Promise<void> {
       const driftStatus = checkDrift();
       const degradation = getDriftDegradationStatus();
 
-      // ── Clear degradation if a new model was deployed ───────────────
       if (degradation.degraded && deployedModel.deployedAt) {
         const deployedMs = new Date(deployedModel.deployedAt).getTime();
         if (deployedMs > degradation.degradedAt) {
@@ -339,13 +253,11 @@ async function tick(): Promise<void> {
                 `Drift degradation cleared — permission restored to ${restored}`,
               );
             } catch {
-              // Non-critical
             }
           }
         }
       }
 
-      // ── Degrade permission on drift detection ───────────────────────
       if (driftStatus.driftDetected && !degradation.degraded) {
         const currentLevel = deployedModel.permissionLevel ?? "observe";
         if (currentLevel !== "observe") {
@@ -364,13 +276,11 @@ async function tick(): Promise<void> {
                 `Permission degraded ${currentLevel} → ${newLevel} due to concept drift on: ${driftStatus.driftMetrics.join(", ")}`,
               );
             } catch {
-              // Non-critical — degradation persists in memory even if DB update fails
             }
           }
         }
       }
 
-      // ── Pilot evaluation (stake_increase promotion) ────────────────
       try {
         const { evaluatePilot, isPilotActive, stopPilot } =
           await import("../ml/pilot");
@@ -400,15 +310,12 @@ async function tick(): Promise<void> {
           }
         }
       } catch {
-        // Non-critical
       }
     } catch (err) {
       logger.warn(tag, `Drift check failed: ${(err as Error).message}`);
     }
   }
 
-  // 4. Auto-retrain check — fires when corpus has grown ≥ML_RETRAIN_GROWTH_STEP
-  //    examples since last deployed model. Drift detection only degrades permission (no retrain trigger).
   try {
     if (await shouldRetrain()) {
       logger.info(
@@ -434,7 +341,6 @@ export function startModelRetrainingScheduler(): void {
     tag,
     `Started — auto-retrain after +${ML_RETRAIN_GROWTH_STEP} new training examples (poll every ${POLL_INTERVAL_MS / 1000}s)`,
   );
-  // Fire one tick immediately on startup.
   void tick();
 }
 

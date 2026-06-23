@@ -1,15 +1,5 @@
 "use client";
 
-/**
- * Settlement Activity Monitor — operator control panel for the
- * auto-settlement scheduler. Surfaces:
- *   - Live status + pause / resume / start / stop controls
- *   - Stream of in-memory activity entries (tick starts/ends, errors)
- *   - Persistent `settlement_runs` history with tier-hit breakdown
- *
- * Opened via a toolbar button on `/bets`. Uses SSE where possible,
- * falls back to 5s polling.
- */
 
 import { useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
@@ -169,7 +159,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
   const now = Date.now();
   const recentActivity = useMemo(() => [...activity].reverse(), [activity]);
 
-  // Fallback to database history if the in-memory scheduler state was reset (e.g. after server restart)
   const lastFinishedTs =
     status?.lastFinishedAt ??
     (status?.recentRuns?.[0]
@@ -180,13 +169,11 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
     status?.lastDurationMs ??
     (status?.recentRuns?.[0] ? status.recentRuns[0].durationMs : null);
 
-  // Next-trigger estimate — based on last-finished-at + interval. Only
-  // meaningful while the scheduler is running and not paused/disabled.
   const nextTriggerAt: number | null = (() => {
     if (!status) return null;
     if (!status.active || status.paused) return null;
     const base = status.lastStartedAt ?? lastFinishedTs;
-    if (!base) return now; // just started — next tick any moment
+    if (!base) return now;
     return base + status.intervalMs;
   })();
 
@@ -201,10 +188,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
                 Settlement Activity Monitor
               </DialogTitle>
             </div>
-            {/* Live indicator, refresh, and the dialog's implicit close sit
-                in the top-right. Refresh is pushed further from the Live
-                pill with `mr-8` so it doesn't crash into the built-in X
-                that Radix renders. */}
             <div className="flex items-center gap-3">
               <span
                 className={cn(
@@ -250,7 +233,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="px-5 py-3 border-b border-border bg-muted/30 space-y-3">
-          {/* Status header */}
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2">
               {tone && (
@@ -324,7 +306,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
             </div>
           </div>
 
-          {/* Controls */}
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="default"
@@ -437,7 +418,6 @@ export function SettlementMonitor({ open, onOpenChange }: Props) {
             )}
         </div>
 
-        {/* Tabs */}
         <Tabs defaultValue="activity" className="flex-1 min-h-0 flex flex-col">
           <TabsList variant="line" className="mx-5 mt-2 shrink-0 justify-start">
             <TabsTrigger value="activity" className="text-[12px]">

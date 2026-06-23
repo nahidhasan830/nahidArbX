@@ -1,17 +1,3 @@
-/**
- * AI Search API — powered by Node.js grounding engine (DeepSeek + Vertex/Brave).
- *
- * GET  /api/ai-search/stats          -> provider stats
- * GET  /api/ai-search/healthz        -> engine health
- * GET  /api/ai-search/models         -> available models
- * GET  /api/ai-search/llm-stats      -> LLM usage stats
- * GET  /api/ai-search/logs           -> Read from DB (ai_search_logs)
- * POST /api/ai-search/search         -> raw web search
- * POST /api/ai-search/planned-search -> DeepSeek-planned multi-query search
- * POST /api/ai-search/entity-match   -> single-pair entity matching
- * POST /api/ai-search/grounded-query -> search-grounded Q&A
- * POST /api/ai-search/providers/{name}/toggle -> enable/disable provider
- */
 
 import { NextRequest, NextResponse } from "next/server";
 import { insertAiSearchLog } from "@/lib/db/repositories/ai-search-logs";
@@ -197,7 +183,6 @@ export async function POST(
   try {
     const body = await req.json();
 
-    // Provider toggle
     if (isProviderToggle) {
       const name = subPath.split("/")[1];
       const ok = getGroundingEngine().toggleProvider(name, body.enabled);
@@ -210,7 +195,6 @@ export async function POST(
       return NextResponse.json({ name, enabled: body.enabled });
     }
 
-    // Raw search
     if (subPath === "search") {
       const { results, provider } = await getSearchRouter().search(
         body.query || "",
@@ -224,8 +208,6 @@ export async function POST(
       });
     }
 
-    // DeepSeek-planned multi-query search. Vertex is the default primary
-    // provider; explicit provider selections from callers still pass through.
     if (subPath === "planned-search") {
       const question = body.query || body.question || "";
       const preferredProviders = parseStringArray(body.providers);
@@ -258,7 +240,6 @@ export async function POST(
       });
     }
 
-    // Entity match
     if (subPath === "entity-match") {
       const eventA: EventInfo = {
         homeTeam: body.event_a?.home_team || "",
@@ -285,7 +266,6 @@ export async function POST(
       });
     }
 
-    // Grounded query
     if (subPath === "grounded-query") {
       const question = body.question || body.query || "";
       const llmProvider =

@@ -1,12 +1,3 @@
-/**
- * Thin HTTP wrapper around the Telegram Bot API.
- *
- * All methods require TELEGRAM_BOT_TOKEN. The chat-id we send to comes
- * from the caller — the long-poll loop pins it to TELEGRAM_CHAT_ID. The
- * outbound notifier (lib/notifier/telegram.ts) uses its own copy of
- * sendMessage with HTML formatting; we keep them separate because the
- * notifier formats event-specific cards while this client is plain RPC.
- */
 
 import { logger } from "@/lib/shared/logger";
 import type {
@@ -107,12 +98,6 @@ export async function answerCallbackQuery(args: {
   });
 }
 
-/**
- * Long-poll for new updates. Telegram blocks for up to `timeoutSec` seconds
- * if no update is available — that's intentional, it keeps the connection
- * count down and updates near-real-time. We use 25s so the Cloud Run /
- * dev-server fetch defaults (60s) leave headroom.
- */
 export async function getUpdates(args: {
   offset?: number;
   timeoutSec?: number;
@@ -131,26 +116,15 @@ export async function getUpdates(args: {
   return updates ?? [];
 }
 
-/**
- * Drop any pending webhook so getUpdates works. A bot can have either a
- * webhook OR long-poll, not both — if the operator previously set up a
- * webhook for testing, getUpdates returns 409 forever until we delete it.
- */
 export async function deleteWebhook(): Promise<void> {
   await call("deleteWebhook", { drop_pending_updates: false });
 }
 
-/**
- * Register slash-command autocomplete. Telegram will show these when the
- * user types `/` in the chat. Per Bot API best practice, descriptions
- * should be ≤ 22 characters so they fit on mobile without truncation.
- */
 export async function setMyCommands(
   commands: Array<{ command: string; description: string }>,
 ): Promise<void> {
   await call("setMyCommands", {
     commands: commands.map((c) => ({
-      // Telegram allows only [a-z0-9_] in command names, max 32 chars.
       command: c.command
         .toLowerCase()
         .replace(/[^a-z0-9_]/g, "")
@@ -160,10 +134,6 @@ export async function setMyCommands(
   });
 }
 
-/**
- * Configure the menu button next to the chat input. "commands" makes it
- * pop up the same list registered with setMyCommands; "default" reverts.
- */
 export async function setChatMenuButton(
   type: "commands" | "default" = "commands",
 ): Promise<void> {

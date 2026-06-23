@@ -1,17 +1,3 @@
-/**
- * Convergence Calculator
- *
- * Measures how quickly soft bookmaker odds are converging toward
- * (or diverging from) sharp bookmaker odds. Used as ML feature #14.
- *
- * Algorithm:
- * 1. Take last N ticks from each provider
- * 2. Interpolate sharp odds at each soft tick timestamp
- * 3. Compute gap series: softOdds - interpolatedSharpOdds
- * 4. OLS linear regression on (time, gap) → slope
- * 5. Negative slope = converging (value window closing)
- *    Positive slope = diverging (edge growing)
- */
 
 import { getOrderedTicks } from "@/lib/atoms/odds-history";
 
@@ -20,13 +6,6 @@ export interface ConvergenceTick {
   timestamp: number;
 }
 
-/**
- * Compute the rate at which soft odds are converging toward sharp odds.
- *
- * @returns Negative = converging (soft approaching sharp),
- *          Positive = diverging (edge growing),
- *          0 = insufficient data
- */
 export function computeConvergenceRate(
   eventId: string,
   familyId: string,
@@ -89,13 +68,6 @@ export function computeConvergenceRateFromTicks(
   return Math.round((numerator / denominator) * 10000) / 10000;
 }
 
-/**
- * Interpolate sharp odds at a given timestamp using surrounding ticks.
- *
- * - If both surrounding ticks exist: linear interpolation
- * - If only `before` exists and age < 5s: flat extrapolation
- * - Otherwise: null (no aligned pair)
- */
 function interpolateSharpOdds(
   sharpTicks: ConvergenceTick[],
   targetTs: number,

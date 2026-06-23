@@ -1,9 +1,3 @@
-/**
- * POST /api/auth/logout
- *
- * Logs out current user.
- * Revokes session and clears cookie.
- */
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
@@ -19,13 +13,11 @@ export async function POST(request: Request) {
     const token = cookieStore.get("auth_token")?.value;
 
     if (token) {
-      // Validate and revoke session
       const session = await validateSession(token);
 
       if (session) {
         await revokeSession(session.sessionId);
 
-        // Get user for logging
         const user = await db
           .select()
           .from(users)
@@ -45,11 +37,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Clear cookie
     const response = NextResponse.json({ ok: true });
     response.cookies.delete("auth_token");
 
-    // Also clear admin token if present (from impersonation)
     response.cookies.delete("admin_token");
 
     return response;

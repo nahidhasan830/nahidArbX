@@ -1,12 +1,3 @@
-/**
- * One-off dedup endpoint — removes duplicate rows in the unified `bets`
- * table created by the pre-fix matcher that produced unstable event ids.
- *
- * POST /api/bets-history/dedup?dryRun=true   → preview counts only
- * POST /api/bets-history/dedup               → delete losing rows in each dup group
- *
- * Dev-only: guarded by NODE_ENV check. Delete this file once executed.
- */
 
 import { NextRequest } from "next/server";
 import { sql } from "drizzle-orm";

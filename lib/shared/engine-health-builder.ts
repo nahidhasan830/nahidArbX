@@ -67,7 +67,6 @@ export function buildConnectionHealth(): Record<string, unknown> & {
     };
   }
 
-  // Reactive engine diagnostics
   const wsStatus = pinnacleWsClient.getConnectionStatus();
   const loopCounts = geniusSportsSyncService.getActiveLoopCounts();
   const sabaStatus = sabaSyncService.getStatus();
@@ -75,7 +74,6 @@ export function buildConnectionHealth(): Record<string, unknown> & {
   const currentSyncStatus = getSyncStatus();
   const cachedStats = getCachedStats();
 
-  // Circuit breaker summary — only include providers with non-closed state
   const cbStats = getAllCircuitBreakerStats();
   const circuitBreakers: Record<string, { state: string; failures: number }> =
     {};
@@ -125,7 +123,6 @@ export function buildConnectionHealth(): Record<string, unknown> & {
     };
   }
 
-  // Session capture diagnostics — per-provider step-level status
   const sessionCapture = getAllSessionDiagnostics();
   const providerAlerts = buildProviderAlerts(
     PROVIDER_IDS.map((id) => {

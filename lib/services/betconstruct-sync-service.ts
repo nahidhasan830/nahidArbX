@@ -1,29 +1,3 @@
-/**
- * BetConstruct Real-Time Subscription Sync Service
- *
- * Aligns BetConstruct with the reactive odds engine architecture:
- * - Pinnacle: STOMP WebSocket subscriptions → setOddsBatch → dirty callback
- * - 9W-SB / Velki-SB: HTTP delta polling → processRawOdds → setOddsBatch
- * - BetConstruct: Swarm WebSocket subscriptions → processRawOdds → setOddsBatch  ← THIS
- *
- * The Swarm API supports real-time subscriptions: when `subscribe: true` is set
- * on a `get` command, the server pushes deltas whenever any market/event/price
- * changes. This gives us true push-based reactive odds, similar to Pinnacle.
- *
- * Architecture:
- * - On start, subscribes to each matched BC event via `subscribeToGame()`
- * - Initial snapshot is immediately fed through processRawOdds → setOddsBatch
- * - Subsequent Swarm push deltas trigger a full re-fetch of the game's markets
- *   (the delta format is nested/partial, so a full snapshot is more reliable)
- * - The ReactiveDetector picks up dirty families within 500ms
- *
- * Lifecycle:
- * - `start()` called from instrumentation.ts during boot
- * - Every 60s, re-evaluates active roster (subscribe new, unsubscribe stale)
- * - `stop()` tears down all subscriptions cleanly
- * - Respects `isProviderRuntimeEnabled("betconstruct")` — no work when disabled
- */
-
 import { logger } from "../shared/logger";
 import { getMatchedEvents } from "../store";
 import { isProviderRuntimeEnabled } from "../providers/runtime-state";
@@ -35,18 +9,15 @@ import {
   unsubscribeFromGame,
   fetchGameMarkets,
   type BCGame,
+  type BetConstructErrorLike,
 } from "../adapters/betconstruct/client";
+import type { RawOddsAtomsProviderAdapter } from "../adapters/unified-registry";
 
 export class BetConstructSyncService {
   private isRunning = false;
   private intervalId?: NodeJS.Timeout;
   private busUnsubscribe?: () => void;
 
-  /**
-   * Maps normalizedEventId → { gameId, providerEventId } for lifecycle tracking.
-   * We track by normalizedEventId (like GeniusSportsSyncService) so we can
-   * diff against the active roster from getMatchedEvents().
-   */
   private trackedEvents = new Map<
     string,
     { gameId: number; providerEventId: string }
@@ -63,9 +34,8 @@ export class BetConstructSyncService {
     this.syncTrackedEntities();
     this.intervalId = setInterval(() => {
       this.syncTrackedEntities();
-    }, 60 * 1000); // Re-evaluate active fixtures every minute
+    }, 60 * 1000);
 
-    // React immediately when fixtures finish matching (eliminates 60s boot lag)
     this.busUnsubscribe = syncBus.subscribe((event) => {
       if (event.type === "fixtures:complete") {
         this.syncTrackedEntities();
@@ -81,7 +51,6 @@ export class BetConstructSyncService {
       this.busUnsubscribe = undefined;
     }
 
-    // Unsubscribe all
     for (const [, { gameId }] of this.trackedEvents) {
       unsubscribeFromGame(gameId).catch(() => {});
     }
@@ -89,27 +58,18 @@ export class BetConstructSyncService {
     logger.info("BCSyncService", "Stopped subscription sync service");
   }
 
-  /** Get count of active subscriptions for the engine status bar. */
   public getActiveSubscriptionCount(): number {
     return this.trackedEvents.size;
   }
 
-  /**
-   * Re-subscribe all tracked events after a WebSocket reconnect.
-   * Swarm subscriptions are session-bound — when the client reconnects
-   * and gets a new session, all previous subscriptions are gone.
-   */
   public resubscribeAll(): void {
-    // Clear local tracking so syncTrackedEntities treats them all as new
     this.trackedEvents.clear();
-    // Re-run subscription logic
     this.syncTrackedEntities();
     logger.info("BCSyncService", "Re-subscribing all events after reconnect");
   }
 
   private syncTrackedEntities() {
     if (!isProviderRuntimeEnabled("betconstruct")) {
-      // Provider disabled — tear down all subscriptions
       if (this.trackedEvents.size > 0) {
         for (const [, { gameId }] of this.trackedEvents) {
           unsubscribeFromGame(gameId).catch(() => {});
@@ -143,7 +103,6 @@ export class BetConstructSyncService {
           providerEventId: providerMapping.eventId,
         });
 
-        // Subscribe (fire and forget)
         this.subscribeEvent(
           gameId,
           providerMapping.eventId,
@@ -159,7 +118,6 @@ export class BetConstructSyncService {
       }
     }
 
-    // Unsubscribe from events no longer in the active roster
     for (const [id, { gameId }] of this.trackedEvents.entries()) {
       if (!activeIds.has(id)) {
         unsubscribeFromGame(gameId).catch(() => {});
@@ -178,8 +136,7 @@ export class BetConstructSyncService {
     const adapter = getAtomsAdapter("betconstruct");
     if (!adapter) return;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const baseAdapter = adapter as any;
+    const baseAdapter = adapter as RawOddsAtomsProviderAdapter;
     if (typeof baseAdapter.processRawOdds !== "function") return;
 
     const processGame = (game: BCGame) => {
@@ -192,19 +149,12 @@ export class BetConstructSyncService {
       });
     };
 
-    // Subscribe — initial snapshot + push callback
     const initialGame = await subscribeToGame(gameId, async () => {
-      // On each Swarm push delta, re-fetch the full game snapshot.
-      // The delta format is partial/nested (e.g. only changed prices),
-      // which is complex to merge. A full fetch via the existing WS
-      // is cheap (~2ms) and gives us a clean BCGame to extract from.
       try {
         const game = await fetchGameMarkets(gameId);
         if (game) processGame(game);
       } catch (err) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((err as any)?.silent) {
-          // Game expired — clean up
+        if ((err as BetConstructErrorLike)?.silent) {
           this.trackedEvents.delete(normalizedEventId);
           unsubscribeFromGame(gameId).catch(() => {});
           return;
@@ -216,7 +166,6 @@ export class BetConstructSyncService {
       }
     });
 
-    // Process initial snapshot
     if (initialGame) {
       processGame(initialGame);
     }

@@ -1,22 +1,3 @@
-/**
- * Tier 2b — SofaScore unofficial API (curl_cffi TLS impersonation).
- *
- * Covers essentially every global football league with both HT and FT
- * scores cleanly. ESPN + API-Football run first because they're ToS-safe.
- *
- * Transport: Python curl_cffi subprocess (see ./sofascore-browser.ts).
- * SofaScore blocks all non-browser TLS fingerprints via Cloudflare, but
- * curl_cffi uses curl-impersonate with Chrome's BoringSSL cipher suite
- * to produce an identical JA3 fingerprint. No browser needed.
- *
- * Strategy: one GET per kickoff-date to
- *     /api/v1/sport/football/scheduled-events/{YYYY-MM-DD}
- *   (lists every finished match globally for that date — a single call
- *   covers hundreds of matches), then fuzzy-match our events against it
- *   by team names + kickoff window. No per-event lookup needed.
- *
- * Cost: $0 direct; Scrape.do credits only after direct 403.
- */
 
 import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
 import type { SettleEvent } from "../waterfall";
@@ -33,14 +14,13 @@ import {
 } from "date-fns";
 
 const MATCH_SCORE_THRESHOLD = 0.65;
-const KICKOFF_WINDOW_MS = 90 * 60 * 1000; // 90 minutes — covers leagues where kickoff times differ between providers
+const KICKOFF_WINDOW_MS = 90 * 60 * 1000;
 
-// ─── Response shapes (SofaScore ships ~60 fields per event; we need ~6) ─────
 
 interface SofaTeam {
   name: string;
   shortName?: string;
-  nameCode?: string; // 3-letter code
+  nameCode?: string;
   slug?: string;
 }
 
@@ -73,25 +53,17 @@ interface SofaEvent {
   homeScore: SofaScoreLine;
   awayScore: SofaScoreLine;
   status: SofaEventStatus;
-  startTimestamp: number; // seconds
+  startTimestamp: number;
 }
 
 interface SofaScheduled {
   events?: SofaEvent[];
 }
 
-// ─── Matching ────────────────────────────────────────────────────────────────
 
-// Noise tokens that rarely carry identity. Stripping them normalises
-// "IF Gnistan" → "gnistan", "FC St. Pauli" → "st pauli", "Sheffield W"
-// → "sheffield", "Hoffenheim II" → "hoffenheim".
 const SUFFIX_NOISE =
   /\b(fc|cf|sc|ac|afc|cfc|fk|ii|iii|b|u21|u23|u19|u18|reserves|reserv|akademie|academy|women|w|wfc|wsl|jr|ladies|youth|u\d+|nd|1st|2nd|3rd|ifk|bk|if|ff|fk|ks|nk|ks|os|al|club|sportclub|klub|cd|cs|cs|ca|ca|al|calcio|futbol|football)\b/g;
 
-// Transliterate characters that NFD+diacritic-removal misses because they
-// have no canonical Unicode decomposition: ø/Ø (Danish/Norwegian),
-// ə/Ə (Azerbaijani, sounds like 'a'), ı (Turkish/Azerbaijani dotless-i),
-// đ/Đ (Croatian), ł/Ł (Polish).
 const TRANSLITERATE: [RegExp, string][] = [
   [/ø/g, "o"],
   [/Ø/g, "o"],
@@ -120,10 +92,7 @@ const teamSimilarity = (a: string, b: string): number => {
   const na = normalizeTeamName(applyTeamAlias(a));
   const nb = normalizeTeamName(applyTeamAlias(b));
   if (!na || !nb) return 0;
-  // Exact → 1.
   if (na === nb) return 1;
-  // Substring on a token boundary ("hjk" vs "hjk helsinki") → 0.92.
-  // This closes the gap the dice-coefficient leaves for short names.
   const shorter = na.length <= nb.length ? na : nb;
   const longer = shorter === na ? nb : na;
   if (shorter.length >= 3 && ` ${longer} `.includes(` ${shorter} `))
@@ -145,8 +114,6 @@ const mapStatus = (s: SofaEventStatus): MatchScore["status"] | null => {
     return "FT";
   }
 
-  // If the match is currently in extra time or penalties, the 90-minute
-  // regulation time is fully finished. We can extract the normaltime score.
   if (s.type === "inprogress") {
     if (d.includes("penalt")) return "PEN";
     if (d.includes("aet") || d.includes("extra time")) return "AET";
@@ -157,7 +124,6 @@ const mapStatus = (s: SofaEventStatus): MatchScore["status"] | null => {
   return null;
 };
 
-// ─── Fetch one day's global scheduled-events ────────────────────────────────
 
 type DayEventsCacheEntry = {
   fetchedAt: number;
@@ -200,19 +166,11 @@ export const shouldUseDayEventsCache = (
 ): boolean => nowMs - fetchedAt < getDayEventsCacheTtlMs(date, nowMs);
 
 const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
-  // Same-day scoreboards mutate throughout the day. A permanent cache
-  // freezes pre-FT results and leaves recent matches unresolved across
-  // every later settlement tick. Cache recent dates only briefly; keep
-  // older dates warm much longer because their results no longer change.
   const cached = eventsByDate.get(date);
   if (cached && shouldUseDayEventsCache(date, cached.fetchedAt)) {
     return cached.events;
   }
 
-  // The regular scheduled-events endpoint can omit lower-division fixtures
-  // that still appear in SofaScore's football-only `inverse` catalog. Merge
-  // both views and dedupe by SofaScore event id so broad settlement lookups
-  // keep niche matches without loosening fuzzy thresholds.
   const paths = [
     `/api/v1/sport/football/scheduled-events/${date}`,
     `/api/v1/sport/football/scheduled-events/${date}/inverse`,
@@ -232,12 +190,7 @@ const fetchDayEvents = async (date: string): Promise<SofaEvent[]> => {
   return collected;
 };
 
-// ─── Main entry ──────────────────────────────────────────────────────────────
 
-/**
- * Statistics payload shape — we care about cornerKicks, yellowCards,
- * and redCards rows.
- */
 interface SofaStatGroup {
   statisticsItems?: {
     key?: string;
@@ -250,22 +203,11 @@ interface SofaStatsResponse {
   statistics?: { groups?: SofaStatGroup[] }[];
 }
 
-/** Extracted match statistics from SofaScore's /event/{id}/statistics. */
 interface EventStats {
   corners?: { home: number; away: number };
-  /**
-   * Booking points per team (Pinnacle convention):
-   * 1 pt per yellow card + 2 pts per red card.
-   */
   bookings?: { home: number; away: number };
 }
 
-/**
- * Best-effort per-event statistics fetch. SofaScore's statistics response
- * is grouped by category; we flatten to find `cornerKicks`, `yellowCards`,
- * and `redCards`. Silent null-return on 403/404 so stats are treated as
- * unavailable rather than blocking settlement.
- */
 const fetchEventStats = async (
   sofaEventId: number,
 ): Promise<EventStats | null> => {
@@ -316,8 +258,6 @@ const fetchEventStats = async (
   if (cornersHome != null && cornersAway != null) {
     result.corners = { home: cornersHome, away: cornersAway };
   }
-  // Booking points: 1 per yellow + 2 per red (Pinnacle convention).
-  // If we have yellows, assume 0 reds when reds aren't reported.
   if (yellowHome != null && yellowAway != null) {
     result.bookings = {
       home: yellowHome + 2 * (redHome ?? 0),
@@ -327,15 +267,6 @@ const fetchEventStats = async (
   return Object.keys(result).length > 0 ? result : null;
 };
 
-/**
- * Resolve final scores via SofaScore. Groups events by local date,
- * fetches one scheduled-events/{date} payload per unique date, then
- * fuzzy-matches our events against the returned catalog.
- *
- * Pass `withCorners: true` to also fetch per-event corner stats.
- * Pass `withBookings: true` to also fetch per-event card (booking) stats.
- * Both share a single HTTP call per resolved event via `fetchEventStats`.
- */
 export async function fetchSofaScoreScores(
   events: SettleEvent[],
   opts: { withCorners?: boolean; withBookings?: boolean } = {},
@@ -343,8 +274,6 @@ export async function fetchSofaScoreScores(
   const out = new Map<string, MatchScore>();
   if (events.length === 0) return out;
 
-  // Unique local dates needed — pad one day each side so provider catalog
-  // boundaries still match.
   const dateSet = new Set<string>();
   for (const e of events) {
     const start = new Date(e.startTime);
@@ -356,7 +285,6 @@ export async function fetchSofaScoreScores(
   const allEvents: SofaEvent[] = [];
   for (const d of [...dateSet].sort()) {
     allEvents.push(...(await fetchDayEvents(d)));
-    // Gentle pacing: 1 req/sec keeps us well under the unpublished cap.
     await new Promise((r) => setTimeout(r, 1_100));
   }
 
@@ -368,7 +296,6 @@ export async function fetchSofaScoreScores(
     return out;
   }
 
-  // Fuzzy-match each of our events against the SofaScore catalog.
   for (const ours of events) {
     const ourStart = new Date(ours.startTime).getTime();
     let best: { event: SofaEvent; score: number } | null = null;
@@ -446,9 +373,6 @@ export async function fetchSofaScoreScores(
       sourceUrl: `https://www.sofascore.com/event/${best.event.id}`,
     });
 
-    // Learn team name equivalences on every confirmed match. The alias
-    // store dedupes + normalises direction, so repeat calls are cheap
-    // no-ops once the canonical form is recorded.
     try {
       if (best.event.homeTeam.name) {
         learnTeamAlias(ours.homeTeam, best.event.homeTeam.name);
@@ -464,14 +388,9 @@ export async function fetchSofaScoreScores(
     }
   }
 
-  // Optional second pass: per-event statistics fetch (corners and/or bookings).
-  // Both stats come from the same /event/{id}/statistics endpoint, so one
-  // HTTP call serves both needs — we only fire this pass when at least one
-  // stat type was requested.
   const needsStats = opts.withCorners || opts.withBookings;
   if (needsStats) {
     for (const [eventId, score] of out) {
-      // Score currently lacks an embedded sofa id; recover it from the URL.
       const m = score.sourceUrl?.match(/\/event\/(\d+)/);
       if (!m) continue;
       const sofaId = Number.parseInt(m[1], 10);

@@ -44,10 +44,8 @@ export class SearchRouter {
   private async _init() {
     if (this._initialized) return;
 
-    // Seed providers in DB
     await seedProvidersIfEmpty();
 
-    // Check DB config for enabled state
     const configs = await getProviderConfigs();
 
     this._providers.push(new VertexSearchProvider());
@@ -258,7 +256,6 @@ export class SearchRouter {
       if (p.name === name) {
         if (enabled) p.enable();
         else p.disable();
-        // Persist to DB
         await setProviderEnabled(name, enabled);
         logger.info(
           tag,

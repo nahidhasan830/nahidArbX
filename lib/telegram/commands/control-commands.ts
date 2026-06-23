@@ -1,12 +1,3 @@
-/**
- * Control commands (safe writes — no confirm flow):
- *   /sync, /scheduler, /settle, /autoplace (off-only),
- *   /refreshtoken, /reconcile, /cache.
- *
- * The /ai kill-switch command was removed in 2026 along with all
- * automatic Gemini AI usage. Manual AI re-runs still happen from the
- * /bets web UI.
- */
 
 import {
   isSchedulerRunning,
@@ -48,7 +39,6 @@ import { syncTelegramCommandMenu } from "../menu";
 import { registerCommand } from "../registry";
 import { esc, header, kvList } from "../format";
 
-// ── /sync [fixtures|odds] ────────────────────────────────────────────────
 
 registerCommand({
   name: "sync",
@@ -73,7 +63,6 @@ registerCommand({
   },
 });
 
-// ── /commandsync ────────────────────────────────────────────────────────
 
 registerCommand({
   name: "commandsync",
@@ -93,7 +82,6 @@ registerCommand({
   },
 });
 
-// ── /scheduler ───────────────────────────────────────────────────────────
 
 registerCommand({
   name: "scheduler",
@@ -144,7 +132,6 @@ registerCommand({
   },
 });
 
-// ── /settle ──────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "settle",
@@ -205,7 +192,6 @@ registerCommand({
   },
 });
 
-// ── /autoplace [provider] [off] ─ OFF-ONLY ───────────────────────────────
 
 registerCommand({
   name: "autoplace",
@@ -264,7 +250,6 @@ registerCommand({
   },
 });
 
-// ── /refreshtoken ────────────────────────────────────────────────────────
 
 registerCommand({
   name: "refreshtoken",
@@ -290,7 +275,6 @@ registerCommand({
   },
 });
 
-// ── /reconcile ───────────────────────────────────────────────────────────
 
 registerCommand({
   name: "reconcile",
@@ -314,7 +298,6 @@ registerCommand({
   },
 });
 
-// ── /cache ───────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "cache",
@@ -337,7 +320,6 @@ registerCommand({
   },
 });
 
-// ── /provider [id] [on|off] ──────────────────────────────────────────────
 
 registerCommand({
   name: "provider",

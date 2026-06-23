@@ -1,6 +1,3 @@
-/**
- * GET /api/telegram/history — recent incoming-command log + summary stats.
- */
 
 import { NextResponse } from "next/server";
 import {

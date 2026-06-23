@@ -1,17 +1,3 @@
-/**
- * ML Scorer — Vertex AI Prediction (Engine-Only)
- *
- * Cloud-managed inference via Vertex AI Prediction endpoint.
- * Replaces local ONNX scoring with managed LightGBM model deployment.
- *
- * Configuration:
- *   VERTEX_PREDICTION_ENDPOINT — optional endpoint id, resource name, or URL
- *   ml_models.vertex_endpoint_name — fallback written by the trainer
- *   GCP_PROJECT_ID, GCP_REGION — already configured
- *
- * ⚠ PROCESS ISOLATION: This module must NEVER be imported by Next.js
- * API routes or React Server Components.
- */
 
 import { singleton } from "@/lib/util/singleton";
 import { logger } from "@/lib/shared/logger";
@@ -22,25 +8,16 @@ import {
   setVertexPredictionEndpoint,
 } from "./vertex-prediction-client";
 
-// ============================================
-// State — singleton for HMR safety
-// ============================================
 
 interface ScorerState {
   loadAttempted: boolean;
   modelVersion: number | null;
   watcherTimer: ReturnType<typeof setInterval> | null;
-  /** Total batch entries we tried to score, including failures. */
   totalScoringAttempts: number;
-  /** Total batch entries that returned a non-null calibrated score. */
   totalScored: number;
-  /** Wall-clock ms of the last predictBatch round-trip (0 if none yet). */
   lastInferenceMs: number;
-  /** Total wall-clock ms across all predictBatch round-trips. */
   totalInferenceMs: number;
-  /** Number of predictBatch round-trips (used to derive avg latency). */
   totalInferenceCalls: number;
-  /** Current Vertex AI Prediction endpoint resource or URL. */
   vertexEndpoint: string | null;
 }
 
@@ -61,12 +38,8 @@ const state = singleton(
 
 const MODEL_WATCH_INTERVAL_MS = 60_000;
 
-// ============================================
-// Public API
-// ============================================
 
 export function isModelLoaded(): boolean {
-  // Vertex AI endpoint is always "loaded" once configured or discovered.
   return !!getVertexPredictionEndpoint();
 }
 
@@ -86,8 +59,6 @@ export async function ensureModel(): Promise<boolean> {
       "MLScorer",
       `Vertex AI Prediction endpoint configured: ${endpoint}`,
     );
-    // Probe through scoreBatch so the inference dashboard reflects the
-    // startup check, even before a live value bet is warm enough to score.
     const probe = await scoreBatch([Array(FEATURE_COUNT).fill(0)]);
     const healthy = probe.length === 1 && probe[0] !== null;
     if (healthy) {
@@ -104,18 +75,6 @@ export async function ensureModel(): Promise<boolean> {
   return endpointConfigured;
 }
 
-/**
- * Score a batch of feature vectors via Vertex AI Prediction endpoint.
- * Returns calibrated P(win) [0, 1] for each input, or null on failure.
- *
- * Counter discipline:
- *   - `totalScoringAttempts` increments by `featureArrays.length` for every
- *     call so the dashboard shows real call volume.
- *   - `totalScored` increments only by the count of non-null elements in the
- *     response. A failed endpoint does not inflate the success counter.
- *   - `lastInferenceMs` and `totalInferenceMs` are wall-clock measurements
- *     of the predictBatch round-trip.
- */
 export async function scoreBatch(
   featureArrays: number[][],
 ): Promise<(number | null)[]> {
@@ -156,9 +115,6 @@ export function getScorerStatus() {
   };
 }
 
-// ============================================
-// Model version watcher
-// ============================================
 
 function startModelWatcher(): void {
   if (state.watcherTimer) return;

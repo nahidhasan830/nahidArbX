@@ -63,20 +63,6 @@ export const stakeForStrategy = (
   }
 };
 
-/**
- * P&L for a settled row given a stake.
- *
- * Wins are booked at softOdds — the price at first detection, which is
- * the realistic entry price. closingSharpOdds is used for CLV analysis
- * only, not for P&L.
- *
- * For Asian-Handicap / Over-Under quarter lines the outcome is split:
- * - "half_won"  → half the stake wins at the quoted odds, the other half
- *                 pushes (stake returned). Net = 0.5 × stake × (odds − 1).
- * - "half_lost" → half the stake loses, the other half pushes.
- *                 Net = −0.5 × stake.
- * "void" (and the legacy "push") leaves P&L at 0 — stake returned in full.
- */
 export const settlementPnl = (row: ValueBetRow, stake: number): number => {
   if (row.outcome === "won" || row.outcome === "half_won") {
     const cf = commissionFactor(row.softCommissionPct);

@@ -1,13 +1,3 @@
-/**
- * Odds store unit tests — snapshot diffing, dirty tracking, counters.
- *
- * Covers the urgent fixes:
- *   - applyProviderSnapshot diffs instead of delete-all-reinsert
- *     (unchanged snapshots = no dirty families, no tick inflation)
- *   - _matchedMarkets counter only decrements on the 2→1 transition
- *   - clearOddsForEvent marks families dirty + fires the callback
- *   - readdDirtyFamilies merges without firing the callback
- */
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 
 import {
@@ -75,7 +65,6 @@ describe("applyProviderSnapshot", () => {
     )?.totalTicks;
     const statsBefore = getStoreStats();
 
-    // Re-apply the exact same snapshot (fresh timestamps, same prices)
     applyProviderSnapshot(
       EVENT,
       SHARP,
@@ -149,7 +138,6 @@ describe("applyProviderSnapshot", () => {
     applyProviderSnapshot(EVENT, SHARP, [entry("HOME", 2.1)]);
     consumeDirtyFamilies();
 
-    // Sharp snapshot drops HOME — soft record must survive
     applyProviderSnapshot(EVENT, SHARP, []);
 
     expect(getOdds(EVENT, FAMILY, "HOME", SHARP)).toBeUndefined();
@@ -168,21 +156,16 @@ describe("_matchedMarkets counter", () => {
     setOdds(entry("HOME", 1.95, { provider: SOFT }));
     expect(getMatchedMarketsCount()).toBe(1);
 
-    // Remove sharp via empty snapshot: 2→1 must decrement
     applyProviderSnapshot(EVENT, SHARP, []);
     expect(getMatchedMarketsCount()).toBe(0);
   });
 
   it("does NOT decrement when removing the sole provider of an unmatched atom (1→0)", () => {
-    // One matched atom to give the counter a positive value
     setOdds(entry("HOME", 2.1));
     setOdds(entry("HOME", 1.95, { provider: SOFT }));
-    // One unmatched soft-only atom
     setOdds(entry("DRAW", 3.4, { provider: SOFT }));
     expect(getMatchedMarketsCount()).toBe(1);
 
-    // Removing the soft provider deletes both its records:
-    // HOME 2→1 decrements once; DRAW 1→0 must not decrement.
     applyProviderSnapshot(EVENT, SOFT, []);
     expect(getMatchedMarketsCount()).toBe(0);
   });

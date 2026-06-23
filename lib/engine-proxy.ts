@@ -1,26 +1,11 @@
-/**
- * Engine Proxy Client
- *
- * Used by Next.js API routes to forward requests to the engine's
- * HTTP API (port 3001) for data that only exists in the engine
- * process's memory.
- *
- * Falls back gracefully when the engine is unreachable (returns null).
- */
 
 const ENGINE_PORT = parseInt(process.env.ENGINE_PORT || "3001", 10);
 const ENGINE_BASE = `http://127.0.0.1:${ENGINE_PORT}`;
 
-/** Exported for display in boot notifications. */
 export const ENGINE_BASE_URL = ENGINE_BASE;
 
-/** Timeout for engine requests (ms) */
 const TIMEOUT_MS = 8_000;
 
-/**
- * GET request to engine HTTP API.
- * Returns parsed JSON or null if engine is unreachable.
- */
 export async function engineGet<T = unknown>(path: string): Promise<T | null> {
   try {
     const controller = new AbortController();
@@ -37,10 +22,6 @@ export async function engineGet<T = unknown>(path: string): Promise<T | null> {
   }
 }
 
-/**
- * POST request to engine HTTP API.
- * Returns parsed JSON or null if engine is unreachable.
- */
 export async function enginePost<T = unknown>(
   path: string,
   body: unknown,
@@ -66,10 +47,6 @@ export async function enginePost<T = unknown>(
   }
 }
 
-/**
- * Proxy an SSE stream from the engine to the client.
- * Returns a ReadableStream that pipes engine SSE events through.
- */
 export function engineSSEProxy(): ReadableStream | null {
   try {
     const url = `${ENGINE_BASE}/engine/stream`;
@@ -81,7 +58,6 @@ export function engineSSEProxy(): ReadableStream | null {
         try {
           const res = await fetch(url, {
             cache: "no-store",
-            // No timeout for SSE — it's long-lived
           });
 
           if (!res.ok || !res.body) {
@@ -100,7 +76,6 @@ export function engineSSEProxy(): ReadableStream | null {
               try {
                 controller.enqueue(value);
               } catch {
-                // Controller closed by client disconnect
                 reader.cancel();
                 return;
               }
@@ -110,12 +85,10 @@ export function engineSSEProxy(): ReadableStream | null {
             try {
               controller.close();
             } catch {
-              // Already closed by the client.
             }
           });
         } catch {
           try {
-            // Engine unreachable — send error event then close
             controller.enqueue(
               encoder.encode(
                 `event: error\ndata: ${JSON.stringify({ error: "Engine unreachable" })}\n\n`,
@@ -123,7 +96,6 @@ export function engineSSEProxy(): ReadableStream | null {
             );
             controller.close();
           } catch {
-            // Already closed
           }
         }
       },
@@ -133,9 +105,6 @@ export function engineSSEProxy(): ReadableStream | null {
   }
 }
 
-/**
- * Check if the engine HTTP API is reachable.
- */
 export async function isEngineReachable(timeoutMs = 2_000): Promise<boolean> {
   try {
     const controller = new AbortController();

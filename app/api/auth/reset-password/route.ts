@@ -1,8 +1,3 @@
-/**
- * POST /api/auth/reset-password
- *
- * Resets password using token from email.
- */
 
 import { db, users, passwordResets } from "@/lib/auth/db";
 import { eq, and, isNull, gt } from "drizzle-orm";
@@ -20,10 +15,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    // Ensure auth is initialized
     await initializeAuth();
 
-    // Parse body
     const body = await request.json();
     const parsed = ResetPasswordSchema.safeParse(body);
 
@@ -33,7 +26,6 @@ export async function POST(request: Request) {
 
     const { token, password } = parsed.data;
 
-    // Find reset token
     const resetRecord = await db
       .select()
       .from(passwordResets)
@@ -53,7 +45,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Get user
     const user = await db
       .select()
       .from(users)
@@ -64,10 +55,8 @@ export async function POST(request: Request) {
       return apiError("User not found", 404);
     }
 
-    // Hash new password
     const passwordHash = await hashPassword(password);
 
-    // Update password
     await db
       .update(users)
       .set({
@@ -77,16 +66,13 @@ export async function POST(request: Request) {
       })
       .where(eq(users.id, user.id));
 
-    // Mark reset token as used
     await db
       .update(passwordResets)
       .set({ usedAt: new Date() })
       .where(eq(passwordResets.id, resetRecord.id));
 
-    // Revoke all sessions for security
     await revokeAllUserSessions(user.id);
 
-    // Log activity
     await logActivity({
       userId: user.id,
       userEmail: user.email,

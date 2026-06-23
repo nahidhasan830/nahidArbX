@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * "Betting Accounts" panel for the dashboard.
- *
- * Displays a list of individual account cards showing:
- *   - Header (name + session + status badges)
- *   - Balance tiles (Available / Exposure / Turnover / Pending / Settled)
- *   - Footer (username + auto-login + auto-place toggles + re-login)
- *
- * Data sources:
- *   - /api/betting-accounts                 (balances, session, demo flag)
- *   - /api/providers/9w/overview            (unmatched tickets, autoLogin config)
- *   - /api/accounts/stats                   (turnover, pending, settled counts per provider)
- */
 import { useState } from "react";
 import {
   differenceInDays,
@@ -43,9 +30,6 @@ import {
 import { cn } from "@/lib/utils";
 import { ProviderBetsDialog } from "./ProviderBetsDialog";
 
-// ─────────────────────────────────────────────────────────────────────
-// Shared types
-// ─────────────────────────────────────────────────────────────────────
 
 export type SessionHealth = "healthy" | "expiring" | "expired" | "unknown";
 
@@ -126,9 +110,6 @@ export interface BettingAccountsPanelProps {
   autoLoginBusy: Set<string>;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Root
-// ─────────────────────────────────────────────────────────────────────
 
 export function BettingAccountsPanel(props: BettingAccountsPanelProps) {
   const { accounts, stats } = props;
@@ -190,9 +171,6 @@ function pickOverview(
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Card — the expanded per-account slide
-// ─────────────────────────────────────────────────────────────────────
 
 interface AccountCardProps {
   account: BettingAccount;
@@ -253,7 +231,6 @@ function AccountCard({
         dim && "opacity-60",
       )}
     >
-      {/* ── Card Header ── */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 bg-white/[0.02] border-b border-white/[0.04]">
         <div className="flex items-center gap-2.5 min-w-0">
           <span
@@ -282,7 +259,6 @@ function AccountCard({
         </div>
       </div>
 
-      {/* ── Body: error, inactive, or stats ── */}
       {hasError ? (
         <div className="px-4 py-3 flex flex-col gap-2.5">
           <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2.5 text-[12px] text-destructive flex items-start gap-2.5 leading-snug">
@@ -300,7 +276,6 @@ function AccountCard({
         </div>
       ) : (
         <div className="px-4 py-3.5 flex flex-col gap-2">
-          {/* ── Primary balance grid ── */}
           <div className="grid grid-cols-3 gap-2">
             <div className="flex flex-col gap-1 px-3 py-2.5 rounded-[8px] bg-black/20 border border-white/[0.04]">
               <div className="text-[9px] font-bold tracking-[0.08em] uppercase text-muted-foreground/70">
@@ -331,7 +306,6 @@ function AccountCard({
             />
           </div>
 
-          {/* ── Pending and Settled count tiles ── */}
           <div className="grid grid-cols-2 gap-2">
             <div
               onClick={() => openDialog("pending")}
@@ -368,7 +342,6 @@ function AccountCard({
         status={dialogStatus}
       />
 
-      {/* ── Controls footer ── */}
       <div className="flex items-center justify-between gap-2 px-4 pt-1.5 pb-2.5 border-t border-white/[0.05] bg-black/10">
         <div className="flex items-center gap-1.5 flex-wrap">
           {autoLogin && !account.isDemo && (
@@ -409,9 +382,6 @@ function AccountCard({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Pending Turnover tile — subtle emerald tint when cleared
-// ─────────────────────────────────────────────────────────────────────
 
 function PendingTurnoverTile({
   openStake,
@@ -456,9 +426,6 @@ function PendingTurnoverTile({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Leaf components
-// ─────────────────────────────────────────────────────────────────────
 
 function StatusBadge({
   account,
@@ -671,9 +638,6 @@ function AccountsSkeleton() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// Formatters
-// ─────────────────────────────────────────────────────────────────────
 
 function money(n: number | null, currency: string): string {
   if (n === null || !Number.isFinite(n)) return "—";

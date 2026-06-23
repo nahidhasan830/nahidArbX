@@ -79,6 +79,7 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 - **Middleware uses `jose`** (Edge Runtime), not `jsonwebtoken`.
 - **All external data validated with Zod.**
 - **Current-contract corpus accounting lives in `lib/ml/training-sample-accounting.ts`.** `/api/ml/pipeline`, `/api/ml/training-data`, and `/lab/ml` must reuse that shared source and keep raw settled/current-contract/win/loss progress separate from stricter trainer-readiness counts.
+- **ML runtime must stay Google Cloud managed.** Do not add local inference, Hugging Face runtime/fallbacks, or Hugging Face token/config paths. When changing ML, entity matching, embeddings, or scoring, prefer managed Google Cloud inference and remove local/Hugging Face runtime paths where the change scope allows.
 
 ### Settlement
 

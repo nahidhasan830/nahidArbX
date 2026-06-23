@@ -42,14 +42,12 @@ export class BraveSearchProvider {
       const provider = await getProviderByName(this.name);
       if (provider) {
         this._enabled = provider.enabled;
-        // Use DB quota info as fallback
         if (provider.hasMonthlyLimit) {
           this._serverLimit = provider.monthlyLimit;
           this._serverRemaining = provider.monthlyRemaining;
         }
       }
     } catch {
-      // Best-effort
     }
   }
 
@@ -63,21 +61,18 @@ export class BraveSearchProvider {
   }
 
   hasQuota(): boolean {
-    // Check DB first for quota tracking
     if (this._serverRemaining !== null) return this._serverRemaining > 0;
     if (!this._apiKey) return false;
     return true;
   }
 
   async checkQuotaAndIncrement(): Promise<boolean> {
-    // Check from DB
     const has = await dbHasQuota(this.name);
     if (!has) {
       this.disable();
       return false;
     }
 
-    // Increment in DB
     const result = await incrementUsage(this.name);
     if (!result) {
       this.disable();
@@ -115,7 +110,6 @@ export class BraveSearchProvider {
       throw new Error("Brave Search API key not configured");
     }
 
-    // Check and increment quota
     if (!(await this.checkQuotaAndIncrement())) {
       throw new Error("Brave Search quota exhausted");
     }

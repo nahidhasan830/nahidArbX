@@ -98,7 +98,7 @@ function DropdownMenuCheckboxItem({
       )}
       checked={checked}
       onSelect={(e) => {
-        e.preventDefault(); // Prevent dropdown from closing on selection
+        e.preventDefault();
         onSelect?.(e);
       }}
       {...props}

@@ -1,7 +1,3 @@
-/**
- * GET  /api/betting-settings  → current settings
- * PUT  /api/betting-settings  → update any subset of fields
- */
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -59,10 +55,6 @@ export async function PUT(request: Request) {
       { status: 400 },
     );
   }
-  // Cross-field invariant: when use_live_balance=false, a positive
-  // manual bankroll is required. We don't enforce it here unconditionally
-  // because the caller may be PATCHing just one field — we re-check
-  // after merging with the stored row.
   const { row: current } = await getBettingSettings();
   const merged = { ...current, ...parsed.data };
   if (!merged.useLiveBalance && !(merged.manualBankrollBdt > 0)) {

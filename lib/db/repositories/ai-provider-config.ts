@@ -1,8 +1,3 @@
-/**
- * Repository for ai_provider_config table — unified provider config + quota tracking.
- *
- * Replaces the old ai_engine_config and ai_provider_quotas tables.
- */
 
 import { db } from "@/lib/db/client";
 import { aiProviderConfig } from "@/lib/db/schema";
@@ -11,7 +6,6 @@ import { logger } from "@/lib/shared/logger";
 
 const tag = "AiProviderRepo";
 
-// ── Types ────────────────────────────────────────────────────────────────
 
 export type ProviderTier = "lite" | "flash" | "pro";
 export type EngineType = "llm" | "search";
@@ -34,21 +28,17 @@ export interface AiProviderRow {
 }
 
 export interface AiProvider {
-  // Identity
   name: string;
 
-  // Enabled/disabled
   enabled: boolean;
   disabledReason: string | null;
 
-  // Model metadata
   modelId: string | null;
   tier: ProviderTier | null;
   label: string;
   tagline: string | null;
   engineType: EngineType;
 
-  // Quota tracking
   totalUsageCount: number;
   monthlyUsageCount: number;
   monthlyLimit: number | null;
@@ -58,7 +48,6 @@ export interface AiProvider {
   lastResetAt: string;
 }
 
-// ── Default providers to seed ────────────────────────────────────────
 
 const DEFAULT_PROVIDERS: Array<{
   name: string;
@@ -71,7 +60,6 @@ const DEFAULT_PROVIDERS: Array<{
   engineType: EngineType;
   monthlyLimit: number | null;
 }> = [
-  // DeepSeek LLM providers
   {
     name: "deepseek-flash",
     enabled: true,
@@ -92,7 +80,6 @@ const DEFAULT_PROVIDERS: Array<{
     engineType: "llm",
     monthlyLimit: null,
   },
-  // Gemini LLM providers
   {
     name: "gemini-lite",
     enabled: false,
@@ -126,8 +113,6 @@ const DEFAULT_PROVIDERS: Array<{
     engineType: "llm",
     monthlyLimit: null,
   },
-  // Search providers. Vertex is unlimited for this deployment; API-metered
-  // providers keep monthly limits.
   {
     name: "vertex",
     enabled: true,
@@ -160,19 +145,12 @@ const DEFAULT_PROVIDERS: Array<{
   },
 ];
 
-// ── Core functions ─────────────────────────────────────────────────
 
-/**
- * Get all AI providers.
- */
 export async function getAllProviders(): Promise<AiProvider[]> {
   const rows = await db.select().from(aiProviderConfig);
   return rows.map(mapRowToProvider).sort(compareProviders);
 }
 
-/**
- * Get only LLM providers.
- */
 export async function getLLMProviders(): Promise<AiProvider[]> {
   const rows = await db
     .select()
@@ -181,9 +159,6 @@ export async function getLLMProviders(): Promise<AiProvider[]> {
   return rows.map(mapRowToProvider).sort(compareProviders);
 }
 
-/**
- * Get only search providers.
- */
 export async function getSearchProviders(): Promise<AiProvider[]> {
   const rows = await db
     .select()
@@ -192,9 +167,6 @@ export async function getSearchProviders(): Promise<AiProvider[]> {
   return rows.map(mapRowToProvider).sort(compareProviders);
 }
 
-/**
- * Get a single provider by name.
- */
 export async function getProviderByName(
   name: string,
 ): Promise<AiProvider | null> {
@@ -206,9 +178,6 @@ export async function getProviderByName(
   return rows[0] ? mapRowToProvider(rows[0]) : null;
 }
 
-/**
- * Get provider config map (name → {enabled, disabledReason}).
- */
 export async function getProviderConfigs(): Promise<
   Record<string, { enabled: boolean; disabledReason: string | null }>
 > {
@@ -223,9 +192,6 @@ export async function getProviderConfigs(): Promise<
   return map;
 }
 
-/**
- * Set provider enabled/disabled state.
- */
 export async function setProviderEnabled(
   name: string,
   enabled: boolean,
@@ -249,9 +215,6 @@ export async function setProviderEnabled(
     });
 }
 
-/**
- * Seed default providers if table is empty.
- */
 export async function seedProvidersIfEmpty(): Promise<void> {
   const existing = await db
     .select({ name: aiProviderConfig.name })
@@ -284,11 +247,7 @@ export async function seedProvidersIfEmpty(): Promise<void> {
   logger.info(tag, `Seeded ${DEFAULT_PROVIDERS.length} providers`);
 }
 
-// ── Quota functions ───────────��────────────────────────────────────
 
-/**
- * Get quota status for a provider.
- */
 export async function getQuota(provider: string): Promise<{
   totalUsageCount: number;
   monthlyUsageCount: number;
@@ -322,10 +281,6 @@ export async function getQuota(provider: string): Promise<{
   };
 }
 
-/**
- * Check if provider has quota available.
- * Returns false if exhausted or disabled.
- */
 export async function hasQuota(provider: string): Promise<boolean> {
   const rows = await db
     .select()
@@ -340,7 +295,6 @@ export async function hasQuota(provider: string): Promise<boolean> {
 
   if (isUnlimitedProvider(r.name)) return true;
 
-  // Check monthly limit
   if (r.monthlyLimit !== null && r.monthlyUsageCount >= r.monthlyLimit) {
     return false;
   }
@@ -348,14 +302,9 @@ export async function hasQuota(provider: string): Promise<boolean> {
   return true;
 }
 
-/**
- * Increment usage count for a provider.
- * Returns new counts, or null if quota exhausted (auto-disables search provider).
- */
 export async function incrementUsage(
   provider: string,
 ): Promise<{ totalUsageCount: number; monthlyUsageCount: number } | null> {
-  // First check current quota
   const quota = await getQuota(provider);
   if (quota && quota.hasMonthlyLimit && quota.isExhausted) {
     logger.warn(tag, `${provider} quota exhausted, rejecting`);
@@ -382,7 +331,6 @@ export async function incrementUsage(
     return null;
   }
 
-  // Check if quota exhausted after increment (for search providers)
   const updatedQuota = await getQuota(provider);
   if (updatedQuota?.hasMonthlyLimit && updatedQuota.isExhausted) {
     await setProviderEnabled(provider, false, "quota-exhausted");
@@ -395,9 +343,6 @@ export async function incrementUsage(
   };
 }
 
-/**
- * Reset monthly usage for all providers (called by scheduler).
- */
 export async function resetMonthlyUsage(): Promise<number> {
   const now = new Date().toISOString();
 
@@ -414,14 +359,10 @@ export async function resetMonthlyUsage(): Promise<number> {
   return result.length;
 }
 
-/**
- * Get all provider quotas for dashboard display.
- */
 export async function getAllQuotas(): Promise<AiProvider[]> {
   return getAllProviders();
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
 
 function mapRowToProvider(row: AiProviderRow): AiProvider {
   const monthlyLimit = effectiveMonthlyLimit(row.name, row.monthlyLimit);

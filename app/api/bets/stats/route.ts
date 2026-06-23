@@ -7,8 +7,6 @@ import {
 } from "@/lib/shared/api-response";
 import { aggregateBets, type ListFilters } from "@/lib/db/repositories/bets";
 
-// Same outcome enum as /api/bets — keeps filter parity so the summary numbers
-// always reflect what's currently visible in the table.
 const OUTCOME_VALUES = [
   "pending",
   "won",

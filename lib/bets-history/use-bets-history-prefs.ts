@@ -16,9 +16,7 @@ export type SortDir = "asc" | "desc" | "none";
 export type BetsHistoryPrefs = {
   filters: ListFilters;
   sort: { key: SortKey; dir: SortDir };
-  /** Active date preset for captured-time filter (firstSeenAt). */
   capturedPreset?: DatePresetKey;
-  /** Active date preset for kickoff-time filter (eventStartTime). */
   kickoffPreset?: DatePresetKey;
 };
 
@@ -48,10 +46,6 @@ const SORT_KEYS = new Set<SortKey>([
 const STORAGE_KEY_PREFS = "bets-history:prefs:v3";
 const STORAGE_KEY_DEFAULTS = "bets-history:defaults:v3";
 
-// One-time migration from the legacy "backtest:*" keys. Runs at module load
-// in the browser — cheap enough to not bother lazy-initialising. Remove this
-// shim after ~2 releases once we're confident every returning user has been
-// migrated.
 const LEGACY_KEY_PREFS = "backtest:prefs:v3";
 const LEGACY_KEY_DEFAULTS = "backtest:defaults:v3";
 if (typeof window !== "undefined") {
@@ -64,19 +58,12 @@ if (typeof window !== "undefined") {
       if (legacyValue && window.localStorage.getItem(next) === null) {
         window.localStorage.setItem(next, legacyValue);
       }
-      // Always drop the legacy key once we've handled migration once.
       if (legacyValue) window.localStorage.removeItem(legacy);
     }
   } catch {
-    // storage disabled / quota / cross-origin — safe to ignore.
   }
 }
 
-// Fields we persist in prefs (not offset — always start at page 0 on reload).
-// When a rolling date preset is active (anything except "all" / "custom"),
-// we strip the baked `from`/`to` (or `eventFrom`/`eventTo`) so they get
-// re-resolved from the preset key on each refetch tick. Otherwise reloading
-// hours later would replay a stale window.
 const sanitizeFilters = (
   f: ListFilters,
   capturedPreset?: DatePresetKey,
@@ -149,7 +136,6 @@ export function useBetsHistoryPrefs() {
   const [savedDefaults, setSavedDefaults] =
     useLocalStorage<BetsHistoryDefaults | null>(STORAGE_KEY_DEFAULTS, null);
 
-  // Active defaults = user-saved defaults if present, otherwise system.
   const activeDefaults: BetsHistoryDefaults = useMemo(
     () =>
       savedDefaults
@@ -226,7 +212,6 @@ export function useBetsHistoryPrefs() {
     [setPrefsRaw],
   );
 
-  // Reset filters + sort + presets to active defaults (user-saved → or system).
   const resetToDefaults = useCallback(() => {
     setPrefsRaw((cur) => ({
       ...cur,
@@ -241,7 +226,6 @@ export function useBetsHistoryPrefs() {
     }));
   }, [setPrefsRaw, activeDefaults]);
 
-  // Persist current filters + sort + presets as the new default.
   const saveCurrentAsDefault = useCallback(() => {
     setSavedDefaults({
       filters: sanitizeFilters(
@@ -261,7 +245,6 @@ export function useBetsHistoryPrefs() {
     setSavedDefaults,
   ]);
 
-  // Remove user-saved defaults; active defaults fall back to system.
   const clearSavedDefaults = useCallback(() => {
     setSavedDefaults(null);
   }, [setSavedDefaults]);

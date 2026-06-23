@@ -1,10 +1,3 @@
-/**
- * POST /api/auth/login
- *
- * Authenticates user with email/password.
- * Creates session, logs activity, sets HTTP-only cookie.
- * Rate limited: 5 attempts per 15 minutes per IP.
- */
 
 import { NextResponse } from "next/server";
 import { db, users } from "@/lib/auth/db";
@@ -29,18 +22,14 @@ import {
 
 export async function POST(request: Request) {
   try {
-    // Ensure auth is initialized
     await initializeAuth();
 
-    // Get client IP for rate limiting
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
 
-    // Check rate limit
     const rateLimited = rateLimitResponse("login", ip);
     if (rateLimited) return rateLimited;
 
-    // Parse and validate body
     const body = await request.json();
     const parsed = LoginSchema.safeParse(body);
 
@@ -50,7 +39,6 @@ export async function POST(request: Request) {
 
     const { email, password } = parsed.data;
 
-    // Find user
     const user = await db
       .select()
       .from(users)
@@ -61,7 +49,6 @@ export async function POST(request: Request) {
       return apiError("Invalid email or password", 401);
     }
 
-    // Check user status
     if (user.status === "suspended") {
       return apiError(
         "Your account has been suspended. Please contact the administrator.",
@@ -76,11 +63,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Verify password
     const isValid = await verifyPassword(password, user.passwordHash);
 
     if (!isValid) {
-      // Log failed attempt
       await logActivity({
         userId: user.id,
         userEmail: user.email,
@@ -92,19 +77,16 @@ export async function POST(request: Request) {
       return apiError("Invalid email or password", 401);
     }
 
-    // Get request metadata
     const userAgent = request.headers.get("user-agent");
     const deviceInfo = parseDeviceInfo(userAgent);
     const geo = await getGeoLocation(ip);
 
-    // Create session
     const { token } = await createSession(user.id, {
       ipAddress: ip,
       deviceInfo,
       geoLocation: geo,
     });
 
-    // Log successful login
     await logActivity({
       userId: user.id,
       userEmail: user.email,
@@ -114,13 +96,10 @@ export async function POST(request: Request) {
       deviceInfo,
     });
 
-    // Reset rate limit on successful login
     resetRateLimit(createRateLimitKey("login", ip));
 
-    // Get permissions
     const permissions = await getUserPermissions(user.id);
 
-    // Set HTTP-only cookie and return user data
     const response = NextResponse.json({
       ok: true,
       user: {

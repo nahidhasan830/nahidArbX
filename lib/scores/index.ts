@@ -1,16 +1,9 @@
-/**
- * Live Scores Module
- *
- * Export all score-related functionality
- */
 
-// Types
 export type {
   LiveScore,
   LiveScoreMessage,
   DisplayScore,
   CornersScore,
-  // Multi-source types
   ScoreSource,
   ScoreConfidence,
   SourceScore,
@@ -20,7 +13,6 @@ export type {
 } from "./types";
 export { stateToPeriod, toDisplayScore, bcStateToPeriod } from "./types";
 
-// Store (legacy Pinnacle-only)
 export {
   setLiveScore,
   getLiveScore,
@@ -30,14 +22,12 @@ export {
   clearAllScores,
   getScoreCount,
   cleanupOldScores,
-  // Corners
   setCornersScore,
   getCornersScore,
   clearCornersScore,
   getCornersScoreCount,
 } from "./store";
 
-// Multi-source store
 export {
   registerProviderEventId,
   registerEventMappings,
@@ -54,7 +44,6 @@ export {
   clearAllMultiScores,
 } from "./multi-source-store";
 
-// BC Poller
 export {
   startBCScorePolling,
   stopBCScorePolling,
@@ -65,7 +54,6 @@ export {
   pollBCScoresNow,
 } from "./bc-poller";
 
-// WebSocket
 export {
   subscribeToScore,
   unsubscribeFromScore,

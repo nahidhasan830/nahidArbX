@@ -1,9 +1,3 @@
-/**
- * POST /api/ml/reconcile — run reconcileMissingSettledExamples in-process.
- *
- * Idempotent. Safe to retry. Returns the number of training examples
- * actually written (0 when the corpus is fully covered).
- */
 
 import { NextResponse } from "next/server";
 import { logger } from "@/lib/shared/logger";

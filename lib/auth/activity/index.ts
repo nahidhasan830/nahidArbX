@@ -1,17 +1,8 @@
-/**
- * Activity Logging Module
- *
- * Logs all auth-related events for audit trail.
- * Activity logs are retained by the shared 7-day log-retention scheduler.
- */
 
 import { db, activityLogs } from "../db";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import type { GeoLocation } from "../geo";
 
-// ============================================
-// Types
-// ============================================
 
 export type ActivityAction =
   | "login"
@@ -38,7 +29,7 @@ export interface LogActivityParams {
   geoLocation?: GeoLocation | null;
   deviceInfo?: string;
   metadata?: Record<string, unknown>;
-  performedBy?: string; // Admin user ID if action was performed by admin
+  performedBy?: string;
 }
 
 export interface ActivityLogEntry {
@@ -54,13 +45,7 @@ export interface ActivityLogEntry {
   createdAt: Date;
 }
 
-// ============================================
-// Functions
-// ============================================
 
-/**
- * Log an activity event
- */
 export async function logActivity(params: LogActivityParams): Promise<void> {
   const id = crypto.randomUUID();
 
@@ -78,15 +63,12 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
   });
 }
 
-/**
- * Get activity logs for a user
- */
 export async function getUserActivityLogs(
   userId: string,
   options?: {
     limit?: number;
     offset?: number;
-    excludeImpersonation?: boolean; // Hide impersonation logs from user's view
+    excludeImpersonation?: boolean;
   },
 ): Promise<ActivityLogEntry[]> {
   const limit = options?.limit ?? 50;
@@ -104,7 +86,6 @@ export async function getUserActivityLogs(
 
   return logs
     .filter((log) => {
-      // If excludeImpersonation is true, filter out impersonation logs
       if (options?.excludeImpersonation) {
         return (
           log.action !== "impersonation_started" &&
@@ -116,9 +97,6 @@ export async function getUserActivityLogs(
     .map(parseActivityLog);
 }
 
-/**
- * Get all activity logs (admin view)
- */
 export async function getAllActivityLogs(options?: {
   limit?: number;
   offset?: number;
@@ -159,9 +137,6 @@ export async function getAllActivityLogs(options?: {
   return logs.map(parseActivityLog);
 }
 
-/**
- * Parse activity log from database format
- */
 function parseActivityLog(
   log: typeof activityLogs.$inferSelect,
 ): ActivityLogEntry {
@@ -179,9 +154,6 @@ function parseActivityLog(
   };
 }
 
-/**
- * Get activity summary for a user (for dashboard)
- */
 export async function getUserActivitySummary(userId: string): Promise<{
   totalLogins: number;
   lastLogin: Date | null;

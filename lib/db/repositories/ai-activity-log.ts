@@ -1,14 +1,3 @@
-/**
- * Repository for the ai_activity_log table.
- *
- * Write side: `recordAiActivity` — fire-and-forget, called from
- * settlement batch, ai-search proxy, and analysis routes whenever
- * an AI operation completes (success, error, or partial).
- *
- * Read side: `listAiActivityLog` — paginated query for the UI with
- * filtering by system, status, trigger, date range, and search.
- *        `aggregateAiActivityLog` — summary stats for the toolbar.
- */
 import { and, desc, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
 import {
@@ -18,14 +7,9 @@ import {
 } from "../schema";
 import { logger } from "@/lib/shared/logger";
 
-// ─── Write ────────────────────────────────────────────────────────────────────
 
 export type AiActivityInput = Omit<NewAiActivityLogRow, "id" | "createdAt">;
 
-/**
- * Fire-and-forget — never blocks the AI pipeline. Failures
- * are logged but never propagated.
- */
 export async function recordAiActivity(input: AiActivityInput): Promise<void> {
   try {
     await db.insert(aiActivityLog).values(input);
@@ -37,20 +21,13 @@ export async function recordAiActivity(input: AiActivityInput): Promise<void> {
   }
 }
 
-// ─── Read ─────────────────────────────────────────────────────────────────────
 
 export type AiActivityLogFilters = {
-  /** ISO date lower bound (createdAt). */
   from?: string;
-  /** ISO date upper bound (createdAt). */
   to?: string;
-  /** Filter by system(s). */
   systems?: string[];
-  /** Filter by status(es). */
   statuses?: string[];
-  /** Filter by trigger(s). */
   triggers?: string[];
-  /** Text search across summary/error/model. */
   search?: string;
   limit?: number;
   offset?: number;

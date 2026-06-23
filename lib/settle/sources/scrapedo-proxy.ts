@@ -1,28 +1,9 @@
-/**
- * Scrape.do API proxy — SofaScore fallback only.
- *
- * Replaces the paid IPRoyal residential proxy pool. Scrape.do offers
- * 1,000 free successful requests/month via their API mode, which is
- * more than enough for the settlement fallback (SofaScore 403 bypass).
- *
- * This module:
- *   - Routes SofaScore requests through Scrape.do's API endpoint when
- *     direct requests get Cloudflare-blocked (403).
- *   - Tracks a global "direct on cooldown" flag so after a direct 403
- *     we skip straight to Scrape.do for a short window instead of
- *     re-tripping Cloudflare every tick.
- *   - Tracks monthly usage to warn when approaching the 1,000 credit
- *     free-tier limit.
- *
- * Not a general-purpose HTTP client — intentionally scoped to SofaScore.
- */
 
 import axios, { type AxiosRequestConfig } from "axios";
 import { singleton } from "../../util/singleton";
 import { logger } from "../../shared/logger";
 import { format } from "date-fns";
 
-// ─── Configuration ───────────────────────────────────────────────────────────
 
 const SCRAPE_DO_TOKEN =
   process.env.SCRAPE_DO_TOKEN ?? "3c8036cf1404454a88fc06efe50cb0ee934edfbf8ae";
@@ -30,21 +11,16 @@ const SCRAPE_DO_TOKEN =
 const SCRAPE_DO_BASE = "https://api.scrape.do";
 const MIN_REQUEST_SPACING_MS = 2_500;
 
-// After a direct 403, skip direct entirely for this window and route
-// via Scrape.do. Prevents the "re-trip Cloudflare every 10-min tick" loop.
 const DIRECT_COOLDOWN_MS = 10 * 60 * 1000;
 
-// Free tier: 1,000 successful requests/month. Warn at 80%.
 const MONTHLY_LIMIT = 1_000;
 const WARN_THRESHOLD = 0.8;
 
-// ─── State ───────────────────────────────────────────────────────────────────
 
 interface ProxyState {
   lastDirect403At: number;
   lastProxyRequestAt: number;
-  /** Monthly usage counter — resets on month boundary. */
-  monthKey: string; // "YYYY-MM"
+  monthKey: string;
   usedCredits: number;
 }
 
@@ -71,12 +47,7 @@ function ensureMonthReset(): void {
   }
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
 
-/**
- * Fetch a URL through Scrape.do's API mode.
- * Returns the parsed JSON body or null on failure.
- */
 export async function fetchViaScrapeDoProxy<T>(
   targetUrl: string,
   timeoutMs: number = 30_000,
@@ -116,7 +87,6 @@ export async function fetchViaScrapeDoProxy<T>(
     const { data } = await axios.request<T>(cfg);
     state.usedCredits++;
 
-    // Warn when approaching limit
     if (
       state.usedCredits === Math.ceil(MONTHLY_LIMIT * WARN_THRESHOLD) ||
       state.usedCredits === MONTHLY_LIMIT - 50
@@ -143,8 +113,7 @@ export async function fetchViaScrapeDoProxy<T>(
         "ScrapeDoProxy",
         `Scrape.do authentication failed (HTTP 401) for ${targetUrl}. Check SCRAPE_DO_TOKEN / account status. Proxy disabled until resolved; SofaScore direct will be used when possible.`,
       );
-      // Mark a long cooldown to avoid hammering bad auth on every tick.
-      state.lastDirect403At = Date.now(); // reuse field lightly to suppress rapid proxy
+      state.lastDirect403At = Date.now();
       return null;
     }
     logger.warn(

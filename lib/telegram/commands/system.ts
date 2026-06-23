@@ -1,7 +1,3 @@
-/**
- * System / operational reads:
- *   /status, /health, /freshness, /scores, /notifs, /errors, /spend, /proxy
- */
 
 import { sql } from "drizzle-orm";
 import { startOfMonth } from "date-fns";
@@ -378,7 +374,6 @@ registerCommand({
   },
 });
 
-// ── /history ─────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "history",

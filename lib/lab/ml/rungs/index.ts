@@ -1,10 +1,3 @@
-/**
- * Pipeline ladder rung registry.
- *
- * The exported `RUNG_REGISTRY` is the single source of truth for the
- * ML Optimizer dashboard. Order matters — the array order is the
- * vertical reading order.
- */
 
 import type { PipelineData } from "@/components/lab/ml/types";
 import type { RungDefinition, RungVerdict } from "./types";
@@ -54,14 +47,6 @@ export interface EvaluatedRung {
   verdict: RungVerdict;
 }
 
-/**
- * Evaluate every rung in order, applying prerequisite gating.
- *
- * If a rung's `prereqs` include any rung whose verdict is not `pass`,
- * the rung is reported as `blocked` regardless of what its evaluator
- * returns. This keeps attention focused on the first failure and avoids
- * cascading red verdicts down the ladder.
- */
 export function evaluateRungs(data: PipelineData): EvaluatedRung[] {
   const result: EvaluatedRung[] = [];
   const verdictsById = new Map<string, RungVerdict>();

@@ -10,7 +10,6 @@ export interface VirtualListProps<T> {
   estimateSize: number;
   renderItem: (item: T, index: number) => React.ReactNode;
   overscan?: number;
-  /** Set false when every row has a fixed height matching estimateSize. */
   measureDynamic?: boolean;
   emptyState?: React.ReactNode;
   className?: string;

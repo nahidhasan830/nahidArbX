@@ -1,11 +1,3 @@
-/**
- * Gemini client — single source of truth for AI-assisted event matching.
- *
- * Wraps the official `@google/genai` SDK. Callers pass two events and get
- * back a verdict (SAME / DIFFERENT / UNCERTAIN) with confidence. The client
- * uses the SDK's structured-JSON mode so the response is guaranteed-parseable
- * — no regex fallbacks.
- */
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { logger } from "../shared/logger";
@@ -31,8 +23,6 @@ export interface EventLike {
   startTime: Date | string;
 }
 
-// Lite is the app-wide default — cheapest, fine for short factual prompts
-// (score extraction, alias confirmations). Flash and Pro are opt-in.
 const LITE_MODEL =
   process.env.GEMINI_LITE_MODEL ||
   process.env.GEMINI_DEFAULT_MODEL ||
@@ -40,8 +30,6 @@ const LITE_MODEL =
 const FLASH_MODEL = process.env.GEMINI_FLASH_MODEL || "gemini-3-flash";
 const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.1-pro";
 
-/** Lazy singleton so import-time has no side effects and unit tests that
- * stub `process.env.GEMINI_API_KEY` before first call work as expected. */
 let client: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI {
   if (!client) {
@@ -106,11 +94,6 @@ function resolveModel(tier: ModelTier | string | undefined): string {
   return tier;
 }
 
-/**
- * Ask Gemini whether two fixtures are the same real-world event.
- * Throws on API/auth errors so callers can surface them instead of caching
- * a bogus verdict.
- */
 export async function analyzeMatchWithGemini(
   eventA: EventLike,
   eventB: EventLike,
@@ -206,10 +189,6 @@ export async function analyzeMatchWithGemini(
   }
 }
 
-/**
- * Build a Google AI-mode search URL for a pair. Useful in the review UI so
- * humans can double-check Gemini's verdict with grounded web results.
- */
 export function buildHumanSearchUrl(
   eventA: EventLike,
   eventB: EventLike,
@@ -237,10 +216,6 @@ export function buildHumanSearchUrl(
   return `https://www.google.com/search?${params.toString()}`;
 }
 
-/**
- * Build a Google AI-mode search URL for entity resolution — verifying
- * whether a surface form is the same team/competition as a canonical.
- */
 export function buildEntitySearchUrl(
   surface: string,
   canonical: string,

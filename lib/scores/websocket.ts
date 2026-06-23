@@ -1,12 +1,3 @@
-/**
- * Pinnacle Live Score WebSocket Client
- *
- * Connects to Pinnacle's WebSocket to receive live score updates.
- * Uses STOMP protocol over WebSocket.
- *
- * Subscribe to: /in-running/{eventId}
- * Returns: LiveScoreMessage with homeScore, awayScore, elapsed, state
- */
 
 import WebSocket from "ws";
 import { setLiveScore, setCornersScore, getLiveScore } from "./store";
@@ -24,13 +15,8 @@ import { logger } from "../shared/logger";
 
 const log = logger.withContext("Scores WS");
 
-// STOMP frame terminator
 const NULL_CHAR = "\x00";
 
-// Pinned to globalThis so route-handler status reads (isScoreWebSocketConnected,
-// getConnectionHealth) see the same socket that the scheduler opened from
-// instrumentation.ts. Without this, every reader in a separate module graph
-// starts with a fresh null socket and reports "disconnected" forever.
 const s = singleton("scores:websocket", () => ({
   socket: null as WebSocket | null,
   connected: false,
@@ -45,9 +31,6 @@ const s = singleton("scores:websocket", () => ({
 
 const WS_URL = `wss://${new URL(config.providers.pinnacle.baseUrl).host}/proteus-websocket/mews`;
 
-// ============================================
-// STOMP Frame Helpers
-// ============================================
 
 function buildStompFrame(
   command: string,
@@ -65,7 +48,6 @@ function buildStompFrame(
 function parseStompFrame(
   data: string,
 ): { command: string; headers: Record<string, string>; body: string } | null {
-  // Remove trailing NULL chars
   const cleaned = data.replace(/\x00+$/, "");
   const lines = cleaned.split("\n");
 
@@ -75,7 +57,6 @@ function parseStompFrame(
   const headers: Record<string, string> = {};
   let bodyStartIndex = 1;
 
-  // Parse headers until empty line
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (line === "") {
@@ -92,12 +73,8 @@ function parseStompFrame(
   return { command, headers, body };
 }
 
-// ============================================
-// Message Handlers
-// ============================================
 
 function handleMessage(data: string): void {
-  // Ignore ping/pong messages (not STOMP frames)
   if (data.startsWith("ping:") || data.startsWith("pong:")) {
     return;
   }
@@ -108,12 +85,10 @@ function handleMessage(data: string): void {
   switch (frame.command) {
     case "CONNECTED":
       s.connected = true;
-      s.failures = 0; // Reset on successful connection
-      // Resubscribe to all events
+      s.failures = 0;
       for (const eventId of s.subscribed) {
         sendSubscribe(eventId);
       }
-      // Notify listeners of successful reconnection
       if (s.onReconnectCb) {
         try {
           s.onReconnectCb();
@@ -132,11 +107,9 @@ function handleMessage(data: string): void {
       break;
 
     case "RECEIPT":
-      // Acknowledgement, can ignore
       break;
 
     default:
-      // Heartbeat or unknown, ignore
       break;
   }
 }
@@ -147,25 +120,20 @@ function handleScoreMessage(
 ): void {
   const destination = headers["destination"] || "";
 
-  // Check if it's an in-running message: /in-running/{eventId}
   if (!destination.startsWith("/in-running/")) return;
 
-  // Extract event ID from destination
   const eventId = destination.replace("/in-running/", "");
 
   if (!body || body.trim() === "") return;
 
-  // Skip ping/pong messages that might be in the body
   if (body.startsWith("ping:") || body.startsWith("pong:")) return;
 
-  // Body should be valid JSON array
   if (!body.startsWith("[")) return;
 
   try {
     const messages: LiveScoreMessage[] = JSON.parse(body);
 
     for (const msg of messages) {
-      // Track Regular (goals) scores
       if (msg.resultingUnit === "Regular") {
         const score: LiveScore = {
           eventId: String(msg.eventParentId),
@@ -180,12 +148,8 @@ function handleScoreMessage(
           updatedAt: Date.now(),
         };
         setLiveScore(eventId, score);
-        // `setLiveScore` reconciles htHome/htAway using the previous
-        // state=1 snapshot when it observes a transition into 2H.
-        // Read it back so the multi-source store sees HT too.
         const stored = getLiveScore(eventId);
 
-        // Also update multi-source store
         const normalizedId = getNormalizedId("pinnacle", eventId);
         if (normalizedId) {
           const sourceScore: SourceScore = {
@@ -205,7 +169,6 @@ function handleScoreMessage(
         }
       }
 
-      // Track Corners scores (for corners handicap adjustment)
       if (msg.resultingUnit === "Corners") {
         const cornersScore: CornersScore = {
           eventId: String(msg.eventParentId),
@@ -222,9 +185,6 @@ function handleScoreMessage(
   }
 }
 
-// ============================================
-// STOMP Commands
-// ============================================
 
 function sendConnect(): void {
   if (!s.socket || s.socket.readyState !== WebSocket.OPEN) return;
@@ -266,36 +226,21 @@ function sendUnsubscribe(eventId: string): void {
 
 function sendHeartbeat(): void {
   if (s.socket && s.socket.readyState === WebSocket.OPEN) {
-    s.socket.send("\n"); // STOMP heartbeat
+    s.socket.send("\n");
   }
 }
 
-// ============================================
-// Connection Management
-// ============================================
 
 function connect(): void {
-  // MEMORY-LEAK GUARD — DO NOT REMOVE.
-  // ws.close() does NOT detach event listeners. Without removeAllListeners()
-  // the old socket's open/message/close/error closures (which capture `s`,
-  // module-level state, and indirectly the score store) stay attached to a
-  // closed socket and prevent it from being GC'd. The `reconnect()` helper
-  // below already does this correctly — keep `connect()` consistent so
-  // every reconnection path frees its predecessor cleanly.
   if (s.socket) {
     try {
       s.socket.removeAllListeners();
-      // Re-attach a no-op error handler — removeAllListeners() strips it,
-      // and if the socket emits 'error' during close() Node.js crashes
-      // with an unhandled error event.
       s.socket.on("error", () => {});
     } catch {
-      // already detached — ignore
     }
     try {
       s.socket.close();
     } catch {
-      // close can throw if socket is in a bad state
     }
     s.socket = null;
   }
@@ -338,7 +283,7 @@ function scheduleReconnect(): void {
     if (s.subscribed.size > 0) {
       connect();
     }
-  }, 5000); // Reconnect after 5 seconds
+  }, 5000);
 }
 
 function startHeartbeat(): void {
@@ -353,19 +298,12 @@ function stopHeartbeat(): void {
   }
 }
 
-// ============================================
-// Public API
-// ============================================
 
-/**
- * Subscribe to live score updates for an event
- */
 export function subscribeToScore(pinnacleEventId: string): void {
   if (s.subscribed.has(pinnacleEventId)) return;
 
   s.subscribed.add(pinnacleEventId);
 
-  // Connect if not already connected
   if (!s.socket || s.socket.readyState !== WebSocket.OPEN) {
     connect();
   } else if (s.connected) {
@@ -373,34 +311,24 @@ export function subscribeToScore(pinnacleEventId: string): void {
   }
 }
 
-/**
- * Unsubscribe from live score updates for an event
- */
 export function unsubscribeFromScore(pinnacleEventId: string): void {
   if (!s.subscribed.has(pinnacleEventId)) return;
 
   s.subscribed.delete(pinnacleEventId);
   sendUnsubscribe(pinnacleEventId);
 
-  // Disconnect if no more subscriptions
   if (s.subscribed.size === 0 && s.socket) {
     s.socket.close();
     s.socket = null;
   }
 }
 
-/**
- * Subscribe to scores for multiple events
- */
 export function subscribeToScores(pinnacleEventIds: string[]): void {
   for (const eventId of pinnacleEventIds) {
     subscribeToScore(eventId);
   }
 }
 
-/**
- * Clear all subscriptions and disconnect
- */
 export function disconnectScores(): void {
   s.subscribed.clear();
   s.subIds.clear();
@@ -420,27 +348,17 @@ export function disconnectScores(): void {
   s.connected = false;
 }
 
-/**
- * Check if WebSocket is connected
- */
 export function isScoreWebSocketConnected(): boolean {
   return (
     s.connected && s.socket !== null && s.socket.readyState === WebSocket.OPEN
   );
 }
 
-/**
- * Get list of subscribed event IDs
- */
 export function getSubscribedEventIds(): string[] {
   return Array.from(s.subscribed);
 }
 
-/**
- * Force reconnection (for healing)
- */
 export async function reconnect(): Promise<void> {
-  // Close existing connection
   if (s.socket) {
     s.socket.removeAllListeners();
     try {
@@ -451,7 +369,6 @@ export async function reconnect(): Promise<void> {
         s.socket.close();
       }
     } catch {
-      // Ignore close errors
     }
     s.socket = null;
   }
@@ -464,22 +381,15 @@ export async function reconnect(): Promise<void> {
     s.reconnectTimer = null;
   }
 
-  // Only reconnect if we have subscriptions
   if (s.subscribed.size > 0) {
     connect();
   }
 }
 
-/**
- * Set callback to be invoked when connection is restored
- */
 export function onReconnect(callback: () => void): void {
   s.onReconnectCb = callback;
 }
 
-/**
- * Get connection health info
- */
 export function getConnectionHealth(): {
   connected: boolean;
   consecutiveFailures: number;

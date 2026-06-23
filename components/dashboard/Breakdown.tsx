@@ -37,7 +37,6 @@ export function Breakdown({
   const [active, setActive] = useState(tabs[0]?.key ?? "");
   const rows = tabs.find((t) => t.key === active)?.rows ?? [];
 
-  // Max stake for the bar-chart column.
   const maxStake = Math.max(1, ...rows.map((r) => r.stake));
 
   return (

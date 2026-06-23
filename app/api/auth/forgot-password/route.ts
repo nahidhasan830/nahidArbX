@@ -1,9 +1,3 @@
-/**
- * POST /api/auth/forgot-password
- *
- * Sends password reset email.
- * Rate limited: 3 attempts per hour per IP.
- */
 
 import { db, users, passwordResets } from "@/lib/auth/db";
 import { eq } from "drizzle-orm";
@@ -20,18 +14,14 @@ import {
 
 export async function POST(request: Request) {
   try {
-    // Ensure auth is initialized
     await initializeAuth();
 
-    // Get client IP for rate limiting
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
 
-    // Check rate limit
     const rateLimited = rateLimitResponse("passwordReset", ip);
     if (rateLimited) return rateLimited;
 
-    // Parse body
     const body = await request.json();
     const parsed = ForgotPasswordSchema.safeParse(body);
 
@@ -41,14 +31,12 @@ export async function POST(request: Request) {
 
     const { email } = parsed.data;
 
-    // Find user (don't reveal if user exists)
     const user = await db
       .select()
       .from(users)
       .where(eq(users.email, email.toLowerCase()))
       .get();
 
-    // Always return success to prevent email enumeration
     if (!user) {
       return apiSuccess({
         message:
@@ -56,7 +44,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // Check if user can reset password
     if (user.status === "suspended") {
       return apiSuccess({
         message:
@@ -64,9 +51,8 @@ export async function POST(request: Request) {
       });
     }
 
-    // Create reset token
     const token = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
     await db.insert(passwordResets).values({
       id: crypto.randomUUID(),
@@ -76,10 +62,8 @@ export async function POST(request: Request) {
       createdAt: new Date(),
     });
 
-    // Send email
     const emailResult = await sendPasswordResetEmail(user.email, token);
 
-    // Log activity
     await logActivity({
       userId: user.id,
       userEmail: user.email,
@@ -88,7 +72,6 @@ export async function POST(request: Request) {
         request.headers.get("x-forwarded-for")?.split(",")[0] || undefined,
     });
 
-    // Build response with email status
     const response: {
       message: string;
       emailNotConfigured?: boolean;

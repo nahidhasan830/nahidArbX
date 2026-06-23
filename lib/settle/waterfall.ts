@@ -1,20 +1,3 @@
-/**
- * Settlement waterfall: resolves a final MatchScore for a set of eventIds
- * at the cheapest available tier. Each source runs on events still missing
- * the data required by their pending bets after the previous source.
- *
- *   Tier 0  match_scores table (permanent cache)          — free
- *   Tier 2a free sports APIs: ESPN scoreboard             — free, unlimited
- *   Tier 2b SofaScore (unofficial, best-effort)           — free, CF-blocked
- *   Tier 2c free sports APIs: API-Football                — free, 100 req/day
- *
- * Tier 0 is read-only; tiers 2+ upsert their discoveries back into
- * match_scores so subsequent settlement requests are instantly free.
- *
- * NOTE: Tier 1 (Pinnacle WS + BC live feeds) was removed because
- * settlement runs ≥20 min after FT, by which point in-memory live
- * feed data has expired.
- */
 
 import type { MatchScore } from "./types";
 import {
@@ -34,17 +17,12 @@ import { fetchSofaScoreScores } from "./sources/sofascore";
 import { getBrowserSessionStats } from "./sources/sofascore-browser";
 import { logger } from "../shared/logger";
 
-/**
- * Event metadata the waterfall needs to hand to Tier 2+ sources so they
- * can look up the match in external providers (which don't know our
- * eventId). Pulled from the denormalized columns on value_bets.
- */
 export interface SettleEvent {
   eventId: string;
   homeTeam: string;
   awayTeam: string;
   competition: string | null;
-  startTime: string; // ISO
+  startTime: string;
 }
 
 export interface WaterfallTelemetry {
@@ -65,11 +43,6 @@ export interface WaterfallTelemetry {
   eventsResolvedByApiFootball: number;
   eventsStillUnresolved: number;
   apiFootballRequestsUsed: number;
-  /**
-   * Non-fatal warnings about data-source access issues encountered
-   * during this run. E.g. SofaScore 403, Scrape.do 401. Surfaced in
-   * the settlement monitor UI and optionally as Telegram alerts.
-   */
   sourceIssues: string[];
 }
 
@@ -84,45 +57,17 @@ export interface ResolveResult {
   };
 }
 
-/**
- * A tier is allowed to return a score with confidence < 0.7; in that case
- * the waterfall treats it as a miss and tries the next tier. Keeps a cheap
- * but ambiguous source from silently overwriting a more confident one
- * that would have been reached downstream.
- */
 const MIN_ACCEPT_CONFIDENCE = 0.7;
 
 const accept = (s: MatchScore | null): s is MatchScore =>
   !!s && s.confidence >= MIN_ACCEPT_CONFIDENCE;
 
 export interface ResolveOptions {
-  /** Ask statistics-capable tiers to fetch corner counts. */
   needsCorners?: boolean;
-  /** Ask statistics-capable tiers to fetch card (booking) counts. */
   needsBookings?: boolean;
-  /**
-   * The batch contains 1H or 2H scope bets that require half-time scores.
-   * When true, cached scores missing htHome/htAway are treated as misses
-   * so downstream tiers (SofaScore, API-Football) can provide the HT data.
-   */
   needsHtScore?: boolean;
-  /**
-   * Skip Tier 0 (match_scores DB cache) for the given events. Useful
-   * when the user re-runs a settlement and wants a fresh score rather
-   * than the cached one — otherwise the waterfall short-circuits on
-   * the cache hit and nothing changes.
-   */
   bypassCache?: boolean;
-  /**
-   * Per-event settlement data requirements. When omitted, the batch-level
-   * flags above apply to every event for backwards compatibility.
-   */
   eventRequirements?: Map<string, SettlementDataRequirements>;
-  /**
-   * Events allowed to run network sources after the cache check. Events not
-   * present here still read Tier 0 but are skipped by retry backoff when the
-   * cache is insufficient.
-   */
   networkEventIds?: Set<string>;
 }
 
@@ -176,7 +121,6 @@ const mergeScore = (
   };
 };
 
-// ─── Main resolver ──────────────────────────────────────────────────────────
 
 export async function resolveScores(
   events: SettleEvent[],
@@ -242,16 +186,8 @@ export async function resolveScores(
     key: keyof SettlementDataRequirements,
   ): boolean => candidates.some((event) => requirementsFor(event.eventId)[key]);
 
-  // `bypassCache` re-runs the waterfall but skips Tier 0 so free tiers
-  // can produce a fresh score.
   const skipCache = opts.bypassCache === true;
 
-  // ── Tier 0: DB cache ────────────────────────────────────────────────────────────
-  //
-  // Cache entries from earlier settlement runs may pre-date our current
-  // data schema (e.g. corners were added later). If this batch needs
-  // corner stats but the cached row lacks them, treat the cache as a
-  // miss for that event so a downstream tier can enrich it.
   const cached = skipCache
     ? new Map<string, MatchScore>()
     : await getScoresByEventIds(eventIds);
@@ -317,7 +253,6 @@ export async function resolveScores(
   }
   telemetry.eventsAttempted = networkAttemptedEventIds.size;
 
-  // ── Tier 2a: ESPN (free, unauthenticated, ~85% of target leagues) ──────
   const t2aCandidates = candidatesNeedingNetwork();
   if (t2aCandidates.length > 0) {
     try {
@@ -347,7 +282,6 @@ export async function resolveScores(
     }
   }
 
-  // ── Tier 2b: SofaScore (unofficial, broad coverage + HT/stats) ─────────
   const t2bCandidates = candidatesNeedingNetwork();
   if (t2bCandidates.length > 0) {
     try {
@@ -364,7 +298,6 @@ export async function resolveScores(
     }
   }
 
-  // ── Tier 2c: API-Football (official, quota-guarded last resort) ────────
   const t2cCandidates = candidatesNeedingNetwork();
   if (t2cCandidates.length > 0) {
     clearApiFootballSourceIssues();
@@ -403,7 +336,6 @@ export async function resolveScores(
     if (!canUseNetwork(id)) skippedByBackoffEventIds.add(id);
   }
 
-  // ── Source-health report ─────────────────────────────────────────────────
   const apiFbQuota = getApiFootballQuota();
   telemetry.apiFootballRequestsUsed = Math.max(
     0,

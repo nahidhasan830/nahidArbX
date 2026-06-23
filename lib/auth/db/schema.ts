@@ -1,14 +1,6 @@
-/**
- * Auth Database Schema
- *
- * Using Drizzle ORM with better-sqlite3 for type-safe auth persistence.
- */
 
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
-// ============================================
-// Users Table
-// ============================================
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -26,9 +18,6 @@ export const users = sqliteTable("users", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
-// ============================================
-// Sessions Table
-// ============================================
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
@@ -47,9 +36,6 @@ export const sessions = sqliteTable("sessions", {
   impersonatedBy: text("impersonated_by"),
 });
 
-// ============================================
-// Invites Table
-// ============================================
 
 export const invites = sqliteTable("invites", {
   id: text("id").primaryKey(),
@@ -63,9 +49,6 @@ export const invites = sqliteTable("invites", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
-// ============================================
-// Password Resets Table
-// ============================================
 
 export const passwordResets = sqliteTable("password_resets", {
   id: text("id").primaryKey(),
@@ -78,9 +61,6 @@ export const passwordResets = sqliteTable("password_resets", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
-// ============================================
-// Activity Logs Table (audit trail retained by the 7-day log TTL)
-// ============================================
 
 export const activityLogs = sqliteTable("activity_logs", {
   id: text("id").primaryKey(),
@@ -95,9 +75,6 @@ export const activityLogs = sqliteTable("activity_logs", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
-// ============================================
-// User Permissions Table (per-user feature toggles)
-// ============================================
 
 export const userPermissions = sqliteTable("user_permissions", {
   id: text("id").primaryKey(),
@@ -109,9 +86,6 @@ export const userPermissions = sqliteTable("user_permissions", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
-// ============================================
-// Type Exports
-// ============================================
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

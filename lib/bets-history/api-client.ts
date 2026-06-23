@@ -1,51 +1,26 @@
 import type { ValueBetRow } from "./types";
 
 export type ListFilters = {
-  /** Captured-time lower bound (filters firstSeenAt). */
   from?: string;
-  /** Captured-time upper bound (filters firstSeenAt). */
   to?: string;
-  /** Kickoff-time lower bound (filters eventStartTime). */
   eventFrom?: string;
-  /** Kickoff-time upper bound (filters eventStartTime). */
   eventTo?: string;
-  /** Multi-select market types. Empty/undefined = all. */
   marketTypes?: string[];
-  /** Multi-select soft providers. Empty/undefined = all. */
   softProviders?: string[];
-  /** Multi-select settlement sources (espn, sofascore, manual, …). */
   settledBySources?: string[];
   outcome?: string;
   minEv?: number;
   maxEv?: number;
   search?: string;
-  /** Pending bets whose kickoff was ≥ 2h15m ago — ready for settlement. */
   readyToSettle?: boolean;
-  /**
-   * Bets the pipeline tried to settle but couldn't — needs human review.
-   * (pending AND settle_attempts > 0). Partial-indexed server-side.
-   */
   needsReview?: boolean;
-  /**
-   * Restrict to rows where `placedAt IS NOT NULL` (real placements) when
-   * true. Set `false` to exclude placed rows. Leave undefined for both.
-   */
   placedOnly?: boolean;
-  /**
-   * Exclude historical in-play pollution (rows detected at or after kickoff).
-   * Platform is pre-match only; see in-play.md.
-   */
   preMatchOnly?: boolean;
-  /** Filter bets whose soft (bookmaker) odds are ≥ this value. Maps from strategy filter `odds_lo`. */
   oddsMin?: number;
-  /** Filter bets whose soft (bookmaker) odds are ≤ this value. Maps from strategy filter `odds_hi`. */
   oddsMax?: number;
-  /** Strategy `min_sharp_prob` — sharp true probability ≥ this value. */
   minSharpProb?: number;
 
-  /** Strategy `min_tick_count` — bet has been refreshed ≥ this many times. */
   minTickCount?: number;
-  /** Placement mode filter — 'auto' or 'manual'. */
   mode?: "auto" | "manual";
   limit?: number;
   offset?: number;
@@ -66,19 +41,11 @@ export type Outcome =
   | "half_lost"
   | "void";
 
-/**
- * Result shape returned by `POST /api/bets-history/settle` (the settlement
- * waterfall). Each proposal reports the source that resolved the match
- * ("espn", "sofascore", "api-football" …). "pure" means deterministic
- * settlement produced an outcome; "unresolved" means no source provided
- * a usable score.
- */
 export type SettlementProposal = {
   id: string;
   proposedOutcome: Outcome;
   confidence: number;
   reasoning: string;
-  /** Final score as `home-away`, scoped per market (FT / 1H / 2H). Empty when unknown. */
   score: string;
   tier: "pure" | "unresolved";
   source: string | null;
@@ -113,9 +80,7 @@ export type SettlementResponse = {
   proposals: Array<SettlementProposal | SettlementProposalError>;
   attempted: number;
   missing: string[];
-  /** Rows included by server-side event fan-out for review-table rendering. */
   includedRows?: ValueBetRow[];
-  /** Requested IDs plus any pending sibling markets on the same event. */
   expandedIds?: string[];
   telemetry?: SettlementTelemetry;
   unresolvedEventCount?: number;
@@ -196,15 +161,9 @@ export type BetsStatsResponse = {
   };
 };
 
-/**
- * Server-side roll-up that matches `listValueBets` filters — use this to
- * populate toolbar ROI / win-loss counters over the full filtered set
- * (not just the loaded pages).
- */
 export const fetchBetsStats = async (
   filters: ListFilters,
 ): Promise<BetsStatsResponse> => {
-  // Strip pagination fields — stats always runs against the full set.
   const { limit: _l, offset: _o, ...rest } = filters;
   const res = await fetch(`/api/bets/stats${toQuery(rest)}`, {
     credentials: "include",
@@ -237,9 +196,7 @@ export const deleteBet = async (id: string): Promise<void> => {
 export type BulkUpdate = {
   id: string;
   outcome: Outcome;
-  /** Pipeline tier/source ("espn", "sofascore", "manual" …). */
   source?: string | null;
-  /** Optional scoped final score (`home-away`) for settlement notifications. */
   score?: string | null;
 };
 
@@ -257,12 +214,6 @@ export const bulkMarkOutcomes = async (
 
 export type ModelTier = "lite" | "flash" | "pro";
 
-/**
- * Trigger operator settlement for a set of bet IDs.
- * The server defaults this endpoint to `bypassCache: true`, so manual
- * settlement/re-settlement verifies against fresh source data unless a
- * caller explicitly opts back into Tier 0.
- */
 export const settleBets = async (
   ids: string[],
   opts?: {
@@ -300,9 +251,6 @@ export const aiAnalyzeBets = async (payload: {
   return unwrap(res);
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Gemini rule proposal + held-out backtest
-// ─────────────────────────────────────────────────────────────────
 
 export type ProposeRuleFilters = {
   marketTypes?: string[];
@@ -401,9 +349,6 @@ export const betsHistoryRule = async (payload: {
   return unwrap(res);
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Settlement scheduler control + activity monitor
-// ─────────────────────────────────────────────────────────────────
 
 export type SettlementActivityLevel = "debug" | "info" | "warn" | "error";
 export type SettlementActivityKind =
@@ -480,11 +425,6 @@ export type SettlementStatus = {
     errors: string[];
     sourceIssues?: string[];
   } | null;
-  /**
-   * Bets eligible for the next tick — mirrors the "Ready to settle" tab.
-   * Lets the monitor show a single-number queue depth without a separate
-   * round-trip.
-   */
   queuedCount: number;
   recentRuns: SettlementRunRowApi[];
   activity: SettlementActivityEntry[];

@@ -1,12 +1,3 @@
-/**
- * Telegram-control bot types.
- *
- * The bot exposes "everything the app can do" as Telegram slash commands
- * to the single chat configured via TELEGRAM_CHAT_ID. Commands are pure
- * dispatch — each one calls the same in-process repos / helpers the web
- * UI uses. There is intentionally no extra auth layer beyond the chat-id
- * filter; updates from any other chat are silently dropped.
- */
 
 export interface TgUser {
   id: number;
@@ -65,42 +56,27 @@ export interface SendOptions {
 export interface CommandContext {
   chatId: number;
   messageId: number;
-  /** Raw text after the command, e.g. for `/value 5` this is "5". */
   argsRaw: string;
-  /** Whitespace-split positional args. */
   args: string[];
-  /** Reply helper bound to this chat. */
   reply: (text: string, kb?: TgInlineKeyboard) => Promise<TgMessage | null>;
 }
 
 export interface CommandHandlerResult {
-  /** Optional reply text. If returned the bot will send it. */
   text?: string;
   reply_markup?: TgInlineKeyboard;
-  /** Set true to skip auto-replying (handler already replied). */
   alreadyReplied?: boolean;
 }
 
 export interface CommandSpec {
   name: string;
-  /** Short usage hint shown by /help, e.g. "/value [n]". */
   usage: string;
-  /** One-line description shown by /help and the dashboard table. */
   description: string;
-  /**
-   * Long-form tooltip body shown on the dashboard's info-icon hover.
-   * Plain language with a concrete bet-flavoured example; never
-   * SCREAMING_SNAKE_CASE. Read as if you've never used the system.
-   */
   explanation: string;
-  /** Group label for /help so commands are organized. */
   group: "read" | "control" | "destructive" | "meta";
-  /** True if the command needs a confirm tap before executing. */
   destructive?: boolean;
   handler: (ctx: CommandContext) => Promise<CommandHandlerResult | void>;
 }
 
-/** Pending confirm-action stored in memory (TTL'd). */
 export interface PendingConfirm {
   id: string;
   description: string;

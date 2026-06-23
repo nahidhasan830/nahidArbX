@@ -14,24 +14,11 @@ import { useMemo } from "react";
 import { format, parseISO } from "date-fns";
 
 export interface PnlPoint {
-  date: string; // YYYY-MM-DD
+  date: string;
   actual: number;
   expected: number;
 }
 
-/**
- * Cumulative P&L — actual vs expected (EV).
- *
- * Expected = Σ stake × EV% (theoretical curve if variance were zero).
- * Actual = realised P&L. The gap between them is the luck component —
- * a consistently-below-expected actual means the book's closing line
- * hit the player's picks (bad); consistently above means variance has
- * been kind.
- *
- * Implementation: recharts `AreaChart` — area gradient on each series
- * gives the chart visual weight even when one series lies flat on top
- * of the other; hover tooltip aligns to the date under the cursor.
- */
 export function PnlChart({
   data,
   currency = "BDT",
@@ -41,8 +28,6 @@ export function PnlChart({
   currency?: string;
   height?: number | string;
 }) {
-  // Pretty-format dates once so the tooltip reads as "Apr 19"
-  // rather than the raw ISO string.
   const formatted = useMemo(
     () =>
       data.map((p) => ({

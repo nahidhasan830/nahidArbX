@@ -1,15 +1,6 @@
 import type { PipelineData } from "@/components/lab/ml/types";
 import { formatPermissionLevel } from "./display";
 
-/**
- * Activity feed events derived from PipelineData. We intentionally avoid
- * a separate `ml_events` table for now — the events surface from existing
- * timestamps in `ml_models` and `scheduler.lastTickAt`.
- *
- * If the surface needs more granularity later (drift events, rejections,
- * permission demotions) we can switch to an explicit log without changing
- * the consumer.
- */
 
 export type ActivityKind =
   | "model_deployed"
@@ -21,7 +12,7 @@ export type ActivityKind =
 
 export interface ActivityEvent {
   id: string;
-  at: string; // ISO timestamp
+  at: string;
   kind: ActivityKind;
   title: string;
   detail?: string;
@@ -89,7 +80,6 @@ export function synthesizeActivity(data: PipelineData): ActivityEvent[] {
     });
   }
 
-  // Most recent first.
   events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   return events.slice(0, 12);
 }

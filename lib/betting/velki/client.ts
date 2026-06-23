@@ -1,12 +1,3 @@
-/**
- * Velki provider-tier client. Talks to saapipl.fwick7ets.xyz using the
- * JSESSIONID captured by the session manager.
- *
- * This is the symmetric counterpart to NineWickets' client.ts — same
- * `;jsessionid=…` URL pattern, same raw-JSESSIONID-as-Authorization
- * header. The two providers are evidently sister deployments of the
- * same upstream platform.
- */
 import { callWithSessionRetry, VelkiSessionExpiredError } from "./session";
 import { validateAndParse } from "../../shared/validation";
 import {
@@ -43,9 +34,6 @@ const BROWSER_HEADERS: Record<string, string> = {
   source: "1",
 };
 
-// =====================================================================
-// queryPlayerInfo — bettable wallet
-// =====================================================================
 
 export async function queryPlayerInfo(): Promise<VelkiPlayerInfoResponse> {
   return callWithSessionRetry(async (session) => {
@@ -56,9 +44,6 @@ export async function queryPlayerInfo(): Promise<VelkiPlayerInfoResponse> {
         ...BROWSER_HEADERS,
         "Content-Type": "application/x-www-form-urlencoded",
         Authorization: session.jsessionid,
-        // The provider tier sets a JSESSIONID cookie on the bridge
-        // hop; replay it on every call alongside the URL-path
-        // jsessionid for belt-and-braces.
         Cookie: `JSESSIONID=${session.jsessionid}`,
       },
     });
@@ -71,19 +56,12 @@ export async function queryPlayerInfo(): Promise<VelkiPlayerInfoResponse> {
     const text = await res.text();
     const trimmed = text.trim();
     if (trimmed.startsWith("<")) {
-      // HTML body == upstream login page == session is dead.
       throw new VelkiSessionExpiredError("queryPlayerInfo returned HTML");
     }
     if (trimmed.length === 0) {
-      // WAF silently rejecting (missing Origin/Referer signature).
       throw new VelkiSessionExpiredError("queryPlayerInfo returned empty body");
     }
     const body = JSON.parse(trimmed) as unknown;
-    // Error-envelope sniff. Two known signals for "session is dead":
-    //   - status "1001" / desc "Not Authorized."
-    //   - status "9999" / status_msg "You have been logged off ..."
-    //     (single-session enforcement: another tab/IP grabbed it)
-    // Both should trigger a fresh capture.
     const statusVal = (body as { status?: unknown }).status;
     if (
       (typeof statusVal === "string" && statusVal !== "0") ||
@@ -124,8 +102,6 @@ export async function queryPlayerInfo(): Promise<VelkiPlayerInfoResponse> {
     if (!parsed) {
       throw new Error("[Velki] queryPlayerInfo failed schema validation");
     }
-    // Velki returns currency in 0.01-BDT units. Normalize at boundary so
-    // every consumer sees plain BDT — see ./units.ts.
     return {
       ...parsed,
       betCredit: toBDT(parsed.betCredit),
@@ -136,14 +112,6 @@ export async function queryPlayerInfo(): Promise<VelkiPlayerInfoResponse> {
   });
 }
 
-// =====================================================================
-// MAIN-tier reads (vk-sa.softtake.net, DRF token auth)
-//
-// These hit Velki's MAIN host with `Authorization: Token <token>`. They
-// use the same `callWithSessionRetry` wrapper so a stale token gets
-// recaptured automatically — getSession() returns the most recent
-// `session.token` value on each call.
-// =====================================================================
 
 const MAIN_HOST = "https://vk-sa.softtake.net";
 const VELKI_ORIGIN = "https://velki.live";
@@ -156,12 +124,6 @@ const MAIN_BROWSER_HEADERS: Record<string, string> = {
   Referer: `${VELKI_ORIGIN}/`,
 };
 
-/**
- * GET /account/wallet — withdrawable balance + exposure_limit (numbers).
- *
- * NOTE: numbers here. The /account/profile endpoint returns the same
- * fields as STRINGS — prefer this one for live UI display.
- */
 export async function fetchMainWallet(): Promise<VelkiWalletResponse> {
   return callWithSessionRetry(async (session) => {
     const res = await fetch(`${MAIN_HOST}/account/wallet`, {
@@ -191,7 +153,6 @@ export async function fetchMainWallet(): Promise<VelkiWalletResponse> {
         `[Velki] /account/wallet refused: ${parsed.message} (errcode=${parsed.errcode})`,
       );
     }
-    // Scale all wallet numbers from Velki-units to BDT. See ./units.ts.
     const w = parsed.data.wallet;
     return {
       ...parsed,
@@ -208,10 +169,6 @@ export async function fetchMainWallet(): Promise<VelkiWalletResponse> {
   });
 }
 
-/**
- * GET /turnover/list — list of bonus/deposit wagering-requirement
- * records. SIC: the response key is `tunovers` (missing the 'r').
- */
 export async function fetchMainTurnover(): Promise<VelkiTurnoverListResponse> {
   return callWithSessionRetry(async (session) => {
     const res = await fetch(`${MAIN_HOST}/turnover/list`, {
@@ -241,10 +198,6 @@ export async function fetchMainTurnover(): Promise<VelkiTurnoverListResponse> {
         `[Velki] /turnover/list refused: ${parsed.message} (errcode=${parsed.errcode})`,
       );
     }
-    // Turnover amounts arrive as strings ("20.0000"). Parse, scale to
-    // BDT, and re-stringify so the wire shape (string) is preserved
-    // and the existing `toNum` helper on the frontend keeps working.
-    // `turnover_achieved` is a percentage — left untouched.
     const scaled = parsed.data.tunovers.map((r) => ({
       ...r,
       base_amount: scaleAmountString(r.base_amount),
@@ -260,6 +213,6 @@ export async function fetchMainTurnover(): Promise<VelkiTurnoverListResponse> {
 
 function scaleAmountString(value: string): string {
   const bdt = toBDTFromString(value);
-  if (Number.isNaN(bdt)) return value; // pass garbage through unchanged
-  return bdt.toFixed(4); // preserve 4-decimal style of the wire format
+  if (Number.isNaN(bdt)) return value;
+  return bdt.toFixed(4);
 }

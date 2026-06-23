@@ -261,9 +261,6 @@ function ProviderStatusChip({
   );
 }
 
-// ============================================
-// Engine Status Bar — top-right header strip
-// ============================================
 
 function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
   const { data: connectionHealth, refetch: refetchHealth } = useEngineHealth();
@@ -271,11 +268,8 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
   const engine = connectionHealth?.engine as EngineStatus | undefined;
   const [resetting, setResetting] = useState<ProviderKey | null>(null);
 
-  // Don't evaluate provider-specific indicators while provider state is loading
-  // — otherwise all providers appear "enabled" before the real state arrives.
   const providerStateReady = !providerRuntime.isLoading;
 
-  // Reset a circuit breaker via POST /api/health
   const resetCb = useCallback(
     async (providerId: ProviderKey) => {
       setResetting(providerId);
@@ -288,10 +282,8 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
             provider: providerId,
           }),
         });
-        // Refetch health so the UI updates immediately
         await refetchHealth();
       } catch {
-        // silent — next 5s poll will pick it up
       } finally {
         setResetting(null);
       }
@@ -314,20 +306,16 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
       )
     : [];
 
-  // Reactive detector
   const detectorRunning = engine?.detector?.running ?? false;
   const detectorPasses = engine?.detector?.totalPasses ?? 0;
   const detectorAvgMs = engine?.detector?.avgPassDurationMs ?? 0;
 
-  // Matched events
   const matchedCount = engine?.matchedCount ?? 0;
   const totalEvents = engine?.totalEvents ?? 0;
   const firstSyncDone = engine?.firstSyncComplete ?? false;
-  // Show red if no matches after first sync (indicates data pipeline broken)
   const matchedDegraded =
     firstSyncDone && totalEvents > 0 && matchedCount === 0;
 
-  // While engine data hasn't arrived yet, show minimal "starting" state
   if (!connectionHealth) {
     return (
       <Feature id="health-status">
@@ -344,7 +332,6 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
   return (
     <Feature id="health-status">
       <div className="flex items-center gap-1">
-        {/* SSE Live Stream */}
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
@@ -381,7 +368,6 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
 
         <Separator />
 
-        {/* Reactive Detector */}
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded">
@@ -405,7 +391,6 @@ function EngineStatusBar({ isSSEConnected }: { isSSEConnected: boolean }) {
           </TooltipContent>
         </Tooltip>
 
-        {/* Matched Events — show after first sync; red warning when 0 matched */}
         {firstSyncDone && (
           <>
             <Separator />
@@ -451,9 +436,6 @@ function Separator() {
   return <div className="w-px h-4 bg-border shrink-0" />;
 }
 
-// ============================================
-// Smart Boot Indicator — shows real backend state
-// ============================================
 
 function EngineBootStatus() {
   const { data: connectionHealth, isLoading: isHealthLoading } =
@@ -461,7 +443,6 @@ function EngineBootStatus() {
   const engine = connectionHealth?.engine as EngineStatus | undefined;
   const [elapsedSec, setElapsedSec] = useState(0);
 
-  // Tick elapsed time every second during boot
   useEffect(() => {
     const interval = setInterval(() => setElapsedSec((s) => s + 1), 1000);
     return () => clearInterval(interval);
@@ -469,7 +450,6 @@ function EngineBootStatus() {
 
   const elapsed = elapsedSec > 0 ? `${elapsedSec}s` : "";
 
-  // Determine boot stage from engine telemetry
   const providerViews = engine
     ? PROVIDER_IDS.map((id) =>
         getProviderRuntimeView(id, engine, connectionHealth),
@@ -542,7 +522,6 @@ function EngineBootStatus() {
       detail: elapsed,
     };
   } else {
-    // totalPasses > 0 but events haven't arrived yet in the query
     stage = {
       icon: <Loader2 className="w-6 h-6 text-primary animate-spin" />,
       title: "Loading events",
@@ -562,7 +541,6 @@ function EngineBootStatus() {
           </p>
         )}
 
-        {/* Mini subsystem dots during boot */}
         {connectionHealth && engine && (
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             {providerViews.map((view) => {
@@ -627,9 +605,6 @@ function SubsystemDot({
   );
 }
 
-// ============================================
-// Error Banner
-// ============================================
 
 function ErrorBanner({
   error,
@@ -651,9 +626,6 @@ function ErrorBanner({
   );
 }
 
-// ============================================
-// Main Page Component
-// ============================================
 
 export default function AdminPage() {
   const {
@@ -705,8 +677,6 @@ export default function AdminPage() {
   const isQueryLoading = activeQuery.isLoading;
   const queryError = activeQuery.error;
 
-  // Engine health is polled independently (5s) via useEngineHealth inside
-  // EngineStatusBar and EngineBootStatus — no longer coupled to event data.
   const { data: engineHealth } = useEngineHealth();
   const engineReady = (engineHealth?.engine as EngineStatus | undefined)
     ?.detector?.totalPasses
@@ -730,7 +700,6 @@ export default function AdminPage() {
     }, [activeQuery]),
   });
 
-  // Fallback polling when SSE is disconnected
   useEffect(() => {
     if (isSSEConnected) return;
     const pollInterval = 30000;
@@ -744,23 +713,16 @@ export default function AdminPage() {
     activeQuery.refetch();
   }, [activeQuery]);
 
-  // Show boot indicator while query is loading AND engine hasn't completed
-  // its first detection pass. After that, show the spreadsheet (possibly empty).
   const isBooting = isQueryLoading && events.length === 0 && !engineReady;
 
-  // Engine is "warming" when the server hasn't finished its first data sync —
-  // prevents misleading "no events match filters" during startup.
   const engineStatus = engineHealth?.engine as EngineStatus | undefined;
   const isEngineWarming = (() => {
     if (!engineStatus) return false;
     if (events.length > 0) return false;
-    // First sync hasn't finished yet — still pulling fixtures
     if (!engineStatus.firstSyncComplete) return true;
     return false;
   })();
 
-  // Degraded providers: circuit breaker open or provider status=error.
-  // This tells the spreadsheet empty state WHY there's no data.
   const degradedProviders = useMemo(() => {
     if (!engineStatus || !engineHealth) return [];
     const result: {
@@ -809,7 +771,6 @@ export default function AdminPage() {
       : "Unknown error"
     : null;
 
-  // Right-side header actions — engine status bar + event count
   const actions = (
     <>
       <EngineStatusBar isSSEConnected={isSSEConnected} />

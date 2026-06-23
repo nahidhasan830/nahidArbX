@@ -55,10 +55,6 @@ import { MarketsFilter } from "@/components/filters/MarketsFilter";
 import { ProvidersFilter } from "@/components/filters/ProvidersFilter";
 import { EvRangeFilter } from "@/components/filters/EvRangeFilter";
 
-// ============================================
-// Option data
-// ============================================
-
 type OutcomeFilter =
   | "all"
   | "readyToSettle"
@@ -66,9 +62,6 @@ type OutcomeFilter =
   | "settled"
   | Outcome;
 
-// Colored tab styling — lifted straight from the AI-matching panel. Each
-// bucket has its own accent so you can tell at a glance which partition you're
-// viewing.
 const OUTCOME_TAB_COLORS: Record<
   OutcomeFilter,
   { active: string; dot: string }
@@ -308,10 +301,6 @@ function getDateTriggerSummary({
   return `Kick ${kickoffSummary}`;
 }
 
-// ============================================
-// Shared primitives
-// ============================================
-
 const CTRL_H = "h-7";
 const BTN_BASE = cn(CTRL_H, "px-2 text-[11px] gap-1.5 font-normal");
 
@@ -360,10 +349,6 @@ function DateSummaryBadge({
     </span>
   );
 }
-
-// ============================================
-// DatePresetPanel — tabbed preset selector
-// ============================================
 
 function DatePresetPanel({
   capturedPreset,
@@ -427,7 +412,6 @@ function DatePresetPanel({
         </TabsTrigger>
       </TabsList>
 
-      {/* Captured tab */}
       <TabsContent value="captured" className="mt-0 space-y-3 px-1">
         <PresetGrid
           activePreset={activePreset("captured")}
@@ -445,7 +429,6 @@ function DatePresetPanel({
         )}
       </TabsContent>
 
-      {/* Kickoff tab */}
       <TabsContent value="kickoff" className="mt-0 space-y-3 px-1">
         <PresetGrid
           activePreset={activePreset("kickoff")}
@@ -467,8 +450,6 @@ function DatePresetPanel({
     </Tabs>
   );
 }
-
-/** Compact chip-row preset selector shared by both tabs. */
 
 const PRESET_TOOLTIPS: Record<DatePresetKey, string> = {
   last1h: "Rolling window — last 60 minutes from now",
@@ -552,7 +533,6 @@ function PresetGrid({
   );
 }
 
-/** From/to datetime inputs for the "Custom…" preset. */
 function CustomDatePickers({
   label,
   fromValue,
@@ -624,16 +604,10 @@ function CustomDatePickers({
   );
 }
 
-// ============================================
-// Props
-// ============================================
-
 type Props = {
   filters: ListFilters;
   onFiltersChange: (f: ListFilters) => void;
-  /** Active date preset for captured-time filter. */
   capturedPreset: DatePresetKey;
-  /** Active date preset for kickoff-time filter. */
   kickoffPreset: DatePresetKey;
   onCapturedPresetChange: (preset: DatePresetKey) => void;
   onKickoffPresetChange: (preset: DatePresetKey) => void;
@@ -642,10 +616,6 @@ type Props = {
   filteredCount: number;
   selectedCount: number;
 
-  /**
-   * Server-side aggregation matching the current filters. Drives the ROI +
-   * win/loss cluster. May be null briefly on first load.
-   */
   stats: BetsStatsResponse | null;
   statsLoading?: boolean;
 
@@ -658,10 +628,6 @@ type Props = {
 
   onBulkSettle: () => void;
   settleRunning: boolean;
-  /**
-   * Subset of selected ids that pass the "match is over" gate. Used to
-   * show a helpful count / disable the button when nothing eligible.
-   */
   resettleEligibleCount: number;
 
   onBulkMark: (outcome: Outcome) => void;
@@ -675,10 +641,6 @@ type Props = {
   isAtDefaults: boolean;
   hasSavedDefaults: boolean;
 };
-
-// ============================================
-// Component
-// ============================================
 
 export function BetsHistoryToolbar({
   filters,
@@ -716,13 +678,11 @@ export function BetsHistoryToolbar({
     [filters, onFiltersChange],
   );
 
-  // Live strategy values so Sim ROI tooltip names the actual sizing rule.
   const { settings: bettingSettings } = useBettingSettings();
   const kellyFraction = bettingSettings?.kellyFraction ?? 0.25;
   const kellyCapPct = bettingSettings?.kellyCapPct ?? 10;
   const kellyFractionLabel = (() => {
     if (kellyFraction >= 0.99) return "full Kelly";
-    // Match the 4 presets from the strategy popover; fall back to decimal.
     if (Math.abs(kellyFraction - 0.5) < 0.01) return "½ Kelly";
     if (Math.abs(kellyFraction - 0.25) < 0.01) return "¼ Kelly";
     if (Math.abs(kellyFraction - 0.125) < 0.01) return "⅛ Kelly";
@@ -731,40 +691,41 @@ export function BetsHistoryToolbar({
 
   const hasSelection = selectedCount > 0;
 
-  // ── Debounced search ──────────────────────────────────────────────
-  const [localSearch, setLocalSearch] = useState(filters.search ?? "");
+  const externalSearch = filters.search ?? "";
+  const [searchDraft, setSearchDraft] = useState({
+    external: externalSearch,
+    value: externalSearch,
+  });
+  const localSearch =
+    searchDraft.external === externalSearch ? searchDraft.value : externalSearch;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync external filter → local (e.g. after reset-to-defaults)
   useEffect(() => {
-    setLocalSearch(filters.search ?? "");
-  }, [filters.search]);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, [externalSearch]);
 
   const commitSearch = useCallback(
     (value: string) => {
       update({ search: value || undefined });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters],
+    [update],
   );
 
   const handleSearchChange = useCallback(
     (value: string) => {
-      setLocalSearch(value);
+      setSearchDraft({ external: externalSearch, value });
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => commitSearch(value), 300);
     },
-    [commitSearch],
+    [commitSearch, externalSearch],
   );
 
   const clearSearch = useCallback(() => {
-    setLocalSearch("");
+    setSearchDraft({ external: externalSearch, value: "" });
     if (debounceRef.current) clearTimeout(debounceRef.current);
     update({ search: undefined });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [externalSearch, update]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -773,16 +734,11 @@ export function BetsHistoryToolbar({
 
   const settledBySel = filters.settledBySources ?? [];
 
-  // Populate from the rows we've loaded. Server-side enum would be cleaner
-  // long-term but this covers 99% of values (the waterfall only produces
-  // a handful of source ids).
   const settledByOptions = useMemo(() => {
     const seen = new Set<string>();
     for (const r of rows) {
       if (r.settledBySource) seen.add(r.settledBySource);
     }
-    // Seed with the canonical waterfall sources so the menu isn't empty
-    // on a fresh / all-pending page.
     [
       "sofascore",
       "espn",
@@ -800,11 +756,6 @@ export function BetsHistoryToolbar({
       ? "needsReview"
       : ((filters.outcome as OutcomeFilter | undefined) ?? "all");
 
-  /** Apply a preset to either the captured or kickoff dimension.
-   *  Non-custom presets store the preset key only — the actual from/to
-   *  window is re-resolved from the key on each refetch tick in the
-   *  parent (see BetsHistorySpreadsheet effectiveFilters). Baking absolute
-   *  timestamps into filters here would make rolling ranges go stale. */
   const applyPreset = useCallback(
     (key: DatePresetKey, dimension: "captured" | "kickoff") => {
       if (dimension === "captured") {
@@ -822,15 +773,7 @@ export function BetsHistoryToolbar({
     [onCapturedPresetChange, onKickoffPresetChange, update],
   );
 
-  // Server-side roll-up over the ENTIRE filter-matched population. This
-  // replaces the old per-page client metrics — those only saw the infinite-
-  // scroll pages already loaded, which under-reported by an order of magnitude
-  // on broad filters.
   const placedOnly = filters.placedOnly === true;
-  // First load only — `useBetsStats` uses `keepPreviousData`, so once stats
-  // arrive they persist through every refetch. A null `stats` therefore
-  // means "no data yet at all" and we should suppress the KPI numbers
-  // rather than render misleading zeros.
   const statsNotReady = !stats;
   const settledCount = stats?.settled ?? 0;
   const placedSettledCount = stats?.placedSettled ?? 0;
@@ -850,9 +793,6 @@ export function BetsHistoryToolbar({
       ? `${realRoi >= 0 ? "+" : ""}${realRoi.toFixed(1)}%`
       : "—";
 
-  // Hide the ROI cluster on partitions where "settled" isn't meaningful.
-  // Pending / ready-to-settle / needs-review contain zero settled rows by
-  // definition, so a blank "—" just wastes header space.
   const roiApplicable =
     outcomeSel !== "pending" &&
     outcomeSel !== "readyToSettle" &&
@@ -860,11 +800,6 @@ export function BetsHistoryToolbar({
 
   return (
     <TooltipProvider delayDuration={200}>
-      {/* ================================
-          OUTCOME TABS — primary partition
-          (inspired by the AI matching panel's
-           To Review / Auto-Merged / Decided row)
-          ================================ */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border bg-muted/40">
         {OUTCOME_TABS.map((tab) => {
           const active = outcomeSel === tab.id;
@@ -874,8 +809,6 @@ export function BetsHistoryToolbar({
               key={tab.id}
               type="button"
               onClick={() => {
-                // Only one of readyToSettle/needsReview/outcome can be
-                // active at a time — clear the other two on every switch.
                 if (tab.id === "readyToSettle") {
                   update({
                     outcome: undefined,
@@ -923,9 +856,6 @@ export function BetsHistoryToolbar({
           );
         })}
 
-        {/* Placed-only pill — orthogonal to outcome tabs so users can see
-            "Placed + Won", "Placed + Pending" etc. Emerald accent because
-            this is the money view: what you actually booked. */}
         <div className="ml-1 pl-1 border-l border-border/60">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
@@ -1005,9 +935,6 @@ export function BetsHistoryToolbar({
 
         <div className="flex-1" />
 
-        {/* Inline KPIs — all numbers roll up server-side across the full
-            filtered set, not just the paginated slice the user has scrolled
-            through. Every technical term gets a plain-English tooltip. */}
         <div className="flex items-center gap-3 pr-2 text-[11px] text-muted-foreground whitespace-nowrap">
           {statsNotReady ? (
             <span className="inline-flex items-center gap-1.5 opacity-70">
@@ -1071,10 +998,6 @@ export function BetsHistoryToolbar({
               </Tooltip>
               <span className="opacity-40">·</span>
 
-              {/* Simulated ROI — runs the user's configured Kelly strategy
-                  over every matched bet. Reshapes with kellyFraction /
-                  kellyCapPct so high-edge bets weight proportionally more
-                  under aggressive sizing. */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center gap-1">
@@ -1105,9 +1028,6 @@ export function BetsHistoryToolbar({
                 </TooltipContent>
               </Tooltip>
 
-              {/* Real ROI — uses the actual stake/odds/pnl you booked. Shown
-                  only when there are placed+settled rows in the current
-                  filter set, otherwise it's noise. */}
               {placedSettledCount > 0 ? (
                 <>
                   <span className="opacity-40">·</span>
@@ -1159,7 +1079,6 @@ export function BetsHistoryToolbar({
           )}
         </div>
 
-        {/* Refresh button */}
         <RefreshButton
           onRefresh={onRefresh}
           isRefreshing={loading}
@@ -1167,12 +1086,8 @@ export function BetsHistoryToolbar({
         />
       </div>
 
-      {/* ================================
-          FILTER + TOOLS BAR — single row
-          ================================ */}
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/50">
         <div className="flex-1 flex items-center gap-1.5 overflow-x-auto min-w-0">
-          {/* Markets */}
           <MarketsFilter
             selected={filters.marketTypes ?? []}
             onChange={(values) =>
@@ -1180,7 +1095,6 @@ export function BetsHistoryToolbar({
             }
           />
 
-          {/* Providers */}
           <ProvidersFilter
             selected={filters.softProviders ?? []}
             onChange={(values) =>
@@ -1188,7 +1102,6 @@ export function BetsHistoryToolbar({
             }
           />
 
-          {/* Settled by */}
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className={BTN_BASE}>
@@ -1240,21 +1153,18 @@ export function BetsHistoryToolbar({
 
           <Separator />
 
-          {/* EV range */}
           <EvRangeFilter
             min={filters.minEv}
             max={filters.maxEv}
             onChange={(min, max) => update({ minEv: min, maxEv: max })}
           />
 
-          {/* Odds range */}
           <OddsRangeDropdown
             min={filters.oddsMin}
             max={filters.oddsMax}
             onChange={(min, max) => update({ oddsMin: min, oddsMax: max })}
           />
 
-          {/* Date range — tabbed: Captured Time + Kickoff Time */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -1303,7 +1213,6 @@ export function BetsHistoryToolbar({
 
           <Separator />
 
-          {/* Search with leading icon — same pattern as the matching panel */}
           <div className="relative">
             <Search className="size-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <Input
@@ -1324,7 +1233,6 @@ export function BetsHistoryToolbar({
             )}
           </div>
 
-          {/* Settlement monitor */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div>
@@ -1338,7 +1246,6 @@ export function BetsHistoryToolbar({
           </Tooltip>
         </div>
 
-        {/* Reset + defaults (split button) — pinned to the far right */}
         <div className="flex items-center shrink-0">
           <Button
             variant={isAtDefaults ? "outline" : "default"}
@@ -1383,11 +1290,6 @@ export function BetsHistoryToolbar({
         </div>
       </div>
 
-      {/* ================================
-          SELECTION BAR — only when rows selected
-          (blue rounded-full pill copied from the
-           matching panel's selection chip)
-          ================================ */}
       {hasSelection && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-primary/5">
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[11px] font-medium">

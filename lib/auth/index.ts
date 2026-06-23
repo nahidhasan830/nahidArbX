@@ -1,13 +1,4 @@
-/**
- * Auth Module - Main Entry Point
- *
- * Re-exports all auth functionality.
- * Note: token-manager.ts is for Pinnacle provider tokens, not user auth.
- */
 
-// ============================================
-// Existing Exports (Pinnacle token management)
-// ============================================
 
 export {
   getPinnacleToken,
@@ -18,9 +9,6 @@ export {
 
 export type { TokenData } from "./token-manager";
 
-// ============================================
-// Database
-// ============================================
 
 export { db } from "./db";
 export type {
@@ -33,16 +21,10 @@ export type {
   UserPermission,
 } from "./db/schema";
 
-// ============================================
-// JWT
-// ============================================
 
 export { signJwt, verifyJwt, decodeJwt } from "./jwt";
 export type { AuthJwtPayload } from "./jwt";
 
-// ============================================
-// Password
-// ============================================
 
 export {
   hashPassword,
@@ -50,9 +32,6 @@ export {
   validatePasswordStrength,
 } from "./password";
 
-// ============================================
-// Session
-// ============================================
 
 export {
   createSession,
@@ -65,16 +44,10 @@ export {
 } from "./session";
 export type { ValidatedSession, CreateSessionOptions } from "./session";
 
-// ============================================
-// Geo-IP
-// ============================================
 
 export { getGeoLocation, parseDeviceInfo } from "./geo";
 export type { GeoLocation } from "./geo";
 
-// ============================================
-// Activity Logging
-// ============================================
 
 export {
   logActivity,
@@ -88,9 +61,6 @@ export type {
   ActivityLogEntry,
 } from "./activity";
 
-// ============================================
-// Features & Permissions
-// ============================================
 
 export {
   FEATURE_REGISTRY,
@@ -117,15 +87,9 @@ export {
 } from "./features/permissions";
 export type { UserPermissions } from "./features/permissions";
 
-// ============================================
-// Email
-// ============================================
 
 export { sendInviteEmail, sendPasswordResetEmail } from "./email";
 
-// ============================================
-// Middleware Helpers
-// ============================================
 
 export {
   getSession,
@@ -142,9 +106,6 @@ export {
 } from "./middleware/auth";
 export type { CurrentUser } from "./middleware/auth";
 
-// ============================================
-// Bootstrap
-// ============================================
 
 export {
   initializeAuth,
@@ -152,9 +113,6 @@ export {
   bootstrapAdmin,
 } from "./bootstrap";
 
-// ============================================
-// Schemas
-// ============================================
 
 export {
   LoginSchema,
@@ -179,9 +137,6 @@ export type {
   ImpersonateInput,
 } from "./schemas";
 
-// ============================================
-// Rate Limiting
-// ============================================
 
 export {
   RATE_LIMIT_CONFIGS,

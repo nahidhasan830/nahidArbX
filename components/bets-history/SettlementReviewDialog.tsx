@@ -70,10 +70,6 @@ const confidenceClass = (c: number) =>
       ? "bg-amber-600/20 text-amber-400 border-amber-800"
       : "bg-rose-600/20 text-rose-400 border-rose-800";
 
-/**
- * Human-friendly label for a score source. "pinnacle-ws" → "Pinnacle",
- * "sofascore" → "SofaScore", etc. Null source → "—".
- */
 const sourceLabel = (source: string | null): string => {
   if (!source) return "—";
   const map: Record<string, string> = {
@@ -90,7 +86,6 @@ const sourceLabel = (source: string | null): string => {
   return map[source] ?? source;
 };
 
-/** Visual pill for the source tier. */
 const sourceBadgeClass = (source: string | null): string => {
   if (!source) return "bg-muted/40 text-muted-foreground border-muted";
   if (
@@ -118,7 +113,6 @@ type Props = {
     }[],
   ) => Promise<void>;
   applying: boolean;
-  /** Ids currently being re-run (spinner shown in the row's Re-run column). */
   rerunningIds?: Set<string>;
   onRerun?: (id: string) => void;
 };
@@ -162,8 +156,6 @@ export function SettlementReviewDialog({
       .map((p) => ({
         id: p.id,
         outcome: finalOutcome(p),
-        // If the human overrode the proposed outcome, record "manual";
-        // otherwise carry the tier/source the pipeline produced.
         source:
           overrides[p.id] != null && overrides[p.id] !== p.proposedOutcome
             ? "manual"
@@ -561,10 +553,6 @@ function GoogleAiModeButton({ row }: { row: ValueBetRow }) {
   );
 }
 
-/**
- * Per-row rerun control. Shows a spinner while an individual request is in
- * flight for that id. The parent owns the actual fetch + response-state update.
- */
 export function RerunButton({
   id,
   running,

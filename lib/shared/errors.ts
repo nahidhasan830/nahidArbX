@@ -1,15 +1,6 @@
-/**
- * Shared Error Utilities
- *
- * Common error formatting functions used across adapters.
- */
 
 import { isAxiosError } from "axios";
 
-/**
- * Format an error for logging.
- * Handles Axios errors specially to extract status and response data.
- */
 export function formatError(error: unknown): string {
   if (isAxiosError(error)) {
     if (error.response) {

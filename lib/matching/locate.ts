@@ -1,11 +1,3 @@
-/**
- * Locate an event in the current store that matches one side of a UI pair.
- * Requires home/away slot alignment while tolerating internal-ID rotation via
- * aliased team names + time-bucket minute for identity.
- *
- * Shared between the match-review route (approve/reject flow, AI auto-merge)
- * and the matcher's reconcile pass.
- */
 
 import type { NormalizedEvent } from "../types";
 import { getEvents } from "../store";

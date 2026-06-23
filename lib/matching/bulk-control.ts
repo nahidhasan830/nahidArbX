@@ -1,14 +1,3 @@
-/**
- * Bulk-run control for /api/match-review/analyze-stream.
- *
- * One active bulk session at a time. The analyze-stream handler starts a
- * session, the worker loop checks these flags on each iteration, and
- * subscribers (the bulk-stream SSE endpoint) get live events so reconnecting
- * clients don't lose visibility on a refresh.
- *
- * Server-only — lives in module scope, not persisted. Single Node process
- * only; a clustered deployment would need Redis or similar.
- */
 
 export type BulkEvent =
   | {
@@ -30,8 +19,6 @@ export type BulkEvent =
       type: "result";
       index: number;
       status: "analyzed" | "cached" | "error";
-      // Pass-through of the analyzeOne result; kept opaque here so control
-      // doesn't depend on cache types.
       payload: unknown;
     }
   | {
@@ -50,9 +37,6 @@ export type BulkEvent =
       total: number;
       aborted: boolean;
     }
-  // Transport-only marker sent by the SSE route after it finishes replaying
-  // the buffered events, before tailing live ones. Clients use this to tell
-  // historical events (no user notifications) from live ones (toast on done).
   | { type: "hydrated" };
 
 interface BulkControlState {
@@ -68,19 +52,13 @@ interface BulkControlState {
   errored: number;
   startedAt: number;
   endedAt: number;
-  // Recent events for late subscribers (SSE reconnect after refresh).
   buffer: BulkEvent[];
-  // Listeners attached by the SSE endpoint.
   listeners: Set<(evt: BulkEvent) => void>;
-  // Resolves the current waitIfPaused() promise so workers can proceed.
   resumeFn: (() => void) | null;
 }
 
 const BUFFER_CAP = 300;
 
-// Versioned key — bump the suffix whenever the state shape changes so a hot
-// reload in dev doesn't keep a stale object with missing fields (which would
-// silently crash subscribers and leave zombie `active: true` flags).
 declare global {
   var __bulkControlStateV2: BulkControlState | undefined;
 }
@@ -122,7 +100,6 @@ function emit(evt: BulkEvent): void {
     try {
       fn(evt);
     } catch {
-      // A listener throw shouldn't take down the worker loop.
     }
   }
 }
@@ -207,7 +184,6 @@ export function abort(): void {
   if (!s.active) return;
   s.aborted = true;
   emit({ type: "aborted" });
-  // If paused, release so the worker can see the abort flag and exit.
   if (s.resumeFn) {
     s.resumeFn();
     s.resumeFn = null;
@@ -276,7 +252,6 @@ export function getStatus(): BulkStatus {
   };
 }
 
-/** Snapshot of the recent event buffer — used by late SSE subscribers. */
 export function getBuffer(): BulkEvent[] {
   return [...getState().buffer];
 }
@@ -289,10 +264,6 @@ export function subscribe(listener: (evt: BulkEvent) => void): () => void {
   };
 }
 
-/**
- * Awaits until the session is resumed or aborted. Returns immediately if
- * not paused. Safe to call repeatedly from multiple workers.
- */
 export function waitIfPaused(): Promise<void> {
   const s = getState();
   if (!s.paused || s.aborted) return Promise.resolve();

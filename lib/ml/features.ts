@@ -1,13 +1,3 @@
-/**
- * ML Feature Extractor
- *
- * Extracts a 22-dimensional feature vector from a ValueBet and the
- * in-memory odds stores. Feature order is contractual — it must match
- * the Python training pipeline's `feature_names.py` exactly.
- *
- * All values are rounded to 4 decimals to prevent HOT-busting
- * float drift when re-persisting unchanged bets.
- */
 
 import type { ValueBet } from "@/lib/atoms/value-detector";
 import {

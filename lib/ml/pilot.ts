@@ -1,30 +1,10 @@
-/**
- * Stake-increase pilot — controlled experiment for promotion to stake_increase.
- *
- * When the model is at `stake_reduce` with good metrics, it cannot increase
- * stakes (capped at ×1.0). The pilot runs a coin-flip experiment:
- *
- *   - On every bet where the model wants to boost (×>1.05), flip a fair coin.
- *   - Heads: use the boosted Kelly (as if stake_increase were active).
- *   - Tails: use ×1.0 (current stake_reduce cap).
- *
- * After PILOT_MIN_SETTLED bets settle, run the Opdyke two-sample Sharpe test
- * between the boosted and unboosted cohorts. If the boosted cohort beats the
- * unboosted cohort with PSR ≥ 0.95 and a meaningful ROI improvement, unlock
- * `stake_increase` for the deployed model.
- *
- * This is a completely honest experiment — the coin flip guarantees no
- * selection bias. The only difference between groups is random chance.
- */
 
 import { singleton } from "../util/singleton";
 import { logger } from "../shared/logger";
 
 const PILOT_MIN_SETTLED = 50;
 const PILOT_MIN_PER_GROUP = 15;
-/** PSR threshold to unlock stake_increase. */
 const PILOT_PSR_THRESHOLD = 0.95;
-/** Minimum boosted-vs-control ROI improvement (percentage points). */
 const PILOT_MIN_ROI_IMPROVEMENT_PCT = 0.5;
 
 interface PilotState {
@@ -51,9 +31,6 @@ const pilotMeta = singleton<PilotState>("ml:pilot-meta", () => ({
   settledControlCount: 0,
 }));
 
-/**
- * Start a pilot experiment for the current model version.
- */
 export function startPilot(modelVersion: number): void {
   pilotMeta.active = true;
   pilotMeta.modelVersion = modelVersion;
@@ -69,9 +46,6 @@ export function startPilot(modelVersion: number): void {
   );
 }
 
-/**
- * Stop the pilot experiment.
- */
 export function stopPilot(): void {
   pilotMeta.active = false;
   pilotMeta.modelVersion = null;
@@ -79,24 +53,13 @@ export function stopPilot(): void {
   logger.info("MLPilot", "Pilot stopped.");
 }
 
-/**
- * Whether a pilot is currently running.
- */
 export function isPilotActive(): boolean {
   return pilotMeta.active;
 }
 
-/**
- * For a bet that the model wants to boost (raw multiplier > 1.05):
- * flip a coin to decide whether to actually apply the boost.
- *
- * @param betId - unique identifier for the bet
- * @returns true if boost should be applied, false if it should be held at ×1.0
- */
 export function pilotCoinFlip(betId: string): boolean {
   if (!pilotMeta.active) return false;
 
-  // Deterministic coin flip based on betId hash (reproducible, no RNG state needed)
   const hash = simpleHash(betId);
   const boosted = hash % 2 === 0;
 
@@ -110,9 +73,6 @@ export function pilotCoinFlip(betId: string): boolean {
   return boosted;
 }
 
-/**
- * Mark a pilot bet as settled with its unit return.
- */
 export function settlePilotBet(betId: string, unitReturn: number): void {
   const entry = pilot.get(betId);
   if (!entry) return;
@@ -125,9 +85,6 @@ export function settlePilotBet(betId: string, unitReturn: number): void {
   }
 }
 
-/**
- * Evaluate the pilot results and determine whether to promote to stake_increase.
- */
 export async function evaluatePilot(): Promise<{
   ready: boolean;
   shouldPromote: boolean;
@@ -187,7 +144,6 @@ export async function evaluatePilot(): Promise<{
   const controlMean =
     controlReturns.reduce((a, b) => a + b, 0) / controlReturns.length;
 
-  // Two-sample Sharpe comparison (Opdyke PSR).
   const { compareGroupSharpes } = await import("./sharpe-ab-test");
   const result = compareGroupSharpes(
     {
@@ -202,7 +158,6 @@ export async function evaluatePilot(): Promise<{
     },
   );
 
-  // Pilot promotion gates: boost must beat control by enough margin AND PSR.
   const roiImprovementPct = (boostMean - controlMean) * 100;
   const shouldPromote =
     result.psr >= PILOT_PSR_THRESHOLD &&
@@ -219,9 +174,6 @@ export async function evaluatePilot(): Promise<{
   };
 }
 
-/**
- * Get pilot status for diagnostics.
- */
 export function getPilotStatus() {
   return {
     active: pilotMeta.active,

@@ -1,9 +1,3 @@
-/**
- * NineWickets Exchange Atoms Adapter
- *
- * Fetches exchange odds and stores them in the atoms store.
- * Exchange offers 4 markets: MATCH_ODDS, O/U 0.5, 1.5, 2.5
- */
 
 import { BaseAtomsAdapter, type FetchContext } from "./base";
 import { buildOddsEntry } from "../../shared/odds-entry";
@@ -16,17 +10,11 @@ import {
 import { mapExchangeToAtom } from "../mappings/ninewickets-exchange";
 import type { NormalizedOddsEntry, ProviderKey } from "../types";
 
-// ============================================
-// Constants
-// ============================================
 
 const PROVIDER: ProviderKey = "ninewickets-exchange";
 const MARKETS_BASE_URL = "https://awskvx.seofmi.live";
 const MARKETS_ENDPOINT = "/exchange/member/playerService/queryMarkets";
 
-// ============================================
-// Axios Client
-// ============================================
 
 const marketsClient = createProviderClient({
   baseURL: MARKETS_BASE_URL,
@@ -34,9 +22,6 @@ const marketsClient = createProviderClient({
   timeout: 5000,
 });
 
-// ============================================
-// Adapter Class
-// ============================================
 
 export class NineWicketsExchangeAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
@@ -99,15 +84,9 @@ export class NineWicketsExchangeAtomsAdapter extends BaseAtomsAdapter {
   }
 }
 
-// ============================================
-// Singleton instance
-// ============================================
 
 const adapterInstance = new NineWicketsExchangeAtomsAdapter();
 
-// ============================================
-// Legacy Function Exports (Backward Compatibility)
-// ============================================
 
 export async function fetchAndStoreNwExchangeOdds(
   providerEventId: string,

@@ -1,9 +1,3 @@
-/**
- * ProvidersFilter — shared soft-provider filter dropdown.
- *
- * Used in both BetsHistoryToolbar and SpreadsheetToolbar so that
- * strategy-configured soft providers filter consistently across both views.
- */
 
 "use client";
 
@@ -21,8 +15,6 @@ import {
 import { cn } from "@/lib/utils";
 import { PROVIDER_REGISTRY, getSoftProviders } from "@/lib/providers/registry";
 
-// Derived from the provider registry — adding a new soft provider in
-// lib/providers/registry.ts automatically surfaces it here.
 export const SOFT_PROVIDER_OPTIONS: {
   value: string;
   label: string;
@@ -36,7 +28,6 @@ export const SOFT_PROVIDER_OPTIONS: {
 const BTN_BASE = cn("h-7 px-2 text-[11px] gap-1.5 font-normal");
 
 interface ProvidersFilterProps {
-  /** Selected provider values. Empty array means "All" (no filter). */
   selected: string[];
   onChange: (values: string[]) => void;
   align?: "start" | "end" | "center";

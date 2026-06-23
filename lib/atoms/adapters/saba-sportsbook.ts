@@ -1,10 +1,3 @@
-/**
- * SABA Sportsbook atoms adapter.
- *
- * SABA's fixture endpoint is HTTP, but full-market odds are delivered through
- * a Socket.IO odds channel. This adapter consumes decoded full-match snapshots
- * and maps the supported football markets into the shared atom store.
- */
 
 import { BaseAtomsAdapter, type FetchContext } from "./base";
 import { buildOddsEntry } from "../../shared/odds-entry";

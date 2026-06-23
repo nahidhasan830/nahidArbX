@@ -1,9 +1,3 @@
-/**
- * Providers API
- *
- * GET  → lists provider metadata + enabled state (from file config).
- * POST → forwards toggle actions to engine (which owns in-memory state).
- */
 
 import { NextRequest, NextResponse } from "next/server";
 import { PROVIDER_REGISTRY, PROVIDER_IDS } from "@/lib/providers/registry";
@@ -40,10 +34,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Forward to engine for in-memory purge + file config update
     const result = await enginePost("/engine/providers", body);
     if (result === null) {
-      // Engine unreachable — still apply file-config locally
       const { toggleProviderAction, setDisabledProvidersAction } =
         await import("@/lib/providers/actions");
       const { action } = body;

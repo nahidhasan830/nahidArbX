@@ -28,13 +28,6 @@ interface Props {
   defaultHint?: string;
 }
 
-/**
- * Shared menu sections for engine/model selection.
- * Drop into any <DropdownMenuContent>.
- *
- * Fetches providers from DB and renders all LLM providers with their
- * enabled/disabled state from the database.
- */
 export function AiModelMenuItems({
   callbacks,
   showDefault = false,
@@ -43,12 +36,10 @@ export function AiModelMenuItems({
 }: Props) {
   const { providers } = useAiProviders();
 
-  // Check if any search provider is enabled
   const searchEnabled = providers.some(
     (p) => p.engineType === "search" && p.enabled,
   );
 
-  // Group providers by engine
   const llmProviders = providers.filter((p) => p.engineType === "llm");
   const deepseekProviders = llmProviders.filter((p) =>
     p.name.startsWith("deepseek"),

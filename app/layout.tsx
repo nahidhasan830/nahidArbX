@@ -5,8 +5,6 @@ import { Providers } from "@/components/providers/Providers";
 import { Toaster } from "@/components/ui/sonner";
 import { BRAND } from "@/lib/branding";
 
-// Force all pages to be dynamic (no static prerendering)
-// Required for: 1) Real-time arb data, 2) Auth context, 3) Next.js 16 SSG bug workaround
 export const dynamic = "force-dynamic";
 
 const dmSans = DM_Sans({

@@ -1,11 +1,3 @@
-/**
- * Structured Logger with Levels
- *
- * - Runtime level filtering via LOG_LEVEL env var
- * - JSON output in production, human-readable in development
- * - Sync-cycle correlation IDs
- * - Scoped context via logger.withContext()
- */
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -30,7 +22,6 @@ function shouldLog(level: LogLevel): boolean {
   return LOG_LEVELS[level] >= LOG_LEVELS[currentLevel];
 }
 
-// --- Correlation ID (sync-cycle scoped) ---
 
 let correlationId: string | undefined;
 
@@ -42,7 +33,6 @@ export function getCorrelationId(): string | undefined {
   return correlationId;
 }
 
-// --- Output formatting ---
 
 const CONSOLE_FN: Record<LogLevel, (...args: unknown[]) => void> = {
   debug: console.debug,
@@ -87,7 +77,6 @@ function emitJson(
 
 const emit = isProduction ? emitJson : emitDev;
 
-// --- Scoped logger type ---
 
 export interface ScopedLogger {
   debug(message: string, data?: unknown): void;
@@ -96,11 +85,7 @@ export interface ScopedLogger {
   error(message: string, data?: unknown): void;
 }
 
-// --- Public API ---
 
-// Process-local ring of recent errors. Powers `/errors` in the Telegram
-// bot. Pinned to globalThis so HMR-duplicated module copies share one
-// buffer; capped to keep memory bounded.
 const ERR_RING_MAX = 100;
 declare global {
   var __nahidArbX_errRing__:

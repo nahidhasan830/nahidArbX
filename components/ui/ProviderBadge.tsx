@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * ProviderBadge — colored provider pill that reads display names + colors
- * from the provider registry (lib/providers/registry.ts). One-liner
- * replacement anywhere we previously hand-formatted provider ids.
- *
- *   <ProviderBadge id="ninewickets-sportsbook" />
- *   <ProviderBadge id="pinnacle" size="sm" short />
- *   <ProviderBadge id="betconstruct" withDot />
- */
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -22,9 +13,7 @@ import {
 
 export interface ProviderBadgeProps {
   id: string;
-  /** Use the short name ("9W-SB") instead of the display name ("9W Sportsbook"). */
   short?: boolean;
-  /** Render a leading colored dot that uses the provider's accent color. */
   withDot?: boolean;
   size?: "sm" | "md";
   className?: string;

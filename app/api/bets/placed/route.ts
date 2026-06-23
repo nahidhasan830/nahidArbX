@@ -1,8 +1,3 @@
-/**
- * GET /api/placed-bets
- *
- * Returns every placed bet we've recorded, newest first.
- */
 import { NextResponse } from "next/server";
 import { listPlacedBets } from "@/lib/db/repositories/bets";
 import { BETTING_PROVIDERS } from "@/lib/betting/registry";

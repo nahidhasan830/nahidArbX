@@ -1,17 +1,5 @@
 "use client";
 
-/**
- * Single provider-odds cell for the value-bets spreadsheet.
- *
- * Renders one price with:
- * - Direction arrow (▲/▼) colored by movement direction
- * - Flash animation on significant price change (>0.5%)
- * - Steam move badge (🔥) for sharp line movements
- * - Rich movement tooltip on hover (opening→current, sparkline, peak/trough)
- *
- * The reactive engine polls every 1.5s so odds in the backend store are
- * always fresh. Movement data is populated from the in-memory ring buffer.
- */
 
 import { memo } from "react";
 import {
@@ -26,15 +14,11 @@ interface OddsCellProps {
   odds: AtomOddsData | null | undefined;
   onClick?: () => void;
   providerLabel?: string;
-  /** Fires when user clicks a cell with movement data — opens the full chart modal. */
   onMovementClick?: () => void;
-  /** Fires from the tooltip’s “Click for full chart” link — opens movement modal for this specific provider. */
   onOpenMovementModal?: () => void;
-  /** Sharp provider sparkline reference for overlay in the tooltip. */
   sharpRef?: { sparkline: [number, number][]; label: string };
 }
 
-/** Threshold (%) below which we don't show direction arrow / flash. */
 const DIRECTION_THRESHOLD = 0.5;
 function OddsCellInner({
   odds,
@@ -57,13 +41,11 @@ function OddsCellInner({
   const clickable = Boolean(onClick) && !isSuspended;
   const movement = odds.movement;
 
-  // Direction arrow: only show when movement exceeds threshold
   const showArrow =
     movement &&
     Math.abs(movement.changePct) >= DIRECTION_THRESHOLD &&
     movement.direction !== "stable";
 
-  // Steam move badge
   const steam = movement?.steamMove;
 
   const flashDir =
@@ -99,7 +81,6 @@ function OddsCellInner({
       } ${clickable ? "cursor-pointer hover:bg-emerald-500/15 hover:ring-1 hover:ring-emerald-500/40" : onMovementClick ? "cursor-pointer hover:bg-muted/60" : ""} ${flashClass}`}
     >
       <div className="flex items-center justify-center gap-0.5">
-        {/* Direction arrow */}
         {showArrow && !isSuspended && (
           <span
             className={`text-[8px] leading-none ${
@@ -110,17 +91,14 @@ function OddsCellInner({
           </span>
         )}
 
-        {/* Price */}
         <span className={isSuspended ? "opacity-60" : ""}>
           {odds.value.toFixed(2)}
         </span>
 
-        {/* Best odds marker */}
         {!isSuspended && isBest && !steam && (
           <span className="text-[9px] text-green-400">*</span>
         )}
 
-        {/* Steam move badge */}
         {!isSuspended && steam && (
           <span
             className={`text-[8px] leading-none ${
@@ -137,7 +115,6 @@ function OddsCellInner({
         )}
       </div>
 
-      {/* Suspended overlay */}
       {isSuspended && (
         <div
           className="absolute inset-0 flex items-center justify-center bg-yellow-900/40"
@@ -151,7 +128,6 @@ function OddsCellInner({
     </td>
   );
 
-  // Wrap in tooltip only when we have meaningful movement data
   if (movement && movement.totalTicks >= 2 && !isSuspended) {
     return (
       <Tooltip>

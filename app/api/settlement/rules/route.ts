@@ -1,10 +1,3 @@
-/**
- * Given a proposed rule's filter shape, run the deterministic backtest on
- * the held-out (walk-forward OOS) portion of value_bets and return metrics.
- *
- * This is the "LLM disposes" half of propose/dispose. The LLM never sees the
- * held-out rows, so a rule that survives here is genuinely earned.
- */
 
 import { NextRequest } from "next/server";
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
@@ -36,7 +29,6 @@ const FilterSchema = z.object({
 
 const BodySchema = z.object({
   filters: FilterSchema,
-  /** 0 < fraction <= 1. 0.3 = last 30% of rows by firstSeenAt. */
   oosFraction: z.number().positive().max(1).default(0.3),
 });
 
@@ -54,8 +46,6 @@ export async function POST(request: NextRequest) {
   const { filters, oosFraction } = parsed.data;
 
   try {
-    // Step 1: total row count → compute cutoff timestamp.
-    // We slice walk-forward using first_seen_at.
     const total = await db.select({ n: sql<number>`count(*)::int` }).from(bets);
     const totalN = total[0]?.n ?? 0;
 
@@ -75,7 +65,6 @@ export async function POST(request: NextRequest) {
       cutoffTs = cutoff[0]?.firstSeenAt ?? null;
     }
 
-    // Step 2: build rule clauses on top of the OOS cutoff.
     const clauses: ReturnType<typeof eq>[] = [];
     if (cutoffTs) clauses.push(gte(bets.firstSeenAt, cutoffTs));
 
@@ -94,9 +83,6 @@ export async function POST(request: NextRequest) {
       clauses.push(eq(bets.competition, filters.competition));
     if (filters.atomId) clauses.push(eq(bets.atomId, filters.atomId));
 
-    // EV% bounds are computed at entry price (soft_odds). Matches
-    // derive.evPctFirst and the DB filter in listBets — entry EV is the
-    // realistic value we'd have realised at placement.
     const evFirst = sql`((1 + (${bets.softOdds} - 1) * (1 - ${bets.softCommissionPct} / 100)) * ${bets.sharpTrueProb} - 1) * 100`;
     if (filters.minEv != null)
       clauses.push(sql`${evFirst} >= ${filters.minEv}`);
@@ -112,7 +98,6 @@ export async function POST(request: NextRequest) {
       return apiSuccess(emptyResult(totalN, cutoffTs));
     }
 
-    // Step 3: compute metrics.
     let wins = 0;
     let halfWins = 0;
     let losses = 0;
@@ -123,8 +108,6 @@ export async function POST(request: NextRequest) {
     let totalReturn = 0;
 
     for (const raw of rows) {
-      // Defensive normalize: drizzle reads bypass the repo's read-side
-      // coercion, so a stray legacy "push" row would otherwise slip through.
       const r: ValueBetRow = { ...raw, outcome: normalizeOutcome(raw.outcome) };
       switch (r.outcome) {
         case "won":
@@ -145,9 +128,6 @@ export async function POST(request: NextRequest) {
         default:
           pendings++;
       }
-      // Half outcomes count as half-a-bet of exposure: the other half is a
-      // push / stake return. settlementPnl already applies the 0.5× multiplier
-      // to the payoff, so we mirror that on the stake side here.
       if (r.outcome === "won" || r.outcome === "lost") {
         totalStaked += 1;
         totalReturn += settlementPnl(r, 1);
@@ -157,7 +137,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Weighted win-rate: treat a half-win as 0.5 of a win.
     const decided = wins + halfWins + losses + halfLosses;
     const weightedWins = wins + 0.5 * halfWins;
     const winRatePct = decided > 0 ? (weightedWins / decided) * 100 : null;

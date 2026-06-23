@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * useEngineHealth — lightweight poll for reactive engine status.
- *
- * Uses the existing `?fields=connectionHealth` fast-path in `/api/value-bets`
- * which skips all event analysis and just returns engine diagnostics. This
- * lets the status bar and boot indicator update every 5s independently of
- * the heavy event data query.
- */
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -91,17 +83,12 @@ async function fetchEngineHealth(): Promise<ConnectionHealth | null> {
   }
 }
 
-/**
- * Poll engine health every 5s. Near-zero server cost — the API
- * fast-path only calls `buildConnectionHealth()` (no event analysis).
- */
 export function useEngineHealth() {
   return useQuery({
     queryKey: ["engine-health"],
     queryFn: fetchEngineHealth,
     refetchInterval: 5_000,
     staleTime: 3_000,
-    // Don't show loading state after initial load — keep previous data visible
     placeholderData: (prev) => prev,
   });
 }

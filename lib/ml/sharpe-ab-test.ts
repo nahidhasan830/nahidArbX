@@ -1,67 +1,25 @@
-/**
- * Two-sample Sharpe-ratio comparison via the Opdyke PSR test.
- *
- * Compares whether group B's risk-adjusted return is statistically
- * better than group A's. The Opdyke test (2003) extends the
- * Probabilistic Sharpe Ratio to two samples, accounting for skew,
- * kurtosis, and the correlation between the two return series —
- * critical when the groups overlap (e.g. boost-vs-control on
- * the same underlying bets).
- *
- * Used by the stake-increase pilot to compare boosted-stake bets
- * against unboosted-stake bets within the same model. Was previously
- * also used for champion-vs-challenger model promotion; that concept
- * has been removed — a validated model just deploys.
- *
- * References:
- *   - Opdyke, J.D. (2003), "Comparing Sharpe Ratios: So Where are the p-values?"
- *   - Bailey & López de Prado (2014), "The Deflated Sharpe Ratio"
- */
 
-// ── Constants ─────────────────────────────────────────────────────────
 
-/** Minimum number of overlapping samples for a valid comparison. */
 export const MIN_OVERLAP_SAMPLES = 30;
 
-// ── Types ─────────────────────────────────────────────────────────────
 
 export interface GroupReturns {
-  /** Identifier for diagnostics (e.g. model version, "boost", "control"). */
   label: string;
-  /** Per-bet unit returns. */
   unitReturns: number[];
-  /** Total number of bets evaluated on. */
   sampleSize: number;
 }
 
 export interface SharpeComparisonResult {
-  /** PSR that group B beats group A on Sharpe ratio [0, 1]. */
   psr: number;
-  /** Z-statistic of the Opdyke test. */
   zStat: number;
-  /** Group A's mean unit return. */
   aMean: number;
-  /** Group B's mean unit return. */
   bMean: number;
-  /** Number of overlapping samples used in the test. */
   overlapSamples: number;
-  /** Group A's Sharpe ratio. */
   aSharpe: number;
-  /** Group B's Sharpe ratio. */
   bSharpe: number;
 }
 
-// ── Public API ────────────────────────────────────────────────────────
 
-/**
- * Compare two groups' risk-adjusted returns. PSR is the probability
- * that group B has a strictly higher true Sharpe ratio than group A,
- * given the observed data.
- *
- * Both groups should be evaluated on overlapping bets for the
- * correlation correction to bite. The function truncates both arrays
- * to the same length before testing.
- */
 export function compareGroupSharpes(
   a: GroupReturns,
   b: GroupReturns,
@@ -85,25 +43,20 @@ export function compareGroupSharpes(
     };
   }
 
-  // ── Opdyke two-sample test ───────────────────────────────────────
 
   const aSharpe = computeSharpe(aReturns);
   const bSharpe = computeSharpe(bReturns);
 
-  // Individual Sharpe variances (LdP 2014 eqn)
   const aVar = sharpeVariance(aReturns, aSharpe);
   const bVar = sharpeVariance(bReturns, bSharpe);
 
-  // Correlation between the two return series
   const rho = computeCorrelation(aReturns, bReturns);
 
-  // Opdyke variance of the difference
   const diffVariance = aVar + bVar - 2 * rho * Math.sqrt(aVar * bVar);
 
   const zStat =
     diffVariance > 0 ? (bSharpe - aSharpe) / Math.sqrt(diffVariance) : 0;
 
-  // PSR = P(true B Sharpe > true A Sharpe | observed data)
   const psr = normalCDF(zStat);
 
   return {
@@ -117,7 +70,6 @@ export function compareGroupSharpes(
   };
 }
 
-// ── Statistical helpers ───────────────────────────────────────────────
 
 function computeMean(arr: number[]): number {
   if (arr.length === 0) return 0;
@@ -160,10 +112,6 @@ function computeExcessKurtosis(returns: number[], mean?: number): number {
   return m4 / std ** 4 - 3;
 }
 
-/**
- * Asymptotic variance of the Sharpe ratio estimator (LdP 2014, eqn 6).
- * Accounts for non-normality via skew and excess kurtosis.
- */
 function sharpeVariance(returns: number[], sharpe: number): number {
   const n = returns.length;
   if (n < 4) return 0;
@@ -194,7 +142,6 @@ function computeCorrelation(x: number[], y: number[]): number {
 }
 
 function normalCDF(x: number): number {
-  // Accuracy ~1e-7 with the standard approximation
   const a1 = 0.254829592;
   const a2 = -0.284496736;
   const a3 = 1.421413741;

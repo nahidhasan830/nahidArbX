@@ -1,9 +1,3 @@
-/**
- * GET  /api/telegram/commands  → metadata + enabled state for every
- *                                registered Telegram command
- * PUT  /api/telegram/commands  → bulk-update enabled flags
- *      body: { updates: { [commandName]: boolean } }
- */
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -19,7 +13,6 @@ import {
   syncTelegramCommandMenu,
 } from "@/lib/telegram/bot";
 import { getCommandCounts } from "@/lib/telegram/history";
-// Force command-registration import so listCommands() returns everything.
 import "@/lib/telegram/commands";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +28,6 @@ export async function GET() {
     group: c.group,
     destructive: !!c.destructive,
     enabled: isCommandEnabled(c.name),
-    /** Times this command has been dispatched since the server booted. */
     callCount: counts[c.name] ?? 0,
   }));
   const cfg = getCommandConfig();
@@ -66,8 +58,6 @@ export async function PUT(req: Request) {
     );
   }
   setManyCommands(parsed.data.updates);
-  // Re-publish the slash-command autocomplete list so disabled commands
-  // disappear from the / popover (and re-enabled ones come back).
   void syncTelegramCommandMenu().catch(() => {});
   return NextResponse.json({ ok: true });
 }

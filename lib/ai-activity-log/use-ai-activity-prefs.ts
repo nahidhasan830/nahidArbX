@@ -1,16 +1,9 @@
 "use client";
 
-/**
- * Lightweight preferences hook for the AI Activity Log page.
- *
- * Persists filter state + date preset to localStorage so the
- * operator's view survives page refreshes.
- */
 import { useCallback } from "react";
 import { useLocalStorage } from "@/components/hooks/useLocalStorage";
 import type { DatePresetKey } from "@/lib/bets-history/date-presets";
 
-/** Subset of filter fields we actually persist. */
 type PersistedFilters = {
   from?: string;
   to?: string;
@@ -56,7 +49,6 @@ export function useAiActivityPrefs() {
       setPrefs((cur) => ({
         ...cur,
         datePreset: preset,
-        // Clear baked dates when switching to a rolling preset
         filters:
           preset !== "all" && preset !== "custom"
             ? { ...cur.filters, from: undefined, to: undefined }

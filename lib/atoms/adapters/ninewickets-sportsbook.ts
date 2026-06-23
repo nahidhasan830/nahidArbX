@@ -1,13 +1,3 @@
-/**
- * NineWickets Sportsbook Atoms Adapter
- *
- * Fetches sportsbook odds and stores them in the atoms store.
- * Uses 2-step API flow:
- * 1. Catalog request (version=0) - get market structure
- * 2. Odds request (with marketIds) - get actual odds
- *
- * Dynamically maps ALL markets that match our atoms registry.
- */
 
 import { z } from "zod";
 import { BaseAtomsAdapter, type FetchContext } from "./base";
@@ -27,17 +17,11 @@ import {
 } from "../../betting/ninewickets/client";
 import { logger } from "../../shared/logger";
 
-// ============================================
-// Constants
-// ============================================
 
 const PROVIDER: ProviderKey = "ninewickets-sportsbook";
 const ENDPOINT_URL =
   "https://gakvx.seofmi.live/exchange/member/playerService/queryGeniusSportsEvent";
 
-// ============================================
-// URL Params Helpers
-// ============================================
 
 function buildCatalogParams(providerEventId: string): URLSearchParams {
   return new URLSearchParams({
@@ -66,18 +50,12 @@ function buildOddsParams(
   });
 }
 
-// ============================================
-// Axios Client
-// ============================================
 
 const client = createProviderClient({
   contentType: "form-urlencoded",
   timeout: 5000,
 });
 
-// ============================================
-// Zod Schemas
-// ============================================
 
 const SelectionSchema = z.object({
   selectionName: z.string(),
@@ -94,8 +72,6 @@ const MarketSchema = z.object({
   apiSiteStatus: z.string().optional(), // "OPEN", "SUSPENDED", "CLOSED"
   selectionTs: z.number().optional(),
   live: z.boolean().optional(),
-  // Per-market stake limits exposed by the book. Captured here so the
-  // placement modal can surface them without a second HTTP round-trip.
   min: z.number().optional(),
   max: z.number().optional(),
   geniusSportsSelection: z.array(SelectionSchema).optional(),
@@ -111,9 +87,6 @@ const SportsbookResponseSchema = z.object({
 
 export type SportsbookMarket = z.infer<typeof MarketSchema>;
 
-// ============================================
-// Combined Result Type (for 2-step flow)
-// ============================================
 
 interface SportsbookRawData {
   markets: SportsbookMarket[];
@@ -121,9 +94,6 @@ interface SportsbookRawData {
   awayTeam: string;
 }
 
-// ============================================
-// Adapter Class
-// ============================================
 
 export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
   readonly providerId: ProviderKey = PROVIDER;
@@ -134,17 +104,12 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     _homeTeam: string,
     _awayTeam: string,
   ): Promise<number> {
-    // LEGACY: The 15-second polling loop calls this.
-    // We now use real-time continuous polling (`genius-sports-sync-service.ts`), so we do not
-    // fetch odds via REST here anymore to avoid duplicate work.
-    // The X-Ray diagnostics UI still uses `debugFetchRawData` below.
     return 0;
   }
 
   protected async fetchRawData(
     ctx: FetchContext,
   ): Promise<SportsbookRawData | null> {
-    // Step 1: Fetch catalog
     const catalogParams = buildCatalogParams(ctx.providerEventId);
     const catalogResponse = await client.post(
       ENDPOINT_URL,
@@ -161,13 +126,8 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     const allMarkets = catalog.geniusSportsMarkets;
     if (!allMarkets || allMarkets.length === 0) return null;
 
-    // Include all markets regardless of live flag — some market types
-    // (team totals, team corners) only exist as pre-match even during
-    // live events. The apiSiteStatus check in extractOdds already
-    // handles suspended/closed markets correctly.
     const markets = allMarkets;
 
-    // Step 2: Fetch odds
     const marketIds = markets.map((m) => m.id);
     const selectionTsList = markets.map((m) => m.selectionTs ?? -1);
     const version = catalog.version ?? 0;
@@ -186,12 +146,6 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
 
     if (!oddsData || !oddsData.geniusSportsMarkets) return null;
 
-    // The public odds fetch above returns guest-tier min/max. The book
-    // issues DIFFERENT per-account limits for the same markets — so to
-    // get real, actionable stake windows we piggyback a single
-    // authenticated call onto this same cycle and overlay those limits
-    // onto the markets we're about to extract from. One session-backed
-    // round-trip per event, per sync cycle.
     await overlayAuthenticatedLimits(
       ctx.providerEventId,
       oddsData.geniusSportsMarkets,
@@ -217,11 +171,9 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
       const selections = market.geniusSportsSelection;
       if (!selections || selections.length === 0) continue;
 
-      // Check if market is suspended or closed
       const isSuspended =
         market.apiSiteStatus && market.apiSiteStatus !== "OPEN";
 
-      // Collect entries per market to detect atom collisions before storing
       const marketEntries: NormalizedOddsEntry[] = [];
       const seenAtoms = new Set<string>();
       let hasCollision = false;
@@ -241,8 +193,6 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
 
         if (!atomId) continue;
 
-        // Collision detection: two selections mapping to the same atom
-        // is always a mapping bug (e.g. fuzzy matching failure)
         if (seenAtoms.has(atomId)) {
           hasCollision = true;
           logger.warn(
@@ -266,7 +216,6 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
         }
       }
 
-      // Skip entire market on collision — all entries are suspect
       if (hasCollision) continue;
 
       for (const entry of marketEntries) {
@@ -277,9 +226,6 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
     const preferred = selectPreferredGeniusEntries(candidates);
 
     for (const { entry, market } of preferred) {
-      // Piggyback: record the containing market's stake limits keyed
-      // by (provider, event, atom). The UI uses this directly — no
-      // second call to the book.
       if (typeof market.min === "number" && typeof market.max === "number") {
         setMarketLimits(this.providerId, ctx.normalizedEventId, entry.atom_id, {
           minBet: market.min,
@@ -294,24 +240,7 @@ export class NineWicketsSportsbookAtomsAdapter extends BaseAtomsAdapter {
   }
 }
 
-// ============================================
-// Authenticated limits overlay
-// ============================================
 
-/**
- * Overlay account-tier min/max onto markets in place.
- *
- * The unauthenticated catalog fetch above returns guest-tier stake
- * limits (typically a $1 min, low max). 9W issues DIFFERENT per-account
- * limits via the same endpoint when hit with a valid session. We make
- * one authenticated call per event per sync cycle, parse the `min`/
- * `max` from each market, and overwrite the market objects in place so
- * the downstream `extractOdds` stashes the correct values.
- *
- * Runs best-effort: if the session is missing or the auth call fails
- * we silently fall through and the guest-tier limits remain. Odds
- * ingestion is never blocked by limits overlay.
- */
 export async function overlayAuthenticatedLimits(
   providerEventId: string,
   markets: SportsbookMarket[],
@@ -378,8 +307,6 @@ export async function overlayAuthenticatedLimits(
       }
     }
   } catch (err) {
-    // Best-effort — guest-tier limits remain in place. But log once so
-    // we can tell when the overlay is silently failing.
     logger.warn(
       "NWSportsbook",
       `limits overlay failed for event ${providerEventId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -387,15 +314,9 @@ export async function overlayAuthenticatedLimits(
   }
 }
 
-// ============================================
-// Singleton instance
-// ============================================
 
 const adapterInstance = new NineWicketsSportsbookAtomsAdapter();
 
-// ============================================
-// Legacy Function Exports (Backward Compatibility)
-// ============================================
 
 export async function fetchAndStoreNwSportsbookOdds(
   providerEventId: string,

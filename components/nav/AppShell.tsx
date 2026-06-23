@@ -1,22 +1,5 @@
 "use client";
 
-/**
- * Global app shell — collapsible left rail + per-page top bar + Cmd-K
- * quick-nav. Every authed page wraps its content in `<AppShell>` and
- * passes a `title` plus optional `actions` (the right-side controls
- * that used to live in each page's custom header).
- *
- *   <AppShell title="Dashboard" actions={<Button>Refresh</Button>}>
- *     <DashboardContent />
- *   </AppShell>
- *
- * Sidebar open/collapsed state persists via the shadcn `sidebar_state`
- * cookie — the choice follows the user across routes rather than resetting
- * per-page. ⌘B toggles the rail; the toggle writes the cookie.
- *
- * Cmd-K opens a command palette with three groups:
- *   Navigate · Actions · (future) Jump to event
- */
 import * as React from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
@@ -80,9 +63,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  /** Optional AuthProvider Feature id — hides the entry when denied. */
   feature?: string;
-  /** When true, renders as a disabled entry with a "soon" badge. */
   comingSoon?: boolean;
 };
 
@@ -152,8 +133,6 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-// Flat list for the Cmd-K palette — skip coming-soon entries so the
-// palette only routes to real pages.
 const NAV_FLAT: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items).filter(
   (i) => !i.comingSoon,
 );
@@ -176,17 +155,11 @@ export interface AppShellTab {
 
 export interface AppShellProps {
   title: string;
-  /** Optional pill/badge rendered next to the title. */
   titleBadge?: React.ReactNode;
-  /** Page-scoped right-side controls in the top bar. */
   actions?: React.ReactNode;
-  /** When true, main content gets no padding (for edge-to-edge spreadsheets). */
   edgeToEdge?: boolean;
-  /** Optional tabs rendered in the top bar. Wraps children in a Tabs provider. */
   tabs?: AppShellTab[];
-  /** Controlled active tab value. When omitted, defaults to first tab. */
   activeTab?: string;
-  /** Callback when tab changes (controlled mode). */
   onTabChange?: (value: string) => void;
   children: React.ReactNode;
 }
@@ -243,13 +216,11 @@ export function AppShell({
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
       <Sidebar variant="inset" collapsible="icon">
-        {/* ─── Sidebar Header: Logo + Brand ─── */}
         <SidebarHeader className="relative border-b border-sidebar-border">
           <Link
             href="/dashboard"
             className="flex items-center gap-2.5 px-2 py-2 group"
           >
-            {/* Glowing icon mark */}
             <div className="flex items-center justify-center size-7 rounded-lg shrink-0 bg-cyan-500/[0.08] border border-cyan-400/[0.25] shadow-[0_0_12px_rgba(34,211,238,0.12),inset_0_1px_0_rgba(255,255,255,0.06)] transition-all duration-300 group-hover:border-cyan-400/50 group-hover:shadow-[0_0_20px_rgba(34,211,238,0.25),0_0_40px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.10)] group-hover:scale-105">
               <LineChart className="size-4 text-cyan-400" />
             </div>
@@ -259,7 +230,6 @@ export function AppShell({
           </Link>
         </SidebarHeader>
 
-        {/* ─── Nav Sections ─── */}
         <SidebarContent>
           {NAV_SECTIONS.map((section) => (
             <SidebarGroup key={section.label}>
@@ -326,11 +296,8 @@ export function AppShell({
           ))}
         </SidebarContent>
 
-        {/* ─── Sidebar Footer: Unified Control Dock ─── */}
         <SidebarFooter className="!p-0 !gap-0">
-          {/* Expanded mode: unified control dock */}
           <div className="m-2 rounded-[10px] overflow-hidden border border-sidebar-border bg-gradient-to-b from-card/80 to-background/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_-1px_3px_rgba(0,0,0,0.10)] group-data-[collapsible=icon]:hidden">
-            {/* Search trigger row */}
             <button
               type="button"
               onClick={() => setCmdOpen(true)}
@@ -343,18 +310,15 @@ export function AppShell({
               </kbd>
             </button>
 
-            {/* Profile + status row */}
             <div className="border-b border-sidebar-border [&_[data-sidebar=menu-button][data-size=lg]]:h-11 [&_[data-sidebar=menu-button][data-size=lg]]:px-2 [&_[data-sidebar=menu-button][data-size=lg]]:py-1.5 [&_[data-sidebar=menu-button]>div:first-child]:size-7 [&_[data-sidebar=menu-button]>div:first-child_svg]:size-3.5">
               <ProfileMenu
                 onOpenUserManagement={() => setShowUserManagement(true)}
               />
             </div>
 
-            {/* Ambient status strip */}
             <SessionPill />
           </div>
 
-          {/* Collapsed mode: icon-only controls */}
           <div className="hidden group-data-[collapsible=icon]:flex flex-col gap-1 px-1 py-1.5">
             <SidebarMenu>
               <SidebarMenuItem>
@@ -376,10 +340,8 @@ export function AppShell({
         </SidebarFooter>
       </Sidebar>
 
-      {/* ─── Main Content Area ─── */}
       <SidebarInset>
         <header className="sticky top-0 z-20 border-b border-sidebar-border bg-background/90 backdrop-blur-xl backdrop-saturate-150">
-          {/* Accent gradient line at top edge */}
           <div className="h-px bg-[linear-gradient(90deg,transparent_0%,oklch(0.72_0.16_190/0.4)_20%,oklch(0.6_0.2_230/0.3)_50%,oklch(0.72_0.16_190/0.4)_80%,transparent_100%)]" />
 
           <div className="flex h-12 items-center gap-2 px-3">
@@ -447,7 +409,6 @@ export function AppShell({
         )}
       </SidebarInset>
 
-      {/* ─── Command Palette (⌘K) ─── */}
       <CommandDialog open={cmdOpen} onOpenChange={setCmdOpen}>
         <CommandInput placeholder="Jump to page or run an action…" />
         <CommandList>

@@ -1,19 +1,5 @@
 "use client";
 
-/**
- * /telegram — full-width control surface for the Telegram bot.
- *
- *   ┌─────────────────────────────────────────────────────────────────────┐
- *   │  [bot status]  [N enabled / M total]   [Enable all] [Disable all]   │
- *   ├─────────────────────────────────────────────────────────────────────┤
- *   │  [search]  [filter pills: All · Read · Control · Destructive]       │
- *   ├─────────────────────────────────────────────────────────────────────┤
- *   │  DataTable: command · usage · group · description (info → tooltip)  │
- *   │             enabled toggle                                           │
- *   ├─────────────────────────────────────────────────────────────────────┤
- *   │  Command history — last 50 incoming dispatches                       │
- *   └─────────────────────────────────────────────────────────────────────┘
- */
 
 import * as React from "react";
 import {
@@ -47,7 +33,6 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-// ── Types ────────────────────────────────────────────────────────────────
 
 interface CommandEntry {
   name: string;
@@ -57,7 +42,6 @@ interface CommandEntry {
   group: "read" | "control" | "destructive" | "meta";
   destructive: boolean;
   enabled: boolean;
-  /** Times this command has been triggered from Telegram since boot. */
   callCount: number;
 }
 
@@ -130,7 +114,6 @@ function relativeTime(iso: string): string {
   return `${differenceInDays(now, date)}d ago`;
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────
 
 export default function TelegramConfigPage() {
   const [data, setData] = React.useState<CommandsApiPayload | null>(null);
@@ -157,9 +140,6 @@ export default function TelegramConfigPage() {
     }
   }, []);
 
-  // Smart polling — fast cadence while the tab is visible, paused while
-  // hidden. The interval is torn down on unmount so leaving the page
-  // stops all network traffic. Coming back triggers an immediate load.
   React.useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -167,7 +147,6 @@ export default function TelegramConfigPage() {
     const tick = async () => {
       if (cancelled) return;
       if (typeof document !== "undefined" && document.hidden) {
-        // Pause polling while hidden — re-armed by visibilitychange.
         return;
       }
       await load();
@@ -183,7 +162,6 @@ export default function TelegramConfigPage() {
           timer = null;
         }
       } else {
-        // Page came back into focus — refresh immediately, then resume.
         if (timer) clearTimeout(timer);
         void tick();
       }
@@ -289,7 +267,6 @@ export default function TelegramConfigPage() {
   const totalEnabled = data?.commands.filter((c) => c.enabled).length ?? 0;
   const totalCommands = data?.commands.length ?? 0;
 
-  // ── DataTable column definitions ──────────────────────────────────────
   const columns = React.useMemo<ColumnDef<CommandEntry, unknown>[]>(
     () => [
       {
@@ -432,9 +409,6 @@ export default function TelegramConfigPage() {
     [savingNames, toggleCommand],
   );
 
-  // Long usage strings wrap onto two lines; give those rows extra height
-  // so the wrap doesn't crowd the rest of the row's content. ~38 chars
-  // is roughly one line at the column's 280px width with 11px monospace.
   const getRowHeight = React.useCallback(
     (row: CommandEntry) => (row.usage.length > 38 ? 56 : 30),
     [],
@@ -484,7 +458,6 @@ export default function TelegramConfigPage() {
     >
       <TooltipProvider delayDuration={150}>
         <div className="flex flex-col flex-1 min-h-0">
-          {/* ── Status strip ───────────────────────────────────────── */}
           <div className="px-4 py-3 border-b border-border/40 bg-muted/20 backdrop-blur-sm">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-3 text-sm">
@@ -538,7 +511,6 @@ export default function TelegramConfigPage() {
             )}
           </div>
 
-          {/* ── Filters strip ─────────────────────────────────────── */}
           <div className="px-4 py-2.5 border-b border-border/40 bg-muted/10">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="relative">
@@ -587,7 +559,6 @@ export default function TelegramConfigPage() {
             </div>
           </div>
 
-          {/* ── DataTable ─────────────────────────────────────────── */}
           <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-0">
             <div className="flex flex-col min-h-0 border-r border-border/40">
               <DataTable<CommandEntry>
@@ -600,16 +571,10 @@ export default function TelegramConfigPage() {
                 enableVirtualization
                 density="compact"
                 persistenceKey="telegram-commands"
-                // `table-fixed` forces strict column widths so long usage
-                // strings wrap inside the cell instead of pushing the
-                // column wider. The cell uses `whitespace-normal` to
-                // honour the wrap; getRowHeight gives those rows the
-                // vertical space they need.
                 className="bg-background [&_table]:table-fixed [&_td]:!whitespace-normal [&_td]:align-top [&_td]:py-1.5"
               />
             </div>
 
-            {/* ── History sidebar ────────────────────────────────── */}
             <HistorySidebar history={history} />
           </div>
         </div>
@@ -618,7 +583,6 @@ export default function TelegramConfigPage() {
   );
 }
 
-// ── History sidebar ──────────────────────────────────────────────────────
 
 function HistorySidebar({ history }: { history: HistoryApiPayload | null }) {
   return (

@@ -1,19 +1,7 @@
-/**
- * Gemini-powered rule proposer.
- *
- * Takes precomputed metrics (top slices + headline stats) and asks Gemini
- * 3.1 Pro to synthesise candidate betting rules. The LLM does NOT compute —
- * only synthesises patterns from numbers we already calculated ourselves.
- *
- * Architecture (research-approved): LLM proposes, deterministic backtester
- * disposes. Every returned rule must be re-backtested on held-out data
- * before it's trusted. Never ask the model to do arithmetic.
- */
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { logger } from "../shared/logger";
 
-// Lazy singleton — matches lib/ai/gemini.ts pattern.
 let client: GoogleGenAI | null = null;
 function getClient(): GoogleGenAI {
   if (!client) {
@@ -30,14 +18,9 @@ function getClient(): GoogleGenAI {
 
 const PRO_MODEL = process.env.GEMINI_PRO_MODEL || "gemini-3.1-pro-preview";
 
-// ─────────────────────────────────────────────────────────────────
-// Input/output types
-// ─────────────────────────────────────────────────────────────────
 
 export type SliceSummary = {
-  /** Human-readable label of the slice, e.g. "market=OVER_UNDER, EV=5-10%" */
   label: string;
-  /** Raw dimensions so the LLM can produce matching filters. */
   dimensions: Record<string, string>;
   n: number;
   wins: number;
@@ -63,7 +46,6 @@ export type HeadlineStats = {
 export type ProposeInput = {
   topSlices: SliceSummary[];
   headline: HeadlineStats;
-  /** How many rules to return. Default 5, max 10. */
   maxRules?: number;
 };
 
@@ -93,9 +75,6 @@ export type ProposeResult = {
   model: string;
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Gemini schema — enforced by responseJsonSchema
-// ─────────────────────────────────────────────────────────────────
 
 const FILTER_SCHEMA = {
   type: Type.OBJECT,
@@ -215,9 +194,6 @@ const RESPONSE_SCHEMA = {
   required: ["rules"],
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Prompt
-// ─────────────────────────────────────────────────────────────────
 
 const SYSTEM_INSTRUCTION = `You are a sports-betting quant reviewing a backtest. The user has already computed every metric — ROI, CLV, win rate, z-score, Bayesian-shrunk ROI, Benjamini-Hochberg FDR-adjusted p-value — for every slice of their bet data. Your job is to PROPOSE candidate trading rules based on those numbers.
 
@@ -235,9 +211,6 @@ Return 3-7 distinct, NON-OVERLAPPING rules. Each rule should target a specific e
 
 Be sceptical. If the data doesn't clearly support profitable rules, return fewer (even zero) and flag the lack of edge in the first rule's rationale.`;
 
-// ─────────────────────────────────────────────────────────────────
-// Main entrypoint
-// ─────────────────────────────────────────────────────────────────
 
 export async function proposeRules(
   input: ProposeInput,
@@ -301,7 +274,6 @@ Propose up to ${maxRules} trading rules based on this data. Return JSON matching
     throw new Error("Gemini response missing rules array");
   }
 
-  // Normalize bounds + clamp runaway stake multipliers.
   const cleaned: ProposedRule[] = parsed.rules.map((r) => ({
     ...r,
     stakeMultiplier: Math.min(2, Math.max(0.25, r.stakeMultiplier ?? 1)),

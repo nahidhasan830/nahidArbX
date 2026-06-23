@@ -1,18 +1,5 @@
 "use client";
 
-/**
- * Ambient system status strip pinned to the very bottom of the sidebar.
- *
- * Renders as a thin "cockpit status bar" with a glowing health dot,
- * label, and last-check timestamp. The bar sits at the absolute bottom
- * of the sidebar with a darker background to ground the panel.
- *
- * In collapsed (icon-only) mode, only the dot is visible — gives the
- * operator a single-glance health read at all times.
- *
- * Later: expand to show Pinnacle token TTL, 9wkts session age, sync
- * heartbeat — every piece of ambient status the operator cares about.
- */
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Activity } from "lucide-react";
@@ -67,10 +54,8 @@ export function SessionPill() {
         lastCheckedAt ? `Last checked ${formatAgo(lastCheckedAt)}` : "Pinging…"
       }
     >
-      {/* Health dot */}
       <span className={cn("size-[5px] rounded-full shrink-0", dotClass)} />
 
-      {/* Label + timestamp — hidden when sidebar collapsed */}
       <span className="group-data-[collapsible=icon]:hidden truncate">
         {label}
       </span>
@@ -80,7 +65,6 @@ export function SessionPill() {
         </span>
       )}
 
-      {/* Collapsed mode: small activity icon next to dot */}
       <Activity className="hidden group-data-[collapsible=icon]:block size-3 opacity-40" />
     </div>
   );

@@ -18,7 +18,6 @@ export class PinnacleWsClient {
   private token: string | null = null;
   private activeSubscriptions = new Map<string, SubscriptionContext>();
   private isConnected = false;
-  /** Timestamp of the last received STOMP message (or connect). Null until first connect. */
   private lastMessageAt: number | null = null;
   private baseUrl = "wss://www.ps388win.com/proteus-websocket/mews";
 
@@ -28,9 +27,6 @@ export class PinnacleWsClient {
       reconnectDelay: 5000,
       heartbeatIncoming: 20000,
       heartbeatOutgoing: 20000,
-      // debug: (str) => {
-      //   logger.debug("PinnacleWs", str);
-      // },
       onConnect: (_frame) => {
         logger.info("PinnacleWs", "Connected to STOMP server");
         this.isConnected = true;
@@ -119,7 +115,6 @@ export class PinnacleWsClient {
     }
   }
 
-  /** Get all currently subscribed provider event IDs (for lifecycle cleanup). */
   public getSubscribedIds(): string[] {
     return Array.from(this.activeSubscriptions.keys());
   }
@@ -140,10 +135,6 @@ export class PinnacleWsClient {
       );
 
       if (isSnapshot) {
-        // Full snapshot: diff against the store so markets Pinnacle
-        // dropped are pruned and unchanged prices don't churn the dirty
-        // set. An isSnapshot message with 0 entries clears all Pinnacle
-        // odds for the event (drop-detection semantics).
         applyProviderSnapshot(ctx.normalizedEventId, "pinnacle", entries);
         if (entries.length > 0) {
           logger.info(
@@ -163,7 +154,6 @@ export class PinnacleWsClient {
     }
   }
 
-  /** Get connection status for the UI engine status bar and health checks. */
   public getConnectionStatus(): {
     connected: boolean;
     subscribedEvents: number;
@@ -176,11 +166,6 @@ export class PinnacleWsClient {
     };
   }
 
-  /**
-   * Force a full STOMP reconnect (healing action for silent/zombie
-   * sockets). Re-subscription happens automatically via onConnect →
-   * resubscribeAll.
-   */
   public async forceReconnect(): Promise<void> {
     logger.warn("PinnacleWs", "Force-reconnecting STOMP client (healing)");
     await this.client.deactivate();

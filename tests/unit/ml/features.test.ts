@@ -1,8 +1,3 @@
-/**
- * Unit tests for ML feature extraction and convergence calculator.
- *
- * Uses Vitest (`npx vitest run`).
- */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { FEATURE_INDEX } from "@/lib/ml/feature-contract";

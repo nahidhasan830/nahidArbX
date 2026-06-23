@@ -1,25 +1,3 @@
-/**
- * Continuous settlement scheduler.
- *
- * Runs `runAutoSettle` on a fixed interval. Lightweight twin of the main
- * sync scheduler in `lib/background/fetcher.ts` — separate concern, so
- * failures in one don't cascade into the other.
- *
- * Concurrency guard: if a tick is still running when the next one fires,
- * the new tick is skipped (not queued). The loop is idempotent — the
- * same bet ids read on two successive ticks would both be resolved by
- * the Tier-0 cache at near-zero cost.
- *
- * Failure policy: any error inside a tick is logged and swallowed. We
- * don't want one bad event to stall settlement for the other 499.
- *
- * UI controls this scheduler via two layers:
- *   - Pause (in-memory)   — timer keeps firing; ticks skipped until resumed.
- *   - Stop / Start        — tears down / rebuilds the timer entirely.
- *
- * Settlement is source-only: cache plus structured/free score sources.
- * Unresolved rows remain pending for manual review.
- */
 
 import { runAutoSettle, type AutoSettleResult } from "./auto-settler";
 import { logger } from "../shared/logger";
@@ -27,7 +5,7 @@ import { appendActivity } from "./activity-log";
 import { syncBus } from "../events/event-bus";
 import { singleton } from "../util/singleton";
 
-const DEFAULT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_INTERVAL_MS = 10 * 60 * 1000;
 const MIN_INTERVAL_MS = 30 * 1000;
 
 interface SchedulerState {
@@ -73,12 +51,6 @@ export interface AutoSettleStatusSnapshot {
   totalTicks: number;
   totalApplied: number;
   skippedTicks: number;
-  /**
-   * Count of pending bets currently eligible for the next tick
-   * (outcome='pending' AND kickoff > NOW-2h15m). Populated by the
-   * GET /api/bets-history/auto-settle route — matches the number users
-   * see under the "Ready to settle" tab.
-   */
   queuedCount?: number;
 }
 
@@ -151,8 +123,6 @@ const runTick = async (options?: { manual?: boolean }): Promise<void> => {
         sourceIssues: result.sourceIssues,
       },
     );
-    // Surface source-health issues as a separate visible warning in the
-    // activity stream so operators notice them at a glance.
     if (result.sourceIssues.length > 0) {
       appendActivity(
         "source:degraded",
@@ -236,11 +206,6 @@ export function isAutoSettlePaused(): boolean {
   return state.paused;
 }
 
-/**
- * Manually kick off one tick outside the scheduled cadence. Returns the
- * result or the error that killed the tick. Used by the manual-trigger
- * API route. Bypasses pause (operators explicitly asked for a run).
- */
 export async function triggerAutoSettleNow(): Promise<AutoSettleResult> {
   if (state.tickInFlight) {
     throw new Error("A settlement tick is already in flight — try again soon.");

@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * AutoPlacerTable — DataTable displaying every auto-placer decision:
- * attempts, skips, rejects, errors, and successes.
- *
- * Data comes from the `auto_placer_log` table, NOT the bets table.
- * Each row is one decision event, so the same bet ID may appear
- * multiple times (once per tick).
- */
 
 import { useMemo } from "react";
 import { format, parseISO } from "date-fns";
@@ -32,7 +24,6 @@ import type { AutoPlacerLogRow } from "@/lib/db/schema";
 
 const PERSISTENCE_KEY = "auto-placer-log-table:layout:v2";
 
-// ── Status styling ──
 
 const STATUS_PILL: Record<string, string> = {
   placed: "bg-emerald-500/15 text-emerald-500 border border-emerald-500/30",
@@ -73,7 +64,6 @@ function formatMultiplier(value: number | null | undefined) {
   return `${value.toFixed(2)}x`;
 }
 
-// ── Gate styling ──
 
 const GATE_COLORS: Record<string, string> = {
   toggle: "text-zinc-400",
@@ -154,7 +144,6 @@ export function AutoPlacerLogTable({
 }: AutoPlacerLogTableProps) {
   const columns = useMemo<ColumnDef<AutoPlacerLogRow, unknown>[]>(
     () => [
-      // ── Time ──
       {
         id: "time",
         accessorKey: "createdAt",
@@ -180,7 +169,6 @@ export function AutoPlacerLogTable({
           initialSize: 55,
         },
       },
-      // ── Status ──
       {
         id: "status",
         accessorKey: "status",
@@ -204,7 +192,6 @@ export function AutoPlacerLogTable({
           initialSize: 80,
         },
       },
-      // ── Gate ──
       {
         id: "gate",
         accessorKey: "gate",
@@ -235,7 +222,6 @@ export function AutoPlacerLogTable({
           initialSize: 95,
         },
       },
-      // ── Provider ──
       {
         id: "provider",
         accessorKey: "softProvider",
@@ -259,7 +245,6 @@ export function AutoPlacerLogTable({
           initialSize: 90,
         },
       },
-      // ── Event ──
       {
         id: "event",
         accessorFn: (row) =>
@@ -293,7 +278,6 @@ export function AutoPlacerLogTable({
         },
         meta: { hint: "Event teams.", initialSize: 200 },
       },
-      // ── Market ──
       {
         id: "market",
         header: "Market",
@@ -315,7 +299,6 @@ export function AutoPlacerLogTable({
           initialSize: 110,
         },
       },
-      // ── Selection ──
       {
         id: "selection",
         header: "Selection",
@@ -331,7 +314,6 @@ export function AutoPlacerLogTable({
           initialSize: 80,
         },
       },
-      // ── Soft Odds ──
       {
         id: "softOdds",
         header: "Odds",
@@ -350,7 +332,6 @@ export function AutoPlacerLogTable({
           initialSize: 60,
         },
       },
-      // ── EV% ──
       {
         id: "ev",
         header: "EV%",
@@ -439,7 +420,6 @@ export function AutoPlacerLogTable({
           initialSize: 108,
         },
       },
-      // ── Stake ──
       {
         id: "stake",
         header: "Stake",
@@ -458,7 +438,6 @@ export function AutoPlacerLogTable({
           initialSize: 85,
         },
       },
-      // ── Balance ──
       {
         id: "balance",
         header: "Balance",
@@ -479,7 +458,6 @@ export function AutoPlacerLogTable({
           initialSize: 85,
         },
       },
-      // ── Booked ──
       {
         id: "booked",
         header: "Booked",
@@ -498,7 +476,6 @@ export function AutoPlacerLogTable({
           initialSize: 65,
         },
       },
-      // ── Reason ──
       {
         id: "reason",
         header: "Reason",
@@ -527,7 +504,6 @@ export function AutoPlacerLogTable({
           initialSize: 200,
         },
       },
-      // ── KO ──
       {
         id: "kickoff",
         header: "KO",

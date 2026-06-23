@@ -416,8 +416,6 @@ function buildNumbers(
   metrics: AnalysisMetrics,
   decision: ModelStance,
 ): NumbersSection {
-  // Only signal-based factors — core numbers (edge, prob, gap, odds) are
-  // returned as top-level fields and displayed in the summary strip.
   const factors: NumbersSection["factors"] = [];
 
   if (metrics.scannerEdgePct != null) {

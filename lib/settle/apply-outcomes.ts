@@ -39,14 +39,12 @@ async function notifyPlacedSettlement(
 ): Promise<void> {
   const adapter = getBettingProvider(row.provider ?? "");
 
-  // Best-effort balance fetch — don't let it block the notification.
   let balance: number | undefined;
   if (adapter) {
     try {
       const info = await adapter.getAccountInfo();
       balance = info.balance;
     } catch {
-      // Swallow — balance is a nice-to-have, not critical.
     }
   }
 
@@ -74,12 +72,6 @@ async function notifyPlacedSettlement(
   });
 }
 
-/**
- * Apply settlement outcomes across mixed placed/unplaced rows using the
- * unified bets table. Unplaced detections are marked silently; placed
- * bets go through applySettlement() so pnl/settledAt stay correct and
- * the normal settlement notification fires.
- */
 export async function applySettlementOutcomes(
   updates: SettlementOutcomeUpdate[],
 ): Promise<number> {
@@ -132,19 +124,13 @@ export async function applySettlementOutcomes(
     }
   }
 
-  // ── ML training data hooks ───────────────────────────────────────
-  // After settlement outcomes are applied, write training examples and
-  // resolve shadow-scored detection snapshots. Fire-and-forget to never
-  // block the settlement pipeline.
   if (applied > 0) {
-    // Re-fetch rows with updated outcomes for training example creation
     const settledIds = updates
       .filter((u) => u.outcome !== "pending")
       .map((u) => u.id);
     if (settledIds.length > 0) {
       getBetsByIds(settledIds)
         .then(async (settledRows) => {
-          // 1. Write settled training examples from bets with features
           try {
             await writeSettledExamples(settledRows as BetRow[]);
           } catch (err) {
@@ -154,7 +140,6 @@ export async function applySettlementOutcomes(
             );
           }
 
-          // 2. Resolve shadow-scored detection snapshots
           for (const row of settledRows) {
             if (row.outcome === "pending" || row.outcome === "void") continue;
             try {
@@ -168,11 +153,9 @@ export async function applySettlementOutcomes(
                 row.settledAt ?? null,
               );
             } catch {
-              // Non-critical — swallow
             }
           }
 
-          // 3. Mirror settlement onto ML prediction snapshots for visualization.
           try {
             await attachSettlementOutcomes(
               settledRows
@@ -192,8 +175,6 @@ export async function applySettlementOutcomes(
             );
           }
 
-          // 4. Feed drift detector (ADWIN) with settled bet outcomes
-          //    This tracks model performance drift and triggers retraining
           try {
             const { observeBet } = await import("../ml/drift-detector");
             const { settlePilotBet } = await import("../ml/pilot");
@@ -207,17 +188,14 @@ export async function applySettlementOutcomes(
                 outcome: outcome === "won" || outcome === "half_won" ? 1 : 0,
                 mlScore: mlScore ?? null,
               });
-              // Feed pilot experiment if active
               if (unitReturn != null) {
                 try {
                   settlePilotBet(row.id, unitReturn);
                 } catch {
-                  /* non-critical */
                 }
               }
             }
           } catch {
-            // Non-critical — drift detection feeds are fire-and-forget
           }
         })
         .catch((err) => {

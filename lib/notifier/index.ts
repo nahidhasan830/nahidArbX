@@ -1,9 +1,3 @@
-/**
- * Notification dispatcher. One entry point (`notify()`) that fans out
- * to every registered channel. Adding a new channel (Slack, email,
- * webhook…) is a matter of importing another `NotificationChannel`
- * and pushing it onto the CHANNELS array.
- */
 import type { NotificationChannel, NotificationEvent } from "./types";
 import { telegramChannel } from "./telegram";
 import { logger } from "@/lib/shared/logger";

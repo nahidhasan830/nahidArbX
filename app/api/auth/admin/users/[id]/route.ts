@@ -1,10 +1,3 @@
-/**
- * GET /api/auth/admin/users/[id]
- * PATCH /api/auth/admin/users/[id]
- * DELETE /api/auth/admin/users/[id]
- *
- * User management endpoints (admin only).
- */
 
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -27,15 +20,11 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/**
- * GET - Get user details
- */
 export async function GET(request: Request, context: RouteContext) {
   try {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -49,14 +38,12 @@ export async function GET(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Get permissions
     const permissions = await getUserPermissions(user.id);
 
     return NextResponse.json({
@@ -77,15 +64,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 }
 
-/**
- * PATCH - Update user (suspend/activate/update display name)
- */
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -99,19 +82,16 @@ export async function PATCH(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Prevent admin from modifying themselves
     if (user.id === session.userId) {
       return apiError("Cannot modify your own account", 400);
     }
 
-    // Parse body
     const body = await request.json();
     const parsed = UpdateUserSchema.safeParse(body);
 
@@ -122,7 +102,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     const { displayName, status } = parsed.data;
     const now = new Date();
 
-    // Build update object
     const updates: Partial<typeof users.$inferInsert> = {
       updatedAt: now,
     };
@@ -134,7 +113,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (status !== undefined) {
       updates.status = status;
 
-      // If suspending, revoke all sessions
       if (status === "suspended") {
         await revokeAllUserSessions(user.id);
 
@@ -154,7 +132,6 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
-    // Update user
     await db.update(users).set(updates).where(eq(users.id, id));
 
     return apiSuccess({ message: "User updated" });
@@ -163,15 +140,11 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-/**
- * DELETE - Delete user (keeps activity logs)
- */
 export async function DELETE(request: Request, context: RouteContext) {
   try {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -185,21 +158,17 @@ export async function DELETE(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Prevent admin from deleting themselves
     if (user.id === session.userId) {
       return apiError("Cannot delete your own account", 400);
     }
 
-    // Note: Admins CAN delete other admins - full control
 
-    // Log before deletion (activity logs are kept)
     await logActivity({
       userId: user.id,
       userEmail: user.email,
@@ -207,10 +176,8 @@ export async function DELETE(request: Request, context: RouteContext) {
       performedBy: session.userId,
     });
 
-    // Revoke sessions first
     await revokeAllUserSessions(user.id);
 
-    // Delete user (cascade will delete permissions, sessions, invites)
     await db.delete(users).where(eq(users.id, id));
 
     return apiSuccess({ message: "User deleted" });

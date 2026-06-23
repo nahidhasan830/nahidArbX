@@ -1,13 +1,3 @@
-/**
- * Pure, deterministic bet settlement.
- *
- * Given a ValueBetRow + a MatchScore, returns an Outcome without any I/O.
- * The waterfall only needs to answer "what was the score?" — this function
- * handles "did this bet win?" via pure logic.
- *
- * Returns pending for markets we don't yet settle deterministically; callers
- * leave those rows for manual review rather than guessing.
- */
 
 import type { ValueBetRow } from "@/lib/bets-history/types";
 import type { Outcome } from "../bets-history/types";
@@ -20,7 +10,6 @@ interface ScopeScore {
   away: number;
 }
 
-/** Extract (home, away) goals for the requested scope from a full MatchScore. */
 const scopeOf = (
   score: MatchScore,
   scope: "FT" | "1H" | "2H",
@@ -30,7 +19,6 @@ const scopeOf = (
     if (score.htHome == null || score.htAway == null) return null;
     return { home: score.htHome, away: score.htAway };
   }
-  // 2H = FT - HT
   if (score.htHome == null || score.htAway == null) return null;
   return {
     home: score.ftHome - score.htHome,
@@ -40,12 +28,7 @@ const scopeOf = (
 
 const fmt = (s: ScopeScore): string => `${s.home}-${s.away}`;
 
-// ─── Over / Under ────────────────────────────────────────────────────────────
 
-/**
- * Settle a single OU leg at an integer or half line.
- * Integer line → push (void) on exact total; half line → strict win/loss.
- */
 const settleOuLeg = (
   total: number,
   line: number,
@@ -56,20 +39,7 @@ const settleOuLeg = (
   return "void";
 };
 
-// ─── Asian Handicap ──────────────────────────────────────────────────────────
 
-/**
- * Settle a single AH leg at an integer or half line for `backed` team.
- *
- * `line` is in the BACKED side's perspective (positive = backed side gets
- * goals added, negative = backed side gives goals up). Callers must
- * normalize the family line (which is stored in home-perspective by the
- * `family.line` convention in `lib/atoms/atoms.json`) before invoking this
- * helper — see `settleHandicap` below.
- *
- *   handicappedDiff = (backed - opponent) + line
- *     > 0 win,  = 0 push (integer lines only), < 0 loss.
- */
 const settleAhLeg = (
   score: ScopeScore,
   backed: Leg,
@@ -84,20 +54,7 @@ const settleAhLeg = (
   return "void";
 };
 
-// ─── Quarter-line splitter ───────────────────────────────────────────────────
 
-/**
- * Fold two leg verdicts (each of win/loss/void) into a bet-level Outcome.
- * Quarter lines split stake 50/50 across two adjacent whole/half lines,
- * so valid combinations are:
- *   both win → won
- *   both loss → lost
- *   win + push → half_won
- *   loss + push → half_lost
- * A split that yields one win and one loss is mathematically impossible
- * for quarter lines — if we see it, treat as void rather than silently
- * returning a wrong outcome.
- */
 const foldLegs = (
   a: "won" | "lost" | "void",
   b: "won" | "lost" | "void",
@@ -112,18 +69,15 @@ const foldLegs = (
   return "void";
 };
 
-/** For an OU quarter line X.25, split to [X, X.5]. For X.75, split to [X.5, X+1]. */
 const splitQuarterLine = (line: number): [number, number] => {
   const frac = +(line - Math.floor(line)).toFixed(2);
   if (Math.abs(frac - 0.25) < 1e-6)
     return [Math.floor(line), Math.floor(line) + 0.5];
   if (Math.abs(frac - 0.75) < 1e-6)
     return [Math.floor(line) + 0.5, Math.floor(line) + 1];
-  // Not a quarter — caller shouldn't have called us; fall back to [line, line].
   return [line, line];
 };
 
-/** For an AH quarter line, same rule — but the sign is part of the line. */
 const splitQuarterAhLine = (line: number): [number, number] => {
   const [a, b] = splitQuarterLine(Math.abs(line));
   return line < 0 ? [-a, -b] : [a, b];
@@ -134,17 +88,6 @@ const isQuarterLine = (line: number): boolean => {
   return Math.abs(frac - 0.25) < 1e-6 || Math.abs(frac - 0.75) < 1e-6;
 };
 
-// ─── Atom-ID parsing ─────────────────────────────────────────────────────────
-//
-// Atoms look like:
-//   {ft|1h|2h}_home_win | _draw | _away_win
-//   {scope}_total_{over|under}_{line with _ for decimal}
-//   {scope}_{home|away}_ah_{m|p}{line}
-//   {scope}_btts_{yes|no}
-//   {scope}_dnb_{home|away}
-//   {scope}_dc_{1x|12|x2}
-// We cross-check against marketType/familyLine to stay robust against
-// whatever naming drift the JSON picks up later.
 
 type Side = "home" | "away" | "draw";
 
@@ -187,17 +130,13 @@ const parseBtts = (atomId: string): "yes" | "no" | null => {
   return null;
 };
 
-/** Parse European Handicap side from atom ID. */
 const parseEhSide = (atomId: string): Side | null => {
-  // Atoms like: ft_home_eh_m1, ft_away_eh_p2, ft_draw_eh_m1
   if (atomId.includes("_home_eh_")) return "home";
   if (atomId.includes("_away_eh_")) return "away";
   if (atomId.includes("_draw_eh_")) return "draw";
-  // Fallback: try the same pattern as MATCH_RESULT
   return parseMatchResultSide(atomId);
 };
 
-// ─── Terminal-state helpers ──────────────────────────────────────────────────
 
 const voidResult = (
   scope: ScopeScore | null,
@@ -255,17 +194,7 @@ const resolved = (
   reason: "resolved",
 });
 
-// ─── Reusable settlement primitives ──────────────────────────────────────────
-//
-// These encapsulate the full OU/AH lifecycle — quarter-line detection, fold,
-// and standard legs — in a single call. Every OU-like market (goals, corners,
-// bookings, team totals) and every AH-like market (goals, bookings, corners)
-// calls one of these instead of duplicating the quarter-line logic.
 
-/**
- * Settle any over/under market (goals, corners, bookings) in one call.
- * Handles standard, half, and quarter lines with push/void correctly.
- */
 const settleOverUnder = (
   total: number,
   line: number,
@@ -279,17 +208,6 @@ const settleOverUnder = (
   return v === "won" ? "won" : v === "lost" ? "lost" : "void";
 };
 
-/**
- * Settle any Asian handicap market (goals, bookings, corners) in one call.
- * Handles standard, half, and quarter lines with push/void correctly.
- *
- * `line` is the family line in HOME perspective (matches the
- * `family.line` convention in `lib/atoms/atoms.json`: e.g. family
- * `ft_ah_p1_25` has line=+1.25 with atoms [Home +1.25, Away -1.25];
- * family `ft_ah_m1_25` has line=-1.25 with atoms [Home -1.25, Away +1.25]).
- * For away-backed atoms we flip the sign once here so all downstream
- * helpers can treat the line as backed-side perspective.
- */
 const settleHandicap = (
   scope: ScopeScore,
   backed: Leg,
@@ -307,10 +225,6 @@ const settleHandicap = (
   return v === "won" ? "won" : v === "lost" ? "lost" : "void";
 };
 
-/**
- * Settle a 1X2 / match-result-like market (including European Handicap
- * with an applied handicap offset).
- */
 const settleMatchResult = (
   scope: ScopeScore,
   picked: Side,
@@ -323,10 +237,8 @@ const settleMatchResult = (
   return picked === realSide ? "won" : "lost";
 };
 
-// ─── Main entry ──────────────────────────────────────────────────────────────
 
 export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
-  // Hard-void states override all market logic.
   if (score.status === "ABD")
     return voidResult(null, "abandoned", "Match abandoned — stake returned.");
   if (score.status === "POSTPONED")
@@ -346,7 +258,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
 
   const atomId = (row.atomId ?? "").toLowerCase();
 
-  // ── MATCH_RESULT (1X2) ────────────────────────────────────────────────────
   if (row.marketType === "MATCH_RESULT") {
     const side = parseMatchResultSide(atomId);
     if (!side) return unknownAtom("MATCH_RESULT", atomId, scope);
@@ -364,7 +275,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── TOTAL_GOALS (OU) ──────────────────────────────────────────────────────
   if (row.marketType === "OVER_UNDER" || row.marketType === "TOTAL_GOALS") {
     const side = parseOverUnder(atomId);
     if (!side || row.familyLine == null)
@@ -378,7 +288,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── ASIAN_HANDICAP ────────────────────────────────────────────────────────
   if (row.marketType === "ASIAN_HANDICAP") {
     const backed = parseAhBacked(atomId);
     if (!backed || row.familyLine == null)
@@ -391,7 +300,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── BTTS ──────────────────────────────────────────────────────────────────
   if (row.marketType === "BTTS") {
     const pick = parseBtts(atomId);
     if (!pick) return unknownAtom("BTTS", atomId, scope);
@@ -404,7 +312,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── DNB (Draw No Bet) — AH +0 for backed leg ──────────────────────────────
   if (row.marketType === "DNB") {
     const backed = parseDnbBacked(atomId);
     if (!backed) return unknownAtom("DNB", atomId, scope);
@@ -412,7 +319,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     return resolved(outcome, scope, `DNB ${backed} on ${fmt(scope)}.`);
   }
 
-  // ── HOME_TEAM_TOTAL / AWAY_TEAM_TOTAL ─────────────────────────────────────
   if (
     row.marketType === "HOME_TEAM_TOTAL" ||
     row.marketType === "AWAY_TEAM_TOTAL"
@@ -430,7 +336,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── DOUBLE_CHANCE ─────────────────────────────────────────────────────────
   if (row.marketType === "DOUBLE_CHANCE") {
     const combo = parseDcCombo(atomId);
     if (!combo) return unknownAtom("DC", atomId, scope);
@@ -451,11 +356,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── EUROPEAN_HANDICAP ─────────────────────────────────────────────────────
-  //
-  // 3-way handicap (1X2 with a goal offset). Unlike Asian Handicap, a draw
-  // after applying the handicap is a valid outcome (not push/void). The line
-  // is an integer applied to the home team's score.
   if (row.marketType === "EUROPEAN_HANDICAP") {
     const side = parseEhSide(atomId);
     if (!side || row.familyLine == null)
@@ -468,11 +368,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── CORNERS / HOME_CORNERS_TOTAL / AWAY_CORNERS_TOTAL ────────────────────
-  //
-  // Corners only settle when the score source provided corner counts
-  // (SofaScore /statistics endpoint). When the score lacks corners,
-  // return pending-with-reason rather than guessing.
   if (
     row.marketType === "CORNERS" ||
     row.marketType === "HOME_CORNERS_TOTAL" ||
@@ -506,7 +401,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     return resolved(outcome, scope, label);
   }
 
-  // ── CORNERS_HANDICAP (AH on per-team corner counts) ──────────────────────
   if (row.marketType === "CORNERS_HANDICAP") {
     if (score.cornersHome == null || score.cornersAway == null) {
       return {
@@ -537,7 +431,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── CORNERS_EUROPEAN_HANDICAP (3-way handicap on corners) ────────────────
   if (row.marketType === "CORNERS_EUROPEAN_HANDICAP") {
     if (score.cornersHome == null || score.cornersAway == null) {
       return {
@@ -560,7 +453,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
       home: score.cornersHome,
       away: score.cornersAway,
     };
-    // European handicap is 3-way (1X2) after applying the line offset to home
     const outcome = settleMatchResult(cornerScope, side, row.familyLine);
     return resolved(
       outcome,
@@ -569,13 +461,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // ── BOOKINGS (OU on total booking points) ─────────────────────────────
-  //
-  // Bookings only settle when the score source provided card counts
-  // (SofaScore /statistics endpoint). Booking points are computed at
-  // fetch time as: 1 pt per yellow card + 2 pts per red card (Pinnacle
-  // convention). When the score lacks bookings, return pending rather
-  // than guessing.
   if (row.marketType === "BOOKINGS") {
     if (score.bookingsHome == null || score.bookingsAway == null) {
       return {
@@ -600,7 +485,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     return resolved(outcome, scope, label);
   }
 
-  // ── BOOKINGS_HANDICAP (AH on per-team booking points) ────────────────
   if (row.marketType === "BOOKINGS_HANDICAP") {
     if (score.bookingsHome == null || score.bookingsAway == null) {
       return {
@@ -619,8 +503,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     const backed = parseAhBacked(atomId);
     if (!backed || row.familyLine == null)
       return missingLine("BOOKINGS_HANDICAP", atomId, scope);
-    // Build a ScopeScore-like object using booking points instead of goals
-    // so we can reuse settleHandicap directly.
     const bookingScope: ScopeScore = {
       home: score.bookingsHome,
       away: score.bookingsAway,
@@ -633,7 +515,6 @@ export function settleBet(row: ValueBetRow, score: MatchScore): SettleResult {
     );
   }
 
-  // Unsupported (yet): odd/even, clean-sheet, win-to-nil, to-score.
   return unsupported(
     `Market ${row.marketType} not yet settled deterministically — manual review required.`,
   );

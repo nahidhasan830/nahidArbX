@@ -11,13 +11,6 @@ import { getLiveScore, getCornersScore } from "../../scores/store";
 
 export interface PinnacleWsParseResult {
   entries: NormalizedOddsEntry[];
-  /**
-   * True when the payload parsed as a full market snapshot (non-empty
-   * JSON array). The caller should then apply it via
-   * `applyProviderSnapshot` so dropped markets are pruned. False for
-   * empty bodies / non-odds destinations / parse failures — those must
-   * NOT clear existing odds.
-   */
   isSnapshot: boolean;
 }
 
@@ -29,13 +22,10 @@ export function parsePinnacleWsMessage(
   providerEventId: string,
   normalizedEventId: string,
 ): PinnacleWsParseResult {
-  // We only parse odds from the /market/decimal/.../A destination
   if (!destination.includes("/market/decimal/")) {
     return EMPTY_RESULT;
   }
 
-  // Pinnacle sends an empty body on initial subscription for events with
-  // no active markets (ended / suspended / not yet open). Skip silently.
   if (!body || body.length === 0) {
     return EMPTY_RESULT;
   }
@@ -55,7 +45,6 @@ export function parsePinnacleWsMessage(
     return EMPTY_RESULT;
   }
 
-  // Get live score for handicap adjustment
   let scoreContext: ScoreContext | undefined;
   let cornersScoreContext: CornersScoreContext | undefined;
 
@@ -95,9 +84,7 @@ export function parsePinnacleWsMessage(
 
   const allEntries: NormalizedOddsEntry[] = [];
 
-  // payload is an array of PinnacleMarketTuple
   for (const item of payload) {
-    // Basic validation of the tuple
     if (!Array.isArray(item) || item.length < 19) continue;
 
     const entries = extractPinnacleOdds(
@@ -109,8 +96,5 @@ export function parsePinnacleWsMessage(
     allEntries.push(...entries);
   }
 
-  // A parsed array (even one extracting 0 entries) is a full snapshot:
-  // markets absent from it were dropped by Pinnacle and must be pruned
-  // by the caller via applyProviderSnapshot.
   return { entries: allEntries, isSnapshot: true };
 }

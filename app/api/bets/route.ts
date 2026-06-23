@@ -14,7 +14,6 @@ const OUTCOME_VALUES = [
   "lost",
   "half_lost",
   "void",
-  // Legacy alias — treated as "void" downstream.
   "push",
   "settled",
   "unsettled",

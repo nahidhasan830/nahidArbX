@@ -1,28 +1,3 @@
-/**
- * SofaScore transport — curl_cffi direct, Scrape.do fallback on 403.
- *
- * SofaScore's API is blocked by Cloudflare's TLS fingerprint detection
- * (JA3/JA4 check rejects non-browser clients like Node.js's undici/OpenSSL).
- *
- * This module uses Python's `curl_cffi` library to impersonate Chrome's
- * TLS fingerprint. curl_cffi uses a modified libcurl (curl-impersonate)
- * compiled with BoringSSL and Chrome's cipher suite, producing a JA3
- * fingerprint identical to real Chrome.
- *
- * Architecture:
- *   - Each direct `fetchViaBrowser()` call spawns `python3 -c` with an inline script
- *   - The Python process makes a single HTTP GET with `impersonate="chrome120"`
- *   - Response JSON is piped back via stdout
- *   - If SofaScore returns a Cloudflare 403 challenge, retry that request
- *     through Scrape.do and briefly skip direct attempts on later calls
- *   - No persistent process, no browser, no memory leak
- *
- * Cost: $0 direct; Scrape.do credits only after direct 403.
- * Memory: ~15MB per request (Python process, immediately freed).
- * Latency: ~300-500ms per request (Python startup + HTTP).
- *
- * Prerequisite: `pip3 install curl_cffi` (one-time, already installed).
- */
 
 import { execFile } from "node:child_process";
 import { singleton } from "../../util/singleton";
@@ -37,7 +12,6 @@ import {
 const LOG_TAG = "SofaScoreCurl";
 export const SOFASCORE_BROWSER_MAX_BUFFER_BYTES = 60 * 1024 * 1024;
 
-// ─── Singleton State ─────────────────────────────────────────────────────────
 
 interface TransportState {
   lastUsedAt: number;
@@ -55,13 +29,7 @@ const state = singleton<TransportState>("settle:sofascore-curl", () => ({
   consecutiveFailures: 0,
 }));
 
-// ─── Python inline script ────────────────────────────────────────────────────
 
-/**
- * Minimal Python script that fetches a URL with Chrome TLS impersonation.
- * Receives the URL as sys.argv[1], outputs JSON to stdout.
- * Exit code 0 = success, non-zero = failure.
- */
 const PYTHON_FETCH_SCRIPT = `
 import sys, json
 from curl_cffi import requests
@@ -77,7 +45,6 @@ except Exception as e:
     print(json.dumps({"__error": True, "message": str(e)}))
 `;
 
-// ─── Core fetch function ─────────────────────────────────────────────────────
 
 function execPython(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -91,7 +58,6 @@ function execPython(url: string): Promise<string> {
       },
       (err, stdout, stderr) => {
         if (err) {
-          // Include stderr for diagnostics (import errors, etc.)
           const msg = stderr?.trim()
             ? `${err.message} | stderr: ${stderr.trim().slice(0, 200)}`
             : err.message;
@@ -101,21 +67,13 @@ function execPython(url: string): Promise<string> {
         resolve(stdout);
       },
     );
-    // Ensure child doesn't become zombie
     child.unref?.();
   });
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
 
 const SOFASCORE_API_BASE = "https://api.sofascore.com";
 
-/**
- * Fetch a SofaScore API path via Python curl_cffi.
- *
- * @param apiPath — relative path, e.g. "/api/v1/sport/football/scheduled-events/2026-05-08"
- * @returns parsed JSON or null on failure
- */
 export async function fetchViaBrowser<T>(apiPath: string): Promise<T | null> {
   const url = `${SOFASCORE_API_BASE}${apiPath}`;
   state.requestCount++;
@@ -188,17 +146,10 @@ function isSofaScoreError(value: unknown): boolean {
   return typeof maybe.error?.code === "number";
 }
 
-/**
- * Check if the transport is healthy (curl_cffi working).
- * Returns false if we've had 5+ consecutive failures (likely curl_cffi not installed).
- */
 export function isBrowserSessionAlive(): boolean {
   return state.consecutiveFailures < 5;
 }
 
-/**
- * Get transport health metrics for telemetry/Telegram commands.
- */
 export function getBrowserSessionStats(): {
   alive: boolean;
   requestCount: number;
@@ -228,10 +179,6 @@ export function getBrowserSessionStats(): {
   };
 }
 
-/**
- * No-op for API compatibility — no persistent session to close.
- */
 export async function closeSofaScoreSession(): Promise<void> {
-  // Nothing to close — each request is a self-contained Python process
   logger.info(LOG_TAG, "Transport cleanup complete (no persistent session).");
 }

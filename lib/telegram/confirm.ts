@@ -1,12 +1,3 @@
-/**
- * Pending-confirm store for destructive commands.
- *
- * A destructive command (`/place`, `/cancel`, `/settle <id>`, `/delete`,
- * etc.) replies with a one-line summary and inline Confirm/Cancel
- * buttons. The Confirm button's callback_data is `c:<id>`; tapping it
- * fires the stored `run()` and replies with the result. Entries expire
- * after `TTL_MS`; expired callbacks tell the user to re-run the command.
- */
 
 import { randomUUID } from "node:crypto";
 import type { PendingConfirm, TgInlineKeyboard } from "./types";

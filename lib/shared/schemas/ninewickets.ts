@@ -1,14 +1,6 @@
-/**
- * Shared NineWickets Zod Schemas
- *
- * Common validation schemas for NineWickets Exchange and Sportsbook APIs.
- */
 
 import { z } from "zod";
 
-// ============================================
-// Exchange Market Schemas
-// ============================================
 
 export const PriceSchema = z.object({
   price: z.number(),
@@ -37,9 +29,6 @@ export const MarketsResponseSchema = z.object({
   markets: z.array(MarketSchema),
 });
 
-// ============================================
-// Type Exports
-// ============================================
 
 export type Price = z.infer<typeof PriceSchema>;
 export type Selection = z.infer<typeof SelectionSchema>;

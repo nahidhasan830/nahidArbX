@@ -222,7 +222,6 @@ export function buildDecisionReason(
   };
 }
 
-// ── Decision classification ─────────────────────────────────────────────────
 
 function classifyModelStance(
   mult: number,
@@ -233,7 +232,6 @@ function classifyModelStance(
   return "agree";
 }
 
-// ── Plain-language explanations (non-technical audience) ────────────────────
 
 function buildExplanation(
   decision: "boost" | "shrink" | "skip" | "agree",
@@ -356,7 +354,6 @@ function buildExplanation(
   return { summary, points };
 }
 
-// ── Technical breakdown (technical audience) ────────────────────────────────
 
 function buildTechnical(
   modelEdgePct: number,
@@ -372,7 +369,6 @@ function buildTechnical(
 ): DecisionReasonTechnical[] {
   const items: DecisionReasonTechnical[] = [];
 
-  // Model edge — always shown
   items.push({
     label: "Model Edge",
     value: pct(modelEdgePct),
@@ -381,7 +377,6 @@ function buildTechnical(
       modelEdgePct > 5 ? "positive" : modelEdgePct < 0 ? "negative" : "neutral",
   });
 
-  // Score
   const confidence = scoreConfidence(scoreVal);
   items.push({
     label: "Score",
@@ -393,7 +388,6 @@ function buildTechnical(
 
   if (decision === "skip") return items;
 
-  // Edge scaling
   const edgePctContribution = (edgeScaling * 100).toFixed(0);
   items.push({
     label: "Edge Scaling",
@@ -402,7 +396,6 @@ function buildTechnical(
     tone: edgeScaling > 1 ? "positive" : "neutral",
   });
 
-  // Convergence
   if (convergence < 0 && convergencePenalty < 1) {
     items.push({
       label: "Convergence",
@@ -420,7 +413,6 @@ function buildTechnical(
     });
   }
 
-  // Persistence
   if (tickCount > 10) {
     items.push({
       label: "Persistence",
@@ -438,7 +430,6 @@ function buildTechnical(
     });
   }
 
-  // Steam
   if (steamSharp > 0) {
     items.push({
       label: "Steam",
@@ -452,7 +443,6 @@ function buildTechnical(
   return items;
 }
 
-// ── Multiplier chain ────────────────────────────────────────────────────────
 
 function buildMultiplierChain(
   decision: "boost" | "shrink" | "skip" | "agree",
@@ -481,7 +471,6 @@ function buildMultiplierChain(
   return `${chain} = ${product.toFixed(2)}×`;
 }
 
-// ── Similar bets section ────────────────────────────────────────────────────
 
 function buildSimilarSection(
   ctx: SimilarBetsContext,
@@ -502,7 +491,6 @@ function buildSimilarSection(
 
   let note: string | undefined;
   if (ctx.unitPnl > 0) {
-    // Profitable — no warning needed regardless of win rate
   } else if (decision === "skip" && winRate >= 55) {
     note =
       "Similar calls performed well overall, but the model skips individual bets where the specific odds don't compensate for the estimated risk — it evaluates each bet independently.";
@@ -529,7 +517,6 @@ function buildSimilarSection(
   };
 }
 
-// ── Edge computation ────────────────────────────────────────────────────────
 
 function computeModelEdgePct(
   mlScore: number | null,
@@ -540,9 +527,6 @@ function computeModelEdgePct(
   const softOdds = features[F.soft_odds] ?? 0;
   const odds = adjustedSoftOdds > 1.01 ? adjustedSoftOdds : softOdds;
   if (!Number.isFinite(odds) || odds <= 1.01) return -100;
-  // Mirror lib/ml/staker.ts: cap the model probability at the sharp's
-  // vig-removed probability so explanations never advertise edge the sharp
-  // does not price in.
   const sharpTrueProb = features[F.sharp_true_prob] ?? Number.NaN;
   const cappedScore =
     Number.isFinite(sharpTrueProb) && sharpTrueProb > 0 && sharpTrueProb <= 1

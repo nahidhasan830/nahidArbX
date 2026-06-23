@@ -1,9 +1,3 @@
-/**
- * Unified Formatting Utilities
- *
- * Central export point for all human-readable label formatters.
- * Import from here instead of individual modules to keep things consistent.
- */
 
 export {
   formatMarketType,

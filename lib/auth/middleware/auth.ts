@@ -1,8 +1,3 @@
-/**
- * Auth Middleware Helpers
- *
- * Utilities for use in API routes and Server Components.
- */
 
 import { headers, cookies } from "next/headers";
 import { db, users } from "../db";
@@ -11,9 +6,6 @@ import { validateSession, type ValidatedSession } from "../session";
 import { getUserPermissions, hasPermission } from "../features/permissions";
 import { FEATURE_IDS } from "../features/registry";
 
-// ============================================
-// Types
-// ============================================
 
 export interface CurrentUser {
   id: string;
@@ -27,9 +19,6 @@ export interface CurrentUser {
   permissions: Record<string, boolean>;
 }
 
-// ============================================
-// Session Helpers
-// ============================================
 
 const DEV_BYPASS = process.env.NODE_ENV === "development";
 
@@ -54,9 +43,6 @@ const devUser = (): CurrentUser => ({
   permissions: devPermissions(),
 });
 
-/**
- * Get current session from request
- */
 export async function getSession(): Promise<ValidatedSession | null> {
   if (DEV_BYPASS) return devSession();
 
@@ -70,9 +56,6 @@ export async function getSession(): Promise<ValidatedSession | null> {
   return validateSession(token);
 }
 
-/**
- * Get current user with full details
- */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   if (DEV_BYPASS) return devUser();
 
@@ -107,46 +90,28 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   };
 }
 
-/**
- * Get current user ID from request headers (set by middleware)
- */
 export async function getCurrentUserId(): Promise<string | null> {
   const headersList = await headers();
   return headersList.get("x-user-id");
 }
 
-/**
- * Get current user role from request headers (set by middleware)
- */
 export async function getCurrentUserRole(): Promise<"admin" | "user" | null> {
   const headersList = await headers();
   const role = headersList.get("x-user-role");
   return role as "admin" | "user" | null;
 }
 
-/**
- * Check if current user is admin
- */
 export async function isAdmin(): Promise<boolean> {
   const role = await getCurrentUserRole();
   return role === "admin";
 }
 
-/**
- * Check if current user is impersonating
- */
 export async function isImpersonating(): Promise<boolean> {
   const headersList = await headers();
   return headersList.has("x-impersonated-by");
 }
 
-// ============================================
-// Permission Helpers
-// ============================================
 
-/**
- * Check if current user has a permission
- */
 export async function currentUserHasPermission(
   featureId: string,
 ): Promise<boolean> {
@@ -159,9 +124,6 @@ export async function currentUserHasPermission(
   return hasPermission(userId, featureId);
 }
 
-/**
- * Require a permission (throws if not granted)
- */
 export async function requirePermission(featureId: string): Promise<void> {
   const hasAccess = await currentUserHasPermission(featureId);
 
@@ -170,9 +132,6 @@ export async function requirePermission(featureId: string): Promise<void> {
   }
 }
 
-/**
- * Require admin role (throws if not admin)
- */
 export async function requireAdmin(): Promise<void> {
   const admin = await isAdmin();
 
@@ -181,17 +140,10 @@ export async function requireAdmin(): Promise<void> {
   }
 }
 
-// ============================================
-// Request Info Helpers
-// ============================================
 
-/**
- * Get client IP from request
- */
 export async function getClientIp(): Promise<string> {
   const headersList = await headers();
 
-  // Try various headers in order of preference
   const forwarded = headersList.get("x-forwarded-for");
   if (forwarded) {
     return forwarded.split(",")[0].trim();
@@ -205,9 +157,6 @@ export async function getClientIp(): Promise<string> {
   return "unknown";
 }
 
-/**
- * Get user agent from request
- */
 export async function getUserAgent(): Promise<string | null> {
   const headersList = await headers();
   return headersList.get("user-agent");

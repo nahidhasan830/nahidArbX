@@ -1,8 +1,3 @@
-/**
- * Repository for the `settlement_runs` telemetry log. Writes are
- * append-only — we never update a prior row, so each tick ends with
- * exactly one INSERT.
- */
 
 import { desc } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -21,10 +16,6 @@ export type SettlementRunInput = Omit<
   finishedAt: string;
 };
 
-/**
- * Settlement is source-only, so current runs have no variable AI cost.
- * Historical rows may still contain tier3/tier4 hits from old migrations.
- */
 const TIER_COST_USD = {
   tier0: 0,
   tier1: 0,

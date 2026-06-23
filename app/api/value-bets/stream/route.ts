@@ -1,9 +1,3 @@
-/**
- * Dashboard SSE Streaming Endpoint — Proxy to Engine
- *
- * Proxies the SSE stream from the engine process (port 3001)
- * where the syncBus event emitter lives.
- */
 
 import { engineSSEProxy } from "@/lib/engine-proxy";
 
@@ -14,7 +8,6 @@ export async function GET(request: Request) {
   const stream = engineSSEProxy();
 
   if (!stream) {
-    // Engine unreachable — return a minimal SSE with error
     const encoder = new TextEncoder();
     const fallback = new ReadableStream({
       start(controller) {
@@ -23,7 +16,6 @@ export async function GET(request: Request) {
             `event: error\ndata: ${JSON.stringify({ error: "Engine unreachable" })}\n\n`,
           ),
         );
-        // Keep alive with periodic pings until client disconnects
         const interval = setInterval(() => {
           try {
             controller.enqueue(
@@ -41,7 +33,6 @@ export async function GET(request: Request) {
           try {
             controller.close();
           } catch {
-            /* already closed */
           }
         });
       },

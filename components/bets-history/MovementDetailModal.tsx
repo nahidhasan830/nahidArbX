@@ -34,33 +34,24 @@ import {
   type FeatureCategory,
 } from "@/lib/ml/feature-catalog";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface MovementDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   data: Record<string, OddsMovementData> | OddsMovementData | null;
-  /** E.g. "Liverpool vs Arsenal" */
   eventLabel: string;
-  /** E.g. "Match Result · Home Win" */
   marketLabel: string;
   marketType?: string | null;
   timeScope?: string | null;
   familyLine?: number | string | null;
   selection?: string | null;
-  /** Optional ML feature vector for inline inspection. */
   features?: number[] | null;
-  /** Optional ML metadata — shown as a compact info strip when provided. */
   mlMeta?: {
     mlScore: number | null;
     kellyRaw: number | null;
-    /** Renamed from mlMultiplier — the model's stake multiplier vs baseline. */
     mlMultiplier: number | null;
     evPct: number | null;
   } | null;
 }
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function computeProviderStats(d: OddsMovementData) {
   const vals = d.sparkline.map((s) => s[1]);
@@ -72,8 +63,6 @@ function computeProviderStats(d: OddsMovementData) {
     first !== 0 ? Math.round(((last - first) / first) * 10000) / 100 : 0;
   return { first, last, changePct };
 }
-
-// ─── Component ──────────────────────────────────────────────────────────────
 
 export function MovementDetailModal({
   open,
@@ -88,12 +77,10 @@ export function MovementDetailModal({
   features,
   mlMeta,
 }: MovementDetailModalProps) {
-  // Lazy-mount: don't render Dialog tree at all when closed.
   if (!open || !data) {
     return null;
   }
 
-  // Normalize data to Record<string, OddsMovementData>
   let dataMap: Record<string, OddsMovementData>;
   if ("sparkline" in data && "provider" in data) {
     const legacy = data as OddsMovementData;
@@ -105,7 +92,6 @@ export function MovementDetailModal({
   const providers = Object.keys(dataMap);
   if (providers.length === 0) return null;
 
-  // Find the primary sharp provider, or default to the first available
   const sharpProviderId =
     providers.find((p) => isSharpProvider(p)) || providers[0];
   const sharpData = dataMap[sharpProviderId];
@@ -138,8 +124,6 @@ export function MovementDetailModal({
     </Dialog>
   );
 }
-
-// ─── Inner content (only mounts when dialog is open) ────────────────────────
 
 function ModalInner({
   dataMap,
@@ -186,7 +170,6 @@ function ModalInner({
     });
   };
 
-  // Sync visibility state with the chart instances
   useEffect(() => {
     Object.entries(seriesMapRef.current).forEach(([id, series]) => {
       series.applyOptions({ visible: !hiddenProviders.has(id) });
@@ -200,7 +183,6 @@ function ModalInner({
   const isDown = sharpChangePct < -0.01;
   const bottomColor = "rgba(0, 0, 0, 0)";
 
-  // Accent gradient for header
   const accentGradient = isUp
     ? "from-emerald-500/10 via-transparent to-transparent"
     : isDown
@@ -209,7 +191,6 @@ function ModalInner({
 
   const chartHeight = hasFeatures ? 280 : 320;
 
-  // Initialize lightweight-charts
   useEffect(() => {
     const container = chartContainerRef.current;
     if (!container) return;
@@ -219,7 +200,6 @@ function ModalInner({
       typeof import("lightweight-charts").createChart
     > | null = null;
 
-    // Dynamic import to keep the module lazy
     import("lightweight-charts").then(
       ({
         createChart,
@@ -229,7 +209,6 @@ function ModalInner({
         CrosshairMode,
         LineStyle,
       }) => {
-        // Prevent double-render in StrictMode if component unmounted before import resolved
         if (isCancelled || !container.isConnected) return;
 
         chart = createChart(container, {
@@ -290,13 +269,11 @@ function ModalInner({
 
         chartRef.current = chart;
 
-        // Plot all providers
         for (const [providerId, providerData] of Object.entries(dataMap)) {
           if (providerData.sparkline.length < 2) continue;
 
           const isSharp = providerId === sharpProviderId;
 
-          // Deduplicate timestamps (keep latest value for each second)
           const uniqueSparkMap = new Map<number, number>();
           for (const [ts, value] of providerData.sparkline) {
             uniqueSparkMap.set(Math.floor(ts / 1000), value);
@@ -310,7 +287,6 @@ function ModalInner({
 
           if (isSharp) {
             const hexColor = getProviderChartHex(providerId);
-            // Convert hex to rgba for the top gradient
             const r = parseInt(hexColor.slice(1, 3), 16) || 0;
             const g = parseInt(hexColor.slice(3, 5), 16) || 0;
             const b = parseInt(hexColor.slice(5, 7), 16) || 0;
@@ -355,11 +331,8 @@ function ModalInner({
         chartRef.current = null;
       }
     };
-    // Only re-create chart when data identity changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataMap]);
+  }, [dataMap, chartHeight, bottomColor, sharpProviderId]);
 
-  // ─── Feature grouping ─────────────────────────────────────────────────────
   const featureGroups = hasFeatures
     ? (() => {
         const grouped = new Map<
@@ -391,21 +364,18 @@ function ModalInner({
 
   return (
     <div className="flex relative w-full bg-[#0c0e14] selection:bg-white/10">
-      {/* ── Left Column: Header + Chart + Stats ── */}
       <div
         className={cn(
           "flex-1 flex flex-col min-w-0",
           hasFeatures && "mr-[300px]",
         )}
       >
-        {/* ── Header with gradient accent ── */}
         <div
           className={cn(
             "relative shrink-0 overflow-hidden",
             `bg-gradient-to-r ${accentGradient}`,
           )}
         >
-          {/* Decorative top bar */}
           <div
             className={cn(
               "absolute top-0 inset-x-0 h-[2px]",
@@ -440,7 +410,6 @@ function ModalInner({
             </div>
           </DialogHeader>
 
-          {/* ── ML metadata strip (Shadow A/B context) ── */}
           {mlMeta && (
             <div className="flex flex-wrap items-center gap-1.5 px-5 pb-1.5">
               {mlMeta.mlScore != null && (
@@ -519,7 +488,6 @@ function ModalInner({
             </div>
           )}
 
-          {/* ── Legend row ── */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-5 pt-1 pb-3">
             {Object.entries(dataMap).map(([providerId]) => {
               const labelColor = getProviderChartHex(providerId);
@@ -570,9 +538,7 @@ function ModalInner({
           </div>
         </div>
 
-        {/* ── Main body — chart + provider stats ── */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#0c0e14]">
-          {/* Chart container */}
           <div className="shrink-0 px-4 pt-4 pb-6 relative flex flex-col">
             <div className="absolute inset-x-4 top-4 bottom-2 rounded-xl border border-white/[0.03] bg-gradient-to-b from-white/[0.02] to-transparent pointer-events-none" />
             <div
@@ -582,7 +548,6 @@ function ModalInner({
             />
           </div>
 
-          {/* Stats table — Premium list */}
           <div className="shrink-0 border-t border-white/[0.05] bg-black/20 p-4">
             <div className="grid grid-cols-[1.5fr_repeat(4,_1fr)] gap-4 px-4 py-2 text-[10px] text-white/30 font-semibold uppercase tracking-widest rounded-t-xl bg-white/[0.02]">
               <span>Provider</span>
@@ -656,7 +621,6 @@ function ModalInner({
         </div>
       </div>
 
-      {/* ── Right Column: Features Bento Grid ── */}
       {hasFeatures && featureGroups && (
         <div className="w-[300px] absolute right-0 top-0 bottom-0 overflow-y-auto overflow-x-hidden p-4 pt-12 bg-black/20 custom-scrollbar border-l border-white/[0.05]">
           <div className="text-[11px] font-semibold text-white/30 uppercase tracking-widest mb-3 px-1 flex items-center gap-1.5">
@@ -674,7 +638,6 @@ function ModalInner({
                   CAT_GLOW[cat],
                 )}
               >
-                {/* Category header */}
                 <div className="flex items-center gap-2 mb-2.5">
                   <span
                     className={cn(
@@ -693,7 +656,6 @@ function ModalInner({
                   </span>
                 </div>
 
-                {/* Feature rows - Bento style */}
                 <div className="flex flex-col gap-1">
                   {items.map(({ meta, value }) => (
                     <Tooltip key={meta.name}>

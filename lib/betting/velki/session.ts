@@ -1,29 +1,3 @@
-/**
- * Velki session manager.
- *
- * Unlike NineWickets — which sits behind Cloudflare and forces a
- * Playwright login — Velki's auth surface is plain JSON HTTP. The full
- * lifecycle stays in Node:
- *
- *   1. POST vk-sa.softtake.net/account/login   → DRF token (main tier)
- *   2. GET  vk-sa.softtake.net/game/game-launch/WK/SB?operator=gs&game_id=9weiket
- *           with Authorization: Token <token>  → signed gameUrl
- *   3. GET  <gameUrl> with redirect: 'manual'  → Set-Cookie: JSESSIONID=<...>
- *
- * The captured JSESSIONID is then used (raw, in both the URL path
- * `;jsessionid=…` and the Authorization header) for every subsequent
- * provider-tier call to saapipl.fwick7ets.xyz.
- *
- * Lifecycle:
- *   getSession()         valid cached session, or refresh on demand
- *   captureSession()     run all 3 steps fresh; persist to disk
- *   invalidateSession()  wipe cache — call on any 401/403 / 1001
- *
- * Token lifetimes are unverified at time of writing; we treat both
- * tokens as opaque and simply re-capture on any auth failure. Wrap
- * provider-tier calls with `callWithSessionRetry` (mirrors the 9W
- * pattern) so a single transient 401 → re-login → retry.
- */
 import * as fs from "fs";
 import * as path from "path";
 import { validateAndParse } from "../../shared/validation";
@@ -54,9 +28,6 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
-// Browser-shaped headers. The provider tier appears to be sensitive to
-// missing Origin/Referer (mirrors 9W's WAF behaviour); set them on
-// every call to be safe.
 const BROWSER_HEADERS_MAIN: Record<string, string> = {
   "User-Agent": UA,
   Accept: "application/json, text/plain, */*",
@@ -70,9 +41,6 @@ const BROWSER_HEADERS_MAIN: Record<string, string> = {
 
 let inflight: Promise<VelkiSession> | null = null;
 
-// =====================================================================
-// Public API
-// =====================================================================
 
 export class VelkiSessionExpiredError extends Error {
   constructor(message: string) {
@@ -86,10 +54,6 @@ export async function getSession(forceRefresh = false): Promise<VelkiSession> {
     const cached = readStoredSession();
     if (cached) return cached;
   }
-  // Auto-login kill switch: if the operator paused auto-login (because
-  // they're working on Velki manually elsewhere), don't race them by
-  // running the 3-step capture chain. Surface a typed error so callers
-  // can distinguish "intentionally paused" from "login failed".
   const config = getVelkiAutoLoginConfig();
   if (!config.enabled) {
     throw new VelkiAutoLoginDisabledError(config.reason);
@@ -101,20 +65,7 @@ export async function getSession(forceRefresh = false): Promise<VelkiSession> {
   return inflight;
 }
 
-/**
- * Wrap `captureSession` in retry-with-backoff. The 3-step chain
- * (login → game-launch → JSESSIONID) is brittle — any of the three
- * legs can transiently fail (network blip, WAF rate limit, gameUrl
- * single-use token race). Two retries (3 attempts total) clear the
- * vast majority of transient failures without papering over a real
- * outage. Backoff is short — these are seconds, not minutes —
- * because the caller is usually waiting on a sync cycle.
- */
 async function captureWithRetries(): Promise<VelkiSession> {
-  // The game-launch endpoint enforces an aggressive rate limit that
-  // returns data:null when called too frequently (e.g. rapid re-login
-  // after a session-expired retry). Use generous backoffs to let the
-  // server cool down between attempts.
   const MAX_ATTEMPTS = 5;
   const BACKOFF_MS = [0, 3000, 6000, 10000, 15000];
   let lastErr: unknown;
@@ -128,8 +79,6 @@ async function captureWithRetries(): Promise<VelkiSession> {
       return session;
     } catch (err) {
       lastErr = err;
-      // Hard auth failure (bad password, account suspended) should not
-      // retry — the message is signal, not a transient bug.
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("refused")) {
         captureFailed("velki-sportsbook", msg);
@@ -146,16 +95,9 @@ export function invalidateSession(): void {
   try {
     if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
   } catch {
-    // ignore — best-effort wipe
   }
 }
 
-/**
- * Provider-tier call wrapper. Runs `fn` with the current session; on
- * VelkiSessionExpiredError, wipes the cache, re-captures, and retries
- * exactly once. Mirrors the 9W `callWithSessionRetry` shape so the
- * provider client can stay symmetric.
- */
 export async function callWithSessionRetry<T>(
   fn: (session: VelkiSession) => Promise<T>,
 ): Promise<T> {
@@ -172,9 +114,6 @@ export async function callWithSessionRetry<T>(
   }
 }
 
-// =====================================================================
-// Capture flow (3 HTTP steps, no browser)
-// =====================================================================
 
 export async function captureSession(): Promise<VelkiSession> {
   const username = process.env.VELKI_USERNAME;
@@ -185,7 +124,6 @@ export async function captureSession(): Promise<VelkiSession> {
 
   captureStarted("velki-sportsbook");
 
-  // Step 1 — main-tier login → DRF token
   let token: string;
   let t0 = Date.now();
   try {
@@ -201,7 +139,6 @@ export async function captureSession(): Promise<VelkiSession> {
     throw err;
   }
 
-  // Step 2 — exchange token for a one-shot signed gameUrl
   let gameUrl: string;
   t0 = Date.now();
   try {
@@ -217,7 +154,6 @@ export async function captureSession(): Promise<VelkiSession> {
     throw err;
   }
 
-  // Step 3 — follow gameUrl manually to capture JSESSIONID
   let jsessionid: string;
   t0 = Date.now();
   try {
@@ -301,10 +237,6 @@ async function fetchGameLaunchUrl(token: string): Promise<string> {
     );
   }
   if (!parsed.data?.gameUrl) {
-    // The game-launch endpoint sometimes returns success:true but
-    // data:null when rate-limited. This is transient — NOT a hard
-    // auth refusal — so use a message that does NOT contain "refused"
-    // to allow captureWithRetries to retry.
     throw new Error(
       "[Velki] game-launch returned null data (rate-limited, will retry)",
     );
@@ -313,9 +245,6 @@ async function fetchGameLaunchUrl(token: string): Promise<string> {
 }
 
 async function captureJsessionid(gameUrl: string): Promise<string> {
-  // The bridge endpoint may set JSESSIONID on the redirect itself or
-  // on a subsequent hop. The shared helper handles the redirect chain
-  // + cookie harvesting; we just hand it the URL and headers.
   return captureCookieFromRedirects({
     startUrl: gameUrl,
     cookieName: "JSESSIONID",
@@ -324,9 +253,6 @@ async function captureJsessionid(gameUrl: string): Promise<string> {
   });
 }
 
-// =====================================================================
-// Storage
-// =====================================================================
 
 function readStoredSession(): VelkiSession | null {
   try {

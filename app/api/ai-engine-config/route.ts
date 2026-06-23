@@ -1,9 +1,3 @@
-/**
- * GET  /api/ai-engine-config → returns all engine configs from DB
- * POST /api/ai-engine-config → toggle an engine { name, enabled, reason? }
- *
- * Uses unified ai_provider_config table.
- */
 
 import { NextResponse } from "next/server";
 import {
@@ -17,7 +11,6 @@ import { eq } from "drizzle-orm";
 
 const SEARCH_PROVIDER_NAMES = new Set(["vertex", "brave", "tavily"]);
 
-// Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
 const NAME_MAP: Record<string, string> = {
   deepseek: "deepseek-flash",
   gemini: "gemini-lite",
@@ -52,12 +45,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // Map UI names to DB names: "deepseek" → "deepseek-flash", "gemini" → "gemini-lite"
     const dbName = NAME_MAP[name] ?? name;
     const isMappedName = NAME_MAP[name] !== undefined;
 
-    // If this is a mapped name (e.g., "deepseek" instead of "deepseek-flash"),
-    // delete any orphan row that might exist from previous broken toggles
     if (isMappedName) {
       try {
         await db
@@ -65,14 +55,11 @@ export async function POST(req: Request) {
           .where(eq(aiProviderConfig.name, name))
           .returning({ name: aiProviderConfig.name });
       } catch {
-        // Ignore - row probably doesn't exist
       }
     }
 
-    // Persist to DB
     await setProviderEnabled(dbName, enabled, reason);
 
-    // Forward to grounding engine for search providers
     if (SEARCH_PROVIDER_NAMES.has(name)) {
       try {
         getGroundingEngine().toggleProvider(name, enabled);

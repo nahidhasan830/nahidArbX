@@ -50,7 +50,6 @@ function makeScore(overrides: Partial<MatchScore> = {}): MatchScore {
   };
 }
 
-// ── Status overrides ─────────────────────────────────────────────────────────
 
 describe("settleBet — match status", () => {
   it("voids abandoned matches", () => {
@@ -66,7 +65,6 @@ describe("settleBet — match status", () => {
   });
 });
 
-// ── MATCH_RESULT ─────────────────────────────────────────────────────────────
 
 describe("settleBet — MATCH_RESULT", () => {
   it("home win: ft_home_win wins", () => {
@@ -102,7 +100,6 @@ describe("settleBet — MATCH_RESULT", () => {
 
   it("1H scope uses half-time score", () => {
     const row = makeRow({ atomId: "1h_home_win", timeScope: "1H" });
-    // FT 2-1, HT 0-1 → home lost at HT
     const result = settleBet(
       row,
       makeScore({ ftHome: 2, ftAway: 1, htHome: 0, htAway: 1 }),
@@ -112,7 +109,6 @@ describe("settleBet — MATCH_RESULT", () => {
 
   it("2H scope uses second-half score (FT - HT)", () => {
     const row = makeRow({ atomId: "2h_home_win", timeScope: "2H" });
-    // FT 2-1, HT 0-1 → 2H = 2-0 → home wins
     const result = settleBet(
       row,
       makeScore({ ftHome: 2, ftAway: 1, htHome: 0, htAway: 1 }),
@@ -134,7 +130,6 @@ describe("settleBet — MATCH_RESULT", () => {
   });
 });
 
-// ── OVER_UNDER ────────────────────────────────────────────────────────────────
 
 describe("settleBet — OVER_UNDER", () => {
   it("over 2.5 wins with 3 goals", () => {
@@ -178,8 +173,6 @@ describe("settleBet — OVER_UNDER", () => {
   });
 
   it("over 2.25 (quarter line) — half_won on exactly 2 goals", () => {
-    // 2.25 splits to [2, 2.5]; total=2: leg1=void (push), leg2=lost → half_lost
-    // Actually: over 2 on total 2 → void; over 2.5 on total 2 → lost; fold(void, lost) = half_lost
     const row = makeRow({
       marketType: "OVER_UNDER",
       atomId: "ft_total_over_2_25",
@@ -190,7 +183,6 @@ describe("settleBet — OVER_UNDER", () => {
   });
 
   it("over 2.25 — half_won on 3 goals", () => {
-    // 2.25 splits to [2, 2.5]; total=3: leg1=won, leg2=won → won
     const row = makeRow({
       marketType: "OVER_UNDER",
       atomId: "ft_total_over_2_25",
@@ -201,7 +193,6 @@ describe("settleBet — OVER_UNDER", () => {
   });
 });
 
-// ── ASIAN_HANDICAP ────────────────────────────────────────────────────────────
 
 describe("settleBet — ASIAN_HANDICAP", () => {
   it("home -0.5 wins when home wins by 1+", () => {
@@ -234,14 +225,7 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("void");
   });
 
-  // ── Away-side AH ──────────────────────────────────────────────────────────
-  //
-  // family_line is stored in the HOME perspective (matches family.line in
-  // lib/atoms/atoms.json). For away atoms, settleHandicap flips the sign
-  // so the same logic produces the correct backed-side result.
 
-  // Family ft_ah_p1_25 (line = +1.25): atoms [Home +1.25, Away -1.25].
-  // The original Bogota vs Real Cartagena case that surfaced this bug.
   it("away -1.25 on 1-2 (away wins by 1) is half_lost", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -252,7 +236,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("half_lost");
   });
 
-  // Family ft_ah_p1 (line = +1): atoms [Home +1, Away -1].
   it("away -1 on 1-2 (away wins by exactly 1) is void", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -273,7 +256,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("won");
   });
 
-  // Family ft_ah_p0_5 (line = +0.5): atoms [Home +0.5, Away -0.5].
   it("away -0.5 on 0-1 wins (away wins by 1, more than 0.5 line)", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -304,7 +286,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("lost");
   });
 
-  // Family ft_ah_m0_5 (line = -0.5): atoms [Home -0.5, Away +0.5].
   it("away +0.5 on 2-2 (draw) wins", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -325,7 +306,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("lost");
   });
 
-  // Family ft_ah_m1 (line = -1): atoms [Home -1, Away +1].
   it("away +1 on 1-0 (away loses by exactly 1) is void", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -346,7 +326,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("won");
   });
 
-  // Family ft_ah_m1_25 (line = -1.25): atoms [Home -1.25, Away +1.25].
   it("away +1.25 on 1-0 (away loses by 1) is half_won", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -367,7 +346,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("lost");
   });
 
-  // Family ft_ah_p0_25 (line = +0.25): atoms [Home +0.25, Away -0.25].
   it("away -0.25 on 0-0 (draw) is half_lost", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -388,10 +366,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
     expect(result.outcome).toBe("won");
   });
 
-  // Family ft_ah_m0_25 (line = -0.25): atoms [Home -0.25, Away +0.25].
-  // Quarter splits to [0, +0.5]. On a draw the 0 leg pushes and the +0.5
-  // leg wins → half_won (this is the half_won path that's reachable on
-  // an away-side quarter line; the +X variants like +0.25 / +0.75).
   it("away +0.25 on 1-1 (draw) is half_won", () => {
     const row = makeRow({
       marketType: "ASIAN_HANDICAP",
@@ -403,7 +377,6 @@ describe("settleBet — ASIAN_HANDICAP", () => {
   });
 });
 
-// ── BTTS ──────────────────────────────────────────────────────────────────────
 
 describe("settleBet — BTTS", () => {
   it("btts yes wins when both teams score", () => {
@@ -434,7 +407,6 @@ describe("settleBet — BTTS", () => {
   });
 });
 
-// ── DNB ───────────────────────────────────────────────────────────────────────
 
 describe("settleBet — DNB", () => {
   it("dnb home wins when home wins", () => {
@@ -456,7 +428,6 @@ describe("settleBet — DNB", () => {
   });
 });
 
-// ── Unsupported market ────────────────────────────────────────────────────────
 
 describe("settleBet — unsupported market", () => {
   it("returns pending with unsupported-market reason", () => {

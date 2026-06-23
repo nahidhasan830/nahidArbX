@@ -58,26 +58,23 @@ import { cn } from "@/lib/utils";
 import { formatAtomLabel } from "@/lib/formatting/labels";
 import { fmtDateTime, fmtSeen } from "@/lib/formatting/helpers";
 
-/** Runtime type guard for a single provider's movement snapshot. */
 function isOddsMovementData(v: unknown): v is OddsMovementData {
   if (!v || typeof v !== "object") return false;
   const o = v as Record<string, unknown>;
   return Array.isArray(o.sparkline) && typeof o.totalTicks === "number";
 }
 
-/** Extracts the sharp provider's movement from either the legacy or new JSON format. */
 function getSharpOddsMovement(
   v: unknown,
   sharpProvider: string,
 ): OddsMovementData | null {
-  if (isOddsMovementData(v)) return v; // Legacy single-object format
+  if (isOddsMovementData(v)) return v;
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
 
   const map = v as Record<string, unknown>;
   if (map[sharpProvider] && isOddsMovementData(map[sharpProvider])) {
     return map[sharpProvider] as OddsMovementData;
   }
-  // Fallback to the first available movement if sharp provider isn't found
   for (const val of Object.values(map)) {
     if (isOddsMovementData(val)) return val;
   }
@@ -169,10 +166,6 @@ export type BacktestTableProps = {
   renderFooter?: () => React.ReactNode;
 };
 
-// Clickable header for parent-controlled sort. Cycles via the parent's
-// `onSortChange` (desc → asc → none), not DataTable's internal state — we keep
-// this one sort axis controlled so it persists to localStorage alongside
-// filter prefs via useBetsHistoryPrefs.
 function SortableHeader({
   label,
   hint,
@@ -271,11 +264,6 @@ export function BetsHistoryTable({
     if (!open) setMovementRow(null);
   }, []);
 
-  // EV displayed in the row is evPctFirst — the EV at the entry price we'd
-  // have actually bet at. Using evPctMax (best price ever observed) would
-  // inflate the headline number, since we rarely actually get the peak price.
-  // The legacy field name `_evPctMax` is kept to avoid a cascading rename
-  // through the sort key persisted in localStorage.
   const decorated: Decorated[] = useMemo(
     () =>
       rows.map((r) => {
@@ -937,7 +925,6 @@ export function BetsHistoryTable({
 
           return (
             <div className="flex items-center justify-center gap-0">
-              {/* Spinner replaces the ⋮ when an async action is in flight */}
               {running || deleting ? (
                 <div className="inline-flex items-center justify-center size-6">
                   <Loader2
@@ -963,7 +950,6 @@ export function BetsHistoryTable({
                     <TooltipContent>Actions</TooltipContent>
                   </Tooltip>
                   <DropdownMenuContent align="end" className="w-[190px] p-1">
-                    {/* ── Settle ── */}
                     <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground/70 px-2 py-1">
                       Settlement
                     </DropdownMenuLabel>
@@ -992,7 +978,6 @@ export function BetsHistoryTable({
 
                     <DropdownMenuSeparator className="my-1" />
 
-                    {/* ── Destructive ── */}
                     <DropdownMenuItem
                       onSelect={() => setDeleteTarget(r)}
                       className="cursor-pointer gap-2.5 rounded-md px-2 py-1.5 text-destructive focus:text-destructive"
@@ -1029,7 +1014,6 @@ export function BetsHistoryTable({
     openMovement,
   ]);
 
-  // Derive modal labels from the selected row
   const movementData = movementRow
     ? (movementRow.oddsMovement as
         | Record<string, OddsMovementData>
@@ -1085,7 +1069,6 @@ export function BetsHistoryTable({
         features={movementRow?.mlFeatures}
       />
 
-      {/* Delete confirmation dialog */}
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {

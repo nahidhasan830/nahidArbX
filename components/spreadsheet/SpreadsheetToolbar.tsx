@@ -21,7 +21,6 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
-// ── Sizing ────────────────────────────────────────────────────────────────────
 const CTRL_H = "h-7";
 const BTN_BASE = cn(CTRL_H, "px-2 text-[11px] gap-1.5 font-normal");
 
@@ -29,38 +28,33 @@ function Separator() {
   return <div className="w-px h-5 bg-border shrink-0" />;
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 export type TimeFilter = "all" | "live" | "upcoming";
 
 export interface SpreadsheetToolbarProps {
-  // Value Only toggle
   showOnlyValue: boolean;
   onToggleShowOnlyValue: () => void;
   valueRowCount: number;
 
-  // Strategy-shared filters — identical semantics to BetsHistoryToolbar
   selectedMarketTypes: Set<string>;
   onMarketsChange: (markets: string[]) => void;
 
   selectedSoftProviders: Set<ProviderKey>;
   onSoftProvidersChange: (providers: string[]) => void;
 
-  evRangeMin: number; // 0 = no constraint
-  evRangeMax: number; // 100 = no constraint
+  evRangeMin: number;
+  evRangeMax: number;
   onEvRangeChange: (min: number, max: number) => void;
 
-  softOddsRangeMin: number; // 1.0 = no constraint
-  softOddsRangeMax: number; // 10.0 = no constraint
+  softOddsRangeMin: number;
+  softOddsRangeMax: number;
   onSoftOddsRangeChange: (min: number, max: number) => void;
 
-  // Value-bets-specific filters
   timeFilter: TimeFilter;
   onTimeFilterChange: (value: TimeFilter) => void;
 
   searchTerm: string;
   onSearchChange: (value: string) => void;
 
-  // Stats + actions
   totalRows: number;
   onReset: () => void;
   hasActiveFilters: boolean;
@@ -69,7 +63,6 @@ export interface SpreadsheetToolbarProps {
   hasSavedDefaults: boolean;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export function SpreadsheetToolbar({
   showOnlyValue,
   onToggleShowOnlyValue,
@@ -95,7 +88,6 @@ export function SpreadsheetToolbar({
   onClearDefaults,
   hasSavedDefaults,
 }: SpreadsheetToolbarProps) {
-  // Main search input — keep focus across re-renders
   const searchInputRef = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     if (searchTerm && searchInputRef.current) {
@@ -108,14 +100,12 @@ export function SpreadsheetToolbar({
     }
   }, [searchTerm]);
 
-  // Prefs store 0/100 as "no constraint"; shared EvRangeFilter uses undefined
   const evMin = evRangeMin === 0 ? undefined : evRangeMin;
   const evMax = evRangeMax === 100 ? undefined : evRangeMax;
 
   return (
     <div className="px-3 py-1.5 border-b border-border bg-muted/50 overflow-x-auto">
       <div className="flex items-center gap-1.5 min-w-max">
-        {/* ── Strategy-shared filters (same as BetsHistoryToolbar) ── */}
         <MarketsFilter
           selected={Array.from(selectedMarketTypes)}
           onChange={onMarketsChange}
@@ -142,9 +132,7 @@ export function SpreadsheetToolbar({
 
         <Separator />
 
-        {/* ── Value-bets-specific filters ── */}
 
-        {/* Time filter */}
         <ToggleGroup
           type="single"
           value={timeFilter}
@@ -160,7 +148,6 @@ export function SpreadsheetToolbar({
           <ToggleGroupItem value="upcoming">Upcoming</ToggleGroupItem>
         </ToggleGroup>
 
-        {/* Value Only toggle */}
         <div
           role="button"
           tabIndex={0}
@@ -198,7 +185,6 @@ export function SpreadsheetToolbar({
 
         <Separator />
 
-        {/* Search */}
         <div className="relative">
           <Input
             ref={searchInputRef}
@@ -220,12 +206,10 @@ export function SpreadsheetToolbar({
 
         <div className="flex-1" />
 
-        {/* Row count */}
         <span className="text-[11px] text-muted-foreground font-medium tabular-nums">
           {totalRows} rows
         </span>
 
-        {/* Reset + Defaults */}
         <div className="flex items-center">
           <Button
             variant={hasActiveFilters ? "default" : "outline"}

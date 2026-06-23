@@ -1,15 +1,3 @@
-/**
- * Session Diagnostics Store
- *
- * Tracks per-provider, per-step capture diagnostics so operators can
- * see at a glance which step of the multi-step auth flow is failing,
- * why, and when. Surfaced via the engine health endpoint.
- *
- * Providers:
- *   - ninewickets: CF-solve → login → getGameUrl → process
- *   - velki:       login → game-launch → jsessionid
- *   - pinnacle:    CF-solve → login → getGameUrl → process
- */
 
 import { singleton } from "../util/singleton";
 
@@ -22,21 +10,14 @@ export interface StepDiagnostic {
 }
 
 export interface ProviderSessionDiagnostics {
-  /** Provider identifier (e.g. "velki-sportsbook", "ninewickets-sportsbook"). */
   provider: string;
-  /** The steps from the last capture attempt, in order. */
   steps: StepDiagnostic[];
-  /** Overall status of the last capture. */
   lastCaptureStatus: "ok" | "failed" | "pending" | "idle";
-  /** When the last capture started. */
   lastCaptureAt: string | null;
-  /** How many consecutive failures. */
   consecutiveFailures: number;
-  /** Total capture attempts since engine start. */
   totalAttempts: number;
 }
 
-// HMR-safe global store
 const store = singleton("session-diagnostics", () => ({
   providers: new Map<string, ProviderSessionDiagnostics>(),
 }));
@@ -59,7 +40,6 @@ function getOrCreate(providerId: string): ProviderSessionDiagnostics {
   return d;
 }
 
-/** Call at the start of a capture attempt. Resets steps. */
 export function captureStarted(providerId: string): void {
   const d = getOrCreate(providerId);
   d.steps = [];
@@ -67,14 +47,12 @@ export function captureStarted(providerId: string): void {
   d.lastCaptureAt = new Date().toISOString();
   d.totalAttempts++;
 
-  // Cap total providers tracked to prevent unbounded map growth
   if (store.providers.size > 50) {
     const oldest = store.providers.keys().next().value;
     if (oldest && oldest !== providerId) store.providers.delete(oldest);
   }
 }
 
-/** Record a step completion. */
 export function stepCompleted(
   providerId: string,
   step: string,
@@ -92,7 +70,6 @@ export function stepCompleted(
   }
 }
 
-/** Record a step failure. */
 export function stepFailed(
   providerId: string,
   step: string,
@@ -114,19 +91,15 @@ export function stepFailed(
   d.consecutiveFailures++;
 }
 
-/** Call when the full capture succeeds. */
 export function captureSucceeded(providerId: string): void {
   const d = getOrCreate(providerId);
   d.lastCaptureStatus = "ok";
   d.consecutiveFailures = 0;
 }
 
-/** Call when the full capture fails (after all retries). */
 export function captureFailed(providerId: string, error: string): void {
   const d = getOrCreate(providerId);
   d.lastCaptureStatus = "failed";
-  // Keep consecutiveFailures from stepFailed calls
-  // Ensure there's at least a failure record
   if (d.steps.length === 0 || d.steps[d.steps.length - 1].status !== "failed") {
     d.steps.push({
       step: "overall",
@@ -137,14 +110,12 @@ export function captureFailed(providerId: string, error: string): void {
   }
 }
 
-/** Get diagnostics for a single provider. */
 export function getSessionDiagnostics(
   providerId: string,
 ): ProviderSessionDiagnostics | null {
   return store.providers.get(providerId) ?? null;
 }
 
-/** Get diagnostics for all providers. */
 export function getAllSessionDiagnostics(): Record<
   string,
   ProviderSessionDiagnostics

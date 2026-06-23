@@ -2,7 +2,6 @@ import type { NormalizedEvent } from "./types";
 import type { ValueBet } from "./atoms/types";
 import { PROVIDER_REGISTRY, type ProviderKey } from "./providers/registry";
 
-// Use ProviderKey from registry
 type Provider = ProviderKey;
 
 export interface ProviderStatus {
@@ -20,9 +19,8 @@ export interface ProviderStatus {
 export type ProviderStatusUpdate = Pick<ProviderStatus, "status"> &
   Partial<Omit<ProviderStatus, "status">>;
 
-// Sync phase tracking
 export type SyncPhase = "idle" | "fixtures" | "matching" | "markets";
-export type MarketsSubPhase = ProviderKey; // Derived from registry
+export type MarketsSubPhase = ProviderKey;
 
 export interface PhaseProgress {
   current: number;
@@ -31,15 +29,14 @@ export interface PhaseProgress {
 }
 
 export interface SyncStatus {
-  isSchedulerActive: boolean; // Background sync job is scheduled
-  isSyncing: boolean; // Currently pulling data from providers
+  isSchedulerActive: boolean;
+  isSyncing: boolean;
   lastSyncStart: Date | null;
   lastSyncEnd: Date | null;
   firstSyncCompletedAt: Date | null;
-  syncInterval: number; // ms between syncs
-  lastSyncDuration: number | null; // ms
-  lastMarketsCount: number; // Total markets fetched
-  // Phase tracking
+  syncInterval: number;
+  lastSyncDuration: number | null;
+  lastMarketsCount: number;
   currentPhase: SyncPhase;
   phaseProgress: PhaseProgress | null;
 }
@@ -51,7 +48,6 @@ interface Store {
   lastUpdate: Date | null;
 }
 
-// Initialize provider status dynamically from registry
 function initializeProviderStatus(): Record<Provider, ProviderStatus> {
   const status = {} as Record<Provider, ProviderStatus>;
   for (const id of Object.keys(PROVIDER_REGISTRY) as Provider[]) {
@@ -116,17 +112,12 @@ function ensureProviderStatus(provider: Provider): ProviderStatus {
   return normalized;
 }
 
-// Track raw event count before matching
 interface CachedStats {
   providerCounts: Record<string, number>;
   matchedCount: number;
   totalEvents: number;
 }
 
-// Persist the singleton on globalThis so HMR (which re-evaluates this module
-// per edit) doesn't give each importer its own empty store. Without this,
-// the background fetcher's `setEvents` writes to one module instance while
-// route handlers read from another, and you see store=0 despite data flowing.
 declare global {
   var __nahidArbxStore:
     | {
@@ -189,23 +180,15 @@ export function getCachedStats(): CachedStats {
   return root.cachedStats;
 }
 
-// Sync status (background data sync from providers) — globalThis-backed
-// so HMR doesn't fracture the singleton across route handlers.
 const syncStatus: SyncStatus = root.syncStatus;
 
-// Single event lookup
 export function getEvent(eventId: string): NormalizedEvent | undefined {
   return store.events.get(eventId);
 }
 
-// Events
 export function setEvents(events: NormalizedEvent[], rawCount?: number): void {
-  // Build set of new event IDs for fast lookup
   const newEventIds = new Set(events.map((e) => e.id));
 
-  // Remove events that are NOT in new data
-  // This diff-and-merge approach prevents race conditions where events
-  // disappear briefly during sync, causing refresh to fail with "Unknown" team names
   const existingIds = Array.from(store.events.keys());
   for (const id of existingIds) {
     if (!newEventIds.has(id)) {
@@ -213,13 +196,12 @@ export function setEvents(events: NormalizedEvent[], rawCount?: number): void {
     }
   }
 
-  // Add/update events from new data
   for (const event of events) {
     store.events.set(event.id, event);
   }
 
   store.lastUpdate = new Date();
-  root.cachedStats = null; // Invalidate cached stats
+  root.cachedStats = null;
   if (rawCount !== undefined) {
     root.rawEventCount = rawCount;
   }
@@ -229,31 +211,22 @@ export function getEvents(): NormalizedEvent[] {
   return Array.from(store.events.values());
 }
 
-// Get only matched events (2+ providers)
 export function getMatchedEvents(): NormalizedEvent[] {
   return Array.from(store.events.values()).filter(
     (e) => Object.keys(e.providers).length > 1,
   );
 }
 
-// ============================================
-// Value Bets
-// ============================================
-
-// Set all value bets (replaces existing)
 export function setValueBets(vbs: ValueBet[]): void {
-  // Pre-sort by EV% (highest first) - avoids sorting on every API request
   store.valueBets = [...vbs].sort((a, b) => b.evPct - a.evPct);
   store.lastUpdate = new Date();
-  root.cachedStats = null; // Invalidate cached stats
+  root.cachedStats = null;
 }
 
-// Get all value bets
 export function getValueBets(): ValueBet[] {
   return store.valueBets;
 }
 
-// Get value bets grouped by event
 export function getValueBetsByEvent(): Map<string, ValueBet[]> {
   const grouped = new Map<string, ValueBet[]>();
   for (const vb of store.valueBets) {
@@ -264,7 +237,6 @@ export function getValueBetsByEvent(): Map<string, ValueBet[]> {
   return grouped;
 }
 
-// Provider Status
 export function setProviderStatus(
   provider: Provider,
   status: ProviderStatusUpdate,
@@ -327,12 +299,10 @@ export function getAllProviderStatus(): Record<Provider, ProviderStatus> {
   return store.providerStatus;
 }
 
-// Last Update
 export function getLastUpdate(): Date | null {
   return store.lastUpdate;
 }
 
-// Overall health
 export function getOverallStatus(): "ok" | "error" | "pending" {
   const statuses = Object.values(store.providerStatus);
   if (statuses.every((s) => s.status === "pending")) return "pending";
@@ -340,7 +310,6 @@ export function getOverallStatus(): "ok" | "error" | "pending" {
   return "error";
 }
 
-// Matching statistics
 export function getMatchingStats() {
   const events = Array.from(store.events.values());
   const matched = events.filter((e) => Object.keys(e.providers).length > 1);
@@ -352,7 +321,6 @@ export function getMatchingStats() {
   };
 }
 
-// Sync Status
 export function setSyncStatus(status: Partial<SyncStatus>): void {
   if (status.lastSyncEnd && !syncStatus.firstSyncCompletedAt) {
     status.firstSyncCompletedAt = status.lastSyncEnd;

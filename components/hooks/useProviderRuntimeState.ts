@@ -1,16 +1,5 @@
 "use client";
 
-/**
- * Hook that mirrors the server-side `enabled-providers` state.
- *
- * The provider dropdown in the spreadsheet toolbar drives this. Unchecking a
- * provider disables fixture fetching, odds fetching, and AI match analysis
- * for that provider on the backend — not just a UI filter.
- *
- * State is authoritative on the server (persisted to data/config/enabled-providers.json).
- * This hook hydrates once on mount, does optimistic updates on toggle, and
- * reverts on error with a toast.
- */
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -68,7 +57,6 @@ export function useProviderRuntimeState(): ProviderRuntimeState {
   );
 
   const toggle = useCallback(async (id: ProviderKey, enabled: boolean) => {
-    // Optimistic update
     setDisabled((prev) => {
       const next = new Set(prev);
       if (enabled) next.delete(id);
@@ -103,7 +91,6 @@ export function useProviderRuntimeState(): ProviderRuntimeState {
         });
       }
     } catch (err) {
-      // Revert optimistic change
       setDisabled((prev) => {
         const next = new Set(prev);
         if (enabled) next.add(id);

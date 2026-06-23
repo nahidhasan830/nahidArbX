@@ -1,9 +1,3 @@
-/**
- * Deterministic metric helpers for the analysis panel.
- *
- * All functions take plain ValueBetRow[] and return numbers. No I/O, no AI.
- * Keep the formulas here and the UI code free of math.
- */
 
 import { derive, settlementPnl } from "./derive";
 import {
@@ -13,18 +7,7 @@ import {
   type ValueBetRow,
 } from "./types";
 
-// ─────────────────────────────────────────────────────────────────
-// Closing Line Value (CLV)
-// ─────────────────────────────────────────────────────────────────
 
-/**
- * CLV% on the soft book: did we beat the sharp closing line at the price
- * we actually entered at?
- *   beatRatio = softOddsFirst / closingSharpOdds - 1
- * A +2–3% mean CLV with >55% beat-rate ≈ long-run profitable.
- *
- * Null if closing snapshot is missing for the row.
- */
 export const clvPct = (row: ValueBetRow): number | null => {
   if (row.closingSharpOdds == null) return null;
   return row.softOdds / row.closingSharpOdds - 1;
@@ -35,18 +18,11 @@ export type ClvSummary = {
   withClosing: number;
   meanPct: number | null;
   medianPct: number | null;
-  beatRatePct: number | null; // % of rows where clv > 0
-  /** 95% CI half-width on meanPct, in percentage points. Null if n < 2. */
+  beatRatePct: number | null;
   meanCiHalfWidthPct: number | null;
-  /** 95% CI half-width on beatRatePct, percentage points (Wilson). */
   beatRateCiHalfWidthPct: number | null;
 };
 
-/**
- * 95% confidence-interval half-width on the mean of a sample, using the
- * t-distribution approximation via z=1.96 (fine for n≥30, slightly tight for
- * smaller n — good enough for gut-checking). Returns null when n<2.
- */
 export const meanCi95 = (xs: number[]): number | null => {
   const n = xs.length;
   if (n < 2) return null;
@@ -56,11 +32,6 @@ export const meanCi95 = (xs: number[]): number | null => {
   return 1.96 * Math.sqrt(variance / n);
 };
 
-/**
- * 95% Wilson-score CI half-width on a proportion k/n, in proportion units
- * (multiply by 100 for percentage points). Better than Wald for small n and
- * proportions near 0 or 1.
- */
 export const wilsonCi95 = (k: number, n: number): number | null => {
   if (n === 0) return null;
   const z = 1.96;
@@ -100,7 +71,7 @@ export const summarizeClv = (rows: ValueBetRow[]): ClvSummary => {
   }
   const sum = values.reduce((s, x) => s + x, 0);
   const beats = values.filter((x) => x > 0).length;
-  const meanCi = meanCi95(values); // CI on fraction (values are in fraction units)
+  const meanCi = meanCi95(values);
   const beatCi = wilsonCi95(beats, withClosing);
   return {
     n: rows.length,
@@ -113,17 +84,7 @@ export const summarizeClv = (rows: ValueBetRow[]): ClvSummary => {
   };
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Calibration — Brier, log loss, reliability decile
-// ─────────────────────────────────────────────────────────────────
 
-/**
- * Binary label for probability-calibration metrics (Brier, log-loss,
- * reliability, z-score). We deliberately exclude half_won / half_lost
- * here — those are structurally mixed outcomes and introducing fractional
- * labels would complicate the Bernoulli-variance interpretation. They're
- * still captured in the P&L metrics (Sortino, equity curve, ROI).
- */
 const decidedOutcome = (o: ValueBetRow["outcome"]): 0 | 1 | null => {
   if (o === "won") return 1;
   if (o === "lost") return 0;
@@ -162,10 +123,6 @@ export type ReliabilityBucket = {
   n: number;
 };
 
-/**
- * 10-decile reliability diagram: predicted trueProb vs realized win rate.
- * Buckets use equal-width probability bins (0.0–0.1, 0.1–0.2, …, 0.9–1.0).
- */
 export const reliabilityBuckets = (
   rows: ValueBetRow[],
 ): ReliabilityBucket[] => {
@@ -190,9 +147,6 @@ export const reliabilityBuckets = (
   }));
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Risk metrics — Sortino, Ulcer, max drawdown
-// ─────────────────────────────────────────────────────────────────
 
 const stakeFlat = () => 1;
 
@@ -216,12 +170,7 @@ const buildEquityCurve = (rows: ValueBetRow[]): EquityCurve => {
   return curve;
 };
 
-/**
- * Sortino: (mean_return_per_bet - MAR) / downside_stdev
- * MAR = 0 (break-even). Denominator uses only returns below MAR.
- */
 export const sortino = (rows: ValueBetRow[]): number | null => {
-  // Any row with non-zero P&L counts — that includes half-wins/half-losses.
   const decided = rows.filter((r) => hasPnl(r.outcome as Outcome));
   if (decided.length < 2) return null;
 
@@ -236,10 +185,6 @@ export const sortino = (rows: ValueBetRow[]): number | null => {
   return mean / downsideStd;
 };
 
-/**
- * Ulcer Index: sqrt(mean(drawdown_pct^2)) over the equity curve.
- * Penalises depth AND duration of drawdowns. Expressed in equity units.
- */
 export const ulcerIndex = (rows: ValueBetRow[]): number => {
   const curve = buildEquityCurve(rows);
   let peak = 0;
@@ -266,15 +211,7 @@ export const maxDrawdown = (rows: ValueBetRow[]): number => {
   return maxDD;
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Significance — z-score of wins vs expected, BH-FDR correction,
-// Bayesian shrinkage.
-// ─────────────────────────────────────────────────────────────────
 
-/**
- * z-score: (observed wins - sum(trueProb)) / sqrt(sum(p*(1-p)))
- * |z|<2 = noise, 2–3 = tentative, >3 = signal.
- */
 export const winZScore = (rows: ValueBetRow[]): number | null => {
   let sumP = 0;
   let variance = 0;
@@ -291,7 +228,6 @@ export const winZScore = (rows: ValueBetRow[]): number | null => {
   return (wins - sumP) / Math.sqrt(variance);
 };
 
-/** Normal two-sided p-value via Abramowitz & Stegun 7.1.26 approximation. */
 export const zToPValue = (z: number): number => {
   const absZ = Math.abs(z);
   const b1 = 0.31938153;
@@ -306,11 +242,6 @@ export const zToPValue = (z: number): number => {
   return 2 * cdfUpper;
 };
 
-/**
- * Benjamini–Hochberg FDR correction.
- * Input: array of raw p-values. Output: same length array of adjusted p-values,
- * where adj[i] is the BH-adjusted p for the original i-th input.
- */
 export const bhAdjust = (pvals: (number | null)[]): (number | null)[] => {
   const withIdx = pvals
     .map((p, i) => ({ p, i }))
@@ -319,7 +250,6 @@ export const bhAdjust = (pvals: (number | null)[]): (number | null)[] => {
   const m = withIdx.length;
   const adjusted = new Array(pvals.length).fill(null) as (number | null)[];
 
-  // Step-up: adj_k = min_{j>=k} p_j * m / j
   let minSoFar = 1;
   for (let k = m - 1; k >= 0; k--) {
     const { p, i } = withIdx[k];
@@ -330,12 +260,6 @@ export const bhAdjust = (pvals: (number | null)[]): (number | null)[] => {
   return adjusted;
 };
 
-/**
- * Bayesian shrinkage toward a population mean.
- *   posterior = (n * sample + n_prior * prior) / (n + n_prior)
- * n_prior ≈ 500 is a mildly informative prior; tune lower for more trust in
- * the sample. Returns the shrunk value.
- */
 export const shrinkToward = (
   sample: number,
   n: number,
@@ -346,9 +270,6 @@ export const shrinkToward = (
   return (n * sample + nPrior * prior) / (n + nPrior);
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Bucketers for pivot-table dimensions
-// ─────────────────────────────────────────────────────────────────
 
 export const evBucket = (evPct: number): string => {
   if (evPct < 0) return "neg";
@@ -423,14 +344,7 @@ export const valueForDimension = (
   }
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Walk-forward split
-// ─────────────────────────────────────────────────────────────────
 
-/**
- * Split rows into (train, test) by first_seen_at. Default 70/30.
- * Only out-of-sample (test) rows should drive strategy decisions.
- */
 export const walkForwardSplit = (
   rows: ValueBetRow[],
   testFraction = 0.3,
@@ -445,9 +359,6 @@ export const walkForwardSplit = (
   };
 };
 
-// ─────────────────────────────────────────────────────────────────
-// Inline toolbar metrics — flat and quarter-Kelly ROI summaries
-// ─────────────────────────────────────────────────────────────────
 
 export type InlineMetrics = {
   settledBets: number;

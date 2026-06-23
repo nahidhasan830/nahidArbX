@@ -1,11 +1,3 @@
-/**
- * Placeholder data for the betting dashboard. Only the demo 9W Exchange
- * account card lives here — real placed-bet rows, KPIs, charts and
- * breakdowns now come from the unified `bets` Postgres table.
- *
- * Once we add a real 9W Exchange adapter this file can be deleted and
- * the dashboard will fall back to "No account configured".
- */
 
 export interface DemoAccount {
   provider: string;

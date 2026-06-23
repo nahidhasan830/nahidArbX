@@ -1,27 +1,3 @@
-/**
- * Telegram notification channel. Uses HTML parse_mode — HTML only
- * requires escaping `<`, `>`, `&`, which keeps odds/stakes/currency
- * formatting safe by default.
- *
- * Design system (applied to every event type):
- *   - STRICT one-fact-per-line layout. Every line = one emoji + one
- *     piece of info. No " · " cramming. No blank-line dividers. No
- *     blockquotes. No expandable drawers.
- *   - Order is always:  title → event/league/time → market/selection
- *     → stake/odds → score/pnl (settled only) → provider/ticket/ts.
- *   - Two legitimate exceptions to "one fact":
- *       1. Market → Selection are semantically one fact ("what I bet").
- *       2. Stake @ Odds are semantically one fact ("the price I paid").
- *     Everything else stays on its own line.
- *   - Always explicit signed money/percentages so outcomes
- *     pattern-match at a glance (+ / − / ➖).
- *
- * Creds come from .env:
- *   TELEGRAM_BOT_TOKEN
- *   TELEGRAM_CHAT_ID
- *
- * Reference: https://core.telegram.org/bots/api#formatting-options
- */
 import type {
   AiEngineStateEvent,
   AiModelStateEvent,
@@ -116,7 +92,6 @@ function formatMlTrainingStarted(e: MlTrainingStartedEvent): FormattedMessage {
   );
   lines.push(`🧬 Features: v${e.featureVersion}, ${e.featureCount} columns`);
 
-  // Growth comparison vs previous model
   if (e.previousModelSamples != null && e.previousModelSamples > 0) {
     const growth = e.trainerExpectedSamples - e.previousModelSamples;
     const growthPct = Math.round((growth / e.previousModelSamples) * 100);
@@ -154,7 +129,6 @@ function formatMlTrainingCompleted(
     lines.push(`⏱ Finished in ${esc(durationLabel(e.durationMs))}`);
   }
 
-  // Metrics block
   if (e.aucRoc != null || e.dsr != null || e.pbo != null) {
     const quality: string[] = [];
     if (e.aucRoc != null) {
@@ -171,7 +145,6 @@ function formatMlTrainingCompleted(
     }
   }
 
-  // Rejection reasons
   if (e.rejectionReasons && e.rejectionReasons.length > 0) {
     lines.push(`🚫 Rejection reasons:`);
     for (const reason of e.rejectionReasons.slice(0, 5)) {
@@ -250,9 +223,6 @@ export const telegramChannel: NotificationChannel = {
   },
 };
 
-// --------------------------------------------------------------------
-// Formatters
-// --------------------------------------------------------------------
 
 interface FormattedMessage {
   text: string;
@@ -288,9 +258,6 @@ function formatMessage(event: NotificationEvent): FormattedMessage | null {
   }
 }
 
-// --------------------------------------------------------------------
-// bet:placed
-// --------------------------------------------------------------------
 
 function formatPlaced(e: BetPlacedEvent): FormattedMessage {
   const modeLabel = e.mode === "auto" ? "Auto" : "Manual";
@@ -332,9 +299,6 @@ function formatPlaced(e: BetPlacedEvent): FormattedMessage {
   };
 }
 
-// --------------------------------------------------------------------
-// bet:settled
-// --------------------------------------------------------------------
 
 function formatSettled(e: BetSettledEvent): FormattedMessage {
   const outcomeIcon: Record<BetSettledEvent["outcome"], string> = {
@@ -405,9 +369,6 @@ function formatSettled(e: BetSettledEvent): FormattedMessage {
   };
 }
 
-// --------------------------------------------------------------------
-// bet:error
-// --------------------------------------------------------------------
 
 function formatError(e: BetErrorEvent): FormattedMessage {
   const lines: string[] = [];
@@ -434,9 +395,6 @@ function formatError(e: BetErrorEvent): FormattedMessage {
     )}`,
   );
 
-  // Attempted stake @ odds + potential return. Rendered whenever sizing
-  // got resolved, so the operator sees exactly what we asked the book
-  // to accept — stale caches and cap edits both surface here.
   if (
     typeof e.stake === "number" &&
     typeof e.odds === "number" &&
@@ -458,8 +416,6 @@ function formatError(e: BetErrorEvent): FormattedMessage {
     lines.push(`📏 Kelly ${esc(kellyFractionLabel(e.kellyFraction))}`);
   }
 
-  // Book-window context so a "below minimum" error reads with the
-  // actual numbers, not just the book's raw string.
   if (typeof e.minBet === "number" || typeof e.maxBet === "number") {
     const minStr =
       typeof e.minBet === "number" ? e.minBet.toLocaleString() : "—";
@@ -499,9 +455,6 @@ const REASON_CATEGORY_LABEL: Record<
   unknown: "unknown",
 };
 
-// --------------------------------------------------------------------
-// ai engine/model lifecycle
-// --------------------------------------------------------------------
 
 function formatAiEngineState(e: AiEngineStateEvent): FormattedMessage {
   const icon =
@@ -566,9 +519,6 @@ function formatAiModelState(e: AiModelStateEvent): FormattedMessage {
   return { text: lines.join("\n") };
 }
 
-// --------------------------------------------------------------------
-// system
-// --------------------------------------------------------------------
 
 function formatSystem(e: SystemEvent): FormattedMessage {
   const severityIcon =
@@ -582,12 +532,10 @@ function formatSystem(e: SystemEvent): FormattedMessage {
   const lines: string[] = [];
   if (rawLines.length > 0) {
     const first = rawLines[0];
-    // Support "Title · stat" pattern exactly like bet placed/settled.
-    // Bold only the title part, put · data after (outside bold).
     const dotIdx = first.indexOf(" · ");
     if (dotIdx > 0) {
       const title = first.slice(0, dotIdx);
-      const data = first.slice(dotIdx); // " · stat..."
+      const data = first.slice(dotIdx);
       lines.push(`${severityIcon} <b>${esc(title)}</b>${esc(data)}`);
     } else {
       lines.push(`${severityIcon} <b>${esc(first)}</b>`);
@@ -623,9 +571,6 @@ function formatProviderHealth(e: ProviderHealthEvent): FormattedMessage {
   return { text: lines.join("\n") };
 }
 
-// --------------------------------------------------------------------
-// system:boot
-// --------------------------------------------------------------------
 
 function formatBoot(e: SystemBootEvent): FormattedMessage {
   return e.process === "engine" ? formatEngineBoot(e) : formatFrontendBoot(e);
@@ -638,12 +583,10 @@ function formatEngineBoot(e: SystemBootEvent): FormattedMessage {
   const envShort = e.env === "production" ? "prod" : "dev";
   const port = e.enginePort ?? 3001;
 
-  // Title line like bet settlement: icon <b>Title</b> · key info
   lines.push(`⚙️ <b>Engine started</b> · ${envShort} :${port}`);
 
   lines.push(`${envEmoji} Node ${esc(e.nodeVersion)} · PID <code>${e.pid ?? "-"}</code>`);
 
-  // Compact subsystems on one or two lines
   const subs: string[] = [];
   if (typeof e.syncScheduler === "boolean") {
     subs.push(`sync ${e.syncScheduler ? "on" : "off"}`);
@@ -694,9 +637,6 @@ function formatFrontendBoot(e: SystemBootEvent): FormattedMessage {
   return { text: lines.join("\n") };
 }
 
-// --------------------------------------------------------------------
-// system:unified_boot  (dev:all combined notification)
-// --------------------------------------------------------------------
 
 function formatUnifiedBoot(e: UnifiedBootEvent): FormattedMessage {
   const lines: string[] = [];
@@ -774,9 +714,6 @@ function formatUnifiedBoot(e: UnifiedBootEvent): FormattedMessage {
   return { text: lines.join("\n") };
 }
 
-// --------------------------------------------------------------------
-// Helpers
-// --------------------------------------------------------------------
 
 function buildButtons(dashboardUrl?: string): InlineKey[] | undefined {
   const btns: InlineKey[] = [];
@@ -785,19 +722,12 @@ function buildButtons(dashboardUrl?: string): InlineKey[] | undefined {
 }
 
 
-
 function formatAiEngineLabel(engine: string): string {
   if (engine === "huggingface") return "HuggingFace (primary)";
   if (engine === "groq") return "Groq (fallback)";
   return engine;
 }
 
-/**
- * Market-type prettifier. Extends the shared formatter with
- * notifier-only aliases (e.g. "MATCH_ODDS"), and falls back to a
- * generic Title-Case pass for anything we haven't mapped explicitly so
- * no raw SCREAMING_SNAKE_CASE leaks into Telegram.
- */
 const NOTIFIER_MARKET_ALIASES: Record<string, string> = {
   MATCH_ODDS: "Match Odds",
   MATCH_RESULT: "Match Odds",
@@ -819,8 +749,6 @@ function formatMarketType(marketType: string): string {
     return NOTIFIER_MARKET_ALIASES[marketType];
   }
   const fromShared = formatMarketTypeBase(marketType);
-  // The shared formatter returns the raw input when unknown; catch
-  // that case and title-case it so we never ship SCREAMING_SNAKE_CASE.
   if (fromShared === marketType && /^[A-Z0-9_]+$/.test(marketType)) {
     return marketType
       .split("_")
@@ -831,16 +759,6 @@ function formatMarketType(marketType: string): string {
   return fromShared;
 }
 
-/**
- * Build a human-readable market→selection line.
- *
- *   OVER_UNDER + timeScope=1H + line=2.5 + "Over"  →  "1st Half · Over/Under 2.5 → Over"
- *   ASIAN_HANDICAP        + "Home -1.25"           →  "Handicap → Home -1.25"
- *
- * If the selection label already embeds the line ("Home -1.25"),
- * we don't re-append it. Otherwise we suffix the line so totals-style
- * selections ("Over", "Under") gain their line.
- */
 function buildSelectionLine(
   marketName: string,
   selectionName: string,
@@ -860,7 +778,7 @@ function buildSelectionLine(
 function formatTimeScope(scope: string | null): string | null {
   if (!scope) return null;
   const s = scope.toUpperCase();
-  if (s === "FT") return null; // implicit
+  if (s === "FT") return null;
   const map: Record<string, string> = {
     HT: "Half-time",
     "1H": "1st Half",
@@ -880,17 +798,6 @@ function formatTimeScope(scope: string | null): string | null {
   return map[s] ?? s;
 }
 
-/**
- * Compact score line:
- *   FT              → "📊 FT · 3-1 (HT 1-0)"
- *   AET             → "📊 AET · 3-3 (ET 3-3)"
- *   PEN             → "📊 PEN · 2-2 (Pens 5-4)"
- *   POSTPONED/ABD   → "📅 Postponed" / "🛑 Abandoned"
- *
- * Deliberately drops the team-name hint — the event title right above
- * already shows "<Home> vs <Away>", so repeating it here just adds
- * visual noise (we saw this in the 2026-04-20 screenshot review).
- */
 function buildScoreLine(score: MatchScoreInfo): string | null {
   const {
     status,
@@ -999,7 +906,6 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, max - 1)}…`;
 }
 
-// HTML parse_mode reserved chars: only < > & need escaping.
 function esc(s: string): string {
   return s.replace(/[<>&]/g, (c) => {
     if (c === "<") return "&lt;";

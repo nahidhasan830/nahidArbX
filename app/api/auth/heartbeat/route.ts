@@ -1,9 +1,3 @@
-/**
- * POST /api/auth/heartbeat
- *
- * Updates user's last activity time.
- * Called periodically by the frontend to track online status.
- */
 
 import { cookies } from "next/headers";
 import { validateSession } from "@/lib/auth/session";
@@ -13,7 +7,6 @@ import { apiSuccess, apiError } from "@/lib/shared/api-response";
 
 export async function POST() {
   try {
-    // Dev-mode bypass: no-op heartbeat.
     if (process.env.NODE_ENV === "development") {
       return apiSuccess({ timestamp: new Date().toISOString() });
     }
@@ -33,7 +26,6 @@ export async function POST() {
 
     const now = new Date();
 
-    // Update user's last activity
     await db
       .update(users)
       .set({ updatedAt: now })

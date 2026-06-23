@@ -1,18 +1,3 @@
-/**
- * GET /api/betting-accounts
- *
- * Returns live balance/exposure/status + session health for every
- * configured betting account. 9W Sportsbook is the real account;
- * 9W Exchange is currently returned as demo data.
- *
- * POST /api/betting-accounts
- *   body: { provider: string, action: "relogin" }
- *
- * Forces a fresh Playwright login for the given provider. Used by the
- * dashboard's "Re-login" button when the operator wants to recover
- * from a dead session without waiting for the next API call to
- * trigger it.
- */
 import { NextResponse } from "next/server";
 import * as fs from "fs";
 import * as path from "path";
@@ -61,8 +46,6 @@ const SESSION_FILE_VELKI = path.join("sessions", "velki", "session.json");
 const EXPIRING_WINDOW_MS = 10 * 60 * 1000;
 
 export async function GET() {
-  // Fetch in parallel — 9W's Playwright relogin can take 3-5s, no
-  // reason to block Velki on it.
   const [nineW, velki] = await Promise.all([
     fetch9wktsAccount(),
     fetchVelkiAccount(),
@@ -97,11 +80,6 @@ export async function POST(req: Request) {
 
   try {
     if (provider === "ninewickets-sportsbook") {
-      // Full clean-slate: invalidate the stale session, dispose any
-      // active capture browser, and reset both 9W circuit breakers so
-      // the first post-recovery request actually hits the book.
-      // Mirrors the off→on auto-login toggle path — same problem,
-      // same cure.
       invalidateSession();
       await shutdownSessionBrowser();
       resetCircuitBreaker("ninewickets-exchange");
@@ -116,10 +94,6 @@ export async function POST(req: Request) {
     }
 
     if (provider === "velki-sportsbook") {
-      // Velki has no Playwright / Cloudflare layer — the 3-step REST
-      // chain in captureSession handles re-auth on its own. Just wipe
-      // the session and call queryPlayerInfo (which goes through the
-      // capture-with-retries wrapper).
       invalidateVelkiSession();
       resetCircuitBreaker("velki-sportsbook");
       const fresh = await getVelkiSession(true);
@@ -166,8 +140,6 @@ async function fetch9wktsAccount(): Promise<BettingAccount> {
 
   try {
     const info = await queryPlayerInfo();
-    // queryPlayerInfo may have rotated the session (auto re-login) —
-    // re-read disk so the UI shows the fresh expiry.
     const latest = read9wSessionMeta();
     return {
       ...base,
@@ -208,13 +180,6 @@ async function fetchVelkiAccount(): Promise<BettingAccount> {
   };
 
   try {
-    // Provider-tier balance is the only source of truth (main-site
-    // wallet was retired 2026-04-26 to eliminate dual-source drift).
-    // Drift-zero detection: when betCredit reads 0 and auto-login is
-    // ON, the helper invalidates the JSESSIONID and re-queries — a
-    // zero from a stale session is the most common cause of the "BDT
-    // 0.00" UI bug. Operator-paused auto-login skips the recapture so
-    // a manual login on Velki isn't kicked.
     const { info } = await readPlayerInfoWithRecapture();
     const latest = readVelkiSessionMeta();
     return {
@@ -289,12 +254,6 @@ function readVelkiSessionMeta(): { capturedAt: string | null } {
   }
 }
 
-/**
- * Velki tokens are opaque — no exp claim. Until a request actually 401s
- * we can't tell if a stored session is still good. Mark health as
- * "healthy" if we have any captured session, "unknown" otherwise. The
- * dashboard's auto-refresh will surface real failures via `error`.
- */
 function buildVelkiSessionStatus(
   capturedAt: string | null,
 ): BettingAccount["session"] {

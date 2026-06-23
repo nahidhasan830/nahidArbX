@@ -1,83 +1,48 @@
-/**
- * Provider Registry — single source of truth for all provider metadata.
- *
- * ## Adding a new provider (checklist)
- *
- * 1. Add an entry to `PROVIDER_REGISTRY` below — id, names, source,
- *    bookmakerType, color, commission, and `fetch.concurrency`.
- * 2. Create `lib/atoms/mappings/<provider>.ts` exporting the raw → atoms
- *    extraction function.
- * 3. Create `lib/atoms/adapters/<provider>.ts` extending `BaseAtomsAdapter`.
- *    If the provider holds a persistent connection (WebSocket, poller),
- *    implement `onEnable()` / `onDisable()` so the providers API can toggle
- *    it without provider-specific code.
- * 4. (Optional) Create `lib/adapters/<provider>.ts` if events come from a
- *    different source than an existing provider.
- * 5. Wire both adapters into `lib/adapters/unified-registry.ts`.
- * 6. If auth/tokens are needed, add to `lib/auth/token-manager.ts`.
- *
- * No other files need to change. The orchestrator, value detector, runtime
- * toggles, and UI filters all derive from the registry.
- */
 
 import type { OddsSource } from "../types";
 
-// ============================================
-// Types
-// ============================================
 
 export type BookmakerType = "sharp" | "soft";
 
 export interface ProviderMetadata {
   id: string;
-  shortName: string; // "PL", "9W-Ex", "9W-SB"
-  displayName: string; // "Pinnacle", "9W Exchange"
-  source: OddsSource; // "exchange" | "sportsbook"
-  bookmakerType: BookmakerType; // "sharp" = benchmark odds, "soft" = target for value
+  shortName: string;
+  displayName: string;
+  source: OddsSource;
+  bookmakerType: BookmakerType;
   integration: {
-    /** Top-level transport family. Used for orchestration and status copy. */
     kind: "polling" | "websocket" | "managed";
-    /** Optional shared platform, e.g. providers backed by Genius Sports. */
     platform?: "genius-sports" | "pinnacle" | "betconstruct" | "saba";
-    /** Human-readable runtime data source shown in boot/status payloads. */
     dataSourceLabel?: string;
-    /** Some books require post-submit bet-history confirmation before DB write. */
     requiresPlacementConfirmation?: boolean;
-    /** Provider has a betting adapter and can submit real bets. */
     placeable?: boolean;
-    /** Health manager should count this provider toward data-source health. */
     contributesToDataHealth?: boolean;
-    /** Entity-alias evidence weight for positive observations. */
     observationWeight: number;
-    /** Fixture fetch circuit-breaker timeout. */
     timeoutMs: number;
   };
   color: {
-    bg: string; // Tailwind bg class
-    text: string; // Tailwind text class
-    bgDark: string; // Dark mode bg
-    textDark: string; // Dark mode text
-    accent: string; // Status indicator
-    border: string; // Border color
-    borderDark: string; // Dark mode border
-    chartStroke: string; // SVG stroke class for charts
-    chartDot: string; // Bg class for chart legend dots
-    textInline: string; // Text color for dark-mode-friendly inline labels
-    chartHex: string; // Hex color for canvas charting
+    bg: string;
+    text: string;
+    bgDark: string;
+    textDark: string;
+    accent: string;
+    border: string;
+    borderDark: string;
+    chartStroke: string;
+    chartDot: string;
+    textInline: string;
+    chartHex: string;
   };
   requiresAuth: boolean;
   enabled: boolean;
-  commissionPct: number; // Commission percentage (0-100), e.g., 5 for 5% commission on winnings
+  commissionPct: number;
   fetch: {
-    concurrency: number; // Max in-flight odds fetches per cycle
+    concurrency: number;
   };
 }
 
 export const DEFAULT_FETCH_CONCURRENCY = 20;
 
-// ============================================
-// Registry
-// ============================================
 
 export const PROVIDER_REGISTRY = {
   pinnacle: {
@@ -276,48 +241,27 @@ export const PROVIDER_REGISTRY = {
   },
 } as const;
 
-// ============================================
-// Derived Types
-// ============================================
 
 export type ProviderKey = keyof typeof PROVIDER_REGISTRY;
 export const PROVIDER_IDS = Object.keys(PROVIDER_REGISTRY) as ProviderKey[];
 
-// ============================================
-// Helper Functions
-// ============================================
 
-/**
- * Get enabled provider IDs
- */
 export function getEnabledProviderIds(): ProviderKey[] {
   return PROVIDER_IDS.filter((id) => PROVIDER_REGISTRY[id].enabled);
 }
 
-/**
- * Get display name for provider
- */
 export function getProviderDisplayName(id: string): string {
   return PROVIDER_REGISTRY[id as ProviderKey]?.displayName ?? id;
 }
 
-/**
- * Get short name for provider
- */
 export function getProviderShortName(id: string): string {
   return PROVIDER_REGISTRY[id as ProviderKey]?.shortName ?? id;
 }
 
-/**
- * Get display name (full label) for provider
- */
 export function getProviderLabel(id: string): string {
   return PROVIDER_REGISTRY[id as ProviderKey]?.displayName ?? id;
 }
 
-/**
- * Get color classes for provider badge (includes border)
- */
 export function getProviderColorClasses(id: string): string {
   const provider = PROVIDER_REGISTRY[id as ProviderKey];
   if (!provider) {
@@ -327,28 +271,15 @@ export function getProviderColorClasses(id: string): string {
   return `${c.bg} ${c.text} ${c.bgDark} ${c.textDark} border ${c.border} ${c.borderDark}`;
 }
 
-/**
- * Check if provider is enabled
- */
 export function isProviderEnabled(id: string): boolean {
   return PROVIDER_REGISTRY[id as ProviderKey]?.enabled ?? false;
 }
 
-/**
- * Get source type for a provider (exchange or sportsbook)
- */
 export function getProviderSource(id: string): OddsSource | undefined {
   return PROVIDER_REGISTRY[id as ProviderKey]?.source;
 }
 
-// ============================================
-// Bookmaker Type Helpers (Value Betting)
-// ============================================
 
-/**
- * Get all sharp (benchmark) providers
- * Sharp bookmakers have accurate odds - used as true probability source
- */
 export function getSharpProviders(): ProviderKey[] {
   return PROVIDER_IDS.filter(
     (id) =>
@@ -357,10 +288,6 @@ export function getSharpProviders(): ProviderKey[] {
   );
 }
 
-/**
- * Get all soft (target) providers
- * Soft bookmakers may offer value - compare against sharp odds
- */
 export function getSoftProviders(): ProviderKey[] {
   return PROVIDER_IDS.filter(
     (id) =>
@@ -369,9 +296,6 @@ export function getSoftProviders(): ProviderKey[] {
   );
 }
 
-/**
- * Get IDs of disabled soft providers — used to auto-exclude from dataset queries.
- */
 export function getDisabledSoftProviderIds(): string[] {
   return PROVIDER_IDS.filter(
     (id) =>
@@ -380,39 +304,22 @@ export function getDisabledSoftProviderIds(): string[] {
   );
 }
 
-/**
- * Check if a provider is a sharp bookmaker
- */
 export function isSharpProvider(id: string): boolean {
   return PROVIDER_REGISTRY[id as ProviderKey]?.bookmakerType === "sharp";
 }
 
-/**
- * Check if a provider is a soft bookmaker
- */
 export function isSoftProvider(id: string): boolean {
   return PROVIDER_REGISTRY[id as ProviderKey]?.bookmakerType === "soft";
 }
 
-/**
- * Get bookmaker type for a provider
- */
 export function getBookmakerType(id: string): BookmakerType | undefined {
   return PROVIDER_REGISTRY[id as ProviderKey]?.bookmakerType;
 }
 
-/**
- * Get commission percentage for a provider
- * Exchanges typically charge commission on winnings, sportsbooks have margin in odds
- */
 export function getProviderCommission(id: string): number {
   return PROVIDER_REGISTRY[id as ProviderKey]?.commissionPct ?? 0;
 }
 
-/**
- * Get the configured per-provider concurrency limit for the odds fetcher.
- * Falls back to DEFAULT_FETCH_CONCURRENCY for unknown providers.
- */
 export function getProviderConcurrency(id: string): number {
   return (
     PROVIDER_REGISTRY[id as ProviderKey]?.fetch.concurrency ??
@@ -477,26 +384,16 @@ export function getProviderDataSourceLabels(
   return Array.from(labels);
 }
 
-/**
- * SVG stroke class for charts (e.g. "stroke-amber-400")
- */
 export function getProviderChartStroke(id: string): string {
   return (
     PROVIDER_REGISTRY[id as ProviderKey]?.color.chartStroke ?? "stroke-primary"
   );
 }
 
-/**
- * Bg class for chart legend dots (e.g. "bg-amber-400")
- */
 export function getProviderChartDot(id: string): string {
   return PROVIDER_REGISTRY[id as ProviderKey]?.color.chartDot ?? "bg-primary";
 }
 
-/**
- * Dark-mode-friendly text color for inline provider labels
- * in tables and lists (e.g. "text-amber-400 dark:text-amber-300")
- */
 export function getProviderTextInline(id: string): string {
   return (
     PROVIDER_REGISTRY[id as ProviderKey]?.color.textInline ??
@@ -504,9 +401,6 @@ export function getProviderTextInline(id: string): string {
   );
 }
 
-/**
- * Raw hex color string for canvas-based charts like lightweight-charts.
- */
 export function getProviderChartHex(id: string): string {
-  return PROVIDER_REGISTRY[id as ProviderKey]?.color.chartHex ?? "#94a3b8"; // slate-400 fallback
+  return PROVIDER_REGISTRY[id as ProviderKey]?.color.chartHex ?? "#94a3b8";
 }

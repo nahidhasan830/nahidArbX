@@ -14,14 +14,9 @@ export interface StakeInputs {
   fullKelly: number;
   bankrollBdt: number;
   kellyCapPct: number;
-  /** Kelly multiplier (0 < x ≤ 1). 0.25 = quarter Kelly (default). */
   kellyFraction: number;
 }
 
-/**
- * Derive EV% and full-Kelly fraction from raw bet row fields.
- * Single source of truth — used by the auto-placer and the dashboard preview.
- */
 export function deriveEdge(row: EdgeInputs): EdgeResult {
   const adjustedOdds =
     1 + (row.softOdds - 1) * (1 - row.softCommissionPct / 100);
@@ -32,11 +27,6 @@ export function deriveEdge(row: EdgeInputs): EdgeResult {
   return { evPct, fullKelly, adjustedOdds };
 }
 
-/**
- * Compute BDT stake using fractional-Kelly sizing with a percentage-of-bankroll
- * cap. `kellyFraction` is the multiplier (1 = full, 0.5 = half, 0.25 = quarter).
- * Pre-rounding and pre-book-min/max — those adjustments happen in the placer.
- */
 export function computeStake({
   fullKelly,
   bankrollBdt,

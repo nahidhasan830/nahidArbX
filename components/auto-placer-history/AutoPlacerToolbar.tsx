@@ -1,12 +1,5 @@
 "use client";
 
-/**
- * AutoPlacerToolbar — filter toolbar for the auto-placer log page.
- *
- * Filters: status, gate, provider, date range, search.
- * Stats strip: placed, pending, skipped, rejected, error counts.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Clock, ChevronDown, Loader2, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -40,8 +33,6 @@ import {
 } from "@/lib/bets-history/date-presets";
 import { cn } from "@/lib/utils";
 import type { AutoPlacerLogStats } from "@/lib/db/repositories/auto-placer-log";
-
-// ── Status tabs ──
 
 type StatusFilter =
   | "all"
@@ -96,8 +87,6 @@ const STATUS_TABS: { id: StatusFilter; label: string; title: string }[] = [
   { id: "error", label: "Error", title: "Transport/auth/parse errors" },
 ];
 
-// ── Gate filter options ──
-
 const GATE_OPTIONS: { value: string; label: string }[] = [
   { value: "toggle", label: "Toggle Off" },
   { value: "adapter", label: "No Adapter" },
@@ -116,8 +105,6 @@ const GATE_OPTIONS: { value: string; label: string }[] = [
   { value: "placed", label: "Placed ✓" },
   { value: "pending", label: "Pending…" },
 ];
-
-// ── Date preset helpers ──
 
 const DATE_PRESET_GROUPS: { title: string; keys: DatePresetKey[] }[] = [
   {
@@ -169,16 +156,12 @@ function getCompactPresetLabel(key: DatePresetKey) {
   );
 }
 
-// ── Shared style primitives ──
-
 const CTRL_H = "h-7";
 const BTN_BASE = cn(CTRL_H, "px-2 text-[11px] gap-1.5 font-normal");
 
 function ToolbarSep() {
   return <div className="w-px h-5 bg-border shrink-0" />;
 }
-
-// ── Date preset panel ──
 
 function PresetGrid({
   activePreset,
@@ -221,8 +204,6 @@ function PresetGrid({
   );
 }
 
-// ── Filters type ──
-
 export type LogFilters = {
   from?: string;
   to?: string;
@@ -231,8 +212,6 @@ export type LogFilters = {
   softProviders?: string[];
   search?: string;
 };
-
-// ── Props ──
 
 type Props = {
   filters: LogFilters;
@@ -245,8 +224,6 @@ type Props = {
   statsLoading?: boolean;
   loading?: boolean;
 };
-
-// ── Component ──
 
 export function AutoPlacerToolbar({
   filters,
@@ -266,36 +243,39 @@ export function AutoPlacerToolbar({
     [filters, onFiltersChange],
   );
 
-  // ── Debounced search ──
-  const [localSearch, setLocalSearch] = useState(filters.search ?? "");
+  const externalSearch = filters.search ?? "";
+  const [searchDraft, setSearchDraft] = useState({
+    external: externalSearch,
+    value: externalSearch,
+  });
+  const localSearch =
+    searchDraft.external === externalSearch ? searchDraft.value : externalSearch;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    setLocalSearch(filters.search ?? "");
-  }, [filters.search]);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, [externalSearch]);
 
   const commitSearch = useCallback(
     (value: string) => {
       update({ search: value || undefined });
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters],
+    [update],
   );
 
   const handleSearchChange = useCallback(
     (value: string) => {
-      setLocalSearch(value);
+      setSearchDraft({ external: externalSearch, value });
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => commitSearch(value), 300);
     },
-    [commitSearch],
+    [commitSearch, externalSearch],
   );
 
   const clearSearch = useCallback(() => {
-    setLocalSearch("");
+    setSearchDraft({ external: externalSearch, value: "" });
     if (debounceRef.current) clearTimeout(debounceRef.current);
     update({ search: undefined });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
+  }, [externalSearch, update]);
 
   useEffect(() => {
     return () => {
@@ -303,7 +283,6 @@ export function AutoPlacerToolbar({
     };
   }, []);
 
-  // ── Active status ──
   const activeStatus: StatusFilter = (() => {
     const s = filters.statuses;
     if (!s || s.length === 0) return "all";
@@ -319,7 +298,6 @@ export function AutoPlacerToolbar({
     }
   };
 
-  // ── Gate filter ──
   const selectedGates = filters.gates ?? [];
   const toggleGate = (gate: string) => {
     const current = new Set(selectedGates);
@@ -331,7 +309,6 @@ export function AutoPlacerToolbar({
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex flex-col gap-0 border-b border-border">
-        {/* ── Row 1: Status tabs ── */}
         <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 overflow-x-auto">
           {STATUS_TABS.map((tab) => {
             const active = activeStatus === tab.id;
@@ -375,9 +352,7 @@ export function AutoPlacerToolbar({
           })}
         </div>
 
-        {/* ── Row 2: Filters ── */}
         <div className="flex items-center gap-1.5 px-2.5 py-1.5 flex-wrap">
-          {/* Search */}
           <div className="relative shrink-0">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground/50" />
             <Input
@@ -399,7 +374,6 @@ export function AutoPlacerToolbar({
 
           <ToolbarSep />
 
-          {/* Date range */}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className={BTN_BASE}>
@@ -418,7 +392,6 @@ export function AutoPlacerToolbar({
 
           <ToolbarSep />
 
-          {/* Gate filter */}
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className={BTN_BASE}>
@@ -461,7 +434,6 @@ export function AutoPlacerToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Provider */}
           <ProvidersFilter
             selected={filters.softProviders ?? []}
             onChange={(v) =>
@@ -470,7 +442,6 @@ export function AutoPlacerToolbar({
           />
         </div>
 
-        {/* ── Row 3: Summary stats strip ── */}
         <div className="flex items-center gap-3 px-3 py-1.5 bg-muted/30 border-t border-border text-[11px] text-muted-foreground overflow-x-auto">
           {statsLoading ? (
             <span className="inline-flex items-center gap-1.5">

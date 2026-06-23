@@ -1,11 +1,3 @@
-/**
- * Continuous auto-settlement: pulls every bet that has gone past its
- * settlement-ready threshold, runs them through the waterfall, and writes
- * outcomes back to the DB in one bulk update.
- *
- * Bets the waterfall can't resolve (outcome still 'pending') are left
- * untouched for the next tick or manual review.
- */
 
 import { listBets, recordSettleAttempts } from "../db/repositories/bets";
 import { settleBatch } from "./settle-batch";
@@ -20,9 +12,7 @@ import { applySettlementOutcomes } from "./apply-outcomes";
 import { notify } from "../notifier";
 import { singleton } from "../util/singleton";
 
-// ── Source-health alert debounce ─────────────────────────────────────────
-// Avoids spamming Telegram on every tick when SofaScore is down.
-const SOURCE_ALERT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const SOURCE_ALERT_COOLDOWN_MS = 60 * 60 * 1000;
 const alertState = singleton<{ lastSentAt: number }>(
   "settle:source-alert",
   () => ({
@@ -41,7 +31,6 @@ export interface AutoSettleResult {
     unresolvedEvents: number;
   };
   errors: string[];
-  /** Non-fatal data-source access warnings (SofaScore 403, etc). */
   sourceIssues: string[];
 }
 
@@ -123,14 +112,11 @@ const plural = (count: number, singular: string, pluralForm = `${singular}s`) =>
 const formatSourceIssue = (issue: string): string => {
   if (issue.startsWith("API-Football access issue on /fixtures:")) {
     let msg = issue.replace("API-Football access issue on /fixtures:", "API-FB:");
-    // Shorten the common free plan restriction message
     msg = msg.replace(
       /plan: Free plans do not have access to this date, try from ([\d-]+) to ([\d-]+)/,
       "free plan: no access before $1 (try $2+)",
     );
-    // Fallback cleanup for shorter version without dates
     msg = msg.replace(/plan: Free plans do not have access to this date\.?/, "free plan date restriction");
-    // Ensure single space after :
     msg = msg.replace(/:\s*/, ": ");
     return msg.trim();
   }
@@ -197,17 +183,6 @@ const buildSourceWarning = (
   return lines.join("\n");
 };
 
-/**
- * Run one sweep of the settlement waterfall across every `pending` bet
- * past the settle-ready threshold. Returns a summary; it does not throw —
- * the caller is usually a background interval and should be resilient
- * to partial failures.
- */
-/**
- * Emit a single `settlement_runs` row per tick. Never let a telemetry
- * write failure bubble up — observability outages must not stall
- * settlement.
- */
 async function persistRun(
   startedAt: string,
   finishedAt: string,
@@ -294,9 +269,6 @@ export async function runAutoSettle(
   });
 
   if (rows.length === 0) {
-    // Diagnostic: distinguish "no pending bets at all" from "pending bets
-    // exist but haven't passed the 2h15m post-kickoff gate". This helps
-    // operators understand why settlement isn't progressing.
     const { total: pendingTotal } = await listBets({
       outcome: "pending",
       limit: 1,
@@ -357,8 +329,6 @@ export async function runAutoSettle(
   const resolved = batchResult.proposals.filter(
     (p) => p.proposedOutcome !== "pending",
   );
-  // Persist the source alongside the outcome so audits can see exactly
-  // which tier settled each bet (sofascore / espn / pinnacle-ws / …).
   const updates = resolved.map((p) => ({
     id: p.id,
     outcome: p.proposedOutcome,
@@ -366,9 +336,6 @@ export async function runAutoSettle(
     score: p.score,
   }));
 
-  // Bump the attempt counter only on pending rows the pipeline genuinely
-  // touched. Events skipped by retry backoff still got a free cache check,
-  // but no network waterfall was attempted for them.
   try {
     const attemptedEvents = new Set(
       batchResult.eventBreakdown.networkAttemptedEventIds,
@@ -416,9 +383,6 @@ export async function runAutoSettle(
     sourceIssues: batchResult.telemetry.sourceIssues,
   };
 
-  // ── Source-health Telegram alert ────────────────────────────────────────
-  // Fires at most once per hour to avoid flooding the chat when a source or
-  // retry condition persists across ticks.
   if (
     shouldSendSourceWarning(batchResult.telemetry, result.sourceIssues) &&
     Date.now() - alertState.lastSentAt > SOURCE_ALERT_COOLDOWN_MS

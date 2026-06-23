@@ -36,30 +36,9 @@ import {
   type BettingSettingsClient,
 } from "@/hooks/use-betting-settings";
 
-// Platform-wide currency. The whole app reports in BDT — see CLAUDE.md.
-// If we ever support a second currency this gets plumbed per-account, but
-// today every display should read as BDT regardless of what the provider
-// API labeled it.
 const DISPLAY_CURRENCY = "BDT";
-
-// Floor below which Kelly-sized stakes get clamped up to the book's
-// market minimum. Kelly on a small bankroll often suggests
-// sub-practical amounts (3 BDT, 7 BDT) that are both useless in real
-// terms AND below every book's per-ticket minimum. The rule: if Kelly
-// falls below 119 BDT *or* below the per-market min, we auto-clamp up
-// to the market min. User-entered values are still respected above
-// this floor.
 const UI_MIN_STAKE_FLOOR = 119;
-
-// How often the place-bet panel re-fetches min/max/balance while the
-// operator has the modal open. Short enough that a book changing the
-// limit mid-session (e.g. pre-match → in-play) becomes visible; long
-// enough not to hammer the adapter.
 const LIMITS_REFRESH_MS = 15_000;
-
-// ============================================
-// Types
-// ============================================
 
 export interface ValueBetDetails {
   sharpProvider: ProviderKey;
@@ -67,13 +46,13 @@ export interface ValueBetDetails {
   trueProb: number;
   softProvider: ProviderKey;
   softOdds: number;
-  adjustedSoftOdds?: number; // Commission-adjusted odds
+  adjustedSoftOdds?: number;
   impliedProb: number;
   edge: number;
   evPct: number;
   kellyFraction: number;
   kellyStake: number;
-  commissionPct?: number; // Commission percentage applied
+  commissionPct?: number;
   timestamp: number;
   familyOdds?: {
     totalImpliedProb: number;
@@ -112,12 +91,6 @@ export interface LiveMatchInfo {
   };
 }
 
-/**
- * Opt-in context that enables the "Place Bet" action inside the modal.
- * When omitted, the modal renders as a read-only inspector (existing
- * behavior). When provided, the footer surfaces a stake editor + Place
- * button that posts to /api/bets/place with a runtime descriptor.
- */
 export interface PlacementContext {
   familyId: string;
   atomId: string;
@@ -146,16 +119,14 @@ interface ValueBetDetailsModalProps {
   placementContext?: PlacementContext;
 }
 
-// Selection can be a provider key or "custom"
 type Selection = ProviderKey | "custom";
 
-// ============================================
-// Helpers
-// ============================================
-
-function formatTime(isoString: string): { display: string; relative: string } {
+function formatTime(
+  isoString: string,
+  nowMs = Date.now(),
+): { display: string; relative: string } {
   const date = parseISO(isoString);
-  const now = new Date();
+  const now = new Date(nowMs);
   const diffMs = date.getTime() - now.getTime();
   const diffMins = Math.floor(diffMs / 60000);
 
@@ -181,11 +152,14 @@ function formatTime(isoString: string): { display: string; relative: string } {
   return { display: `${dateStr} ${timeStr}`, relative };
 }
 
-function formatOddsAge(timestamp: number): {
+function formatOddsAge(
+  timestamp: number,
+  nowMs = Date.now(),
+): {
   display: string;
   isFresh: boolean;
 } {
-  const ageMs = Date.now() - timestamp;
+  const ageMs = nowMs - timestamp;
   const ageSec = Math.floor(ageMs / 1000);
 
   if (ageSec < 60) {
@@ -222,9 +196,9 @@ interface MarketLimits {
 }
 
 interface ValueMetrics {
-  odds: number; // Raw odds from provider
-  adjustedOdds: number; // Commission-adjusted odds
-  commissionPct: number; // Commission percentage applied
+  odds: number;
+  adjustedOdds: number;
+  commissionPct: number;
   impliedProb: number;
   evPct: number;
   kellyFull: number;
@@ -234,21 +208,6 @@ interface ValueMetrics {
   hasValue: boolean;
 }
 
-/**
- * @param bankrollBdt  Real account balance in BDT. When supplied AND
- *                     the operator has `useLiveBalance` on, Kelly stake
- *                     is sized against it; otherwise we use the stored
- *                     `manualBankrollBdt` setting.
- * @param marketMinBdt Per-market minimum stake. Used only to clamp the
- *                     `suggested` stake up to a placeable amount.
- * @param settings     Betting settings from /api/betting-settings. When
- *                     omitted (pre-hydration) we fall back to the old
- *                     quarter-Kelly + 1000-BDT-bankroll defaults so the
- *                     initial render still shows a sensible number.
- *
- * The `suggested` value always lands on a multiple of `stakeBucketBdt`
- * and is no lower than `max(marketMin, settings.minStakeBdt)`.
- */
 function calculateValueMetrics(
   softOdds: number,
   trueProb: number,
@@ -272,18 +231,12 @@ function calculateValueMetrics(
     };
   }
 
-  // Calculate commission-adjusted odds
   const adjustedOdds = adjustOddsForCommission(softOdds, commissionPct);
-
-  // Use adjusted odds for all calculations
   const impliedProb = 1 / adjustedOdds;
   const ev = adjustedOdds * trueProb - 1;
   const evPct = ev * 100;
   const kellyFull = ev / (adjustedOdds - 1);
 
-  // Resolve effective bankroll from settings. Live balance is used when
-  // the operator has opted in AND the provider returned one; otherwise
-  // the stored manual bankroll; otherwise the legacy 1000 default.
   const liveBankroll =
     typeof bankrollBdt === "number" && bankrollBdt > 0 ? bankrollBdt : null;
   const bankroll = settings
@@ -303,8 +256,6 @@ function calculateValueMetrics(
 
   const kellyStake = rawStake;
 
-  // Snap to the operator's stake bucket, then clamp up to the greater
-  // of (market min, settings floor). Same rule the backend placer uses.
   const bucket = settings?.stakeBucketBdt ?? 1;
   const floor = Math.max(
     settings?.minStakeBdt ?? UI_MIN_STAKE_FLOOR,
@@ -315,16 +266,10 @@ function calculateValueMetrics(
   if (suggested < floor) {
     suggested = bucket > 0 ? Math.ceil(floor / bucket) * bucket : floor;
   }
-  // Legacy: when settings aren't loaded yet AND no market min was
-  // passed, keep the old raw-Kelly-rounded behavior — downstream code
-  // re-clamps once limits load.
   if (!settings && typeof marketMinBdt !== "number") {
     suggested = roundStake(rawStake);
   }
 
-  // For consumers of `kellyFraction` (displayed in the UI as
-  // "Kelly stake %"), keep it as the effective fraction of bankroll
-  // actually recommended. Strategy-aware: equals stake/bankroll.
   const kellyFractionVal = bankroll > 0 ? Math.max(0, rawStake / bankroll) : 0;
 
   return {
@@ -341,10 +286,6 @@ function calculateValueMetrics(
   };
 }
 
-// ============================================
-// Component
-// ============================================
-
 export function ValueBetDetailsModal({
   open,
   onOpenChange,
@@ -360,15 +301,11 @@ export function ValueBetDetailsModal({
   liveScore,
   placementContext,
 }: ValueBetDetailsModalProps) {
-  // Selected provider (or "custom")
   const [selected, setSelected] = useState<Selection | null>(
     details?.softProvider ?? null,
   );
   const [customOdds, setCustomOdds] = useState<string>("");
   const [customCommission, setCustomCommission] = useState<string>("");
-  // Manual-placement state. Defaults to the Kelly recommendation for the
-  // currently selected provider and resets whenever the selection
-  // changes. The operator can override before hitting "Place Bet".
   const [placeStake, setPlaceStake] = useState<string>("");
   const [placing, setPlacing] = useState(false);
   const [placeResult, setPlaceResult] = useState<
@@ -383,33 +320,23 @@ export function ValueBetDetailsModal({
     | null
   >(null);
 
-  // Book-imposed stake window + account balance for the currently
-  // selected provider. Lifted from PlaceBetPanel so the parent's
-  // value-metrics useMemo can size Kelly against a real BDT bankroll
-  // and apply the market-min clamp rule. Re-fetched on an interval so
-  // books that raise mins mid-session (e.g. pre-match → in-play) are
-  // reflected without the operator closing and reopening the modal.
   const [limits, setLimits] = useState<MarketLimits | null>(null);
   const [limitsLoading, setLimitsLoading] = useState(false);
   const [limitsError, setLimitsError] = useState<string | null>(null);
-  // Operator-chosen strategy + bankroll rules. Drives the Suggested
-  // stake column; mirrors the backend placer exactly.
   const { settings: bettingSettings } = useBettingSettings();
 
   const selectedProvider =
     selected && selected !== "custom" ? (selected as ProviderKey) : null;
+  const canFetchLimits =
+    !!eventId &&
+    !!placementContext &&
+    !!selectedProvider &&
+    CONFIGURED_BETTING_PROVIDER_IDS.includes(selectedProvider);
 
   useEffect(() => {
-    if (
-      !eventId ||
-      !placementContext ||
-      !selectedProvider ||
-      !CONFIGURED_BETTING_PROVIDER_IDS.includes(selectedProvider as string)
-    ) {
-      setLimits(null);
-      setLimitsError(null);
+    if (!canFetchLimits || !eventId || !placementContext || !selectedProvider)
       return;
-    }
+
     let cancelled = false;
     const run = () => {
       setLimitsLoading(true);
@@ -446,12 +373,12 @@ export function ValueBetDetailsModal({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [eventId, selectedProvider, placementContext]);
+  }, [canFetchLimits, eventId, selectedProvider, placementContext]);
 
-  // Wall-clock tick so the "In Xm" / "Started Ym ago" / odds-age
-  // displays keep moving while the modal is open. Without this, both
-  // memos freeze at their inputs and a modal left open for hours shows
-  // stale times.
+  const activeLimits = canFetchLimits ? limits : null;
+  const activeLimitsLoading = canFetchLimits ? limitsLoading : false;
+  const activeLimitsError = canFetchLimits ? limitsError : null;
+
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!open) return;
@@ -459,31 +386,22 @@ export function ValueBetDetailsModal({
     return () => window.clearInterval(id);
   }, [open]);
 
-  const timeInfo = useMemo(
-    () => formatTime(startTime),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [startTime, now],
-  );
+  const timeInfo = useMemo(() => formatTime(startTime, now), [startTime, now]);
   const oddsAge = useMemo(
-    () => (details ? formatOddsAge(details.timestamp) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () => (details ? formatOddsAge(details.timestamp, now) : null),
     [details, now],
   );
 
-  // Get effective commission (custom override or provider default)
   const getEffectiveCommission = useCallback(
     (provider: ProviderKey): number => {
-      // If custom commission is set, use it for all providers
       if (customCommission && !isNaN(parseFloat(customCommission))) {
         return parseFloat(customCommission);
       }
-      // Otherwise use provider's default commission
       return getProviderCommission(provider);
     },
     [customCommission],
   );
 
-  // Calculate value for all soft providers
   const providerValues = useMemo(() => {
     if (!details || !atomOdds) return [];
 
@@ -501,18 +419,14 @@ export function ValueBetDetailsModal({
       const oddsData = atomOdds[provider];
       if (!oddsData || oddsData.suspended) continue;
 
-      // Get commission for this provider (custom or default)
       const commission = getEffectiveCommission(provider);
-      // Only use the fetched bankroll/min when the limits snapshot is
-      // for THIS provider — otherwise 9W-Ex's balance would be sized
-      // against 9W-SB's numbers and vice versa.
-      const useLimits = limits && provider === selectedProvider;
+      const providerLimits = provider === selectedProvider ? activeLimits : null;
       const metrics = calculateValueMetrics(
         oddsData.value,
         details.trueProb,
         commission,
-        useLimits ? limits!.balance : undefined,
-        useLimits ? limits!.minBet : undefined,
+        providerLimits?.balance,
+        providerLimits?.minBet,
         bettingSettings,
       );
       values.push({
@@ -530,28 +444,25 @@ export function ValueBetDetailsModal({
     details,
     atomOdds,
     getEffectiveCommission,
-    limits,
+    activeLimits,
     selectedProvider,
     bettingSettings,
   ]);
 
-  // Custom odds metrics
   const customMetrics = useMemo(() => {
     const oddsNum = parseFloat(customOdds);
     if (!details || isNaN(oddsNum) || oddsNum <= 1) return null;
-    // Use custom commission if set, otherwise 0 for custom odds
     const commission = customCommission ? parseFloat(customCommission) : 0;
     return calculateValueMetrics(
       oddsNum,
       details.trueProb,
       isNaN(commission) ? 0 : commission,
-      limits?.balance,
-      limits?.minBet,
+      activeLimits?.balance,
+      activeLimits?.minBet,
       bettingSettings,
     );
-  }, [customOdds, details, customCommission, limits, bettingSettings]);
+  }, [customOdds, details, customCommission, activeLimits, bettingSettings]);
 
-  // Get metrics for currently selected provider/custom
   const selectedMetrics = useMemo((): {
     label: string;
     metrics: ValueMetrics;
@@ -570,7 +481,6 @@ export function ValueBetDetailsModal({
       return { label: getProviderShortName(pv.provider), metrics: pv.metrics };
     }
 
-    // Fallback to best provider
     const best = providerValues.find((p) => p.isBest);
     if (best) {
       return {
@@ -590,7 +500,6 @@ export function ValueBetDetailsModal({
       }`
     : null;
 
-  // Copy functions
   const handleCopyAll = () => {
     if (!details || !selectedMetrics) return;
 
@@ -672,7 +581,6 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="!max-w-4xl max-h-[92vh] overflow-y-auto gap-2">
-        {/* Header */}
         <DialogHeader className="pb-2 border-b border-border/50">
           <DialogTitle className="text-base font-semibold">
             Value Bet Details
@@ -725,10 +633,8 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
           )}
         </DialogHeader>
 
-        {/* Selected Bet - Compact Horizontal */}
         <div className="rounded-lg border-2 border-cyan-500/50 bg-cyan-500/5 p-3">
           <div className="flex items-center justify-between gap-4">
-            {/* Left: Market + Outcome */}
             <div className="flex items-center gap-2 min-w-0">
               <TrendingUp className="size-4 text-cyan-500 shrink-0" />
               <MarketDisplay
@@ -744,7 +650,6 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
               </Badge>
             </div>
 
-            {/* Right: Key Numbers + Refresh */}
             <div className="flex items-center gap-3 text-sm shrink-0">
               <div className="text-right">
                 <div className="text-[10px] text-muted-foreground">
@@ -770,9 +675,7 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
           </div>
         </div>
 
-        {/* Two Column Layout — Calculation merged into PlaceBetPanel "Details" disclosure */}
         <div className="flex gap-2 items-stretch">
-          {/* Left: Family Odds */}
           {details.familyOdds && (
             <div className="flex-1 rounded-lg border border-border bg-muted/30 p-2">
               <div className="text-sm font-medium mb-2 flex items-center justify-between">
@@ -832,7 +735,6 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
             </div>
           )}
 
-          {/* Right: Value Opportunities - CLICKABLE ROWS */}
           <div className="flex-1 rounded-lg border border-border bg-muted/30 p-2">
             <div className="flex items-center justify-between mb-2">
               <div>
@@ -958,7 +860,6 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
                 </div>
               )}
 
-              {/* Custom Odds Row */}
               <div className="border-t border-border/30 mt-2 pt-2">
                 <div
                   onClick={() => setSelected("custom")}
@@ -1014,11 +915,6 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
           </div>
         </div>
 
-        {/* Place Bet panel — opt-in, only rendered when the parent supplies
-            enough context to build a runtime descriptor (familyId, atomId,
-            teams, kickoff). Uses the currently selected provider/odds to
-            compute the default Kelly stake; operator can override.
-            Hidden when the selected provider has no registered betting adapter. */}
         {placementContext && details && selectedMetrics && (
           <PlaceBetPanel
             details={details}
@@ -1038,13 +934,12 @@ EV: ${m.hasValue ? "+" : ""}${m.evPct.toFixed(2)}%  |  Stake: ${m.suggested} ${D
             onClose={() => onOpenChange(false)}
             result={placeResult}
             setResult={setPlaceResult}
-            limits={limits}
-            limitsLoading={limitsLoading}
-            limitsError={limitsError}
+            limits={activeLimits}
+            limitsLoading={activeLimitsLoading}
+            limitsError={activeLimitsError}
           />
         )}
 
-        {/* Footer */}
         <DialogFooter className="pt-2 border-t border-border/50 gap-2">
           <Button
             variant="outline"

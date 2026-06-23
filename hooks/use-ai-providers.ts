@@ -1,7 +1,3 @@
-/**
- * Client hook to fetch AI providers from DB.
- * Used by dropdown components to get provider list with enabled/disabled state.
- */
 
 "use client";
 
@@ -23,7 +19,6 @@ export interface AIProvider {
   engineType: EngineType;
 }
 
-// Internal shape returned by /api/ai-providers (uses `name` as identity)
 type ApiProvider = {
   name: string;
   enabled: boolean;
@@ -51,10 +46,6 @@ function apiToClient(p: ApiProvider): AIProvider {
   };
 }
 
-/**
- * Fetch all AI providers once and optionally poll.
- * @param pollMs - polling interval in ms. 0 = fetch once.
- */
 export function useAiProviders(pollMs = 0) {
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +58,6 @@ export function useAiProviders(pollMs = 0) {
         setProviders(data.map(apiToClient));
       }
     } catch {
-      // non-fatal
     } finally {
       setLoading(false);
     }
@@ -84,25 +74,16 @@ export function useAiProviders(pollMs = 0) {
   return { providers, loading, refresh: load };
 }
 
-/**
- * Filter providers by engine type.
- */
 export function useAiProvidersByType(type: EngineType) {
   const { providers, loading, refresh } = useAiProviders();
   const filtered = providers.filter((p) => p.engineType === type);
   return { providers: filtered, loading, refresh };
 }
 
-/**
- * Get only LLM providers.
- */
 export function useLLMProviders() {
   return useAiProvidersByType("llm");
 }
 
-/**
- * Get only search providers.
- */
 export function useSearchProviders() {
   return useAiProvidersByType("search");
 }

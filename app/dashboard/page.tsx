@@ -22,7 +22,6 @@ import { BettingStrategyPopover } from "@/components/dashboard/BettingStrategyCa
 import { ProviderConfigPopover } from "@/components/dashboard/ProviderConfigPanel";
 import { RefreshButton } from "@/components/ui/refresh-button";
 
-// --------------------------- Types ---------------------------
 
 type SessionHealth = "healthy" | "expiring" | "expired" | "unknown";
 
@@ -200,11 +199,9 @@ interface Stats {
   currency: string;
 }
 
-// --------------------------- Constants ---------------------------
 
 const REFRESH_MS = 15_000;
 
-// --------------------------- Page ---------------------------
 
 export default function DashboardPage() {
   const [accounts, setAccounts] = useState<BettingAccount[] | null>(null);
@@ -282,7 +279,6 @@ export default function DashboardPage() {
         if (!res || !res.ok) return;
         setOverview9W((await res.json()) as Overview9W);
       } catch {
-        // non-fatal
       }
     })();
 
@@ -292,7 +288,6 @@ export default function DashboardPage() {
         if (!res || !res.ok) return;
         setOverviewVelki((await res.json()) as OverviewVelki);
       } catch {
-        // non-fatal
       }
     })();
 
@@ -391,9 +386,6 @@ export default function DashboardPage() {
       if (!acc.error) continue;
       if (reloginInProgress.has(acc.provider)) continue;
       if (!looksLikeAuthError(acc.error)) continue;
-      // Per-provider auto-login gate. If the operator paused auto-login
-      // for THIS provider, leave the error alone — they're working on
-      // it manually and a background relogin would kick them.
       if (
         acc.provider === "ninewickets-sportsbook" &&
         !overview9W?.autoLogin?.enabled
@@ -481,7 +473,6 @@ export default function DashboardPage() {
       edgeToEdge
     >
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto xl:overflow-hidden p-3 gap-3 bg-background">
-        {/* Error banner */}
         {fetchError && (
           <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-destructive bg-destructive/10 border border-destructive/30 shrink-0">
             <AlertCircle className="size-3.5 shrink-0" />
@@ -489,7 +480,6 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── KPI STRIP ── */}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 shrink-0">
           <KpiCard
             icon={<TrendingUp className="size-3.5" />}
@@ -559,11 +549,8 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* ── MAIN BODY ── */}
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(380px,540px)] gap-3 xl:flex-1 xl:min-h-0 xl:overflow-hidden">
-          {/* Left column: charts stack */}
           <div className="flex flex-col gap-3 xl:min-w-0 xl:min-h-0 xl:overflow-hidden">
-            {/* P&L Chart card */}
             <Panel
               title="P&L Curve"
               dot="bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.6)]"
@@ -582,7 +569,6 @@ export default function DashboardPage() {
               )}
             </Panel>
 
-            {/* Heatmap card */}
             <Panel
               title="Activity Heatmap"
               icon={<Clock className="size-3" />}
@@ -597,7 +583,6 @@ export default function DashboardPage() {
             </Panel>
           </div>
 
-          {/* Right column: accounts */}
           <Panel
             title="Accounts"
             dot="bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]"
@@ -629,7 +614,6 @@ export default function DashboardPage() {
   );
 }
 
-// --------------------------- Panel (card shell) ---------------------------
 
 function Panel({
   title,
@@ -642,7 +626,6 @@ function Panel({
 }: {
   title: string;
   icon?: React.ReactNode;
-  /** Tailwind classes for the leading colored dot (overrides `icon`). */
   dot?: string;
   trailing?: React.ReactNode;
   className?: string;
@@ -672,7 +655,6 @@ function Panel({
   );
 }
 
-// --------------------------- KPI Card ---------------------------
 
 type PodTone = "positive" | "negative" | "warning" | "brand" | "neutral";
 
@@ -714,11 +696,8 @@ function KpiCard({
   return (
     <div
       className={cn(
-        // Card surface
         "relative rounded-xl border border-border/60 bg-card/40 backdrop-blur-md shadow-[0_1px_3px_rgba(0,0,0,0.18)] px-4 pt-3.5 pb-3 cursor-default overflow-hidden transition-all",
-        // Left accent strip via ::before
         "before:absolute before:left-0 before:top-3 before:bottom-3 before:w-[3px] before:rounded-r-[3px]",
-        // Hover lift
         "hover:border-border hover:bg-card/60 hover:-translate-y-px hover:shadow-[0_2px_6px_rgba(0,0,0,0.25)]",
         TONE_RING[tone],
       )}
@@ -753,7 +732,6 @@ function KpiCard({
   );
 }
 
-// --------------------------- Chart Legend ---------------------------
 
 function ChartLegend() {
   return (
@@ -776,7 +754,6 @@ function ChartLegend() {
   );
 }
 
-// --------------------------- Formatting ---------------------------
 
 function money(v: number | null | undefined, currency: string): string {
   if (v === null || v === undefined) return "—";

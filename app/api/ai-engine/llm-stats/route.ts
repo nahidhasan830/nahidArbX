@@ -10,16 +10,12 @@ export async function GET() {
   const deepseekHealthy = Boolean(process.env.DEEPSEEK_API_KEY);
   const geminiHealthy = Boolean(process.env.GEMINI_API_KEY);
 
-  // Ensure providers seeded
   await seedProvidersIfEmpty();
 
-  // Get all providers from DB with quota data
   const allProviders = await getAllProviders();
 
-  // Build provider map for quick lookup
   const providerMap = new Map(allProviders.map((p) => [p.name, p]));
 
-  // Get deepseek and gemini configs
   const deepseekFlash = providerMap.get("deepseek-flash");
   const deepseekPro = providerMap.get("deepseek-pro");
   const geminiLite = providerMap.get("gemini-lite");
@@ -28,7 +24,6 @@ export async function GET() {
 
   const providers: Record<string, Record<string, unknown>> = {};
 
-  // DeepSeek (use flash by default)
   const deepseekEnabled =
     deepseekFlash?.enabled ?? deepseekPro?.enabled ?? true;
   providers["deepseek"] = {
@@ -43,7 +38,6 @@ export async function GET() {
     monthlyLimit: deepseekFlash?.monthlyLimit ?? null,
   };
 
-  // Gemini (any tier that's enabled)
   if (geminiHealthy) {
     const gemini = geminiLite ?? geminiFlash ?? geminiPro;
     const geminiEnabled = gemini?.enabled ?? false;

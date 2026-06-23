@@ -49,7 +49,6 @@ export class VertexSearchProvider {
         this._enabled = provider.enabled;
       }
     } catch {
-      // Best-effort
     }
   }
 

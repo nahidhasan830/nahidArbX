@@ -1,17 +1,5 @@
 "use client";
 
-/**
- * One row of the value-bets spreadsheet.
- *
- * Extracted from ValueBetSpreadsheet. The row carries cross-row layout
- * decisions via the `isFirst*` / `isLast*` flags on the incoming row — the
- * parent recomputes these after filtering so family borders and event headers
- * still render correctly. This component trusts those flags and just renders.
- *
- * Colocated helpers (`formatEventTime`, `countValueProviders`) live here
- * because the row is their only caller.
- */
-
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,10 +26,6 @@ import { CONFIGURED_BETTING_PROVIDER_IDS } from "@/lib/betting/configured-ids";
 import type { SpreadsheetRow } from "@/lib/formatting/spreadsheet";
 import type { LiveMatchInfo, ValueBetDetails } from "./ValueBetDetailsModal";
 
-/**
- * Format a kickoff time for the standalone KO column.
- * Shows "Started Nm ago" for already-live events; otherwise short date+time.
- */
 function formatEventTime(startTime: string, nowMs: number): string {
   const date = parseISO(startTime);
   if (!isValid(date)) return startTime;
@@ -61,10 +45,6 @@ function formatEventTime(startTime: string, nowMs: number): string {
   return format(date, "d MMM HH:mm");
 }
 
-/**
- * Count how many soft providers show a positive-EV opportunity at the given
- * true probability. Used as a "N providers" hint next to the EV column.
- */
 function countValueProviders(
   odds: Partial<
     Record<
@@ -133,7 +113,6 @@ export interface SpreadsheetRowProps {
     providerEventId?: string,
   ) => void;
   onHide: (eventId: string, familyId: string) => void;
-  /** Opens the movement detail modal for this provider's odds. */
   onMovementClick?: (
     oddsRow: SpreadsheetRow["odds"],
     context: {
@@ -149,7 +128,6 @@ export interface SpreadsheetRowProps {
     },
   ) => void;
   liveScore?: LiveScoreData;
-  /** Event-level suspension (all markets blocked) */
   suspended?: boolean;
 }
 
@@ -169,10 +147,7 @@ export function SpreadsheetRow({
   liveScore,
   suspended,
 }: SpreadsheetRowProps) {
-  // All columns always visible now — column filtering was removed in the
-  // toolbar cleanup.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const isVisible = (col: string) => true;
+  const isVisible = (_col: string) => true;
 
   const isLive = new Date(row.startTime).getTime() <= nowMs;
 
@@ -300,8 +275,6 @@ export function SpreadsheetRow({
         <td className="px-2 text-center text-foreground">{row.outcomeLabel}</td>
       )}
 
-      {/* EV % — clickable only when hasValue (valid +EV). Non-value rows show
-          the EV number for context but don't open the placement modal. */}
       {isVisible("ev") && (
         <td
           className={`text-center px-2 font-mono text-[11px] tabular-nums bg-cyan-50/30 dark:bg-cyan-900/10 ${
@@ -378,11 +351,7 @@ export function SpreadsheetRow({
         </td>
       )}
 
-      {/* Provider-odds cells — placeable cells open the placement modal with
-          the specific provider's price pre-selected. Non-placeable providers
-          remain static. */}
       {(() => {
-        // Compute sharp reference sparkline once — passed to soft provider tooltips
         const sharpId = getSharpProviders()[0];
         const sharpMov = sharpId ? row.odds[sharpId]?.movement : undefined;
         const sharpRefData =
@@ -464,7 +433,6 @@ export function SpreadsheetRow({
               }
             : undefined;
 
-          // Only pass sharp reference to non-sharp providers
           const isThisSharp = providerId === sharpId;
 
           return (

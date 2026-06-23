@@ -1,14 +1,3 @@
-/**
- * SABA Sportsbook events adapter.
- *
- * Pulls real soccer fixtures from SABA's direct odds API:
- *   - GameId=1, DateType=e for upcoming
- *   - GameId=1, DateType=t for today's board
- *   - GameId=1, DateType=l for live
- *
- * SABA virtual soccer is also exposed under GameId=1, so we filter known
- * virtual soccer league groups before handing events to the shared matcher.
- */
 
 import type { ProviderAdapter, NormalizedEvent, Provider } from "../types";
 import { addDays, endOfDay } from "date-fns";
@@ -47,8 +36,6 @@ function isVirtualSoccer(match: SabaMatch, leagueName: string): boolean {
 function parseStartTime(match: SabaMatch): Date {
   const raw = match.GameTime ?? match.Etm ?? match.Ktm;
   if (raw) {
-    // SABA emits these ISO-like strings in provider time (UTC-4), without an
-    // offset. Treat as UTC text first, then shift to real UTC kickoff time.
     const parsed = new Date(`${raw.replace(/Z$/, "")}Z`);
     if (!Number.isNaN(parsed.getTime())) {
       return new Date(parsed.getTime() + SABA_KICKOFF_OFFSET_MS);

@@ -1,11 +1,3 @@
-/**
- * Per-command toggle configuration.
- *
- * Persisted to `sessions/telegram/commands.json` (gitignored, same
- * pattern as auto-place). The dashboard at /telegram reads/writes this
- * file via the `/api/telegram/commands` route. Defaults to enabled
- * for every registered command.
- */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -13,9 +5,7 @@ import * as path from "node:path";
 const FILE = path.join("sessions", "telegram", "commands.json");
 
 interface Config {
-  /** Map of command-name → enabled. Missing = enabled (open by default). */
   disabled: Record<string, true>;
-  /** Last update timestamp, ISO. */
   updatedAt: string | null;
 }
 

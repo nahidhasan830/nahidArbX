@@ -1,10 +1,3 @@
-/**
- * POST /api/ml/retrain — cloud-only training via Cloud Build + Cloud Run Job.
- *
- * Delegates the full lifecycle (guard, placeholder row, reconcile, spawn,
- * progress, heartbeat, notify) to `lib/optimizer/cloud-training.ts` so the
- * scheduler tick and this route share a single, audited implementation.
- */
 import { NextResponse } from "next/server";
 import { logger } from "@/lib/shared/logger";
 import { triggerCloudTraining } from "@/lib/optimizer/cloud-training";

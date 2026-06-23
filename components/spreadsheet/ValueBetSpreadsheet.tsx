@@ -1,24 +1,5 @@
 "use client";
 
-/**
- * Value-bets spreadsheet — the grid on /value-bets.
- *
- * This file orchestrates state (filters, selection, modals, refresh) and
- * composes the extracted sub-components:
- *   - [OddsCell](./OddsCell.tsx)            — single provider-odds cell
- *   - [SpreadsheetRow](./SpreadsheetRow.tsx) — one rendered row
- *   - [useSpreadsheetColumnWidths](./useSpreadsheetColumnWidths.ts) — resize hook
- *   - [SpreadsheetToolbar](./SpreadsheetToolbar.tsx)                 — filter bar
- *   - [ValueBetDetailsModal](./ValueBetDetailsModal.tsx)             — placement modal
- *
- * The table itself uses `<table>` + `@tanstack/react-virtual` directly
- * rather than going through `components/ui/data-table.tsx` because the
- * row rendering is highly positional (first-atom-of-first-family-of-event
- * shows the event header, etc.), which doesn't map cleanly onto a flat
- * TanStack column model. The new DataTable is used for Bets History; this
- * one stays bespoke.
- */
-
 import {
   useCallback,
   useDeferredValue,
@@ -179,7 +160,6 @@ interface ValueBetSpreadsheetProps {
   isFetchingNextPage?: boolean;
   onLoadMore?: () => void;
   totalCount?: number;
-  /** Server-side authoritative value bet count (across all pages). */
   totalValueBetCount?: number;
   searchTerm?: string;
   onSearchChange?: (value: string) => void;
@@ -223,7 +203,6 @@ export function ValueBetSpreadsheet({
   const [selectedValueBet, setSelectedValueBet] =
     useState<SelectedValueBet | null>(null);
 
-  // Movement chart modal state
   const [movementModal, setMovementModal] = useState<{
     data: Record<string, OddsMovementData>;
     eventLabel: string;
@@ -264,7 +243,6 @@ export function ValueBetSpreadsheet({
         }
       }
 
-      // Compute client-side feature vector from available data
       let features: number[] | null = null;
       const vbd = context.valueBetDetails;
       if (vbd) {
@@ -274,7 +252,6 @@ export function ValueBetSpreadsheet({
           ? oddsRow[vbd.softProvider]?.movement
           : undefined;
 
-        // Tick velocity from soft sparkline
         let tickVelocity = 0;
         if (softMov && softMov.sparkline.length >= 2) {
           const first = softMov.sparkline[0];
@@ -284,7 +261,6 @@ export function ValueBetSpreadsheet({
             tickVelocity = (softMov.sparkline.length / spanMs) * 60_000;
         }
 
-        // Time to kickoff
         let timeToKickoffMin = 0;
         if (context.startTime) {
           timeToKickoffMin = Math.round(
@@ -292,7 +268,6 @@ export function ValueBetSpreadsheet({
           );
         }
 
-        // Market type encoding
         const MT_ORD: Record<string, number> = {
           MATCH_RESULT: 0,
           TOTAL_GOALS: 1,
@@ -317,14 +292,12 @@ export function ValueBetSpreadsheet({
         };
         const marketTypeEncoded = MT_ORD[context.marketType ?? ""] ?? 0;
 
-        // Asian line check
         let isAsianLine = 0;
         if (context.line != null) {
           const line = context.line;
           if ((line * 4) % 1 === 0 && line % 0.5 !== 0) isAsianLine = 1;
         }
 
-        // Direction encoding
         const dir = (d?: "up" | "down" | "stable") =>
           d === "up" ? 1 : d === "down" ? -1 : 0;
 
@@ -334,35 +307,46 @@ export function ValueBetSpreadsheet({
             ? 1 + (vbd.softOdds - 1) * (1 - commission / 100)
             : vbd.softOdds;
 
-        features = [
-          vbd.evPct, // 0  ev_pct
-          vbd.trueProb, // 1  sharp_true_prob
-          vbd.softOdds, // 2  soft_odds
-          adjustedSoftOdds, // 3  adjusted_soft_odds
-          vbd.trueProb - 1 / vbd.softOdds, // 4  implied_prob_gap
-          sharpMov?.totalTicks ?? 0, // 5  tick_count
-          timeToKickoffMin, // 6  time_to_kickoff_min
-          sharpMov?.changePct ?? 0, // 7  movement_pct_sharp
-          softMov?.changePct ?? 0, // 8  movement_pct_soft
-          sharpMov?.steamMove ? 1 : 0, // 9  steam_move_sharp
-          softMov?.steamMove ? 1 : 0, // 10 steam_move_soft
-          dir(sharpMov?.direction), // 11 sharp_direction
-          dir(softMov?.direction), // 12 soft_direction
-          0, // 13 convergence_rate (not available client-side)
-          tickVelocity, // 14 tick_velocity
-          context.providerCount ?? Object.keys(oddsRow).length, // 15 provider_count
-          sharpMov?.openingOdds ?? 0, // 16 opening_sharp_odds
-          marketTypeEncoded, // 17 market_type_encoded
-          isAsianLine, // 18 is_asian_line
-          vbd.kellyFraction, // 19 kelly_fraction_raw
-          vbd.familyOdds?.vigPct ?? 0, // 20 vig_pct
-          1, // 21 competition_tier (cache unavailable client-side)
-          0, // 22 hours_since_line_opened (not available client-side)
-          Number.isFinite(vbd.softOdds - 1 / vbd.trueProb) // 23 sharp_soft_spread
-            ? vbd.softOdds - 1 / vbd.trueProb
-            : 0,
-          Math.max(1, context.providerCount ?? Object.keys(oddsRow).length), // 24 num_markets_same_event fallback
-        ].map((v) => {
+        const featureValues: [string, number][] = [
+          ["ev_pct", vbd.evPct],
+          ["sharp_true_prob", vbd.trueProb],
+          ["soft_odds", vbd.softOdds],
+          ["adjusted_soft_odds", adjustedSoftOdds],
+          ["implied_prob_gap", vbd.trueProb - 1 / vbd.softOdds],
+          ["tick_count", sharpMov?.totalTicks ?? 0],
+          ["time_to_kickoff_min", timeToKickoffMin],
+          ["movement_pct_sharp", sharpMov?.changePct ?? 0],
+          ["movement_pct_soft", softMov?.changePct ?? 0],
+          ["steam_move_sharp", sharpMov?.steamMove ? 1 : 0],
+          ["steam_move_soft", softMov?.steamMove ? 1 : 0],
+          ["sharp_direction", dir(sharpMov?.direction)],
+          ["soft_direction", dir(softMov?.direction)],
+          ["convergence_rate", 0],
+          ["tick_velocity", tickVelocity],
+          [
+            "provider_count",
+            context.providerCount ?? Object.keys(oddsRow).length,
+          ],
+          ["opening_sharp_odds", sharpMov?.openingOdds ?? 0],
+          ["market_type_encoded", marketTypeEncoded],
+          ["is_asian_line", isAsianLine],
+          ["kelly_fraction_raw", vbd.kellyFraction],
+          ["vig_pct", vbd.familyOdds?.vigPct ?? 0],
+          ["competition_tier", 1],
+          ["hours_since_line_opened", 0],
+          [
+            "sharp_soft_spread",
+            Number.isFinite(vbd.softOdds - 1 / vbd.trueProb)
+              ? vbd.softOdds - 1 / vbd.trueProb
+              : 0,
+          ],
+          [
+            "num_markets_same_event",
+            Math.max(1, context.providerCount ?? Object.keys(oddsRow).length),
+          ],
+        ];
+
+        features = featureValues.map(([, v]) => {
           const safe = Number.isFinite(v) ? v : 0;
           return Math.round(safe * 10000) / 10000;
         });
@@ -402,9 +386,6 @@ export function ValueBetSpreadsheet({
     [prefs.selectedProviders, runtimeEnabledProviders],
   );
 
-  // Defer filter values — UI updates immediately, expensive recomputation
-  // follows. `showOnlyValue` is NOT deferred because it changes which data
-  // is fetched, not how existing data is filtered.
   const deferredFilters = useDeferredValue({
     selectedProviders: effectiveSelectedProviders,
     searchTerm,
@@ -445,7 +426,6 @@ export function ValueBetSpreadsheet({
     DEFAULT_COLUMN_WIDTHS,
   );
 
-  // Copy a provider's raw JSON response for the given event.
   const handleCopyRawData = useCallback(
     async (
       eventId: string,
@@ -534,8 +514,6 @@ export function ValueBetSpreadsheet({
     [events, transformFilters],
   );
 
-  // Apply hidden-families + suspicious filters, apply event-group sort,
-  // then recompute isFirst/isLast flags (they were computed pre-filter).
   const rows = useMemo(() => {
     let filtered = allRows;
 
@@ -545,8 +523,6 @@ export function ValueBetSpreadsheet({
       );
     }
 
-    // Event-group sort: click-to-sort reorders events without splitting
-    // family groups. Each event's score is derived from its atoms.
     const { key, dir } = prefs.tableSort;
     if (key) {
       const groups = new Map<string, SpreadsheetRowData[]>();
@@ -636,8 +612,6 @@ export function ValueBetSpreadsheet({
     return unique.size;
   }, [rows]);
 
-  // Keep the open modal's details in sync when the underlying row data
-  // refreshes (e.g. after the reactive engine pushes new odds).
   useEffect(() => {
     if (!selectedValueBet) return;
 
@@ -680,18 +654,7 @@ export function ValueBetSpreadsheet({
         );
       }
     }
-    // Subfield deps only — depending on the full `selectedValueBet` would
-    // re-fire this effect on its own setState and oscillate.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    allRows,
-    eventProvidersMap,
-    selectedValueBet?.eventId,
-    selectedValueBet?.atomId,
-    selectedValueBet?.details.timestamp,
-    selectedValueBet?.liveScore,
-    selectedValueBet?.providerEventIds,
-  ]);
+  }, [allRows, eventProvidersMap, selectedValueBet]);
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
@@ -700,7 +663,6 @@ export function ValueBetSpreadsheet({
     overscan: 15,
   });
 
-  // Infinite-scroll: fetch more when 80% scrolled.
   useEffect(() => {
     const container = tableContainerRef.current;
     if (!container || !onLoadMore || !hasNextPage || isFetchingNextPage) return;
@@ -714,8 +676,6 @@ export function ValueBetSpreadsheet({
     return () => container.removeEventListener("scroll", handleScroll);
   }, [hasNextPage, isFetchingNextPage, onLoadMore]);
 
-  // Filters can leave us with <10 visible rows on the first page — auto-load
-  // more so the viewport doesn't feel empty.
   useEffect(() => {
     if (!onLoadMore || !hasNextPage || isFetchingNextPage) return;
     if (events.length > 0 && rows.length < 10) {
@@ -723,13 +683,9 @@ export function ValueBetSpreadsheet({
     }
   }, [events.length, rows.length, hasNextPage, isFetchingNextPage, onLoadMore]);
 
-  // All columns always render now — column filtering was retired.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const isColVisible = (col: string) => true;
+  const isColVisible = (_col: string) => true;
 
-  const visibleColCount =
-    // event (+ competition inline), ko, market, outcome, ev, kelly
-    6 + visibleProviders.length + 1; // + actions
+  const visibleColCount = 6 + visibleProviders.length + 1;
 
   const ResizeHandle = ({ col }: { col: string }) => (
     <div
@@ -738,9 +694,6 @@ export function ValueBetSpreadsheet({
     />
   );
 
-  // Small tri-state header indicator — clicking cycles desc → asc → off.
-  // Matches the pattern used in BetsHistoryTable so the two tables look
-  // and behave the same.
   const SortIndicator = ({ col }: { col: typeof prefs.tableSort.key }) => {
     const active = prefs.tableSort.key === col;
     if (!active) return null;

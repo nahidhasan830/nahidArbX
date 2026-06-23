@@ -40,7 +40,7 @@ export function purgeProviderFromStore(provider: ProviderKey): number {
       const rest = { ...ev.providers };
       delete rest[provider];
       if (Object.keys(rest).length === 0) {
-        continue; // event had only this provider — drop it entirely
+        continue;
       }
       kept.push({ ...ev, providers: rest });
     } else {

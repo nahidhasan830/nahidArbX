@@ -1,20 +1,6 @@
-/**
- * Shared Velki Zod Schemas
- *
- * Runtime validation for the Velki Sportsbook (Velki-SB) account/auth
- * + provider-tier surface. See [lib/betting/velki/types.ts](../../betting/velki/types.ts)
- * for full prose documentation of each endpoint and the two-tier
- * architecture.
- *
- *   MAIN tier:     https://vk-sa.softtake.net   (DRF token auth)
- *   PROVIDER tier: https://saapipl.fwick7ets.xyz (JSESSIONID auth)
- */
 
 import { z } from "zod";
 
-// ============================================
-// MAIN tier — Auth — POST /account/login
-// ============================================
 
 export const VelkiLoginRequestSchema = z.object({
   username: z.string().min(1),
@@ -30,16 +16,10 @@ export const VelkiLoginResponseSchema = z.object({
   errcode: z.string(),
 });
 
-// ============================================
-// MAIN tier — SSO handoff — GET /game/game-launch/WK/SB
-// ============================================
 
 export const VelkiGameLaunchResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
-  // data is null when the game-launch endpoint is rate-limited
-  // (success:true but data:null). Our session.ts handles this with a
-  // retryable error rather than treating it as a hard schema failure.
   data: z
     .object({
       gameUrl: z.string().url(),
@@ -48,15 +28,9 @@ export const VelkiGameLaunchResponseSchema = z.object({
   errcode: z.string(),
 });
 
-// ============================================
-// MAIN tier — Profile — GET /account/profile
-// ============================================
 
 const VelkiProfileWalletSchema = z.object({
   wallet_id: z.string(),
-  // Amounts here are strings ("0.00"). We keep them as strings — callers
-  // that need numbers should explicitly parseFloat to make the coercion
-  // visible. The live /account/wallet endpoint already returns numbers.
   credit_balance: z.string(),
   available_credit_balance: z.string(),
   coin_balance: z.string(),
@@ -88,12 +62,8 @@ export const VelkiProfileResponseSchema = z.object({
   errcode: z.string(),
 });
 
-// ============================================
-// MAIN tier — Wallet — GET /account/wallet
-// ============================================
 
 const VelkiWalletBlockSchema = z.object({
-  // Numbers here, in contrast to the profile endpoint's strings.
   credit_balance: z.number(),
   available_credit_balance: z.number(),
   coin_balance: z.number(),
@@ -113,16 +83,12 @@ export const VelkiWalletResponseSchema = z.object({
   errcode: z.string(),
 });
 
-// ============================================
-// MAIN tier — Turnover — GET /turnover/list
-// ============================================
 
 export const VelkiTurnoverEntrySchema = z.object({
   user: z.string(),
   name: z.string(),
   title: z.string(),
   ref_id: z.string(),
-  // All amounts arrive as strings ("20.0000"); keep as-is.
   base_amount: z.string(),
   required_turnover_amount: z.string(),
   complete_turnover_amount: z.string(),
@@ -136,21 +102,12 @@ export const VelkiTurnoverListResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   data: z.object({
-    // SIC: wire-format key is "tunovers" (missing the 'r').
     tunovers: z.array(VelkiTurnoverEntrySchema),
   }),
   errcode: z.string(),
 });
 
-// ============================================
-// PROVIDER tier — queryPlayerInfo
-// ============================================
 
-/**
- * Provider-tier player info. Schema is permissive on extra fields
- * (the platform may add or remove keys across versions); strict only
- * on the fields we actually rely on for placement decisions.
- */
 export const VelkiPlayerInfoResponseSchema = z
   .object({
     creditAllocated: z.number(),
@@ -171,9 +128,6 @@ export const VelkiPlayerInfoResponseSchema = z
   })
   .passthrough();
 
-// ============================================
-// Error envelopes
-// ============================================
 
 export const VelkiMainErrorEnvelopeSchema = z.object({
   success: z.literal(false),
@@ -181,9 +135,6 @@ export const VelkiMainErrorEnvelopeSchema = z.object({
   errcode: z.string(),
 });
 
-/**
- * Provider-tier error envelope (1001 = Not Authorized → re-handoff).
- */
 export const VelkiProviderErrorEnvelopeSchema = z.object({
   status: z.string(),
   message: z.string().optional(),

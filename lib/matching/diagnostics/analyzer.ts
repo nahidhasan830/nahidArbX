@@ -1,9 +1,3 @@
-/**
- * Match Score Analyzer
- *
- * Computes detailed score breakdowns and detects near-matches.
- * Enhanced version of the scoring logic with full diagnostics.
- */
 
 import { cachedCompareTwoStrings as compareTwoStrings } from "../similarity-cache";
 import type { NormalizedEvent } from "../../types";
@@ -22,32 +16,22 @@ import {
   type PreNormalizedNames,
 } from "../normalize";
 
-// ============================================
-// Score Computation
-// ============================================
 
-/**
- * Compute detailed score breakdown between two events.
- * Returns full breakdown instead of just final score.
- */
 export function computeDetailedScore(
   a: NormalizedEvent,
   b: NormalizedEvent,
   preNormA?: PreNormalizedNames,
   preNormB?: PreNormalizedNames,
 ): MatchScoreBreakdown {
-  // Use pre-normalized names if available, otherwise normalize on the fly
   const homeA = preNormA?.home ?? applyTeamAlias(a.homeTeam);
   const homeB = preNormB?.home ?? applyTeamAlias(b.homeTeam);
   const awayA = preNormA?.away ?? applyTeamAlias(a.awayTeam);
   const awayB = preNormB?.away ?? applyTeamAlias(b.awayTeam);
 
-  // Normal orientation
   const homeHomeSimilarity = compareTwoStrings(homeA, homeB);
   const awayAwaySimilarity = compareTwoStrings(awayA, awayB);
   const normalTeamScore = (homeHomeSimilarity + awayAwaySimilarity) / 2;
 
-  // Swapped orientation
   const homeAwaySimilarity = compareTwoStrings(homeA, awayB);
   const awayHomeSimilarity = compareTwoStrings(awayA, homeB);
   const swappedTeamScore = (homeAwaySimilarity + awayHomeSimilarity) / 2;
@@ -56,19 +40,15 @@ export function computeDetailedScore(
     normalTeamScore >= swappedTeamScore ? "normal" : "swapped";
   const teamScore = Math.max(normalTeamScore, swappedTeamScore);
 
-  // Competition score (with pre-normalized values or on-the-fly)
   const competitionA =
     preNormA?.competition ?? applyCompetitionAlias(a.competition);
   const competitionB =
     preNormB?.competition ?? applyCompetitionAlias(b.competition);
   const competitionScore = compareTwoStrings(competitionA, competitionB);
 
-  // Time score (kept for diagnostics/deep matcher, but NOT used in Tier 1 formula)
   const timeDiffMs = Math.abs(a.startTime.getTime() - b.startTime.getTime());
-  const timeScore = Math.max(0, 1 - timeDiffMs / (2 * 60 * 60 * 1000)); // 2-hour window
+  const timeScore = Math.max(0, 1 - timeDiffMs / (2 * 60 * 60 * 1000));
 
-  // Final weighted score — time is implicit in grouping (exact-time buckets)
-  // so we distribute weight between team (70%) and competition (30%) only
   const finalScore = 0.7 * teamScore + 0.3 * competitionScore;
 
   return {
@@ -87,13 +67,7 @@ export function computeDetailedScore(
   };
 }
 
-// ============================================
-// Failure Analysis
-// ============================================
 
-/**
- * Analyze why a match failed based on score breakdown.
- */
 export function analyzeFailureReasons(
   breakdown: MatchScoreBreakdown,
   eventA: NormalizedEvent,
@@ -101,7 +75,6 @@ export function analyzeFailureReasons(
 ): FailureReason[] {
   const reasons: FailureReason[] = [];
 
-  // Team mismatch (weighted 60%)
   if (breakdown.teamScore < 0.8) {
     const homeScore =
       breakdown.bestOrientation === "normal"
@@ -123,7 +96,6 @@ export function analyzeFailureReasons(
     });
   }
 
-  // Competition mismatch (weighted 20%)
   if (breakdown.competitionScore < 0.8) {
     reasons.push({
       type: "competition_mismatch",
@@ -135,9 +107,7 @@ export function analyzeFailureReasons(
     });
   }
 
-  // Time mismatch (weighted 20%)
   if (breakdown.timeDiffMs > 5 * 60 * 1000) {
-    // > 5 minutes
     reasons.push({
       type: "time_mismatch",
       details: {
@@ -147,7 +117,6 @@ export function analyzeFailureReasons(
     });
   }
 
-  // Overall threshold failure
   if (breakdown.finalScore < MATCH_THRESHOLD) {
     reasons.push({
       type: "score_below_threshold",
@@ -162,20 +131,12 @@ export function analyzeFailureReasons(
   return reasons;
 }
 
-// ============================================
-// Near-Match Detection
-// ============================================
 
-/**
- * Check if a pair qualifies as a near-match.
- * Called when events don't meet the match threshold.
- */
 export async function detectAndStoreNearMatch(
   eventA: NormalizedEvent,
   eventB: NormalizedEvent,
   breakdown: MatchScoreBreakdown,
 ): Promise<NearMatch | null> {
-  // Only track if in near-match range
   if (
     breakdown.finalScore < NEAR_MATCH_MIN_SCORE ||
     breakdown.finalScore > NEAR_MATCH_MAX_SCORE
@@ -183,15 +144,10 @@ export async function detectAndStoreNearMatch(
     return null;
   }
 
-  // Team-score floor: reject pairs where the combined score is boosted
-  // mainly by competition similarity (same league, same kickoff minute).
-  // Team names are the only reliable signal when start times overlap.
   if (breakdown.teamScore < NEAR_MATCH_MIN_TEAM_SCORE) {
     return null;
   }
 
-  // Best single-team gate: at least one team pair in the best orientation
-  // must have meaningful similarity — catches "FC X" vs "FC Y" noise.
   const bestSingleTeam =
     breakdown.bestOrientation === "normal"
       ? Math.max(breakdown.homeHomeSimilarity, breakdown.awayAwaySimilarity)
@@ -203,7 +159,6 @@ export async function detectAndStoreNearMatch(
   const providerA = Object.keys(eventA.providers)[0] as ProviderKey;
   const providerB = Object.keys(eventB.providers)[0] as ProviderKey;
 
-  // Skip if same provider
   if (providerA === providerB) {
     return null;
   }
@@ -235,16 +190,10 @@ export async function detectAndStoreNearMatch(
   return nearMatch;
 }
 
-/**
- * Check if score qualifies as a near-match (for external callers).
- */
 export function isNearMatch(score: number): boolean {
   return score >= NEAR_MATCH_MIN_SCORE && score < MATCH_THRESHOLD;
 }
 
-/**
- * Check if score qualifies as a full match.
- */
 export function isFullMatch(score: number): boolean {
   return score >= MATCH_THRESHOLD;
 }

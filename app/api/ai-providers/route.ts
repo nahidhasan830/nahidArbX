@@ -1,8 +1,3 @@
-/**
- * GET /api/ai-providers → returns all AI providers from DB
- *
- * Returns provider list with config and quota data.
- */
 
 import { NextResponse } from "next/server";
 import {
@@ -12,7 +7,6 @@ import {
 
 export async function GET() {
   try {
-    // Ensure providers are seeded on first call
     await seedProvidersIfEmpty();
 
     const providers = await getAllProviders();

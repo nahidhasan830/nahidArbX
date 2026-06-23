@@ -1,11 +1,3 @@
-/**
- * In-memory ring buffers for `/notifs` and `/errors`.
- *
- * Lightweight, process-local, no DB. We only keep the last N entries
- * each — the bot is a phone-friendly snapshot, not an audit log. The
- * buffers are pinned to globalThis so HMR doesn't fragment them across
- * module-context copies.
- */
 
 import { singleton } from "@/lib/util/singleton";
 

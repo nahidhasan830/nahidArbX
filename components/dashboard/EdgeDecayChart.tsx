@@ -18,11 +18,6 @@ export interface EdgeDecayPoint {
   values: Record<string, number | null>;
 }
 
-/**
- * Multi-line chart: CLV% per book per ISO week. Flat-line near zero means
- * the soft book has sharpened (edge decay); sustained positive CLV means
- * the edge still holds.
- */
 export function EdgeDecayChart({
   books,
   points,
@@ -56,7 +51,6 @@ export function EdgeDecayChart({
         className="w-full"
         style={{ height }}
       >
-        {/* gridlines */}
         {ticks.yTicks.map((t, i) => (
           <g key={i}>
             <line
@@ -93,7 +87,6 @@ export function EdgeDecayChart({
           />
         )}
 
-        {/* one path per book */}
         {paths.map((p) => (
           <path
             key={p.provider}
@@ -110,7 +103,6 @@ export function EdgeDecayChart({
           />
         ))}
 
-        {/* week labels */}
         {ticks.xTicks.map((t, i) => (
           <text
             key={i}
@@ -124,7 +116,6 @@ export function EdgeDecayChart({
         ))}
       </svg>
 
-      {/* legend */}
       <div className="flex items-center gap-3 pl-9 pt-1 text-[10px] text-muted-foreground flex-wrap">
         {books.map((book) => {
           const latest = bounds.latest[book.provider];
@@ -218,7 +209,6 @@ function layout(
     };
   });
 
-  // Latest known value per book (for legend)
   const latest: Record<string, number | null> = {};
   for (const book of books) {
     let v: number | null = null;

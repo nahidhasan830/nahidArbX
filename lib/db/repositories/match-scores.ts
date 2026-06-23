@@ -1,9 +1,3 @@
-/**
- * Repository for the `match_scores` cache — Tier 0 of the settlement
- * waterfall. Treat these rows as effectively write-once per event: once
- * status=FT/AET/PEN is persisted we never overwrite, since a re-fetch from a
- * cheaper source can't disagree with a finished match.
- */
 
 import { inArray } from "drizzle-orm";
 import { db } from "../client";
@@ -59,14 +53,6 @@ export const getScoreByEventId = async (
   return rows[0] ? toDomain(rows[0]) : null;
 };
 
-/**
- * Insert a score only if the event is not already cached. Scores are
- * immutable once stored — a later source with equal-or-lower confidence
- * shouldn't clobber the one we trusted first.
- *
- * If you genuinely need to overwrite (e.g. human correction), use
- * `upsertScoreForce`.
- */
 export const saveScoreIfAbsent = async (
   score: MatchScore,
 ): Promise<"inserted" | "kept" | "disputed"> => {
@@ -98,10 +84,6 @@ export const saveScoreIfAbsent = async (
       .returning({ eventId: matchScores.eventId });
     if (rows.length > 0) return "inserted";
 
-    // No insert means a row already existed. Compare the cached score
-    // with what the caller just produced and log a dispute row when
-    // they disagree. Failure here must never shadow the main call —
-    // the score is cached either way.
     try {
       const cached = await getScoreByEventId(score.eventId);
       if (cached) {

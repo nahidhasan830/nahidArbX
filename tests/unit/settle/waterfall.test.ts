@@ -167,14 +167,10 @@ describe("resolveScores source order", () => {
   });
 });
 
-// Focused regression for ESPN slug fallback (generalized league qualifier stripping)
-// Covers the shape that caused "Iceland - 1. Deild", "Australia Cup Qualifiers" etc
-// to be skipped entirely from ESPN tier (source lookup miss).
 import { normalizeCompetition, lookupCompetitionSlug } from "@/lib/settle/aliases";
 
 describe("espn slug resolution fallback (generalized)", () => {
   it("normalizes and can hit aliases after stripping qualifiers like women / 1. / deild / cup", () => {
-    // These would previously fail to map because no exact key, now stripped form helps
     const cases = [
       ["Iceland - 1. Deild Women", "ice.1"],
       ["Iceland - 1. Deild", "ice.1"],
@@ -185,13 +181,8 @@ describe("espn slug resolution fallback (generalized)", () => {
     for (const [raw, _expectedSlug] of cases) {
       const norm = normalizeCompetition(raw as string);
       const learned = lookupCompetitionSlug(raw as string, "espn");
-      // either learned (if previously) or the alias list will be hit by the improved espnSlug
-      // here we just assert the norm strips enough that a reasonable base would match
       expect(norm.length).toBeGreaterThan(0);
-      // Verify key presence in the map would be exercised inside espnSlug (we don't export it)
-      // The important: no crash, and stripped variants are sensible.
       if (learned) {
-        // ok
       }
     }
   });

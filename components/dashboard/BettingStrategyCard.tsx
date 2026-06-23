@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * Compact auto-betting settings — renders as a popover anchored to a
- * Settings icon in the dashboard header. Dense Linear/Stripe patterns:
- *   - inline label:input rows (single 32-36px row per field)
- *   - help text lives inside `?` tooltips, not in hints below
- *   - `%` / `BDT` rendered as trailing badges inside the input
- *   - Save lives in the header row of the popover
- */
 import {
   useCallback,
   useEffect,
@@ -74,11 +66,6 @@ function toDraft(s: Settings): Draft {
   return rest;
 }
 
-/**
- * Popover wrapper — the public entry point. Renders a Settings icon
- * button that opens the form in a popover on click. Safe to drop into
- * any header's `actions` slot.
- */
 export function BettingStrategyPopover() {
   const [open, setOpen] = useState(false);
   return (
@@ -105,11 +92,6 @@ export function BettingStrategyPopover() {
   );
 }
 
-/**
- * Pure form body — no chrome wrapper. Used inside the popover; could
- * also be embedded elsewhere (e.g. a dedicated /settings page) without
- * any changes.
- */
 export function BettingStrategyForm() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -197,8 +179,6 @@ export function BettingStrategyForm() {
   const setField = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((d) => (d ? { ...d, [key]: value } : d));
 
-  // Live strategy summary shown in the header — lets the user confirm
-  // the effective rule without scrolling through every field.
   const kellyLabel = formatKellyFractionLabel(draft.kellyFraction);
   const bankrollLabel = draft.useLiveBalance
     ? "live balance"
@@ -207,7 +187,6 @@ export function BettingStrategyForm() {
   return (
     <TooltipProvider>
       <div className="flex flex-col max-h-[80vh]">
-        {/* ── Header: title + live settings summary ────────────────── */}
         <div className="px-3 pt-3 pb-2 border-b border-border/60 bg-muted/30">
           <div className="flex items-center gap-2">
             <Settings2 className="size-4 shrink-0 text-muted-foreground" />
@@ -220,7 +199,6 @@ export function BettingStrategyForm() {
           </div>
         </div>
 
-        {/* ── Scrollable body ─────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
           {!ready && (
             <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[10.5px] text-amber-200 leading-tight">
@@ -234,8 +212,6 @@ export function BettingStrategyForm() {
             </div>
           )}
 
-          {/* SIZING — primary, most visible. Kelly fraction + cap side
-              by side to read as a unit. */}
           <Section
             title="Sizing"
             hint="How much to stake on each value bet. Kelly fraction picks the aggressiveness; the cap is a hard ceiling on any single bet as a percentage of bankroll."
@@ -266,7 +242,6 @@ export function BettingStrategyForm() {
             </div>
           </Section>
 
-          {/* BANKROLL — what Kelly sizes against. */}
           <Section
             title="Bankroll"
             hint="The reference balance Kelly sizes against. Live balance auto-adjusts as bets settle; manual is a fixed number you set yourself."
@@ -345,7 +320,6 @@ export function BettingStrategyForm() {
             </Row>
           </Section>
 
-          {/* ROUNDING — stake shaping applied after Kelly. */}
           <Section
             title="Rounding"
             hint="Stake shaping applied after Kelly. Bumps tiny stakes up to Min stake and snaps the final number to the nearest Stake bucket so place-orders stay neat."
@@ -377,7 +351,6 @@ export function BettingStrategyForm() {
           </Section>
         </div>
 
-        {/* ── Sticky save bar (appears only when dirty) ───────────── */}
         {(dirty || savedTick) && (
           <div className="border-t border-border/60 bg-muted/30 px-3 py-2 flex items-center justify-between gap-2">
             <span className="text-[11px] text-muted-foreground">
@@ -422,11 +395,6 @@ export function BettingStrategyForm() {
   );
 }
 
-// ------------------------------------------------------------------
-// Small helper that formats the raw kellyFraction into a human label
-// matching the dropdown presets. Kept here so the header summary and
-// the tooltip stay in sync.
-// ------------------------------------------------------------------
 function formatKellyFractionLabel(v: number): string {
   if (v >= 0.99) return "Full Kelly";
   if (Math.abs(v - 0.5) < 0.01) return "½ Kelly";
@@ -435,10 +403,6 @@ function formatKellyFractionLabel(v: number): string {
   return `${v.toFixed(3).replace(/\.?0+$/, "")}× Kelly`;
 }
 
-// ------------------------------------------------------------------
-// Strategy summary pill in the header. Compact neutral chip — the
-// colour the user cares about (P&L) lives elsewhere.
-// ------------------------------------------------------------------
 function StrategyPill({
   label,
   tone = "muted",
@@ -460,12 +424,6 @@ function StrategyPill({
   );
 }
 
-// ------------------------------------------------------------------
-// Section grouping helper — uppercase tracking-wide label with a
-// muted hint below it. Sets up a visual rhythm of Sizing → Bankroll
-// → Bet quality → Rounding so fields aren't a wall
-// of label:input pairs.
-// ------------------------------------------------------------------
 function Section({
   title,
   hint,
@@ -510,11 +468,6 @@ function Section({
   );
 }
 
-// ------------------------------------------------------------------
-// MiniField — stacked label / input used inside the 2-col Sizing
-// grid. Unlike Row (horizontal), this stacks vertically so two fields
-// sit side by side without colliding with long labels.
-// ------------------------------------------------------------------
 function MiniField({
   label,
   help,
@@ -553,10 +506,6 @@ function MiniField({
   );
 }
 
-// ------------------------------------------------------------------
-// Compact row primitive: label | input pair in a single line.
-// `help` renders as a `?` tooltip instead of a sub-line of text.
-// ------------------------------------------------------------------
 function Row({
   label,
   help,
@@ -595,10 +544,6 @@ function Row({
   );
 }
 
-// ------------------------------------------------------------------
-// Numeric input with a trailing unit badge (e.g. "100 BDT", "10 %").
-// Smaller than separate label + unit column.
-// ------------------------------------------------------------------
 function NumericField({
   value,
   unit,
@@ -689,12 +634,6 @@ function PhaseMultiSelect({
   );
 }
 
-// ------------------------------------------------------------------
-// Kelly fraction dropdown. Four presets with inline descriptions so the
-// user doesn't need to know Kelly theory to pick one. Stored as the raw
-// multiplier (0.125 / 0.25 / 0.5 / 1.0) — matches what `computeStake`
-// expects.
-// ------------------------------------------------------------------
 const KELLY_FRACTION_OPTIONS: Array<{
   value: number;
   label: string;
@@ -733,8 +672,6 @@ function KellyFractionSelect({
   value: number;
   onChange: (v: number) => void;
 }) {
-  // Snap whatever's in the DB to the closest preset so the Select always
-  // has a matching item to highlight.
   const closest = KELLY_FRACTION_OPTIONS.reduce((best, opt) =>
     Math.abs(opt.value - value) < Math.abs(best.value - value) ? opt : best,
   );

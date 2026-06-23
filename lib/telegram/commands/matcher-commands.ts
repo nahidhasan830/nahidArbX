@@ -1,8 +1,3 @@
-/**
- * Matcher Lab controls:
- *   /matcher_reviews, /matcher_review, /matcher_match, /matcher_reject,
- *   /matcher_keep, /matcher_run, /matcher_run_all.
- */
 
 import {
   countDecisionRows,

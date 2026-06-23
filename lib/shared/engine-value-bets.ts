@@ -1,10 +1,3 @@
-/**
- * Engine-side value-bets analysis.
- *
- * Runs the same analysis as the Next.js /api/value-bets GET handler
- * but inside the engine process where in-memory stores are populated.
- * The Next.js route proxies to this via the engine HTTP API.
- */
 
 import {
   getEvents,
@@ -39,10 +32,6 @@ function serializeSyncStatus(syncStatus: SyncStatus) {
   };
 }
 
-/**
- * Full analysis + serialization. Mirrors the GET handler in
- * app/api/value-bets/route.ts but runs in the engine process.
- */
 export async function analyzeAndSerialize(
   params: URLSearchParams,
 ): Promise<Record<string, unknown>> {
@@ -76,8 +65,6 @@ export async function analyzeAndSerialize(
   const cachedStats = getCachedStats();
   const allValueBets = getValueBets();
 
-  // Build lookup — always filter by EV/odds/provider so the badge count
-  // and atom-level VB attachment are consistent regardless of showOnlyValue.
   const valuesByAtom = new Map<string, ValueBet>();
   const eventIdsWithValue = new Set<string>();
   for (const vb of allValueBets) {
@@ -96,7 +83,6 @@ export async function analyzeAndSerialize(
   const eventsWithValue = allEvents.filter((e) => eventIdsWithValue.has(e.id));
   let eventsToAnalyze = showOnlyValue ? eventsWithValue : [...allEvents];
 
-  // Time filter
   if (timeFilter !== "all") {
     const now = Date.now();
     eventsToAnalyze = eventsToAnalyze.filter((e) => {
@@ -107,7 +93,6 @@ export async function analyzeAndSerialize(
     });
   }
 
-  // Market type filter
   if (selectedMarketTypes) {
     eventsToAnalyze = eventsToAnalyze.filter((e) => {
       const familyIds = getFamiliesForEvent(e.id);
@@ -118,7 +103,6 @@ export async function analyzeAndSerialize(
     });
   }
 
-  // Search
   let totalBeforePagination = eventsToAnalyze.length;
   if (search) {
     eventsToAnalyze = eventsToAnalyze.filter((e) => {
@@ -136,14 +120,12 @@ export async function analyzeAndSerialize(
     totalBeforePagination = eventsToAnalyze.length;
   }
 
-  // Sort + paginate
   eventsToAnalyze.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   const start = page * pageSize;
   const end = start + pageSize;
   const hasMore = end < eventsToAnalyze.length;
   eventsToAnalyze = eventsToAnalyze.slice(start, end);
 
-  // Analyze each event
   const eventResults = [];
   let _totalFamilies = 0;
   let eventsWithOdds = 0;
@@ -255,7 +237,6 @@ export async function analyzeAndSerialize(
       if (data?.eventId) providerEventIds[provider] = data.eventId;
     }
 
-    // Live score
     let liveScore: unknown;
     const multiScore = getMultiSourceDisplayScore(event.id);
     if (multiScore) {
@@ -291,7 +272,6 @@ export async function analyzeAndSerialize(
     });
   }
 
-  // Subscribe to live scores
   const now = Date.now();
   const liveEventIds = eventResults
     .filter((e) => {

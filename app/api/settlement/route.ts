@@ -1,12 +1,3 @@
-/**
- * Settlement API — Hybrid route.
- *
- * GET  → scheduler status (proxied from engine) + recent runs (DB) +
- *        queued count (DB) + activity log (from engine).
- *
- * POST → scheduler controls (proxied to engine).
- *        Actions: run, start, stop, restart, pause, resume.
- */
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
@@ -37,7 +28,6 @@ export async function GET(request: NextRequest) {
   const runsLimit = Math.min(Math.max(Number(runsParam ?? 20), 0), 200);
   const logLimit = Math.min(Math.max(Number(logParam ?? 100), 0), 200);
 
-  // DB queries (run in this process — DB is available)
   const [recentRuns, queuedRow] = await Promise.all([
     runsLimit > 0 ? listRecentSettlementRuns(runsLimit) : [],
     db
@@ -52,7 +42,6 @@ export async function GET(request: NextRequest) {
   ]);
   const queuedCount = queuedRow[0]?.n ?? 0;
 
-  // Engine scheduler status (proxied from engine process)
   const engineStatus = await engineGet<Record<string, unknown>>(
     `/engine/settlement?log=${logLimit}`,
   );
@@ -65,7 +54,6 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Engine unreachable — return what we can from DB
   return apiSuccess({
     active: false,
     paused: false,
@@ -103,7 +91,6 @@ export async function POST(request: NextRequest) {
   const intervalMs = parsed.data?.intervalMs;
 
   try {
-    // Forward all actions to engine where the scheduler lives
     const result = await enginePost("/engine/settlement", {
       action,
       intervalMs,

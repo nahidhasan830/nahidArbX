@@ -1,9 +1,3 @@
-/**
- * EvRangeFilter — shared EV% range filter dropdown with a range slider.
- *
- * Used in both BetsHistoryToolbar and SpreadsheetToolbar.
- * Snapping to the absolute edges means "no constraint" (undefined).
- */
 
 "use client";
 
@@ -19,7 +13,6 @@ import {
 import { cn } from "@/lib/utils";
 import { TriggerBadge } from "./TriggerBadge";
 
-// Slider bounds — cover realistic EV% range
 const EV_MIN = -10;
 const EV_MAX = 30;
 const EV_STEP = 0.25;
@@ -42,7 +35,6 @@ function badgeLabel(min?: number, max?: number): string {
 const BTN_BASE = cn("h-7 px-2 text-[11px] gap-1.5 font-normal");
 
 interface EvRangeFilterProps {
-  /** undefined = no constraint */
   min?: number;
   max?: number;
   onChange: (min: number | undefined, max: number | undefined) => void;

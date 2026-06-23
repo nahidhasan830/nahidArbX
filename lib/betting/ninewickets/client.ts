@@ -1,7 +1,3 @@
-/**
- * 9wkts exchange-host client. Talks to gakqv/gakvx.seofmi.live using the
- * jsessionid captured by the session manager.
- */
 import { getSession, invalidateSession } from "./session";
 import type { NineWicketsSession, PlayerInfoResponse } from "./types";
 
@@ -9,9 +5,6 @@ const HOST_READ = "https://gakvx.seofmi.live";
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
-// Match browser-origin headers — the 9W WAF silently rejects requests
-// with a missing Origin/Referer against some hosts (notably the write
-// host). Keep queryPlayerInfo's headers identical to the adapter.
 const BROWSER_HEADERS = {
   "User-Agent": UA,
   Accept: "application/json, text/plain, */*",
@@ -45,19 +38,15 @@ export async function queryPlayerInfo(): Promise<PlayerInfoResponse> {
     }
     const text = await res.text();
     const trimmed = text.trim();
-    // Exchange host returns an HTML login page when the session has died.
     if (trimmed.startsWith("<")) {
       throw new SessionExpiredError("queryPlayerInfo returned HTML");
     }
-    // Empty body is the WAF-silent-reject signature (e.g. missing
-    // Origin/Referer). Treat as expired so we re-login and retry.
     if (trimmed.length === 0) {
       throw new SessionExpiredError("queryPlayerInfo returned empty body");
     }
     const parsed = JSON.parse(trimmed) as
       | PlayerInfoResponse
       | { status?: string; desc?: string };
-    // Error envelope — e.g. {"status":"1001","desc":"Not Authorized."}
     if (
       typeof (parsed as { status?: unknown }).status === "string" &&
       (parsed as { status: string }).status !== "0"
@@ -79,7 +68,6 @@ export async function queryPlayerInfo(): Promise<PlayerInfoResponse> {
   });
 }
 
-// -------------------------------------------------------------------------
 
 export class SessionExpiredError extends Error {}
 
@@ -92,10 +80,6 @@ export async function callWithSessionRetry<T>(
   } catch (err) {
     if (err instanceof SessionExpiredError) {
       invalidateSession();
-      // Eager re-login: request a fresh session immediately rather
-      // than waiting for the caller's next attempt. Keeps recovery
-      // time tied to the single Playwright login round-trip rather
-      // than to the next scheduler tick that happens to ask.
       const fresh = await getSession(true);
       return fn(fresh);
     }

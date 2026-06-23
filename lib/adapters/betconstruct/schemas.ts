@@ -1,12 +1,6 @@
-/**
- * Zod Schemas for BetConstruct Swarm API
- */
 
 import { z } from "zod";
 
-// ============================================
-// Event Schema (selection within a market)
-// ============================================
 
 export const BCEventSchema = z.object({
   id: z.number(),
@@ -19,9 +13,6 @@ export const BCEventSchema = z.object({
 
 export type BCEventParsed = z.infer<typeof BCEventSchema>;
 
-// ============================================
-// Market Schema
-// ============================================
 
 export const BCMarketSchema = z.object({
   id: z.number(),
@@ -35,9 +26,6 @@ export const BCMarketSchema = z.object({
 
 export type BCMarketParsed = z.infer<typeof BCMarketSchema>;
 
-// ============================================
-// Game Info Schema (for live events)
-// ============================================
 
 export const BCGameInfoSchema = z.object({
   current_game_state: z.string().optional(),
@@ -49,9 +37,6 @@ export const BCGameInfoSchema = z.object({
 
 export type BCGameInfoParsed = z.infer<typeof BCGameInfoSchema>;
 
-// ============================================
-// Stats Schema
-// ============================================
 
 export const BCStatValueSchema = z.object({
   team1_value: z.number().nullable(),
@@ -62,9 +47,6 @@ export const BCStatsSchema = z.record(z.string(), BCStatValueSchema);
 
 export type BCStatsParsed = z.infer<typeof BCStatsSchema>;
 
-// ============================================
-// Game Schema
-// ============================================
 
 export const BCGameSchema = z.object({
   id: z.number(),
@@ -83,9 +65,6 @@ export const BCGameSchema = z.object({
 
 export type BCGameParsed = z.infer<typeof BCGameSchema>;
 
-// ============================================
-// Response Wrapper
-// ============================================
 
 export const BCResponseSchema = z.object({
   code: z.number(),
@@ -98,9 +77,6 @@ export const BCResponseSchema = z.object({
 
 export type BCResponseParsed = z.infer<typeof BCResponseSchema>;
 
-// ============================================
-// Session Response
-// ============================================
 
 export const BCSessionResponseSchema = z.object({
   code: z.number(),

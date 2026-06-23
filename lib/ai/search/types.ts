@@ -2,7 +2,6 @@ export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
-  /** Full provider-returned text when available; falls back to snippet. */
   content?: string;
   source: string;
   score?: number;

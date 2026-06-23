@@ -1,20 +1,10 @@
-/**
- * AI Accuracy Test Runner
- *
- * Tests event matching accuracy
- * by calling the local AI grounding engine (DeepSeek + Vertex/Brave/Tavily)
- * via the Next.js API and comparing against ground-truth data.
- *
- * Usage: npx tsx tests/ai-accuracy-runner.ts
- */
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 
-// ── Types ──────────────────────────────────────────────────────────
 
 interface MatchPairTestCase {
   id: string;
-  decision: string; // "SAME" or "DIFFERENT"
+  decision: string;
   eventA: {
     homeTeam: string;
     awayTeam: string;
@@ -48,10 +38,8 @@ interface MatchPairTestResult {
   error?: string;
 }
 
-// ── Ground Truth Data (from Postgres) ──────────────────────────────
 
 const MATCH_PAIR_CASES: MatchPairTestCase[] = [
-  // ── SAME pairs (10) ────────────────────────────────────────
   {
     id: "a45be95f",
     decision: "SAME",
@@ -242,7 +230,6 @@ const MATCH_PAIR_CASES: MatchPairTestCase[] = [
     },
     stringScore: 0.807,
   },
-  // ── DIFFERENT pairs (10) ────────────────────────────────────
   {
     id: "e98860ed",
     decision: "DIFFERENT",
@@ -435,7 +422,6 @@ const MATCH_PAIR_CASES: MatchPairTestCase[] = [
   },
 ];
 
-// ── Helpers ──────────────────────────────────────────────────────────
 
 async function callEntityMatch(tc: MatchPairTestCase): Promise<MatchVerdict> {
   const res = await fetch(`${BASE_URL}/api/ai-search/entity-match`, {
@@ -463,7 +449,6 @@ async function callEntityMatch(tc: MatchPairTestCase): Promise<MatchVerdict> {
   return (await res.json()) as MatchVerdict;
 }
 
-// ── Event Matching Test ───────────────────────────────────────────────
 
 async function runMatchPairTests(
   cases: MatchPairTestCase[],
@@ -513,7 +498,6 @@ async function runMatchPairTests(
   const total = results.length;
   const accuracy = ((correct / total) * 100).toFixed(1);
 
-  // Breakdown by SAME vs DIFFERENT
   const sameCases = results.filter((r) => r.testCase.decision === "SAME");
   const diffCases = results.filter((r) => r.testCase.decision === "DIFFERENT");
   const sameCorrect = sameCases.filter((r) => r.decisionCorrect).length;
@@ -534,7 +518,6 @@ async function runMatchPairTests(
   return { results, summary };
 }
 
-// ── Main ──────────────────────────────────────────────────────────────
 
 async function main() {
   console.log("AI Accuracy Test Runner");

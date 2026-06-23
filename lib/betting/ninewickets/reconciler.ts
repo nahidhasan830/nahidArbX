@@ -1,19 +1,3 @@
-/**
- * 9W pending-bet reconciler.
- *
- * When a bet is placed asynchronously (book returns SUCCESS without a
- * ticket id immediately), we persist a `bets` row at
- * `outcome='pending'` with `providerTicketId = null`. The book later
- * assigns a ticket id that shows up in
- * `gakqv/queryUnMatchTicketsAndTxns` (and eventually in
- * main-site report endpoints).
- *
- * This module reconciles DB rows to the live ticket feed by matching
- * on the (eventId, marketId, selectionId, stake, odds) composite key.
- * Once matched, we copy the ticket id onto the row so it's trackable.
- *
- * See RECONCILIATION.md for the full design rationale.
- */
 import { callWithSessionRetry, SessionExpiredError } from "./client";
 import {
   attachTicketId,
@@ -61,11 +45,6 @@ const UNMATCH_FIELDS: Record<string, string> = {
   geniusSportsTxnVersion: "0",
 };
 
-/**
- * Fetch the live unmatched-tickets + transaction feed from the write
- * host. Throws SessionExpiredError if the session is dead — the retry
- * wrapper handles one re-login attempt.
- */
 export async function fetchUnMatchedTickets(): Promise<QueryUnMatchTicketsResponse> {
   return callWithSessionRetry(async (session) => {
     const url = `https://gakqv.seofmi.live/exchange/member/playerService/queryUnMatchTicketsAndTxns;jsessionid=${session.queryPass}`;
@@ -92,7 +71,6 @@ export async function fetchUnMatchedTickets(): Promise<QueryUnMatchTicketsRespon
     const parsed = JSON.parse(trimmed) as
       | QueryUnMatchTicketsResponse
       | { status?: string; message?: string };
-    // Error envelope — session kicked off (single-session enforcement).
     if (typeof (parsed as { status?: unknown }).status === "string") {
       const envelope = parsed as { status: string; message?: string };
       if (envelope.status !== "0") {
@@ -105,41 +83,17 @@ export async function fetchUnMatchedTickets(): Promise<QueryUnMatchTicketsRespon
   });
 }
 
-/**
- * How long a pending row is allowed to sit without a matching ticket
- * before the reconciler treats it as a silent failure and deletes it.
- *
- * Paired with a 30-second reconcile cadence (see the scheduler in
- * `lib/background/fetcher.ts`): we poll the book's myBets feed every
- * 30s so genuine confirmations show up fast, and only after five
- * minutes of continuous no-shows do we consider the placement lost
- * and purge its phantom DB row.
- */
 const ORPHAN_PENDING_TTL_MS = 5 * 60 * 1000;
 
-/** Reconciliation outcome — used for UI / logging. */
 export interface ReconcileReport {
-  /** Count of pending rows before reconciliation. */
   pendingBefore: number;
-  /** Count of pending rows after (still-pending, ticket id was already known or still unmatched). */
   pendingAfter: number;
-  /** Rows where we attached a brand-new ticket id this run. */
   ticketsAttached: number;
-  /** Ticket ids observed in the provider feed for OUR pending bets. */
   observedTicketIds: string[];
-  /** Pending rows that aged past {@link ORPHAN_PENDING_TTL_MS} and were deleted. */
   orphansPurged: number;
-  /** When the reconciliation ran. */
   at: string;
 }
 
-/**
- * Walk all pending rows for `ninewickets-sportsbook`, fetch the live
- * unmatched feed, and attach newly-visible ticket ids to rows that
- * don't have one yet.
- *
- * Idempotent. Safe to call every N seconds.
- */
 export async function reconcilePendingBets(): Promise<ReconcileReport> {
   const provider = "ninewickets-sportsbook";
   const pending = await listPendingBetsForProvider(provider);
@@ -180,22 +134,12 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
   let ticketsAttached = 0;
   let orphansPurged = 0;
   const nowMs = Date.now();
-  // One live book ticket must never be attached to more than one
-  // placed_bets row. Without this, a race that produced N duplicate
-  // rows for the same (event, market, selection) would all match the
-  // single book ticket here and each fire its own Telegram. The DB's
-  // new UNIQUE partial index on (event, family, atom) prevents the
-  // duplicates going forward, but legacy rows may exist — keep the
-  // guard so reconciliation stays idempotent regardless.
   const claimedTicketIds = new Set<string>();
   for (const row of pending) {
     if (row.providerTicketId) claimedTicketIds.add(row.providerTicketId);
   }
 
   for (const row of pending) {
-    // If the row already has a ticket id, the reconciler's job is done.
-    // It may have moved to the matched (transactions) feed or been voided,
-    // which is handled by the settlement pipeline.
     if (row.providerTicketId) {
       continue;
     }
@@ -226,10 +170,6 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
     );
 
     if (!match) {
-      // Age-out: pending rows the book never surfaced are almost
-      // certainly silent failures. Delete them so the dedup unblocks
-      // retries. Fresh pendings within the TTL are left alone — the
-      // book may still confirm within a few seconds.
       if (nowMs - placedMs > ORPHAN_PENDING_TTL_MS) {
         const deleted = await deleteBet(row.id);
         if (deleted) {
@@ -248,11 +188,8 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
     const ticketId = String(match.id);
     observedTicketIds.push(ticketId);
 
-    // If the row already has THIS ticket id, nothing to do.
     if (row.providerTicketId === ticketId) continue;
 
-    // If the row has a different ticket id, prefer what the book says
-    // (unlikely but defensive — the book is the source of truth).
     const updated = await attachTicketId(row.id, ticketId);
     if (updated) {
       claimedTicketIds.add(ticketId);
@@ -262,11 +199,6 @@ export async function reconcilePendingBets(): Promise<ReconcileReport> {
         `attached ticket ${ticketId} to placed_bet ${row.id} ` +
           `(event ${row.eventId}, stake ${stake}@${odds})`,
       );
-      // Intentionally NO Telegram here. The placement-confirmation path
-      // (lib/betting/ninewickets/placement-confirmation.ts) is the
-      // authoritative "Bet placed" notifier. Firing a second ping from
-      // the reconciler produced duplicate notifications today
-      // (tickets 11057135/39/42 for Randers vs Fredericia).
     }
   }
 
@@ -294,14 +226,10 @@ function findTicketForRow(
   const isClaimed = (t: GeniusSportsUnMatchTicket) =>
     claimedTicketIds.has(String(t.id));
 
-  // Since payload refs (marketId, selectionId) are no longer stored in DB,
-  // we strictly match on stake, odds, and time.
   for (const t of tickets) {
     if (isClaimed(t)) continue;
     if (t.initPrice !== row.stake) continue;
     if (!oddsEq(t.odds, row.odds)) continue;
-    // Guard: the ticket must have been created at-or-after the row
-    // was placed (plus a 5s clock-skew buffer).
     if (t.createDate < rowPlacedMs - 5000) continue;
     return t;
   }

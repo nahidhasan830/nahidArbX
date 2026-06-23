@@ -1,40 +1,29 @@
-/**
- * Suspicious Match Store
- *
- * Stores matches that AI has flagged as potentially incorrect.
- * Supports all matching levels: competition, event, and market.
- */
 
-// ============================================
-// Types
-// ============================================
 
 export type SuspiciousLevel = "competition" | "event" | "market";
 
 export interface SuspiciousProviderItem {
   provider: string;
-  id: string; // Original ID from provider
-  name: string; // Display name (team names, competition name, market name)
-  details?: Record<string, unknown>; // Additional level-specific data
+  id: string;
+  name: string;
+  details?: Record<string, unknown>;
 }
 
 export interface SuspiciousMatch {
   id: string;
   level: SuspiciousLevel;
-  matchedId: string; // The matched group ID in the relevant store
+  matchedId: string;
   providerItems: SuspiciousProviderItem[];
-  originalScore: number; // What our system scored it
-  aiConfidence: number; // AI's confidence that it's correct (low = suspicious)
+  originalScore: number;
+  aiConfidence: number;
   aiReasoning: string;
-  suspiciousElements: string[]; // What specifically is suspicious
+  suspiciousElements: string[];
   detectedAt: string;
-  detectedBy: string; // "ai-verify" | "user-report"
+  detectedBy: string;
   status: "pending" | "confirmed_correct" | "unmatched";
   resolvedAt?: string;
   resolvedBy?: string;
-  // Level-specific metadata
   metadata?: {
-    // For events
     homeTeamA?: string;
     awayTeamA?: string;
     homeTeamB?: string;
@@ -43,10 +32,8 @@ export interface SuspiciousMatch {
     competitionB?: string;
     startTimeA?: string;
     startTimeB?: string;
-    // For competitions
     competitionNameA?: string;
     competitionNameB?: string;
-    // For markets
     marketTypeA?: string;
     marketTypeB?: string;
     lineA?: number;
@@ -61,7 +48,7 @@ export interface NegativeExample {
   itemA: {
     provider: string;
     name: string;
-    normalized: string; // Lowercase, trimmed
+    normalized: string;
   };
   itemB: {
     provider: string;
@@ -72,10 +59,8 @@ export interface NegativeExample {
   aiConfidence: number;
   addedAt: string;
   reason: string;
-  source: string; // "ai-verify" | "user-unmatch"
-  // Level-specific data for more accurate matching
+  source: string;
   metadata?: {
-    // For events - store team info separately
     homeTeamA?: string;
     awayTeamA?: string;
     homeTeamB?: string;
@@ -93,9 +78,6 @@ export interface SuspiciousStoreStats {
   negativeByLevel: Record<SuspiciousLevel, number>;
 }
 
-// ============================================
-// Store Implementation
-// ============================================
 
 class SuspiciousMatchStore {
   private suspicious: Map<string, SuspiciousMatch> = new Map();
@@ -103,13 +85,7 @@ class SuspiciousMatchStore {
   private maxSuspicious = 500;
   private maxNegativeExamples = 1000;
 
-  // ----------------------------------------
-  // Suspicious Matches
-  // ----------------------------------------
 
-  /**
-   * Add a suspicious match
-   */
   addSuspicious(
     match: Omit<SuspiciousMatch, "id" | "detectedAt" | "status">,
   ): SuspiciousMatch {
@@ -127,16 +103,10 @@ class SuspiciousMatchStore {
     return suspicious;
   }
 
-  /**
-   * Get a suspicious match by ID
-   */
   getSuspicious(id: string): SuspiciousMatch | undefined {
     return this.suspicious.get(id);
   }
 
-  /**
-   * Get suspicious match by matched ID and level
-   */
   getSuspiciousByMatchedId(
     matchedId: string,
     level?: SuspiciousLevel,
@@ -149,9 +119,6 @@ class SuspiciousMatchStore {
     return undefined;
   }
 
-  /**
-   * List suspicious matches with optional filters
-   */
   listSuspicious(
     options: {
       level?: SuspiciousLevel;
@@ -162,31 +129,24 @@ class SuspiciousMatchStore {
   ): SuspiciousMatch[] {
     let results = Array.from(this.suspicious.values());
 
-    // Filter by level
     if (options.level) {
       results = results.filter((s) => s.level === options.level);
     }
 
-    // Filter by status
     if (options.status) {
       results = results.filter((s) => s.status === options.status);
     }
 
-    // Sort by detection time (newest first)
     results.sort(
       (a, b) =>
         new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
     );
 
-    // Apply pagination
     const offset = options.offset || 0;
     const limit = options.limit || 50;
     return results.slice(offset, offset + limit);
   }
 
-  /**
-   * Mark a suspicious match as confirmed correct
-   */
   confirmCorrect(
     id: string,
     resolvedBy: string = "user",
@@ -210,9 +170,6 @@ class SuspiciousMatchStore {
     return { success: true, message: "Match confirmed as correct" };
   }
 
-  /**
-   * Mark a suspicious match as unmatched (wrong match confirmed)
-   */
   markUnmatched(
     id: string,
     resolvedBy: string = "user",
@@ -233,7 +190,6 @@ class SuspiciousMatchStore {
     suspicious.resolvedAt = new Date().toISOString();
     suspicious.resolvedBy = resolvedBy;
 
-    // Add to negative examples if we have at least 2 provider items
     let negativeExampleId: string | undefined;
     if (suspicious.providerItems.length >= 2) {
       const itemA = suspicious.providerItems[0];
@@ -276,16 +232,10 @@ class SuspiciousMatchStore {
     };
   }
 
-  /**
-   * Remove a suspicious match
-   */
   removeSuspicious(id: string): boolean {
     return this.suspicious.delete(id);
   }
 
-  /**
-   * Prune old suspicious matches (keep most recent)
-   */
   private pruneOldSuspicious(): void {
     if (this.suspicious.size <= this.maxSuspicious) return;
 
@@ -294,18 +244,11 @@ class SuspiciousMatchStore {
         new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
     );
 
-    // Keep only the most recent
     const toKeep = sorted.slice(0, this.maxSuspicious);
     this.suspicious = new Map(toKeep);
   }
 
-  // ----------------------------------------
-  // Negative Examples
-  // ----------------------------------------
 
-  /**
-   * Add a negative example (learned from wrong match)
-   */
   addNegativeExample(
     example: Omit<NegativeExample, "id" | "addedAt">,
   ): NegativeExample {
@@ -322,9 +265,6 @@ class SuspiciousMatchStore {
     return negativeExample;
   }
 
-  /**
-   * Get all negative examples, optionally filtered by level
-   */
   getNegativeExamples(level?: SuspiciousLevel): NegativeExample[] {
     if (level) {
       return this.negativeExamples.filter((e) => e.level === level);
@@ -332,10 +272,6 @@ class SuspiciousMatchStore {
     return [...this.negativeExamples];
   }
 
-  /**
-   * Check if a pair matches any negative example
-   * Returns the matching negative example if found
-   */
   checkNegativeExample(
     level: SuspiciousLevel,
     nameA: string,
@@ -357,12 +293,10 @@ class SuspiciousMatchStore {
       const exA = example.itemA.normalized;
       const exB = example.itemB.normalized;
 
-      // Check name matching (both orientations)
       const matchNormal = exA === inputA && exB === inputB;
       const matchSwapped = exA === inputB && exB === inputA;
 
       if (matchNormal || matchSwapped) {
-        // For events, also check team metadata if available
         if (level === "event" && metadata && example.metadata) {
           const teamsMatch = this.checkTeamMetadataMatch(
             metadata,
@@ -381,9 +315,6 @@ class SuspiciousMatchStore {
     return null;
   }
 
-  /**
-   * Check if team metadata matches
-   */
   private checkTeamMetadataMatch(
     input: {
       homeTeamA?: string;
@@ -402,7 +333,6 @@ class SuspiciousMatchStore {
     const normalize = (t?: string) => (t || "").toLowerCase().trim();
 
     if (swapped) {
-      // Input A = Stored B, Input B = Stored A
       return (
         normalize(input.homeTeamA) === normalize(stored.homeTeamB) &&
         normalize(input.awayTeamA) === normalize(stored.awayTeamB) &&
@@ -419,16 +349,12 @@ class SuspiciousMatchStore {
     }
   }
 
-  /**
-   * Check events specifically (convenience method)
-   */
   checkNegativeEventExample(
     homeA: string,
     awayA: string,
     homeB: string,
     awayB: string,
   ): NegativeExample | null {
-    // Create composite name for event
     const nameA = `${homeA} vs ${awayA}`;
     const nameB = `${homeB} vs ${awayB}`;
 
@@ -440,9 +366,6 @@ class SuspiciousMatchStore {
     });
   }
 
-  /**
-   * Remove a negative example
-   */
   removeNegativeExample(id: string): boolean {
     const index = this.negativeExamples.findIndex((e) => e.id === id);
     if (index === -1) return false;
@@ -450,24 +373,14 @@ class SuspiciousMatchStore {
     return true;
   }
 
-  /**
-   * Prune old negative examples
-   */
   private pruneOldNegativeExamples(): void {
     if (this.negativeExamples.length <= this.maxNegativeExamples) return;
-    // Keep only the most recent
     this.negativeExamples = this.negativeExamples.slice(
       -this.maxNegativeExamples,
     );
   }
 
-  // ----------------------------------------
-  // Stats & Export
-  // ----------------------------------------
 
-  /**
-   * Get store statistics
-   */
   getStats(): SuspiciousStoreStats {
     const suspicious = Array.from(this.suspicious.values());
 
@@ -504,9 +417,6 @@ class SuspiciousMatchStore {
     };
   }
 
-  /**
-   * Export data for persistence
-   */
   export(): {
     suspicious: SuspiciousMatch[];
     negativeExamples: NegativeExample[];
@@ -517,9 +427,6 @@ class SuspiciousMatchStore {
     };
   }
 
-  /**
-   * Import data from persistence
-   */
   import(data: {
     suspicious?: SuspiciousMatch[];
     negativeExamples?: NegativeExample[];
@@ -532,18 +439,12 @@ class SuspiciousMatchStore {
     }
   }
 
-  /**
-   * Clear all data
-   */
   clear(): void {
     this.suspicious.clear();
     this.negativeExamples = [];
   }
 }
 
-// ============================================
-// Singleton Instance
-// ============================================
 
 let suspiciousStoreInstance: SuspiciousMatchStore | null = null;
 
@@ -555,9 +456,6 @@ export function getSuspiciousStore(): SuspiciousMatchStore {
   return suspiciousStoreInstance;
 }
 
-// ============================================
-// Persistence
-// ============================================
 
 import * as fs from "fs";
 import * as path from "path";

@@ -1,21 +1,7 @@
-/**
- * Global Event Bus
- *
- * Singleton event emitter for cross-module communication.
- * Used by:
- * - Sync pipeline (emits phase changes, completion, arb detection)
- * - SSE endpoint (subscribes to push updates to connected browsers)
- * - Dashboard API (version tracking for ETag support)
- *
- * Survives Next.js hot reloads via globalThis.
- */
 
 import { EventEmitter } from "events";
 import { logger } from "@/lib/shared/logger";
 
-// ============================================
-// Event Types
-// ============================================
 
 export type BusEvent =
   | {
@@ -42,9 +28,6 @@ export type BusEvent =
       entry: import("../settle/activity-log").ActivityEntry;
     };
 
-// ============================================
-// Event Bus Class
-// ============================================
 
 class SyncEventBus extends EventEmitter {
   private _version = 0;
@@ -62,7 +45,6 @@ class SyncEventBus extends EventEmitter {
     return this._version;
   }
 
-  /** Emit a typed event and bump version for data-change events */
   emitBus(event: BusEvent): void {
     if (
       event.type === "sync:complete" ||
@@ -74,7 +56,6 @@ class SyncEventBus extends EventEmitter {
     this.emit("bus-event", event);
   }
 
-  /** Subscribe with automatic cleanup handle */
   subscribe(handler: (event: BusEvent) => void): () => void {
     this.on("bus-event", handler);
     return () => {
@@ -82,7 +63,6 @@ class SyncEventBus extends EventEmitter {
     };
   }
 
-  /** Subscribe with a trackable connection ID */
   subscribeWithId(id: string, handler: (event: BusEvent) => void): () => void {
     if (this._connectionIds.has(id)) {
       this._connectionIds.get(id)!();
@@ -107,12 +87,10 @@ class SyncEventBus extends EventEmitter {
     return unsubscribe;
   }
 
-  /** Get listener count for monitoring */
   get clientCount(): number {
     return this.listenerCount("bus-event");
   }
 
-  /** Diagnostic info */
   getStats() {
     return {
       version: this._version,
@@ -122,7 +100,6 @@ class SyncEventBus extends EventEmitter {
   }
 }
 
-// Singleton — survives Next.js dev-mode hot reloads via globalThis
 const globalForBus = globalThis as typeof globalThis & {
   __syncBus?: SyncEventBus;
 };

@@ -1,15 +1,3 @@
-/**
- * Near-match → entity-resolution bridge.
- *
- * The legacy "learner" wrote name pairs into the JSON alias store; this
- * thin wrapper records observations into the new entity-resolution
- * store and updates the near-match status. The promoter judges the
- * candidate later (Tier 0/1/2).
- *
- * The diagnostics UI's "confirm" button is the main caller — when an
- * operator confirms a near-match pair, both teams (with home/away
- * orientation considered) and the competition flow through here.
- */
 
 import type { NearMatch } from "../diagnostics/types";
 import { updateNearMatchStatus, getNearMatchById } from "../diagnostics/store";
@@ -25,12 +13,6 @@ export interface LearnedAliases {
   competitionAliases: { source: string; canonical: string }[];
 }
 
-/**
- * Learn aliases from a confirmed near-match: records 4 observations
- * (home + away on both sides) plus 1 competition observation. Pinnacle
- * is the canonical source when present; otherwise the side with the
- * longer team name wins.
- */
 export async function learnFromConfirmedMatch(
   nearMatch: NearMatch,
   userId?: string,
@@ -68,7 +50,6 @@ export async function learnFromConfirmedMatch(
     competitionId,
   });
 
-  // Variant side, with home/away orientation honored.
   const variantHomeRaw =
     orientation === "normal" ? variantEvent.homeTeam : variantEvent.awayTeam;
   const variantAwayRaw =

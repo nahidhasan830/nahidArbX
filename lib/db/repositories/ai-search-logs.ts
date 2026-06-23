@@ -1,11 +1,3 @@
-/**
- * Repository for ai_search_logs — append-only audit trail.
- *
- * Write path: called from the Next.js proxy route after every
- * upstream call to the Python ai-search service.
- *
- * Read path: paginated list for the Logs DataTable on /ai-search.
- */
 
 import { desc, eq, and, sql } from "drizzle-orm";
 import { db } from "../client";

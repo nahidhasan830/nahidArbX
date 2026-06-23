@@ -73,7 +73,6 @@ function signalPid(pid, signal) {
   try {
     process.kill(Number(pid), signal);
   } catch {
-    // Process already exited.
   }
 }
 

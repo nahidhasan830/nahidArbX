@@ -1,17 +1,3 @@
-/**
- * Unified boot coordination.
- *
- * When `NAHIDARBX_UNIFIED_BOOT=1` (set by `npm run dev:all`), each
- * process writes its boot payload to a shared temp directory instead
- * of sending a Telegram notification immediately. The frontend (last
- * to start) collects all payloads and sends a single combined message.
- *
- * Note: AI Search is now embedded inside the Next.js frontend process
- * (via /api/ai-search). It no longer has a separate boot role/payload.
- *
- * Individual starts (no env var) bypass this entirely — each process
- * sends its own notification as before.
- */
 
 import { mkdirSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,15 +13,10 @@ export interface BootPayload {
   data: Record<string, unknown>;
 }
 
-/** Returns true when `dev:all` set the unified-boot env var. */
 export function isUnifiedBoot(): boolean {
   return process.env.NAHIDARBX_UNIFIED_BOOT === "1";
 }
 
-/**
- * Persist a boot payload so the collector (frontend) can pick it up.
- * Creates the directory if it doesn't exist yet.
- */
 export function writeBootPayload(
   role: BootRole,
   data: Record<string, unknown>,
@@ -53,10 +34,6 @@ export function writeBootPayload(
   );
 }
 
-/**
- * Read all boot payloads from the shared directory. Returns an array
- * of parsed payloads (may be empty if nothing was written yet).
- */
 export function collectBootPayloads(): BootPayload[] {
   try {
     const files = readdirSync(BOOT_DIR).filter((f) => f.endsWith(".json"));

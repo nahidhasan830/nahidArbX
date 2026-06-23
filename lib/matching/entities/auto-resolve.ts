@@ -1,25 +1,3 @@
-/**
- * Auto-resolver — staged pipeline that decides whether a candidate
- * (surface → entity) link gets auto-confirmed, auto-rejected, or
- * escalated to the operator inbox.
- *
- * Pipeline (stop on first verdict; cheaper stages first):
- *
- *   Stage 0  Deterministic gates       (free)
- *   Stage 1  Blocklist check           (one Postgres query)
- *   Stage 2  Bayesian evidence         (free; uses already-accumulated counters)
- *   Stage 3  Bi-encoder cosine         (~50 ms HTTP)
- *   Stage 4  Cross-encoder + conformal (~150 ms HTTP, gated on calibrator)
- *   Stage 5  Escalate                  (leave status='candidate' → operator inbox)
- *
- * Called fire-and-forget from `recordObservation()` so the sync hot path
- * never waits on it. The resolved status flip + cache invalidation
- * happens asynchronously, becoming effective in the NEXT sync tick.
- *
- * Failure mode: any stage returning null (HTTP fail, model down) skips
- * that stage. If everything fails, candidate stays 'candidate' → operator
- * inbox catches it. The sync never breaks.
- */
 
 import { logger } from "../../shared/logger";
 import {
@@ -36,34 +14,20 @@ import { notifyResolverInvalidation } from "./resolver";
 
 const tag = "AutoResolve";
 
-// ─── Tunables ──────────────────────────────────────────────────────────
 
-// Stage 2 — Bayesian early-promote (carried over from the legacy promoter).
 const BAYES_PROMOTE_EVIDENCE = 2.0;
 const BAYES_NEGATIVE_PENALTY_ALPHA = 1.5;
 const BAYES_MIN_POSITIVE_OBS = 2;
-const BAYES_MIN_HOURS_BETWEEN_OBS = 1; // anti-ratchet on a single provider
+const BAYES_MIN_HOURS_BETWEEN_OBS = 1;
 
-// Stage 3 — Bi-encoder cosine thresholds.
-//
-// 0.85 (not 0.92) auto-confirm because BGE-M3 lands clearly-same teams
-// in the 0.85–0.95 band when one side has abbreviations or suffixes
-// (e.g. "Real Madrid" vs "R. Madrid CF" measured at 0.628 in smoke
-// test — too low for any threshold; "Bayern" vs "Bayern München" lands
-// near 0.94; "Real Madrid" vs "Real Madrid CF" near 0.88). 0.85 is the
-// balanced middle: captures the easy cases while still gating on the
-// cross-encoder for ambiguous ones. Tighten to 0.92 if false-positive
-// rate exceeds the 0.5% SLO during the first weeks.
 const BI_AUTO_CONFIRM = 0.85;
 const BI_AUTO_REJECT = 0.5;
 
-// Stage 4 — Cross-encoder + conformal thresholds.
 const XE_AUTO_CONFIRM_PVALUE = 0.05;
 const XE_AUTO_CONFIRM_SCORE = 0.9;
 const XE_AUTO_REJECT_PVALUE = 0.05;
 const XE_AUTO_REJECT_SCORE = 0.1;
 
-// ─── Types ─────────────────────────────────────────────────────────────
 
 export type AutoResolveStage =
   | "gates"
@@ -88,16 +52,7 @@ export interface AutoResolveInput {
   candidate: EntityNameRow;
 }
 
-// ─── Public API ────────────────────────────────────────────────────────
 
-/**
- * Resolve one candidate. Idempotent — calling this twice on the same
- * candidate produces the same decision. Side effects: flips
- * entity_names.status (only if decision is auto-confirm | auto-reject)
- * and emits a LISTEN/NOTIFY cache invalidation.
- *
- * Never throws — all errors become `{ decision: 'escalate' }`.
- */
 export async function autoResolve(
   input: AutoResolveInput,
 ): Promise<AutoResolveResult> {
@@ -115,7 +70,6 @@ export async function autoResolve(
   }
 }
 
-// ─── Pipeline ──────────────────────────────────────────────────────────
 
 async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
   const c = input.candidate;
@@ -136,11 +90,6 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
     };
   }
 
-  // Stage 0 — deterministic gates
-  //
-  // Skip gender gate when the entity belongs to a women's competition.
-  // Providers like NineWickets omit (W) markers — "Manchester United"
-  // in the WSL context is women's, not men's.
   const skipGenderGate = c.competitionId
     ? await isWomensCompetitionById(c.competitionId)
     : false;
@@ -159,10 +108,6 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
     };
   }
 
-  // Stage 1 — blocklist check
-  // The operator has previously rejected this exact (provider, surface,
-  // comp, entity) tuple within the last 30 days. Don't re-apply the same
-  // wrong decision; let it sit in the inbox instead.
   const blocked = await isBlocked({
     provider: c.provider,
     surfaceNormalized: c.surfaceNormalized,
@@ -178,11 +123,9 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
     };
   }
 
-  // Stage 2 — Bayesian evidence (free, uses accumulated counters)
   const bayes = bayesianVerdict(c);
   if (bayes) return bayes;
 
-  // Stage 3 — bi-encoder cosine similarity
   const cos = await scoreBiEncoder(c.surfaceRaw, entity.canonicalName, {
     provider: c.provider,
   });
@@ -205,7 +148,6 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
     }
   }
 
-  // Stage 4 — cross-encoder + conformal calibration
   const xe = await scoreCrossEncoder(c.surfaceRaw, entity.canonicalName, {
     provider: c.provider,
   });
@@ -242,7 +184,6 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
     }
   }
 
-  // Stage 5 — escalate to operator inbox
   return {
     decision: "escalate",
     stage: "escalate",
@@ -257,24 +198,12 @@ async function runStages(input: AutoResolveInput): Promise<AutoResolveResult> {
   };
 }
 
-/**
- * Bayesian evidence — free auto-promote when a candidate has accumulated
- * enough trustworthy positive observations across providers + time.
- * This is the legacy Tier-1 logic; it survives because it works and
- * doesn't need ML.
- */
 function bayesianVerdict(c: EntityNameRow): AutoResolveResult | null {
   if (c.positiveObs < BAYES_MIN_POSITIVE_OBS) return null;
 
-  // Anti-ratchet: a single provider's repeated emission of the same name
-  // across milliseconds shouldn't count as multiple observations.
   const firstSeen = new Date(c.firstSeenAt).getTime();
   const lastSeen = new Date(c.lastSeenAt).getTime();
   const hoursSpread = (lastSeen - firstSeen) / 3_600_000;
-  // High-trust bypass: operator-sourced observations carry weight ≥ 8
-  // (provider_weight × match-review multiplier of 4). A single human
-  // approval should promote without waiting for temporal spread — the
-  // 1h requirement is anti-spam, not anti-human.
   const isHighTrust = c.weight >= 6;
   if (hoursSpread < BAYES_MIN_HOURS_BETWEEN_OBS && !isHighTrust) return null;
 
@@ -293,15 +222,12 @@ function bayesianVerdict(c: EntityNameRow): AutoResolveResult | null {
   return null;
 }
 
-// ─── Side effects ──────────────────────────────────────────────────────
 
 async function applyVerdict(
   candidate: EntityNameRow,
   result: AutoResolveResult,
 ): Promise<void> {
   try {
-    // Always write the ML score back to entity_names so the inbox query
-    // (classifierScore IS NOT NULL) can find escalated candidates.
     if (result.score !== undefined) {
       await updateNameAfterObservation(candidate.id, {
         classifierScore: result.score,
@@ -317,8 +243,6 @@ async function applyVerdict(
     const newStatus = result.decision === "auto-confirm" ? "active" : "retired";
     await setEntityNameStatus(candidate.id, newStatus);
 
-    // Record the auto-decision as an observation so it shows in the
-    // "Recent Auto-decisions" feed and as training data for the trainer.
     await insertObservation({
       surfaceRaw: candidate.surfaceRaw,
       surfaceNormalized: candidate.surfaceNormalized,
@@ -350,7 +274,6 @@ async function applyVerdict(
   }
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────
 
 const WOMEN_COMP_RE = [
   /\bwsl\b/i,
@@ -368,13 +291,6 @@ const WOMEN_COMP_RE = [
   /\bw[\s-]?league/i,
 ];
 
-/**
- * Check if a competition entity represents a women's league. Uses the
- * entity's canonical name against a set of known patterns. This is
- * cheap (single PK lookup + in-memory regex) and can't fail silently
- * — unknown competitions return false, which preserves the gender
- * gate's default behaviour.
- */
 async function isWomensCompetitionById(compId: string): Promise<boolean> {
   const ent = await getEntityById(compId);
   if (!ent) return false;

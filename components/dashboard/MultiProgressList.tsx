@@ -1,41 +1,21 @@
 "use client";
 
-/**
- * A compact vertical list of progress bars — one row per concurrent
- * "thing-in-flight" (bonus turnover, rollover requirement, staking
- * target, etc.). Built for the dashboard's account card but
- * intentionally generic so it can slot into other pages later.
- *
- * The color band reflects completion ratio:
- *   [0, 0.33)  — red/rose   (far from done)
- *   [0.33, 0.8) — amber     (meaningful progress)
- *   [0.8, 1.0)  — emerald   (nearly there)
- *   >= 1.0     — green/solid (met; UI usually hides met items)
- */
 import { cn } from "@/lib/utils";
 
 export interface ProgressItem {
   id: string;
   label: string;
-  /** Current progress (in the same unit as `total`). */
   current: number;
-  /** Total required. */
   total: number;
-  /** Shown under the label when present (e.g. "expires in 3d"). */
   sublabel?: string | null;
-  /** Override for the tooltip on the bar. */
   tooltip?: string;
-  /** Units — rendered in the numeric display (e.g. "BDT"). */
   unit?: string;
 }
 
 export interface MultiProgressListProps {
   items: ProgressItem[];
-  /** Rendered when `items` is empty. */
   emptyState?: React.ReactNode;
-  /** Displayed above the list (e.g. "TURNOVER"). */
   heading?: string;
-  /** Displayed to the right of the heading (e.g. "2 active"). */
   headingRight?: React.ReactNode;
   className?: string;
 }

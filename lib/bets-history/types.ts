@@ -6,7 +6,6 @@ export type Outcome =
   | "half_lost"
   | "void";
 
-/** The six ordered outcome values, handy for iteration in UI & schemas. */
 export const OUTCOMES: readonly Outcome[] = [
   "pending",
   "won",
@@ -16,20 +15,12 @@ export const OUTCOMES: readonly Outcome[] = [
   "void",
 ] as const;
 
-/** Fraction of the stake at risk in the win/lose branch for a given outcome.
- *  Half-wins / half-losses push the other half of the stake. */
 export const stakeFractionForOutcome = (o: Outcome): number => {
   if (o === "won" || o === "lost") return 1;
   if (o === "half_won" || o === "half_lost") return 0.5;
   return 0;
 };
 
-/**
- * Legacy rows in the DB may still contain the historical "push" outcome.
- * For our atom-based settlement it's indistinguishable from "void" — stake
- * is returned, no P&L. Collapse push → void everywhere on read. Unknown
- * values fall back to "pending".
- */
 export const normalizeOutcome = (o: string | null | undefined): Outcome => {
   if (o === "push") return "void";
   if (
@@ -44,10 +35,8 @@ export const normalizeOutcome = (o: string | null | undefined): Outcome => {
   return "pending";
 };
 
-/** True for settled (non-pending) outcomes. */
 export const isSettledOutcome = (o: Outcome): boolean => o !== "pending";
 
-/** True for outcomes that contribute to win/loss P&L (i.e. not void). */
 export const hasPnl = (o: Outcome): boolean =>
   o === "won" || o === "half_won" || o === "lost" || o === "half_lost";
 
@@ -103,23 +92,15 @@ export type ValueBetRow = {
   closingSharpOdds: number | null;
 
   outcome: Outcome | string;
-  /** Pipeline tier/source that produced the outcome — null while pending. */
   settledBySource: string | null;
-  /** When the outcome was resolved — null while pending. */
   settledAt: string | null;
   pnl?: number | null;
   clvPct?: number | null;
-  /** Count of settlement-pipeline ticks that touched this row. */
   settleAttempts: number;
   lastSettleAttemptAt: string | null;
 
-  /** Odds movement snapshot from detection time (persisted JSONB).
-   *  New format: Record<string, OddsMovementData> mapping provider ID to movement.
-   *  Legacy format: OddsMovementData (single sharp snapshot).
-   *  Typed shape when parsed, `unknown` when fresh from Drizzle. */
   oddsMovement?: Record<string, OddsMovementData> | OddsMovementData | null;
 
-  // ML pipeline columns
   mlFeatures?: number[] | null;
   mlFeatureVersion?: number | null;
   mlFeatureCount?: number | null;
@@ -133,17 +114,11 @@ export type ValueBetRow = {
   placedMlKellyMultiplier?: number | null;
   placedMlModelVersion?: number | null;
 
-  /** Cached final score from match_scores. Populated server-side by listBets
-   *  when the event has a resolved score; null while the match is still
-   *  pending or the score hasn't been fetched yet. Used by the bets-table
-   *  outcome tooltip to surface HT/FT/ET/PEN scores plus optional
-   *  corner/booking stats and source attribution. */
   matchScore?: BetMatchScore | null;
 };
 
-/** Subset of `match_scores` exposed alongside each bet row. */
 export type BetMatchScore = {
-  status: string; // 'FT' | 'AET' | 'PEN' | 'ABD' | 'POSTPONED'
+  status: string;
   htHome: number | null;
   htAway: number | null;
   ftHome: number;
@@ -160,7 +135,6 @@ export type BetMatchScore = {
   confidence: number;
 };
 
-/** Parsed shape of a single provider's odds movement JSONB blob. */
 export type OddsMovementData = {
   provider: string;
   openingOdds: number | null;

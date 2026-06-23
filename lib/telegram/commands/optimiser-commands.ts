@@ -1,9 +1,3 @@
-/**
- * ML model commands:
- *   /models — list recent models with metrics
- *   /model  — deployed model detail
- *   /mlstatus — live scorer status from engine
- */
 
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -12,7 +6,6 @@ import { engineGet } from "@/lib/engine-proxy";
 import { registerCommand } from "../registry";
 import { esc, header, kvList } from "../format";
 
-// ── /models ──────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "models",
@@ -72,7 +65,6 @@ registerCommand({
   },
 });
 
-// ── /model ───────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "model",
@@ -133,7 +125,6 @@ registerCommand({
 
     const lines = [header("🤖", `ML Model v${model.version}`), kvList(kv)];
 
-    // Feature importance top 5
     if (
       model.featureImportance &&
       typeof model.featureImportance === "object"
@@ -157,7 +148,6 @@ registerCommand({
   },
 });
 
-// ── /mlstatus ────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "mlstatus",

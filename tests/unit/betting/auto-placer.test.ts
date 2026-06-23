@@ -204,7 +204,6 @@ describe("maybeAutoPlace — ML Kelly multiplier pass-through", () => {
     expect(args.mlFeatureVersion).toBe(1);
     expect(args.mlFeatureCount).toBe(2);
     expect(args.mlFeatureNamesHash).toBe("feature-hash");
-    // kellyStake should be the base value, not ML-adjusted
     expect(args.kellyStake).toBe(vb.kellyStake);
   });
 
@@ -223,7 +222,6 @@ describe("maybeAutoPlace — ML Kelly multiplier pass-through", () => {
       mlKellyMultiplier: 0.5,
     });
     const args = vi.mocked(placeBetForValueBet).mock.calls[0][0];
-    // The auto-placer now always passes base kellyStake
     expect(args.kellyStake).toBe(500);
   });
 });

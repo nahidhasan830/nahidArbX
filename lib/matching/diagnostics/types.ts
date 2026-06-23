@@ -1,45 +1,26 @@
-/**
- * Match Diagnostics Types
- *
- * Types for near-match detection, score breakdowns, and failure analysis.
- */
 
 import { z } from "zod";
 import type { ProviderKey } from "../../providers/registry";
 
-// ============================================
-// Score Breakdown
-// ============================================
 
-/**
- * Detailed breakdown of match score computation.
- * Provides granular insight into why a match succeeded or failed.
- */
 export interface MatchScoreBreakdown {
-  // Team similarity (weighted 70%)
   teamScore: number;
-  homeHomeSimilarity: number; // Home vs Home
-  awayAwaySimilarity: number; // Away vs Away
-  homeAwaySimilarity: number; // Swapped: Home vs Away
-  awayHomeSimilarity: number; // Swapped: Away vs Home
+  homeHomeSimilarity: number;
+  awayAwaySimilarity: number;
+  homeAwaySimilarity: number;
+  awayHomeSimilarity: number;
   bestOrientation: "normal" | "swapped";
 
-  // Competition similarity (weighted 30%)
   competitionScore: number;
-  competitionA: string; // Normalized competition A
-  competitionB: string; // Normalized competition B
+  competitionA: string;
+  competitionB: string;
 
-  // Time proximity (kept for diagnostics, NOT in Tier 1 formula)
   timeScore: number;
   timeDiffMs: number;
 
-  // Final weighted score: 0.7*team + 0.3*comp
   finalScore: number;
 }
 
-// ============================================
-// Failure Reasons
-// ============================================
 
 export type FailureReason =
   | {
@@ -75,9 +56,6 @@ export type FailureReason =
       };
     };
 
-// ============================================
-// Near-Match
-// ============================================
 
 export interface NearMatchEvent {
   id: string;
@@ -88,10 +66,6 @@ export interface NearMatchEvent {
   startTime: Date;
 }
 
-/**
- * A potential match that scored between NEAR_MATCH_MIN and MATCH_THRESHOLD.
- * These are candidates for manual review and alias learning.
- */
 export interface NearMatch {
   id: string;
   eventA: NearMatchEvent;
@@ -104,9 +78,6 @@ export interface NearMatch {
   confirmedAt?: Date;
 }
 
-// ============================================
-// Failure Patterns
-// ============================================
 
 export type FailurePatternType =
   | "team_alias"
@@ -118,12 +89,9 @@ export interface FailurePattern {
   occurrences: number;
   examples: NearMatch[];
   suggestedFix: string;
-  key: string; // Unique identifier for deduplication
+  key: string;
 }
 
-// ============================================
-// Diagnostic Stats
-// ============================================
 
 export interface DiagnosticStats {
   totalNearMatches: number;
@@ -135,9 +103,6 @@ export interface DiagnosticStats {
   patterns: FailurePattern[];
 }
 
-// ============================================
-// Zod Schemas for Validation
-// ============================================
 
 export const NearMatchEventSchema = z.object({
   id: z.string(),
@@ -210,26 +175,10 @@ export const NearMatchSchema = z.object({
   confirmedAt: z.coerce.date().optional(),
 });
 
-// ============================================
-// Constants
-// ============================================
 
 export const NEAR_MATCH_MIN_SCORE = 0.75;
-export const NEAR_MATCH_MAX_SCORE = 0.849; // Just below threshold
-/**
- * Team-score floor for near-match inbox admission. Same-league matches
- * often kick off at the same minute; competition similarity alone can push
- * the combined score into the near-match band even when teams are completely
- * unrelated. This gate requires meaningful team-name overlap before we
- * bother creating a pair and burning ML credits on it.
- */
+export const NEAR_MATCH_MAX_SCORE = 0.849;
 export const NEAR_MATCH_MIN_TEAM_SCORE = 0.55;
-/**
- * Best single-team similarity floor. At least one team pair (in the best
- * orientation) must have ≥ this similarity. Catches cases where the
- * average team score passes but both individual similarities are mediocre
- * (e.g., two teams that share "FC" and little else).
- */
 export const NEAR_MATCH_MIN_BEST_SINGLE_TEAM = 0.4;
 export const MAX_NEAR_MATCHES = 500;
-export const NEAR_MATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+export const NEAR_MATCH_MAX_AGE_MS = 24 * 60 * 60 * 1000;

@@ -1,13 +1,3 @@
-/**
- * AI Search client — uses the local Node.js grounding engine (DeepSeek + Vertex/Brave).
- *
- * Previously called the Python FastAPI gateway at `AI_SEARCH_URL`. Now calls
- * the in-process grounding engine directly for entity match, batch match,
- * and grounded entity matching.
- *
- * Failure mode: every call returns `null` on error. Callers treat `null` as
- * "service unavailable → fall through to human_review".
- */
 
 import { logger } from "../shared/logger";
 import { recordAiActivity } from "../db/repositories/ai-activity-log";
@@ -21,16 +11,14 @@ import type {
 
 const tag = "AiSearchClient";
 
-/** Batch endpoint accepts at most 20 pairs per call. */
 const MAX_BATCH_SIZE = 20;
 
-// ─── Types (re-exported from lib/ai/search/types with camelCase aliases) ────
 
 export interface AiSearchEventInfo {
   home_team: string;
   away_team: string;
   competition: string;
-  start_time: string; // ISO 8601
+  start_time: string;
   provider?: string;
   normalized?: {
     home_team: string;
@@ -54,7 +42,7 @@ export interface AiSearchSourceCitation {
 
 export interface AiSearchMatchVerdict {
   decision: "SAME" | "DIFFERENT" | "UNCERTAIN";
-  confidence: number; // 0-100
+  confidence: number;
   reasoning: string;
   canonicalEvent: {
     home: string | null;
@@ -79,7 +67,7 @@ export interface AiSearchMatchVerdict {
 export interface AiSearchPairVerdict {
   pair_index: number;
   decision: "SAME" | "DIFFERENT" | "UNCERTAIN";
-  confidence: number; // 0-100
+  confidence: number;
   reasoning: string;
   diagnostics?: {
     parseStatus: "valid" | "recovered" | "invalid";
@@ -95,7 +83,6 @@ export interface AiSearchBatchResult {
   model: string;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────
 
 function toEventInfo(e: AiSearchEventInfo): EventInfo {
   return {
@@ -120,11 +107,7 @@ function toSnakeCitations(src: SourceCitation[]): AiSearchSourceCitation[] {
   return src.map((s) => ({ url: s.url, title: s.title, snippet: s.snippet }));
 }
 
-// ─── Public API ────────────────────────────────────────────────────────
 
-/**
- * Match a single event pair using search-grounded AI (DeepSeek + Vertex/Brave).
- */
 export async function matchSingle(
   eventA: AiSearchEventInfo,
   eventB: AiSearchEventInfo,
@@ -191,11 +174,6 @@ export async function matchSingle(
   }
 }
 
-/**
- * Match multiple event pairs using search-grounded AI (DeepSeek + Vertex/Brave).
- *
- * Automatically chunks inputs larger than 20 pairs into sequential requests.
- */
 export async function matchBatch(
   pairs: Array<{ event_a: AiSearchEventInfo; event_b: AiSearchEventInfo }>,
 ): Promise<AiSearchBatchResult | null> {
@@ -268,7 +246,6 @@ export async function matchBatch(
     }
   }
 
-  // Multiple chunks — sequential calls, merge results
   const allVerdicts: AiSearchPairVerdict[] = [];
   const allSources: AiSearchSourceCitation[] = [];
   const allQueries: string[] = [];
@@ -346,9 +323,6 @@ export async function matchBatch(
   };
 }
 
-/**
- * Probe whether the AI grounding engine is healthy.
- */
 export async function checkHealth(): Promise<{
   ok: boolean;
   model?: string;

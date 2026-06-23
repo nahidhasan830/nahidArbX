@@ -1,7 +1,3 @@
-/**
- * Shared hook to fetch AI engine config from the DB-backed API.
- * Used by any component that needs to know which engines are enabled/disabled.
- */
 
 "use client";
 
@@ -14,10 +10,6 @@ export interface EngineStatus {
 
 export type EngineConfigMap = Record<string, EngineStatus>;
 
-/**
- * Fetch engine configs once and optionally poll.
- * @param pollMs - polling interval in ms. 0 = fetch once.
- */
 export function useAiEngineConfig(pollMs = 0) {
   const [configs, setConfigs] = useState<EngineConfigMap>({});
   const [loading, setLoading] = useState(true);
@@ -30,7 +22,6 @@ export function useAiEngineConfig(pollMs = 0) {
         setConfigs(data);
       }
     } catch {
-      // non-fatal
     } finally {
       setLoading(false);
     }

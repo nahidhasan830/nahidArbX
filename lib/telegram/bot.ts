@@ -1,19 +1,3 @@
-/**
- * Long-poll dispatcher.
- *
- * Lifecycle:
- *  - `startTelegramBot()` is called from instrumentation.ts on server boot.
- *  - It pins the running flag to globalThis so HMR / multiple imports don't
- *    spawn duplicate loops.
- *  - The loop calls Telegram's getUpdates with a 25s long-poll. Each loop
- *    iteration is bounded by that timeout, so the awaited fetch returns
- *    promptly when there's no traffic and immediately when there is.
- *  - Every update is filtered by chat-id (TELEGRAM_CHAT_ID); other chats
- *    are silently dropped. The user told us this is the auth model.
- *
- * Errors are logged + swallowed so a transient Telegram API issue doesn't
- * kill the bot — the next poll retries.
- */
 
 import { logger } from "@/lib/shared/logger";
 import { singleton } from "@/lib/util/singleton";
@@ -32,7 +16,7 @@ import { recordCommandHistory } from "./history";
 import { getCommand } from "./registry";
 import { syncTelegramCommandMenu } from "./menu";
 import { handleMatcherCallback } from "./commands/matcher-commands";
-import "./commands"; // side-effect: registers every command
+import "./commands";
 import type {
   CommandContext,
   TgCallbackQuery,
@@ -74,11 +58,10 @@ async function handleMessage(msg: TgMessage): Promise<void> {
   );
   if (!text.startsWith("/")) return;
 
-  // Strip @botname suffix (e.g. /status@MyBot in groups)
   const firstSpace = text.indexOf(" ");
   const head = firstSpace === -1 ? text : text.slice(0, firstSpace);
   const argsRaw = firstSpace === -1 ? "" : text.slice(firstSpace + 1).trim();
-  const cmdName = head.split("@")[0]; // "/status@MyBot" → "/status"
+  const cmdName = head.split("@")[0];
   const cleanName = cmdName.replace(/^\//, "").toLowerCase();
   const startedAt = Date.now();
   const fromUserId = msg.from?.id ?? null;
@@ -101,8 +84,6 @@ async function handleMessage(msg: TgMessage): Promise<void> {
     return;
   }
 
-  // Skip the toggle check for /help — operators always need a way to
-  // discover commands and re-enable disabled ones from the dashboard.
   if (spec.name !== "help" && !isCommandEnabled(spec.name)) {
     await reply(
       `🚫 <b>${spec.name}</b> is disabled. Re-enable it on the /telegram page in the dashboard.`,
@@ -188,7 +169,6 @@ async function handleCallbackQuery(q: TgCallbackQuery): Promise<void> {
     }
     return;
   }
-  // Confirm path
   await ack("Working…");
   if (q.message) {
     await editMessageText({
@@ -283,10 +263,7 @@ export function startTelegramBot(): boolean {
   }
   state.running = true;
   state.consecutiveErrors = 0;
-  // Best-effort: clear any stale webhook so getUpdates is allowed
   void deleteWebhook();
-  // Push slash-command autocomplete + pin the menu button. Best-effort —
-  // the bot still works if the call fails (just no popover suggestions).
   void syncTelegramCommandMenu().catch((err) =>
     logger.warn(TAG, `setMyCommands failed: ${(err as Error).message}`),
   );

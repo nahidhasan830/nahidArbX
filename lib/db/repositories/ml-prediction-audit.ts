@@ -1,9 +1,3 @@
-/**
- * Repository for durable ML prediction snapshots.
- *
- * Write side is deliberately tolerant: audit failures must never block live
- * value detection, scoring, settlement, or placement.
- */
 import {
   and,
   desc,

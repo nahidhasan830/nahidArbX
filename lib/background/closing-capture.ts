@@ -1,33 +1,3 @@
-/**
- * Closing-odds capture.
- *
- * For each bet whose kickoff is within the capture window, snapshot the
- * freshest Pinnacle (and soft) odds from the in-memory atoms store and
- * persist them as the "closing" reference. Runs every heartbeat cycle.
- *
- * Semantics:
- *
- * - Window: 30 min BEFORE kickoff up to 5 min AFTER. A wider pre-kickoff
- *   window increases the chance of catching a fresh snapshot; the narrow
- *   post-kickoff tail accommodates events that kick off between sync cycles.
- *
- * - Overwrite: each successful capture REPLACES any prior capture for the
- *   row. The final persisted value is the most-recent snapshot observed
- *   before the window closes — i.e. the closest-to-kickoff data we had
- *   access to. This is preferable to "first capture wins" because snapshots
- *   continue to sharpen as kickoff approaches.
- *
- * - Staleness: snapshots older than MAX_SNAPSHOT_AGE_MS (5 min) are
- *   rejected. With a 60s sync cadence this tolerates up to 4 consecutive
- *   fetch failures before skipping a capture attempt.
- *
- * - CLV computation: CLV% is computed for ALL bets, not just placed ones.
- *   For placed bets: (placedOdds / closingSharpOdds - 1) * 100.
- *   For non-placed bets: (adjustedSoftOdds / closingSharpOdds - 1) * 100,
- *   where adjustedSoftOdds applies commission to winnings only.
- *   This tells us whether the bet had genuine edge at detection time,
- *   regardless of whether it was actually placed.
- */
 
 import { and, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/lib/db/client";
@@ -97,19 +67,14 @@ export async function captureClosingOdds(): Promise<CaptureResult> {
       continue;
     }
 
-    // Compute CLV% using the best available odds for this bet.
-    // Placed bets: use actual placed odds (current.odds).
-    // Non-placed bets: use commission-adjusted soft odds at detection.
     const closingSharp = sharpSnap.odds;
     let clvPct: number | null = null;
     if (closingSharp > 0) {
       if (row.placedAt && row.odds) {
-        // Placed bet: CLV = (placedOdds / closingSharp - 1) * 100
         clvPct = Number(
           ((Number(row.odds) / closingSharp - 1) * 100).toFixed(2),
         );
       } else if (row.softOdds) {
-        // Non-placed bet: CLV = (adjSoftOdds / closingSharp - 1) * 100
         const commission = Number(row.softCommissionPct ?? 0);
         const adjSoftOdds = adjustOddsForCommission(
           Number(row.softOdds),

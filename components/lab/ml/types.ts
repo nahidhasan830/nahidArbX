@@ -1,6 +1,3 @@
-/**
- * Shared types for the ML dashboard components.
- */
 
 export interface PipelineData {
   generatedAtMs: number;
@@ -23,11 +20,8 @@ export interface PipelineData {
     latestModel: Record<string, unknown> | null;
     modelsInTraining: number;
     readyToRetrain: boolean;
-    /** New training examples accumulated since the last deployed model. Caps at retrainStep when threshold is met. */
     newDataSinceLastTrain: number;
-    /** How many more training examples are needed before the next auto-retrain fires. 0 ⇒ ready / queued. */
     examplesUntilRetrain: number;
-    /** Absolute step (training examples) that triggers the next auto-retrain. */
     retrainStep: number;
     activeTraining: {
       modelId: string;
@@ -54,7 +48,6 @@ export interface PipelineData {
     lastTickAt: number | null;
     lastError: string | null;
     totalRetrainTriggers: number;
-    /** Auto-retrain absolute step in new training examples (e.g. 200 ⇒ retrain fires after +200 since last deploy). */
     retrainStep: number;
   };
   deploymentGate: {

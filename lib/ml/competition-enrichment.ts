@@ -380,7 +380,6 @@ export async function classifyCompetitionEnrichment(
   if (!clean) return defaultEnrichment(clean);
   if (isNonInformativeCompetition(clean)) return placeholderEnrichment(clean);
 
-  // Use grounded fallback (DeepSeek/Gemini via Node.js)
   try {
     return await enrichWithGroundedFallback(clean);
   } catch (err) {

@@ -1,34 +1,3 @@
-/**
- * Reactive Value Detector
- *
- * Event-driven replacement for the 30-second timer-gated detection in syncOddsOnly().
- * Triggers value detection within 500ms of any odds change, rather than waiting
- * for a batch cycle.
- *
- * Architecture:
- *   1. setOdds() in store.ts fires onDirtyCallback on every value change
- *   2. This module debounces those signals at DETECTION_DEBOUNCE_MS (500ms)
- *   3. When the debounce fires, it runs the same detection pipeline:
- *      consumeDirtyFamilies → detectAllValueBetsIncremental → persist → auto-place → SSE
- *   4. A mutex prevents concurrent passes; queued signals fire one follow-up pass
- *   5. A 30s heartbeat acts as a safety net to flush any orphaned dirty families
- *
- * ML integration:
- *   - Features are extracted for ALL detected value bets (training data)
- *   - Scoring runs through Vertex AI Prediction (returns null on miss/failure)
- *   - Permission-aware staking via `computeScoredStake()` respects the
- *     deployment gate (shadow/gate_only/stake_reduce/stake_increase)
- *   - Shadow analytics are derived from bets on demand (no separate table)
- *
- * Shadow & near-miss data:
- *   - Shadow-scored detection snapshots stored for every value bet (outcome later)
- *   - Near-miss atoms (0.5% ≤ EV% < MIN_EV_PCT) collected as lower-weight
- *     negative training examples to reduce survival bias
- *   - Rate-limited per bet key (10min cooldown) and capped per pass (5 max)
- *
- * Memory-safe: no accumulation. The dirty set is consumed every pass.
- * Thread-safe: single-threaded JS + mutex flag = no races.
- */
 
 import v8 from "node:v8";
 
@@ -105,27 +74,12 @@ import { writeDetectionSnapshot } from "@/lib/ml/training-example-writer";
 import { getFamily } from "@/lib/atoms/registry";
 import { formatAtomLabel } from "@/lib/formatting/labels";
 
-// ============================================
-// State — singleton for HMR safety
-// ============================================
 
-/** How often to emit heap + store-size telemetry (ms). */
-const MEMORY_TELEMETRY_INTERVAL_MS = 60_000; // 1 min
+const MEMORY_TELEMETRY_INTERVAL_MS = 60_000;
 
-/**
- * Heap-usage fractions that trigger WARN / ERROR log levels.
- * Measured against `v8.getHeapStatistics().heap_size_limit` (the actual
- * V8 ceiling, typically ~1.5GB) rather than `process.memoryUsage().heapTotal`
- * (the *currently allocated* slab, which starts at ~80MB and auto-expands).
- */
 const HEAP_WARN_RATIO = 0.7;
 const HEAP_ERROR_RATIO = 0.85;
 
-/**
- * Minimum absolute heap usage (MB) before we emit WARN/ERROR.
- * Prevents false alarms during cold-start when the ratio is high but
- * absolute usage is low (e.g. 73/81MB = 90% but well within limits).
- */
 const HEAP_MIN_ALARM_MB = 200;
 
 const state = singleton("reactive-detector:state", () => ({
@@ -134,13 +88,9 @@ const state = singleton("reactive-detector:state", () => ({
   heartbeatTimer: null as ReturnType<typeof setInterval> | null,
   cleanupTimer: null as ReturnType<typeof setInterval> | null,
   memoryTimer: null as ReturnType<typeof setInterval> | null,
-  /** True when a detection pass is currently executing. */
   passInProgress: false,
-  /** True when more dirty families arrived during the current pass. */
   needsAnotherPass: false,
-  /** True when the next pass should rescore all live value bets. */
   forceFullRescore: false,
-  // Stats
   totalPasses: 0,
   totalDirtyFamilies: 0,
   totalValueBetsFound: 0,
@@ -148,23 +98,10 @@ const state = singleton("reactive-detector:state", () => ({
   lastPassAt: null as number | null,
 }));
 
-/**
- * Per-bet change-detection cache.
- * Tracks the odds last written to DB for each bet ID so we can skip
- * the upsert (and auto-place, movement snapshot) entirely when the
- * bet's terms haven't changed. Lost on restart — first post-restart
- * pass writes everything, subsequent passes dedup. ~100 bytes per
- * entry, trivial memory for <100 active value bets.
- */
 interface PersistedSnapshot {
   sharpOdds: number;
   softOdds: number;
   softProvider: string;
-  /**
-   * Vig-removed probability. Included so sibling-atom sharp moves —
-   * which shift this bet's trueProb/evPct without touching its own
-   * sharpOdds — still count as a change and get re-persisted.
-   */
   trueProb: number;
 }
 const lastPersisted = singleton(
@@ -172,23 +109,15 @@ const lastPersisted = singleton(
   (): Map<string, PersistedSnapshot> => new Map(),
 );
 
-// ============================================
-// Core detection pass
-// ============================================
 
 async function runDetectionPass(): Promise<void> {
   if (state.passInProgress) {
-    // Another pass will run after the current one finishes
     state.needsAnotherPass = true;
     return;
   }
 
   state.passInProgress = true;
 
-  // The dirty snapshot currently being processed. On an unexpected
-  // throw we merge it back into the store's dirty set so the heartbeat
-  // can retry — otherwise consumed-but-unprocessed families would be
-  // silently lost.
   let inFlightDirty: Set<string> | null = null;
 
   try {
@@ -203,9 +132,6 @@ async function runDetectionPass(): Promise<void> {
 
       const passStart = Date.now();
 
-      // Operator-controlled market phase gate. Default settings keep the
-      // historical pre-match-only behavior; in-play detection must be
-      // explicitly enabled from Strategy & limits.
       const nowMs = Date.now();
       const { row: bettingSettings } = await getBettingSettings();
       const eligibleEventIds = getMatchedEvents()
@@ -233,36 +159,23 @@ async function runDetectionPass(): Promise<void> {
           "ReactiveDetector",
           `No value-detection eligible events for phases=${bettingSettings.valueDetectionPhases.join(",")}, skipping pass`,
         );
-        // Intentionally DROP this dirty snapshot: these families belong
-        // to phase-ineligible events, so re-adding them would make the
-        // heartbeat spin on families that can never produce bets.
         inFlightDirty = null;
         break;
       }
 
-      // Run detection
       const valueBets = detectAllValueBetsIncremental(eligibleEventIds, dirty, {
         kellyFraction: bettingSettings.kellyFraction,
       });
 
-      // Track previous count for change detection
       const prevValueCount = storeGetValueBets().length;
 
-      // Update in-memory store + invalidate caches
       setValueBets(valueBets);
       invalidateResponseCache();
 
-      // ── Application-layer change detection ──────────────────────────
-      // Only persist + auto-place bets whose terms actually changed since
-      // the last DB write. This is the primary dedup gate (industry-
-      // standard write-behind pattern). The SQL-level CASE WHEN guard in
-      // bets.ts is kept as defense-in-depth but should rarely trigger.
       const changedBets = valueBets.filter((vb) => {
-        // Must be in a dirty family (coarse pre-filter)
         if (!dirty.has(`${vb.eventId}|${vb.familyId}`)) return false;
-        // Fine-grained: did THIS bet's terms actually change?
         const prev = lastPersisted.get(vb.id);
-        if (!prev) return true; // never persisted → always write
+        if (!prev) return true;
         return (
           prev.sharpOdds !== vb.sharpOdds ||
           prev.softOdds !== vb.softOdds ||
@@ -274,17 +187,7 @@ async function runDetectionPass(): Promise<void> {
       const betsToPersist = forceFullRescore ? valueBets : changedBets;
 
       if (betsToPersist.length > 0) {
-        // ── ML feature extraction for ALL live bets ────────────────
-        // Extract features for every live value bet, not just changed
-        // ones. Time-moving features (tick_velocity, convergence,
-        // hours_since_line_opened) would freeze on unchanged bets if
-        // we only extracted for dirty bets.
-        //
-        // Feature extraction failure must never block detection.
 
-        // Build event → active market count from the odds store so
-        // num_markets_same_event reflects actual market coverage, not
-        // just value-bet detections.
         const eventMarketCounts = new Map<string, number>();
         const seenEvents = new Set<string>();
         for (const vb of valueBets) {
@@ -300,7 +203,6 @@ async function runDetectionPass(): Promise<void> {
         let fqMissingHistory = 0;
         let fqMissingVig = 0;
         let fqCold = 0;
-        // Extract for ALL live bets (not just changed)
         for (const vb of valueBets) {
           try {
             const f = extractFeatures(vb, eventMarketCounts.get(vb.eventId));
@@ -320,7 +222,6 @@ async function runDetectionPass(): Promise<void> {
             if (vigPct === 0) fqMissingVig++;
             if (!isFeatureWarm(f)) fqCold++;
           } catch {
-            // Feature extraction failure must never block detection
           }
         }
         const featureMs = Date.now() - featureStart;
@@ -342,16 +243,6 @@ async function runDetectionPass(): Promise<void> {
           );
         }
 
-        // ── ML scoring ────────────────────────────────────────────
-        // Batch-score all bets with warm features through the cloud-only
-        // stub. Without a model, scoreBatch returns null for all
-        // (pass-through). Score ALL warm bets — non-positive model-edge
-        // bets are still valuable training data. Filtering happens at
-        // the auto-placer gate only.
-        //
-        // Warmup gate: bets with cold features (insufficient
-        // odds history) get null ML score. The rule-based value bet
-        // row is kept but we don't claim ML confidence.
         const permissionLevel = getPermissionLevel();
         const modelActive = isModelLoaded();
         const scoresMap = new Map<string, number | null>();
@@ -363,8 +254,6 @@ async function runDetectionPass(): Promise<void> {
           const featureArrays: number[][] = [];
           const betIds: string[] = [];
           const valueBetById = new Map(valueBets.map((vb) => [vb.id, vb]));
-          // Score all warm bets (not just changed — needed for stale
-          // score refresh and model-deploy rescore)
           for (const vb of valueBets) {
             const features = featuresMap.get(vb.id);
             if (features && isFeatureWarm(features)) {
@@ -379,9 +268,6 @@ async function runDetectionPass(): Promise<void> {
               const score = scores[i];
               scoresMap.set(betId, score);
 
-              // Permission-aware staking: computeScoredStake respects
-              // the deployment gate level. Returns null when ML should
-              // not affect staking (shadow mode or no model).
               const vb = valueBetById.get(betId);
               if (vb) {
                 const features = featuresMap.get(betId)!;
@@ -391,7 +277,6 @@ async function runDetectionPass(): Promise<void> {
                     : computeRawStakeMultiplier(score, features);
                 rawMultiplierMap.set(betId, rawMultiplier);
 
-                // Compute the multiplier for actual auto-placement stake sizing
                 const multiplier = computeKellyMultiplier(
                   score,
                   features,
@@ -399,7 +284,6 @@ async function runDetectionPass(): Promise<void> {
                 );
                 kellyMultiplierMap.set(betId, multiplier);
 
-                // Compute the adjusted Kelly for persistence/display
                 const adjusted = computeScoredStake(
                   vb.kellyFraction,
                   score,
@@ -481,14 +365,12 @@ async function runDetectionPass(): Promise<void> {
             }
           }
         } catch (err) {
-          // Scoring failure must never block detection
           logger.warn(
             "ReactiveDetector",
             `ML scoring failed: ${(err as Error).message}`,
           );
         }
 
-        // Log scoring mode on first pass with a model
         if (modelActive && state.totalPasses === 0) {
           const edgeThresholdPct = getPolicyEdgeThresholdPct();
           logger.info(
@@ -498,9 +380,6 @@ async function runDetectionPass(): Promise<void> {
         }
 
         try {
-          // Enrich persisted bets with movement snapshots from all active providers.
-          // Normal passes persist changed bets only; force-rescore passes persist
-          // all live bets while auto-placement remains limited to changed bets.
           const enrichedBets = betsToPersist.map((vb) => {
             const allOdds = getAllOddsForAtom(
               vb.eventId,
@@ -512,7 +391,6 @@ async function runDetectionPass(): Promise<void> {
               import("@/lib/bets-history/types").OddsMovementData
             > = {};
 
-            // For every provider that has odds for this atom, try to build a movement snapshot
             if (allOdds) {
               for (const provider of allOdds.keys()) {
                 const snapshot = buildMovementSnapshot(
@@ -527,7 +405,6 @@ async function runDetectionPass(): Promise<void> {
               }
             }
 
-            // Fallback: If no providers were matched (should be rare), try at least the sharp provider
             if (Object.keys(snapshots).length === 0) {
               const sharpSnapshot = buildMovementSnapshot(
                 vb.eventId,
@@ -540,9 +417,6 @@ async function runDetectionPass(): Promise<void> {
               }
             }
 
-            // Resolve ML score and Kelly for persistence.
-            // The score is always persisted (even in shadow mode) for training data.
-            // The Kelly adjustment is only persisted when the permission level allows it.
             const rawScore = scoresMap.get(vb.id);
             const adjustedKelly = kellyMap.get(vb.id);
 
@@ -552,16 +426,12 @@ async function runDetectionPass(): Promise<void> {
                 Object.keys(snapshots).length > 0 ? snapshots : undefined,
               mlFeatures: featuresMap.get(vb.id) ?? null,
               mlScore: rawScore ?? null,
-              // Only persist ML-adjusted Kelly when permission level actually modifies it
               mlStakeFraction: adjustedKelly ?? null,
             };
           });
 
           const result = await persistValueBets(enrichedBets);
 
-          // Update the last-persisted cache for successfully written
-          // bets only — failed rows must retry on the next pass even if
-          // their odds haven't moved.
           const failed = new Set(result.failedIds);
           for (const vb of betsToPersist) {
             if (failed.has(vb.id)) continue;
@@ -589,9 +459,6 @@ async function runDetectionPass(): Promise<void> {
           );
         }
 
-        // Auto-place only changed bets (fire-and-forget per bet). Pass
-        // raw ML audit context plus permission separately so the placer
-        // cannot bypass the gate by treating "no score" as "no ML".
         const changedBetsForPlacement =
           permissionLevel === "observe"
             ? changedBets
@@ -605,8 +472,6 @@ async function runDetectionPass(): Promise<void> {
           const rawScore = scoresMap.get(vb.id);
           const kellyMultiplier = kellyMultiplierMap.get(vb.id);
 
-          // Pass the raw ML multiplier to the placer for actual stake sizing.
-          // When null/undefined, the placer uses base fullKelly unchanged.
           const multiplierForPlacer =
             kellyMultiplier != null ? kellyMultiplier : undefined;
 
@@ -627,10 +492,6 @@ async function runDetectionPass(): Promise<void> {
           );
         }
 
-        // ── Shadow-scored detection snapshots ────────────────────────
-        // Store a feature snapshot for every detected value bet so we can
-        // later attach outcome/CLV when the bet settles. This builds the
-        // shadow_scored training examples dataset.
         for (const vb of changedBets) {
           const features = featuresMap.get(vb.id);
           if (features) {
@@ -640,16 +501,12 @@ async function runDetectionPass(): Promise<void> {
               vb.familyId,
               vb.atomId,
               features,
-            ).catch(() => {}); // fire-and-forget
+            ).catch(() => {});
           }
         }
 
-        // Near-miss collection removed: simulation showed 524
-        // fabricated negative labels inflated the negative training class
-        // by 40.1%, distorting the model's learned decision boundary.
       }
 
-      // SSE notifications
       const passDuration = Date.now() - passStart;
 
       syncBus.emitBus({
@@ -671,7 +528,6 @@ async function runDetectionPass(): Promise<void> {
         });
       }
 
-      // Update stats
       state.totalPasses++;
       state.totalDirtyFamilies += dirty.size;
       state.totalValueBetsFound += valueBets.length;
@@ -685,10 +541,8 @@ async function runDetectionPass(): Promise<void> {
         );
       }
 
-      // This snapshot was fully processed — nothing to restore on error
       inFlightDirty = null;
 
-      // If more changes arrived during this pass, loop again
       if (!state.needsAnotherPass) break;
     }
   } catch (err) {
@@ -696,8 +550,6 @@ async function runDetectionPass(): Promise<void> {
       "ReactiveDetector",
       `Detection pass failed: ${(err as Error).message}`,
     );
-    // Restore the consumed-but-unprocessed dirty snapshot so the 30s
-    // heartbeat retries it (no callback fired — avoids a tight error loop).
     if (inFlightDirty && inFlightDirty.size > 0) {
       readdDirtyFamilies(inFlightDirty);
     }
@@ -706,14 +558,10 @@ async function runDetectionPass(): Promise<void> {
   }
 }
 
-// ============================================
-// Debounced trigger (called by onDirtyCallback)
-// ============================================
 
 function onDirtySignal(): void {
   if (!state.running) return;
 
-  // If a debounce timer is already ticking, let it coalesce
   if (state.debounceTimer !== null) return;
 
   state.debounceTimer = setTimeout(() => {
@@ -724,28 +572,7 @@ function onDirtySignal(): void {
   }, DETECTION_DEBOUNCE_MS);
 }
 
-// ============================================
-// Heartbeat — safety net + closing capture + cleanup
-// ============================================
 
-/**
- * Expire value bets whose underlying odds have gone stale.
- *
- * The incremental value cache only recomputes a family when new odds
- * arrive (dirty). If a feed stops — e.g. the Pinnacle STOMP socket goes
- * silent without closing — sharp odds age past MAX_VALUE_ODDS_AGE_MS
- * but the cached bets would otherwise stay listed (and persisted)
- * forever, because nothing re-dirties the family.
- *
- * This re-dirties the families of any live bet whose sharp or soft
- * record is missing/suspended/older than the staleness window, so the
- * next pass recomputes them through detectValueForAtom's normal gates
- * (which reject stale odds) and they drop out of the cache, the store,
- * and the SSE stream via the standard pass machinery.
- *
- * Granularity: heartbeat cadence (30s) vs a 180s staleness window — a
- * phantom bet survives at most ~30s past expiry.
- */
 function expireStaleValueBets(): boolean {
   const now = Date.now();
   const staleFamilies = new Set<string>();
@@ -775,8 +602,6 @@ function expireStaleValueBets(): boolean {
 }
 
 async function heartbeat(): Promise<void> {
-  // 1. Expire value bets whose odds went stale (silent-feed protection),
-  //    then flush any orphan dirty families in the same pass.
   const expiredAny = expireStaleValueBets();
   if (expiredAny || hasDirtyFamilies()) {
     logger.debug(
@@ -786,7 +611,6 @@ async function heartbeat(): Promise<void> {
     await runDetectionPass();
   }
 
-  // 2. Closing-odds capture for events near kickoff
   try {
     const { captureClosingOdds } = await import("./closing-capture");
     await captureClosingOdds();
@@ -797,7 +621,6 @@ async function heartbeat(): Promise<void> {
     );
   }
 
-  // 3. Update sync status for UI
   const stats = getStoreStats();
   setSyncStatus({
     isSyncing: false,
@@ -808,17 +631,7 @@ async function heartbeat(): Promise<void> {
   });
 }
 
-// ============================================
-// Memory telemetry — periodic heap + store watchdog
-// ============================================
 
-/**
- * Logs heap usage and all in-memory store cardinalities every minute.
- * Emits WARN at 70% and ERROR at 85% of the **V8 heap ceiling**
- * (`heap_size_limit`, typically ~1.5GB) — NOT the transient
- * `heapTotal` allocation, which starts small and auto-expands.
- * A 200MB absolute floor suppresses false alarms on cold start.
- */
 function logMemoryTelemetry(): void {
   const mem = process.memoryUsage();
   const heapStats = v8.getHeapStatistics();
@@ -828,7 +641,6 @@ function logMemoryTelemetry(): void {
   const externalMB = mem.external / 1024 / 1024;
   const heapRatio = mem.heapUsed / heapStats.heap_size_limit;
 
-  // Gather store cardinalities
   const storeStats = getStoreStats();
   const histStats = getHistoryStats();
   const valueBetCount = storeGetValueBets().length;
@@ -846,9 +658,6 @@ function logMemoryTelemetry(): void {
     `valueBets=${valueBetCount} dedup=${dedupCacheSize} | ` +
     `passes=${state.totalPasses}`;
 
-  // Only alarm when absolute usage exceeds the floor AND the ratio
-  // exceeds the threshold. This prevents CRITICAL on cold starts
-  // where heapUsed/heapTotal is high but absolute usage is trivial.
   if (heapUsedMB >= HEAP_MIN_ALARM_MB && heapRatio >= HEAP_ERROR_RATIO) {
     logger.error("MemoryWatch", `CRITICAL: ${line}`);
   } else if (heapUsedMB >= HEAP_MIN_ALARM_MB && heapRatio >= HEAP_WARN_RATIO) {
@@ -858,29 +667,20 @@ function logMemoryTelemetry(): void {
   }
 }
 
-// ============================================
-// Memory cleanup — prune stale events
-// ============================================
 
 function runStaleCleanup(): void {
   const activeEvents = getMatchedEvents();
   const activeIds = new Set(activeEvents.map((e) => e.id));
 
-  // Prune odds store
   const prunedOdds = pruneOddsForStaleEvents(activeIds);
 
-  // Prune odds history
   const prunedHistory = pruneHistoryForEvents(activeIds);
 
-  // Prune score stores — these were never cleaned up, growing unboundedly
-  const prunedScores = cleanupOldScores(3 * 60 * 60 * 1000); // 3h
-  const prunedMultiScores = cleanupOldMultiScores(3 * 60 * 60 * 1000); // 3h
+  const prunedScores = cleanupOldScores(3 * 60 * 60 * 1000);
+  const prunedMultiScores = cleanupOldMultiScores(3 * 60 * 60 * 1000);
 
-  // Prune market limits store — entries from finished events accumulate forever
   const prunedMarketLimits = pruneMarketLimitsForStaleEvents(activeIds);
 
-  // Prune the lastPersisted dedup cache — remove entries for bets
-  // that no longer exist in the active value-bet set
   let prunedDedup = 0;
   const currentBetIds = new Set(storeGetValueBets().map((vb) => vb.id));
   for (const betId of lastPersisted.keys()) {
@@ -954,14 +754,7 @@ function selectBestMlBetPerFamily<
   ];
 }
 
-// ============================================
-// Lifecycle
-// ============================================
 
-/**
- * Start the reactive detector. Registers the dirty callback on the atoms store
- * and begins the heartbeat timer.
- */
 export function startReactiveDetector(): void {
   if (state.running) {
     logger.debug("ReactiveDetector", "Already running");
@@ -970,29 +763,24 @@ export function startReactiveDetector(): void {
 
   state.running = true;
 
-  // Register dirty callback on the atoms store
   setOnDirtyCallback(onDirtySignal);
 
-  // Start heartbeat (safety net + closing capture)
   state.heartbeatTimer = setInterval(() => {
     heartbeat().catch((err) =>
       logger.error("ReactiveDetector", `Heartbeat error: ${err}`),
     );
   }, HEARTBEAT_INTERVAL_MS);
 
-  // Start stale event cleanup
   state.cleanupTimer = setInterval(
     runStaleCleanup,
     STALE_ODDS_CLEANUP_INTERVAL_MS,
   );
 
-  // Start memory telemetry watchdog (every 60s)
   state.memoryTimer = setInterval(
     logMemoryTelemetry,
     MEMORY_TELEMETRY_INTERVAL_MS,
   );
 
-  // Log initial memory baseline
   logMemoryTelemetry();
 
   logger.info(
@@ -1001,16 +789,11 @@ export function startReactiveDetector(): void {
   );
 }
 
-/**
- * Stop the reactive detector. Clears all timers and unregisters the callback.
- */
 export function stopReactiveDetector(): void {
   state.running = false;
 
-  // Unregister dirty callback
   setOnDirtyCallback(null);
 
-  // Clear timers
   if (state.debounceTimer !== null) {
     clearTimeout(state.debounceTimer);
     state.debounceTimer = null;
@@ -1031,9 +814,6 @@ export function stopReactiveDetector(): void {
   logger.info("ReactiveDetector", "Stopped");
 }
 
-/**
- * Manually trigger a detection pass (used by heartbeat and external callers).
- */
 export function triggerDetection(options?: { forceRescore?: boolean }): void {
   if (!state.running) return;
   if (options?.forceRescore) {
@@ -1044,9 +824,6 @@ export function triggerDetection(options?: { forceRescore?: boolean }): void {
   );
 }
 
-/**
- * Get diagnostic stats for the reactive detector.
- */
 export function getReactiveDetectorStats() {
   return {
     running: state.running,

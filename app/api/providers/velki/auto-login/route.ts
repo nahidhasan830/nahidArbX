@@ -1,15 +1,3 @@
-/**
- * Velki auto-login kill switch API.
- *
- *   GET  → current { enabled, reason, updatedAt }
- *   POST { enabled: boolean, reason?: string }
- *        → flips the flag, persists to sessions/velki/auto-login.json
- *
- * Symmetric to /api/providers/9w/auto-login. Off → on transition wipes
- * the cached session + resets the Velki circuit breaker so the next
- * dashboard tick does a completely fresh capture instead of riding a
- * stale session that's already been kicked.
- */
 import { NextResponse } from "next/server";
 import {
   getVelkiAutoLoginConfig,

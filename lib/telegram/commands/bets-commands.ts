@@ -1,11 +1,3 @@
-/**
- * Bet-history reads: balance, today, pnl, value, recent, pending, exposure,
- * now, upcoming, clv, byprovider, bymarket, calibration, streak, wins,
- * losses, bet, event.
- *
- * Most queries hit Postgres directly via raw SQL — they're throwaway
- * one-liners and don't need to ride the bets repository.
- */
 
 import { sql } from "drizzle-orm";
 import {
@@ -39,7 +31,6 @@ import {
   truncate,
 } from "../format";
 
-// ── /balance ─────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "balance",
@@ -81,7 +72,6 @@ registerCommand({
   },
 });
 
-// ── /today ───────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "today",
@@ -139,7 +129,6 @@ registerCommand({
   },
 });
 
-// ── /pnl [days] ──────────────────────────────────────────────────────────
 
 registerCommand({
   name: "pnl",
@@ -189,7 +178,6 @@ registerCommand({
   },
 });
 
-// ── /value [n] ───────────────────────────────────────────────────────────
 
 registerCommand({
   name: "value",
@@ -222,7 +210,6 @@ registerCommand({
   },
 });
 
-// ── /recent [n] ──────────────────────────────────────────────────────────
 
 registerCommand({
   name: "recent",
@@ -280,7 +267,6 @@ registerCommand({
   },
 });
 
-// ── /pending ─────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "pending",
@@ -330,7 +316,6 @@ registerCommand({
   },
 });
 
-// ── /exposure ────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "exposure",
@@ -376,7 +361,6 @@ registerCommand({
   },
 });
 
-// ── /now ─────────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "now",
@@ -416,7 +400,6 @@ registerCommand({
   },
 });
 
-// ── /upcoming [hours] ────────────────────────────────────────────────────
 
 registerCommand({
   name: "upcoming",
@@ -456,7 +439,6 @@ registerCommand({
   },
 });
 
-// ── /clv [days] ──────────────────────────────────────────────────────────
 
 registerCommand({
   name: "clv",
@@ -509,7 +491,6 @@ registerCommand({
   },
 });
 
-// ── /byprovider [days] ───────────────────────────────────────────────────
 
 registerCommand({
   name: "byprovider",
@@ -564,7 +545,6 @@ registerCommand({
   },
 });
 
-// ── /bymarket [days] ─────────────────────────────────────────────────────
 
 registerCommand({
   name: "bymarket",
@@ -619,7 +599,6 @@ registerCommand({
   },
 });
 
-// ── /calibration [days] ──────────────────────────────────────────────────
 
 registerCommand({
   name: "calibration",
@@ -670,7 +649,6 @@ registerCommand({
   },
 });
 
-// ── /streak ──────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "streak",
@@ -714,7 +692,7 @@ registerCommand({
             curKind = "L";
             curLen = 1;
           } else break;
-        } // void doesn't break the streak
+        }
       }
       let longestW = 0,
         longestL = 0,
@@ -755,7 +733,6 @@ registerCommand({
   },
 });
 
-// ── /wins [n] / /losses [n] ──────────────────────────────────────────────
 
 const buildExtremes = (kind: "wins" | "losses") =>
   registerCommand({
@@ -813,7 +790,6 @@ const buildExtremes = (kind: "wins" | "losses") =>
 buildExtremes("wins");
 buildExtremes("losses");
 
-// ── /bet <id> ────────────────────────────────────────────────────────────
 
 registerCommand({
   name: "bet",
@@ -898,7 +874,6 @@ registerCommand({
   },
 });
 
-// ── /event <query> ───────────────────────────────────────────────────────
 
 registerCommand({
   name: "event",

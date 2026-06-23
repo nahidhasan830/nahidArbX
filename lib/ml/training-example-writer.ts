@@ -1,25 +1,3 @@
-/**
- * ML Training Example Writer
- *
- * Decouples ML training data from the operational bets table.
- * Converts settled bets into labeled training examples stored in
- * the `ml_training_examples` table, which the Python training
- * pipeline reads directly.
- *
- * Example types:
- *   - settled_detected: detected value bet that eventually settled
- *   - placed_settled: actually placed bet with real outcome
- *   - shadow_scored: feature snapshot at detection (outcome later)
- *
- * Uniqueness:
- *   - Rows with source_bet_id: unique on (source_bet_id, example_type)
- *   - Rows without source_bet_id: unique on (event_id, family_id, atom_id, example_type)
- *
- * Notes:
- *   - Uses shared outcomes module for label derivation and weights
- *   - Computes unit returns for financial metrics
- *   - Writer counts only increment on actual DB changes
- */
 
 import { db } from "@/lib/db/client";
 import { bets, mlTrainingExamples, type BetRow } from "@/lib/db/schema";
@@ -41,32 +19,16 @@ const isUniqueViolation = (err: unknown): boolean => {
   return e.code === "23505" || e.cause?.code === "23505";
 };
 
-/**
- * Write training examples from settled bets.
- *
- * Called after settlement outcomes are applied. Only creates examples
- * for bets that have features and a non-void outcome.
- *
- * Uses ON CONFLICT on (source_bet_id, example_type) unique index to
- * prevent duplicate rows. If a row already exists for the same bet+type,
- * the insert is skipped (settled data doesn't change once written).
- *
- * Also stores unit_return for simulated financial metrics.
- *
- * @param settledBets - Bet rows that just had their outcome set.
- * @returns Number of examples actually written (not skipped).
- */
 export async function writeSettledExamples(
   settledBets: BetRow[],
 ): Promise<number> {
   let written = 0;
 
   for (const bet of settledBets) {
-    // Skip bets without features — can't train on them
     if (!bet.mlFeatures || bet.mlFeatures.length === 0) continue;
 
     const label = deriveLabel(bet.outcome);
-    if (label === null) continue; // void/pending — skip
+    if (label === null) continue;
 
     const exampleType: ExampleType = bet.placedAt
       ? "placed_settled"
@@ -231,17 +193,6 @@ export async function reconcileMissingSettledExamples(
   return totalWritten;
 }
 
-/**
- * Write a shadow-scored detection snapshot.
- *
- * Called at detection time to capture the feature state. The outcome
- * and label are null — they get attached when the bet settles via
- * `resolveDetectionSnapshot()`.
- *
- * Uses ON CONFLICT on (source_bet_id, example_type) to upsert: if a
- * shadow_scored row already exists for this bet, update the features
- * to the latest snapshot (features change as odds move).
- */
 export async function writeDetectionSnapshot(
   betId: string,
   eventId: string,
@@ -306,12 +257,6 @@ export async function writeDetectionSnapshot(
   }
 }
 
-/**
- * Resolve a previously written detection snapshot with its settlement outcome.
- *
- * Finds the most recent shadow_scored example for the bet and updates
- * it with the outcome, label, and weight.
- */
 export async function resolveDetectionSnapshot(
   betId: string,
   outcome: string,
@@ -322,7 +267,7 @@ export async function resolveDetectionSnapshot(
   settledAt: string | null,
 ): Promise<void> {
   const label = deriveLabel(outcome);
-  if (label === null) return; // void — don't resolve
+  if (label === null) return;
 
   try {
     const unitReturn = computeUnitReturn(
@@ -331,7 +276,6 @@ export async function resolveDetectionSnapshot(
       Number(softCommissionPct ?? 0),
     );
 
-    // Find the latest shadow_scored example for this bet
     const [existing] = await db
       .select({ id: mlTrainingExamples.id })
       .from(mlTrainingExamples)

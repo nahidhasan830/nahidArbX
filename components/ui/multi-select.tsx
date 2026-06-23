@@ -22,24 +22,14 @@ export type MultiSelectProps = {
   selected: string[];
   onChange: (next: string[]) => void;
   placeholder?: string;
-  /** Label shown above the option list. */
   title?: string;
-  /** Show "All" button to clear selection. */
   showAll?: boolean;
-  /** Restrict trigger width. */
   className?: string;
-  /** Trigger height in pixels (matches `Input`/`Select` size variants). */
   size?: "sm" | "md";
-  /** When all options selected (or none selected) and showAll = true, label like "All providers". */
   allLabel?: string;
   align?: "start" | "center" | "end";
 };
 
-/**
- * Generic multi-select dropdown built on top of DropdownMenu.
- * - Empty selection is treated as "all" (no filter).
- * - Use `showAll` + `allLabel` to make that explicit in the trigger.
- */
 export function MultiSelect({
   options,
   selected,

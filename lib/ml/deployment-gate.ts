@@ -1,29 +1,7 @@
-/**
- * ML Deployment Gate — runtime permission checking for deployed models.
- *
- * Provides runtime permission-level checks that determine how the ML
- * model's score affects bet placement behavior.
- *
- * Permission levels (escalation order):
- *   - observe: score and log only — no effect on placement
- *   - gate_only: can skip bets below the model's learned EV threshold
- *   - stake_reduce: can reduce stake on weak bets (never increase)
- *   - stake_increase: can increase stake on strong bets
- *     (disabled until real placed-settled evidence exists)
- *
- * The permission level is stored in ml_models.permission_level and
- * set by the Python training pipeline's deployment gate after training.
- * This module reads the deployed model's permission level and provides
- * helpers for the auto-placer and staker to check what operations
- * the current model is allowed to perform.
- */
 
 import { singleton } from "@/lib/util/singleton";
 import { logger } from "@/lib/shared/logger";
 
-// ============================================
-// Permission levels
-// ============================================
 
 export type MLPermissionLevel =
   | "observe"
@@ -31,7 +9,6 @@ export type MLPermissionLevel =
   | "stake_reduce"
   | "stake_increase";
 
-/** All valid permission levels in escalation order. */
 export const PERMISSION_LEVELS: readonly MLPermissionLevel[] = [
   "observe",
   "gate_only",
@@ -39,20 +16,12 @@ export const PERMISSION_LEVELS: readonly MLPermissionLevel[] = [
   "stake_increase",
 ] as const;
 
-// ============================================
-// Singleton state
-// ============================================
 
 interface DeploymentGateState {
-  /** Current model's permission level (from ml_models row). */
   permissionLevel: MLPermissionLevel;
-  /** Learned model-edge threshold selected during training. */
   policyEdgeThresholdPct: number;
-  /** Where the current model-edge threshold came from. */
   policyEdgeThresholdSource: PolicyEdgeThresholdSource;
-  /** Model version this permission applies to. */
   modelVersion: number | null;
-  /** Last time the permission was refreshed from DB. */
   lastRefreshedAt: number;
 }
 
@@ -67,13 +36,8 @@ const state = singleton(
   }),
 );
 
-/** How often to re-read permission level from DB (ms). */
 const REFRESH_INTERVAL_MS = 60_000;
 
-/**
- * Old artifacts did not persist a learned policy threshold. Active runtime
- * permissions must fail closed instead of silently falling back to edge > 0.
- */
 export const POLICY_EDGE_THRESHOLD_DENY_ALL_PCT = 1_000_000;
 
 export type PolicyEdgeThresholdSource =
@@ -86,14 +50,7 @@ export interface PolicyEdgeThresholdResolution {
   source: PolicyEdgeThresholdSource;
 }
 
-// ============================================
-// Public API
-// ============================================
 
-/**
- * Refresh the deployment gate state from the deployed model's DB row.
- * Called periodically by the model watcher in scorer.ts.
- */
 export async function refreshPermissionLevel(force = false): Promise<void> {
   try {
     const now = Date.now();
@@ -136,7 +93,6 @@ export async function refreshPermissionLevel(force = false): Promise<void> {
         );
       }
     } else {
-      // No deployed model — default to observe (pass-through)
       state.permissionLevel = "observe";
       state.policyEdgeThresholdPct = 0;
       state.policyEdgeThresholdSource = "no_model";
@@ -151,62 +107,34 @@ export async function refreshPermissionLevel(force = false): Promise<void> {
   }
 }
 
-/**
- * Get the current model's permission level.
- * Returns "observe" if no model is deployed.
- */
 export function getPermissionLevel(): MLPermissionLevel {
   return state.permissionLevel;
 }
 
-/**
- * Get the current model version (null if no model deployed).
- */
 export function getModelVersion(): number | null {
   return state.modelVersion;
 }
 
-/**
- * Get the current model's learned model-edge threshold.
- */
 export function getPolicyEdgeThresholdPct(): number {
   return state.policyEdgeThresholdPct;
 }
 
-/**
- * Get the source of the current model-edge threshold.
- */
 export function getPolicyEdgeThresholdSource(): PolicyEdgeThresholdSource {
   return state.policyEdgeThresholdSource;
 }
 
-/**
- * Check if the current model is allowed to gate bets with low model EV.
- * Requires gate_only or higher.
- */
 export function canGateBets(): boolean {
   return permissionAtLeast(state.permissionLevel, "gate_only");
 }
 
-/**
- * Check if the current model is allowed to reduce stakes on weak bets.
- * Requires stake_reduce or higher.
- */
 export function canReduceStake(): boolean {
   return permissionAtLeast(state.permissionLevel, "stake_reduce");
 }
 
-/**
- * Check if the current model is allowed to increase stakes on strong bets.
- * Requires stake_increase — currently impossible without real placed-settled data.
- */
 export function canIncreaseStake(): boolean {
   return permissionAtLeast(state.permissionLevel, "stake_increase");
 }
 
-/**
- * Get the full deployment gate status for diagnostics.
- */
 export function getDeploymentGateStatus() {
   return {
     permissionLevel: state.permissionLevel,
@@ -223,14 +151,7 @@ export function getDeploymentGateStatus() {
   };
 }
 
-// ============================================
-// Helpers
-// ============================================
 
-/**
- * Parse a permission level string into a typed value.
- * Falls back to "observe" for unknown values.
- */
 function parsePermissionLevel(
   raw: string | null | undefined,
 ): MLPermissionLevel {
@@ -272,10 +193,6 @@ export function resolvePolicyEdgeThreshold(
   return { thresholdPct: threshold, source: "artifact" };
 }
 
-/**
- * Check if `current` is at least `required` level.
- * Uses the PERMISSION_LEVELS ordering for comparison.
- */
 function permissionAtLeast(
   current: MLPermissionLevel,
   required: MLPermissionLevel,

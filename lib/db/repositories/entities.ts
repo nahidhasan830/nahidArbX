@@ -1,15 +1,3 @@
-/**
- * Entity Resolution — Postgres repository.
- *
- * One ingress for the matching/settlement pipeline (`recordObservation`),
- * one lookup function for the hot path (`resolveEntity`), and a small
- * surface for the promoter / UI / Cloud Run Jobs to read and mutate state.
- *
- * Identity is keyed by deterministic IDs:
- *   - entity:    `${kind}|${country ?? '_'}|${gender ?? '_'}|${slug}`
- *   - entity_name: random uuid (no natural key — surface is in (provider,
- *                  surface_normalized, competition_id) UNIQUE)
- */
 
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
@@ -27,7 +15,6 @@ import {
 
 export type { EntityRow, EntityNameRow };
 
-// ─── Types ───────────────────────────────────────────────────────────────
 
 export type EntityKind = "team" | "competition";
 export type EntityNameStatus = "candidate" | "active" | "retired";
@@ -49,9 +36,7 @@ export interface ResolveResult {
   source: "exact" | "global" | "embedding";
 }
 
-// ─── Slug helper ────────────────────────────────────────────────────────
 
-/** Stable slug for entity IDs: lowercase + ascii + hyphens. */
 export function slugify(name: string): string {
   return (
     name
@@ -75,7 +60,6 @@ export function buildEntityId(input: {
   return `${input.kind}|${country}|${gender}|${slugify(input.canonicalName)}`;
 }
 
-// ─── Entity CRUD ────────────────────────────────────────────────────────
 
 export async function getEntityById(id: string): Promise<EntityRow | null> {
   const rows = await db.select().from(entities).where(eq(entities.id, id));
@@ -109,7 +93,6 @@ export interface UpsertEntityInput {
   metadata?: Record<string, unknown>;
 }
 
-/** Idempotent: returns the existing row if the id collides. */
 export async function upsertEntity(
   input: UpsertEntityInput,
 ): Promise<EntityRow> {
@@ -132,7 +115,6 @@ export async function upsertEntity(
     .onConflictDoNothing()
     .returning();
   if (inserted) return inserted;
-  // Conflict — re-read.
   const reread = await getEntityById(id);
   if (!reread)
     throw new Error(`upsertEntity: row vanished after conflict (${id})`);
@@ -170,17 +152,12 @@ export async function retireEntity(id: string): Promise<void> {
     .update(entities)
     .set({ retiredAt: new Date().toISOString() })
     .where(eq(entities.id, id));
-  // Cascade: all entity_names of this entity become retired.
   await db
     .update(entityNames)
     .set({ status: "retired", retiredAt: new Date().toISOString() })
     .where(eq(entityNames.entityId, id));
 }
 
-/**
- * Merge entity `fromId` into `intoId`: rewires every entity_name and
- * observation, then retires `fromId`. Atomic — wrapped in a transaction.
- */
 export async function mergeEntities(
   fromId: string,
   intoId: string,
@@ -202,7 +179,6 @@ export async function mergeEntities(
   });
 }
 
-// ─── Entity-name CRUD ──────────────────────────────────────────────────
 
 export async function getEntityNamesForEntity(
   entityId: string,
@@ -313,12 +289,6 @@ export interface UpsertNameInput {
   initialPositiveObs?: number;
 }
 
-/**
- * Insert or fetch an entity_names row for (provider, surface_normalized,
- * competition_id). Idempotent — first call creates as `candidate`,
- * subsequent calls return the existing row (use updateNameAfterObservation
- * to evolve the counters/weights).
- */
 export async function upsertEntityName(
   input: UpsertNameInput,
 ): Promise<EntityNameRow> {
@@ -395,9 +365,6 @@ export async function updateNameAfterObservation(
       sets.push(`conformal_pvalue = ${Number(delta.conformalPvalue)}`);
     }
   }
-  // Plain UPDATE via raw SQL since we want compound increments. Drizzle's
-  // typed update doesn't have a column-relative increment helper that
-  // composes with multiple deltas in one query.
   await db.execute(
     sql.raw(`UPDATE entity_names SET ${sets.join(", ")} WHERE id = '${id}'`),
   );
@@ -418,14 +385,9 @@ export async function deleteEntityName(id: string): Promise<void> {
   await db.delete(entityNames).where(eq(entityNames.id, id));
 }
 
-// ─── Promoter / decay queries ───────────────────────────────────────────
 
 export type CandidateRow = EntityNameRow;
 
-/**
- * Returns all candidate rows updated since `sinceISO`. Promoter consults
- * these every tick and decides whether each can advance.
- */
 export async function listRecentCandidates(
   sinceISO: string,
 ): Promise<CandidateRow[]> {
@@ -442,10 +404,6 @@ export async function listRecentCandidates(
     .limit(500);
 }
 
-/**
- * Active rows whose last_seen is older than the cutoff. Decay sweep
- * demotes them back to candidate.
- */
 export async function listStaleActiveNames(
   cutoffISO: string,
 ): Promise<EntityNameRow[]> {
@@ -461,11 +419,6 @@ export async function listStaleActiveNames(
     .limit(500);
 }
 
-/**
- * Competing candidates (other entity_names rows with the same
- * surface_normalized + competition_id but different entity_id). Used by
- * the promoter for conflict detection — never silently overwrite.
- */
 export async function listCompetingCandidates(opts: {
   excludeId: string;
   surfaceNormalized: string;
@@ -486,7 +439,6 @@ export async function listCompetingCandidates(opts: {
     );
 }
 
-// ─── Observations (append-only) ────────────────────────────────────────
 
 export async function insertObservation(
   row: NewNameObservationRow,

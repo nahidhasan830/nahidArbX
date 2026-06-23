@@ -1,6 +1,3 @@
-/**
- * Model types for AI providers.
- */
 
 export type ModelTier = "lite" | "flash" | "pro";
 export type SearchEngine = "auto" | "vertex" | "brave" | "tavily";

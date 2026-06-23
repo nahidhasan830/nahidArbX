@@ -29,12 +29,6 @@ interface AiDialogProps {
   className?: string;
 }
 
-/**
- * Reusable dialog shell for AI-related workflows.
- *
- * Provides consistent sizing, loading skeletons, error alerts,
- * and a standard footer with a Cancel button.
- */
 export function AiDialog({
   open,
   onOpenChange,

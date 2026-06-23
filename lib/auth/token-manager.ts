@@ -1,32 +1,14 @@
-/**
- * Token Manager for Pinnacle via betjili
- *
- * Uses the shared Cloudflare bridge pipeline:
- *   Step 0 – Navigate to betjili → CF solves automatically
- *   Step 1 – page.evaluate(fetch('/login'))       → betjili accessToken
- *   Step 2 – page.evaluate(fetch('/getGameUrl'))  → signed Pinnacle URL
- *   Step 3 – Navigate to Pinnacle URL → intercept /player/auth/authentication
- *
- * Refresh strategy:
- *   Pinnacle token TTL is 60 min. When TTL drops below 20 min, the
- *   background scheduler calls refreshTokenIfNeeded() which re-runs
- *   the full capture chain (~12s). On 401, client.ts calls
- *   clearStoredToken() + getPinnacleToken(true) for immediate refresh.
- */
 import * as fs from "fs";
 import {
   createCloudflareBridge,
   type CaptureResult,
 } from "@/lib/shared/cloudflare-bridge";
 
-// ── Constants ────────────────────────────────────────────────────────────
 
 const PINNACLE_TOKEN_FILE = "sessions/betjili/pinnacle-token.json";
 
-/** Refresh 20 min before expiry — gives plenty of margin. */
 const PROACTIVE_REFRESH_BUFFER_MS = 20 * 60 * 1000;
 
-// ── Types ────────────────────────────────────────────────────────────────
 
 export interface TokenData {
   token: string;
@@ -35,7 +17,6 @@ export interface TokenData {
   expiresAt?: string;
 }
 
-// ── Bridge instance ──────────────────────────────────────────────────────
 
 const bridge = createCloudflareBridge({
   browserKey: "pinnacle.token-manager",
@@ -85,8 +66,6 @@ const bridge = createCloudflareBridge({
     gameCode: "PINNACLE-SPORTS-001",
   }),
 
-  // Pinnacle returns a full URL that we navigate to in a new tab.
-  // The /player/auth/authentication response carries the Bearer token.
   processGameUrlResult: async (json, _accessToken, context) => {
     const data = (json as { data?: { gameUrl?: string } }).data;
     const gameUrl = data?.gameUrl;
@@ -110,7 +89,6 @@ const bridge = createCloudflareBridge({
               capturedAt: new Date().toISOString(),
             };
 
-            // Decode JWT for expiry
             try {
               const payload = JSON.parse(
                 Buffer.from(
@@ -124,19 +102,16 @@ const bridge = createCloudflareBridge({
                 ).toISOString();
               }
             } catch {
-              /* ignore */
             }
 
             resolved = true;
             try {
               await tokenPage.close();
             } catch {
-              /* ignore */
             }
             resolve(tokenData);
           }
         } catch {
-          /* ignore non-JSON responses */
         }
       });
 
@@ -147,32 +122,22 @@ const bridge = createCloudflareBridge({
         });
         await tokenPage.waitForTimeout(5000);
       } catch {
-        // Navigation timeout is acceptable — we only care about the
-        // intercepted auth response.
       }
 
       if (!resolved) {
         try {
           await tokenPage.close();
         } catch {
-          /* ignore */
         }
         resolve(null);
       }
     });
   },
 
-  // betjili CF challenge can be slower
   cfWaitMs: 5000,
 });
 
-// ── Public API (unchanged surface) ───────────────────────────────────────
 
-/**
- * Get a valid Pinnacle token, refreshing if needed.
- * @param forceRefresh - Force a new token capture even if current appears valid
- * @param skipCapture  - Return null instead of triggering browser capture
- */
 export async function getPinnacleToken(
   forceRefresh = false,
   skipCapture = false,
@@ -187,7 +152,6 @@ export async function getPinnacleToken(
   return tokenData?.token || null;
 }
 
-/** Check if stored token is still valid (5-min buffer before expiry). */
 export function isTokenValid(): boolean {
   try {
     if (!fs.existsSync(PINNACLE_TOKEN_FILE)) return false;
@@ -204,7 +168,6 @@ export function isTokenValid(): boolean {
   }
 }
 
-/** Get stored token string without validation. */
 export function getStoredToken(): string | null {
   try {
     if (!fs.existsSync(PINNACLE_TOKEN_FILE)) return null;
@@ -217,16 +180,13 @@ export function getStoredToken(): string | null {
   }
 }
 
-/** Clear stored token (e.g. on confirmed 401). */
 export function clearStoredToken(): void {
   try {
     if (fs.existsSync(PINNACLE_TOKEN_FILE)) fs.unlinkSync(PINNACLE_TOKEN_FILE);
   } catch {
-    // ignore
   }
 }
 
-/** Time until token expires (ms), or null. */
 export function getTokenTTL(): number | null {
   try {
     if (!fs.existsSync(PINNACLE_TOKEN_FILE)) return null;
@@ -240,14 +200,12 @@ export function getTokenTTL(): number | null {
   }
 }
 
-/** True when token will expire within 20 min. */
 export function shouldRefreshProactively(): boolean {
   const ttl = getTokenTTL();
   if (ttl === null) return false;
   return ttl < PROACTIVE_REFRESH_BUFFER_MS && ttl > 0;
 }
 
-/** Proactively refresh if expiring soon. Non-blocking. */
 export async function refreshTokenIfNeeded(): Promise<boolean> {
   if (!shouldRefreshProactively()) return false;
 
@@ -264,12 +222,10 @@ export async function refreshTokenIfNeeded(): Promise<boolean> {
   }
 }
 
-/** Close the singleton browser. */
 export async function closeBrowser(): Promise<void> {
   await bridge.shutdown();
 }
 
-// ── Capture flow ─────────────────────────────────────────────────────────
 
 async function captureToken(): Promise<TokenData | null> {
   try {
@@ -278,7 +234,6 @@ async function captureToken(): Promise<TokenData | null> {
     const tokenData = result.providerData as TokenData | null;
 
     if (tokenData) {
-      // Persist
       const dir = "sessions/betjili";
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(PINNACLE_TOKEN_FILE, JSON.stringify(tokenData, null, 2));

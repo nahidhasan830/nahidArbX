@@ -1,10 +1,3 @@
-/**
- * Build a Google AI Mode search URL for manual bet verification.
- *
- * This is intentionally UI-only: operators can open the URL in a browser
- * and compare the answer themselves. The app never consumes this answer
- * programmatically and never applies settlement from it.
- */
 
 import { format, isValid, parseISO } from "date-fns";
 
@@ -12,15 +5,10 @@ export interface BetGradeDescriptor {
   homeTeam: string;
   awayTeam: string;
   competition?: string | null;
-  /** ISO8601 string or Date. */
   eventStartTime: string | Date;
-  /** Normalized family market type, e.g. "OVER_UNDER", "MATCH_ODDS". */
   marketType: string;
-  /** Market scope: "FT" / "1H" / "2H". */
   timeScope?: "FT" | "1H" | "2H" | string;
-  /** Line value for handicap / total markets, if any. */
   familyLine?: number | null;
-  /** Human-readable selection label: "Home", "Over 2.5", "Yes", etc. */
   atomLabel: string;
 }
 

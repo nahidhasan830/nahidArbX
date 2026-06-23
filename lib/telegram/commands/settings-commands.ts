@@ -1,7 +1,3 @@
-/**
- * /settings (read) and /set (write) — manipulate the singleton
- * `betting_settings` row used by the auto-placer.
- */
 
 import {
   getBettingSettings,

@@ -1,18 +1,3 @@
-/**
- * GET /api/bets/placement-status/[id]
- *
- * Tells the frontend what happened to a submission that came back as
- * `status=pending`. Three terminal states the caller can distinguish:
- *
- *   - `pending`  — confirmation tracker still polling the book's feed.
- *   - `placed`   — matching ticket appeared; row is in `bets`.
- *   - `timeout`  — tracker dropped it after the 2-minute deadline
- *                  without finding a matching ticket (no DB row).
- *
- * `id` is the `placementId` returned by POST /api/bets/place. For
- * synchronously confirmed placements (`status=placed` from /place) the
- * id is already the canonical `bets.id`, so polling also works there.
- */
 import { NextResponse } from "next/server";
 import { getPlacedBetById } from "@/lib/db/repositories/bets";
 import { getPendingConfirmationByPlacementId as getNwPending } from "@/lib/betting/ninewickets/placement-confirmation";
@@ -41,9 +26,6 @@ export async function GET(
     });
   }
 
-  // Both providers run their own in-memory tracker keyed by the same
-  // placementId namespace. The id is unique across providers (UUID v4),
-  // so probing both is safe — at most one returns a hit.
   const pending = getNwPending(id) ?? getVelkiPending(id);
   if (pending) {
     return NextResponse.json({

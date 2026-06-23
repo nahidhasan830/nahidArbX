@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { listBets } from "@/lib/db/repositories/bets";
 import { getScoresByEventIds } from "@/lib/db/repositories/match-scores";
 

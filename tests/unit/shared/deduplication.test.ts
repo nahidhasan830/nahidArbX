@@ -20,7 +20,7 @@ describe("deduplicateById", () => {
     const result = deduplicateById(items);
     expect(result).toHaveLength(2);
     const aItem = result.find((x) => x.id === "a");
-    expect(aItem?.value).toBe(3); // later wins
+    expect(aItem?.value).toBe(3);
   });
 
   it("preserves all unique items", () => {

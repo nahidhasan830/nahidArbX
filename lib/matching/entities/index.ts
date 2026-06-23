@@ -1,11 +1,3 @@
-/**
- * Entity Resolution — public surface.
- *
- * Single import point for the matcher, settle, match-review, and UI layers.
- * The legacy 4-tier promoter / scheduler / classifier are gone.
- * `recordObservation()` now triggers `autoResolve()` inline, and the
- * Vertex embedding path handles similarity scoring before operator review.
- */
 
 export {
   recordObservation,

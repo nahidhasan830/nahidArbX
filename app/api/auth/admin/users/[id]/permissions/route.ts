@@ -1,9 +1,3 @@
-/**
- * GET /api/auth/admin/users/[id]/permissions
- * PATCH /api/auth/admin/users/[id]/permissions
- *
- * User permissions management (admin only).
- */
 
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -29,15 +23,11 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/**
- * GET - Get user permissions
- */
 export async function GET(request: Request, context: RouteContext) {
   try {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -51,17 +41,14 @@ export async function GET(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Get permissions
     const permissions = await getUserPermissions(user.id);
 
-    // Return with feature metadata
     const permissionsWithMetadata = Object.entries(FEATURE_REGISTRY).map(
       ([featureId, metadata]) => ({
         featureId,
@@ -86,15 +73,11 @@ export async function GET(request: Request, context: RouteContext) {
   }
 }
 
-/**
- * PATCH - Update user permissions
- */
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -108,19 +91,16 @@ export async function PATCH(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Cannot modify OTHER admin's permissions (but admins can modify their own for testing)
     if (user.role === "admin" && user.id !== session.userId) {
       return apiError("Cannot modify another admin's permissions", 400);
     }
 
-    // Parse body
     const body = await request.json();
     const parsed = UpdatePermissionsSchema.safeParse(body);
 
@@ -130,7 +110,6 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const { permissions } = parsed.data;
 
-    // Filter out unimplemented features
     const implementedPermissions: Record<string, boolean> = {};
     for (const [featureId, enabled] of Object.entries(permissions)) {
       const feature =
@@ -140,10 +119,8 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
-    // Update permissions (only implemented features)
     await setPermissions(user.id, implementedPermissions);
 
-    // Log activity
     await logActivity({
       userId: user.id,
       userEmail: user.email,
@@ -152,7 +129,6 @@ export async function PATCH(request: Request, context: RouteContext) {
       metadata: { permissions },
     });
 
-    // Get updated permissions
     const updatedPermissions = await getUserPermissions(user.id);
 
     return NextResponse.json({

@@ -1,21 +1,3 @@
-/**
- * Tier 2c — API-Football (api-sports.io) official REST API.
- *
- * Free tier: 100 requests/day, 10 req/min, no credit card.
- * Covers 1,000+ leagues globally with FT + HT scores, corners,
- * yellow/red cards — everything the settlement pipeline needs.
- *
- * This source is the last resort after ESPN and SofaScore. It fires only
- * for events those sources couldn't resolve with the data required by
- * the pending bets. The daily quota guard remains the only API-Football
- * request cap.
- *
- * Endpoints used:
- *   GET /fixtures?date=YYYY-MM-DD       — all matches for a date
- *   GET /fixtures/statistics?fixture=ID  — match-level stats (corners, cards)
- *
- * Auth: `x-apisports-key: <token>` header.
- */
 
 import axios from "axios";
 import { bestSim as compareTwoStrings } from "@/lib/matching/string-sim";
@@ -32,7 +14,6 @@ import {
 } from "../aliases";
 import { addDays, format } from "date-fns";
 
-// ─── Configuration ──────────────────────────────────────────────────────────
 
 const BASE_URL = "https://v3.football.api-sports.io";
 const API_KEY = process.env.API_FOOTBALL_KEY ?? "";
@@ -42,14 +23,12 @@ const KICKOFF_WINDOW_MS = 90 * 60 * 1000;
 const HTTP_TIMEOUT_MS = 15_000;
 const API_FOOTBALL_FIXTURE_CACHE_TTL_MS = 2 * 60 * 1000;
 
-/** Free tier: 100 requests/day. Warn at 80%. */
 const DAILY_LIMIT = 100;
 const WARN_THRESHOLD = 0.8;
 
-// ─── Quota tracking ─────────────────────────────────────────────────────────
 
 interface QuotaState {
-  dayKey: string; // "YYYY-MM-DD"
+  dayKey: string;
   usedRequests: number;
 }
 
@@ -195,20 +174,13 @@ function summarizeApiFootballErrors(errors: unknown): string | null {
   return messages.length > 0 ? messages.join("; ") : null;
 }
 
-// ─── League ID map ──────────────────────────────────────────────────────────
-//
-// API-Football uses numeric league IDs. This map covers leagues that ESPN
-// doesn't handle well — niche/tier-2 competitions and leagues where HT
-// scores are needed.
 
 const LEAGUE_IDS: Record<string, number> = {
-  // Sweden
   allsvenskan: 113,
   "sweden allsvenskan": 113,
   superettan: 114,
   "sweden superettan": 114,
 
-  // Germany
   bundesliga: 78,
   "german bundesliga": 78,
   "germany bundesliga": 78,
@@ -218,7 +190,6 @@ const LEAGUE_IDS: Record<string, number> = {
   "3 liga": 80,
   "germany 3 liga": 80,
 
-  // England
   "premier league": 39,
   "england premier league": 39,
   "english premier league": 39,
@@ -231,97 +202,80 @@ const LEAGUE_IDS: Record<string, number> = {
   "england league 2": 42,
   "league two": 42,
 
-  // Italy
   "serie a": 135,
   "italy serie a": 135,
   "serie b": 136,
   "italy serie b": 136,
 
-  // Spain
   "la liga": 140,
   "primera division": 140,
   "spain la liga": 140,
   "la liga 2": 141,
   segunda: 141,
 
-  // France
   "ligue 1": 61,
   "france ligue 1": 61,
   "ligue 2": 62,
   "france ligue 2": 62,
 
-  // Turkey
   "super lig": 203,
   "super league": 203,
   "turkey super lig": 203,
   "turkey super league": 203,
 
-  // Norway
   eliteserien: 103,
   "norway eliteserien": 103,
   "1st division": 104,
   "norway 1st division": 104,
   obosligaen: 104,
 
-  // Portugal
   "primeira liga": 94,
   "portugal primeira liga": 94,
 
-  // Netherlands
   eredivisie: 88,
   "netherlands eredivisie": 88,
 
-  // Scotland
   premiership: 179,
   "scotland premiership": 179,
   "scotland championship": 180,
 
-  // Denmark
   superliga: 119,
   "denmark superliga": 119,
   "denmark division 1": 120,
   "denmark 1st division": 120,
   "1 division": 120,
 
-  // Finland
   veikkausliiga: 244,
   "finland veikkausliiga": 244,
   ykkonen: 245,
   "finland ykkonen": 245,
 
-  // Poland
   ekstraklasa: 106,
   "poland ekstraklasa": 106,
   "1 liga": 107,
   "poland 1st liga": 107,
 
-  // Belgium
   "pro league": 144,
   "jupiler pro league": 144,
   "belgium pro league": 144,
 
-  // Russia
   "premier liga": 235,
   "russian premier liga": 235,
 
-  // South Africa
   psl: 288,
   "south africa psl": 288,
   "premier soccer league": 288,
 
-  // Albania / Balkans
   "albania superliga": 310,
   "albanian superliga": 310,
   "bosnia premier league": 225,
   "bulgarian a league": 172,
 
-  // Thailand
   "thai league 1": 296,
   "thailand league 1": 296,
   "thailand league 2": 297,
   "thai league 2": 297,
 
-  // Brazil
   brasileirao: 71,
   "brazil serie a": 71,
   "brazilian serie a": 71,
@@ -330,25 +284,20 @@ const LEAGUE_IDS: Record<string, number> = {
   "brazil serie c": 75,
   "brazilian serie c": 75,
 
-  // Argentina
   "liga profesional": 128,
   "argentine primera": 128,
 
-  // China
   "chinese super league": 169,
   "china super league": 169,
 
-  // Japan / Korea
   "j league": 98,
   "j1 league": 98,
   "k league": 292,
   "k league 1": 292,
 
-  // MLS
   mls: 253,
   "major league soccer": 253,
 
-  // Europe-wide
   "champions league": 2,
   "uefa champions league": 2,
   "europa league": 3,
@@ -356,94 +305,70 @@ const LEAGUE_IDS: Record<string, number> = {
   "conference league": 848,
   "uefa conference league": 848,
 
-  // Singapore
   "singapore premier league": 382,
 
-  // UAE
   "uae pro league": 308,
   "uae league": 308,
 
-  // Saudi
   "saudi pro league": 307,
 
-  // Iran
   "iran persian gulf pro league": 290,
 
-  // International
   "world cup": 1,
   "fifa world cup": 1,
   "international friendlies": 10,
   "club friendlies": 667,
 
-  // Lithuania, Latvia, Israel (niche)
   "lithuania a lyga": 354,
   "latvia higher league": 365,
   "israeli premier league": 383,
 
-  // Paraguay (niche — not on ESPN)
   "paraguay primera": 249,
   "paraguay division intermedia": 250,
 
-  // Slovakia (niche — not on ESPN)
   "slovakia super liga": 332,
   "slovakia 2 liga": 333,
 
-  // Croatia
   "croatian hnl": 210,
   "croatia hnl": 210,
 
-  // Czech Republic
   "czech first league": 345,
   "czech liga": 345,
 
-  // Romania
   "liga 1": 283,
   "romania liga 1": 283,
 
-  // Hungary
   "nb i": 271,
   "hungary nb i": 271,
 
-  // Greece
   "super league greece": 197,
 
-  // Austria
   "austrian bundesliga": 218,
 
-  // Switzerland
   "swiss super league": 207,
 
-  // Serbia
   "serbian superliga": 286,
 
-  // Ukraine
   "ukrainian premier league": 333,
 
-  // Egypt
   "egyptian premier league": 233,
 
-  // Mexico
   "liga mx": 262,
   "mexico liga mx": 262,
 
-  // Colombia
   "colombian primera a": 239,
 
-  // Chile
   "chilean primera": 265,
 };
 
-// ─── API-Football league ID resolver ────────────────────────────────────────
 
 export const apiFootballLeagueId = (raw: string | null): number | null => {
   if (!raw) return null;
-  // 1. Learned entries
   const learned = lookupCompetitionSlug(raw, "api-football");
   if (learned) {
     const n = Number.parseInt(learned, 10);
     if (Number.isFinite(n)) return n;
   }
-  // 2. Hand-coded aliases
   const norm = normalizeCompetition(raw);
   if (LEAGUE_IDS[norm]) return LEAGUE_IDS[norm];
   for (const [alias, id] of Object.entries(LEAGUE_IDS)) {
@@ -452,15 +377,14 @@ export const apiFootballLeagueId = (raw: string | null): number | null => {
   return null;
 };
 
-// ─── Response shapes ────────────────────────────────────────────────────────
 
 interface ApiFixture {
   fixture: {
     id: number;
-    date: string; // ISO
+    date: string;
     status: {
       long: string;
-      short: string; // "FT", "AET", "PEN", "PST", "CANC", etc.
+      short: string;
     };
   };
   league: {
@@ -532,7 +456,6 @@ interface ApiStatResponse {
   results: number;
 }
 
-// ─── Matching helpers ───────────────────────────────────────────────────────
 
 const SUFFIX_NOISE =
   /\b(fc|cf|sc|ac|afc|cfc|fk|ii|iii|b|u21|u23|u19|u18|reserves|reserv|akademie|academy|women|w|wfc|wsl|jr|ladies|youth|u\d+|nd|1st|2nd|3rd|ifk|bk|if|ff|ks|nk|os|al|club|sportclub|klub|cd|cs|ca|calcio|futbol|football)\b/g;
@@ -590,11 +513,10 @@ const mapStatus = (short: string): MatchScore["status"] | null => {
     case "WO":
       return "ABD";
     default:
-      return null; // NS, 1H, HT, 2H, ET, BT, SUSP, INT, LIVE, etc.
+      return null;
   }
 };
 
-// ─── HTTP helper ────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(
   endpoint: string,
@@ -644,23 +566,13 @@ async function apiFetch<T>(
   }
 }
 
-// ─── Main entry: score resolution ───────────────────────────────────────────
 
-/**
- * Resolve final scores for events via API-Football. Groups events by
- * date (one API call per date covering all leagues), then fuzzy-matches
- * by team name + kickoff window.
- *
- * Returns HT + FT + ET + PEN scores — the only free source that
- * provides clean half-time data.
- */
 export async function fetchApiFootballScores(
   events: SettleEvent[],
 ): Promise<Map<string, MatchScore>> {
   const out = new Map<string, MatchScore>();
   if (events.length === 0 || !API_KEY) return out;
 
-  // Collect unique local dates from events, pad +/-1 day for provider catalog variance.
   const dateSet = new Set<string>();
   for (const e of events) {
     const start = new Date(e.startTime);
@@ -669,7 +581,6 @@ export async function fetchApiFootballScores(
     }
   }
 
-  // Fetch all fixtures for each date
   const allFixtures: ApiFixture[] = [];
   for (const date of [...dateSet].sort()) {
     const cached = getCachedFixtures(date);
@@ -692,7 +603,6 @@ export async function fetchApiFootballScores(
     if (resp?.response) {
       allFixtures.push(...resp.response);
     }
-    // Gentle pacing: respect 10 req/min limit
     await new Promise((r) => setTimeout(r, 500));
   }
 
@@ -704,7 +614,6 @@ export async function fetchApiFootballScores(
     return out;
   }
 
-  // Fuzzy-match each of our events against the API-Football catalog
   for (const ours of events) {
     const ourStart = new Date(ours.startTime).getTime();
     let best: { fixture: ApiFixture; score: number } | null = null;
@@ -764,7 +673,6 @@ export async function fetchApiFootballScores(
       sourceUrl: `https://www.api-football.com/fixture/${best.fixture.fixture.id}`,
     });
 
-    // Learn aliases
     if (ours.competition) {
       const leagueId = best.fixture.league.id;
       learnCompetitionSlug(ours.competition, "api-football", String(leagueId));
@@ -789,7 +697,6 @@ export async function fetchApiFootballScores(
   return out;
 }
 
-// ─── Match-level stats (corners, cards) ─────────────────────────────────────
 
 export interface ApiFootballMatchStats {
   cornersHome: number;
@@ -800,10 +707,6 @@ export interface ApiFootballMatchStats {
   redCardsAway: number;
 }
 
-/**
- * Fetch match-level statistics for a single fixture.
- * Costs 1 request from the daily quota.
- */
 async function fetchFixtureStats(
   fixtureId: number,
 ): Promise<ApiFootballMatchStats | null> {
@@ -824,7 +727,6 @@ async function fetchFixtureStats(
     return Number.isFinite(n) ? n : 0;
   };
 
-  // API-Football returns teams in order [home, away]
   const home = resp.response[0];
   const away = resp.response[1];
 
@@ -838,11 +740,6 @@ async function fetchFixtureStats(
   };
 }
 
-/**
- * Enrich an existing map of scores with card/corner data from API-Football.
- * Only enriches scores that were originally resolved by API-Football
- * (sourceUrl contains fixture ID).
- */
 export async function enrichApiFootballStats(
   scores: Map<string, MatchScore>,
   _events: SettleEvent[],
@@ -852,7 +749,6 @@ export async function enrichApiFootballStats(
   let skipped = 0;
 
   for (const [_eventId, score] of scores) {
-    // Only enrich API-Football-sourced scores
     const m = score.sourceUrl?.match(/\/fixture\/(\d+)/);
     if (!m) {
       skipped++;
@@ -887,13 +783,11 @@ export async function enrichApiFootballStats(
       score.cornersAway = stats.cornersAway;
     }
     if (needsBookings) {
-      // Pinnacle convention: 1 pt per yellow, 2 pts per red
       score.bookingsHome = stats.yellowCardsHome + 2 * stats.redCardsHome;
       score.bookingsAway = stats.yellowCardsAway + 2 * stats.redCardsAway;
     }
     enriched++;
 
-    // Gentle pacing
     await new Promise((r) => setTimeout(r, 500));
   }
 

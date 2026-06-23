@@ -1,8 +1,3 @@
-/**
- * GET /api/auth/admin/users/[id]/activity
- *
- * Get user activity logs (admin only).
- */
 
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -26,7 +21,6 @@ export async function GET(request: Request, context: RouteContext) {
     await initializeAuth();
     const { id } = await context.params;
 
-    // Check auth
     const cookieStore = await cookies();
     const token = cookieStore.get("auth_token")?.value;
 
@@ -40,19 +34,16 @@ export async function GET(request: Request, context: RouteContext) {
       return apiError("Admin access required", 403);
     }
 
-    // Get user
     const user = await db.select().from(users).where(eq(users.id, id)).get();
 
     if (!user) {
       return apiNotFound("User not found");
     }
 
-    // Parse query params
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get("limit") || "50");
     const offset = parseInt(url.searchParams.get("offset") || "0");
 
-    // Get activity logs
     const logs = await getAllActivityLogs({
       userId: user.id,
       limit,

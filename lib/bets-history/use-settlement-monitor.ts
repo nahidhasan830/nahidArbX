@@ -1,16 +1,5 @@
 "use client";
 
-/**
- * Hook powering the Settlement Activity Monitor UI.
- *
- * Combines three data sources:
- *   1. A REST poll against `/api/bets-history/auto-settle` for the full
- *      snapshot on open / tab-focus (seeds status, recent runs, log).
- *   2. An SSE subscription on `/api/bets-history/auto-settle/stream` for
- *      low-latency state + log updates while the dialog is open.
- *   3. A slower polling fallback (5s) for environments where SSE is
- *      blocked (proxies, offline tabs).
- */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -35,7 +24,6 @@ function mergeActivity(
   prev: SettlementActivityEntry[],
   incoming: SettlementActivityEntry[],
 ): SettlementActivityEntry[] {
-  // Entries are append-only; dedupe by id and keep chronological order.
   const seen = new Set<string>();
   const out: SettlementActivityEntry[] = [];
   for (const e of [...prev, ...incoming]) {
@@ -90,7 +78,6 @@ export function useSettlementMonitor(
       void refresh();
     }, POLL_INTERVAL_MS);
 
-    // Piggyback on the dashboard SSE stream for instant updates.
     let es: EventSource | null = null;
     try {
       es = new EventSource("/api/value-bets/stream");
@@ -105,7 +92,6 @@ export function useSettlementMonitor(
             setActivity((prev) => mergeActivity(prev, [payload.entry]));
           }
         } catch {
-          /* ignore malformed payload */
         }
       });
       es.addEventListener("settle:state", (e) => {
@@ -116,7 +102,6 @@ export function useSettlementMonitor(
           if (payload.status) {
             setStatus((prev) => {
               if (!prev) {
-                // Trigger a full refresh to seed remaining fields.
                 void refresh();
                 return prev;
               }
@@ -124,7 +109,6 @@ export function useSettlementMonitor(
             });
           }
         } catch {
-          /* ignore malformed payload */
         }
       });
     } catch {

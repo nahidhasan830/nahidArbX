@@ -1,10 +1,3 @@
-/**
- * GET /api/auth/setup-password
- * POST /api/auth/setup-password
- *
- * GET: Validates invite token
- * POST: Sets initial password for invited user
- */
 
 import { NextResponse } from "next/server";
 import { db, users, invites } from "@/lib/auth/db";
@@ -22,9 +15,6 @@ import {
   apiServerError,
 } from "@/lib/shared/api-response";
 
-/**
- * Validate invite token
- */
 export async function GET(request: Request) {
   try {
     await initializeAuth();
@@ -36,7 +26,6 @@ export async function GET(request: Request) {
       return apiBadRequest("Token is required");
     }
 
-    // Find invite
     const invite = await db
       .select()
       .from(invites)
@@ -62,14 +51,10 @@ export async function GET(request: Request) {
   }
 }
 
-/**
- * Set initial password
- */
 export async function POST(request: Request) {
   try {
     await initializeAuth();
 
-    // Parse body
     const body = await request.json();
     const parsed = SetupPasswordSchema.safeParse(body);
 
@@ -79,7 +64,6 @@ export async function POST(request: Request) {
 
     const { token, password, displayName } = parsed.data;
 
-    // Find invite
     const invite = await db
       .select()
       .from(invites)
@@ -99,7 +83,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Check if user already exists
     let user = await db
       .select()
       .from(users)
@@ -110,7 +93,6 @@ export async function POST(request: Request) {
     const passwordHash = await hashPassword(password);
 
     if (user) {
-      // Update existing user
       await db
         .update(users)
         .set({
@@ -121,7 +103,6 @@ export async function POST(request: Request) {
         })
         .where(eq(users.id, user.id));
     } else {
-      // Create new user
       const userId = crypto.randomUUID();
       await db.insert(users).values({
         id: userId,
@@ -134,7 +115,6 @@ export async function POST(request: Request) {
         updatedAt: now,
       });
 
-      // Initialize default permissions
       await initializeUserPermissions(userId);
 
       user = await db.select().from(users).where(eq(users.id, userId)).get();
@@ -144,27 +124,23 @@ export async function POST(request: Request) {
       return apiError("Failed to create user", 500);
     }
 
-    // Mark invite as used
     await db
       .update(invites)
       .set({ usedAt: now })
       .where(eq(invites.id, invite.id));
 
-    // Get request metadata
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
     const userAgent = request.headers.get("user-agent");
     const deviceInfo = parseDeviceInfo(userAgent);
     const geo = await getGeoLocation(ip);
 
-    // Create session
     const { token: authToken } = await createSession(user.id, {
       ipAddress: ip,
       deviceInfo,
       geoLocation: geo,
     });
 
-    // Log activity
     await logActivity({
       userId: user.id,
       userEmail: user.email,
@@ -174,7 +150,6 @@ export async function POST(request: Request) {
       deviceInfo,
     });
 
-    // Set cookie and return
     const response = NextResponse.json({
       ok: true,
       user: {

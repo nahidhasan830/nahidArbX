@@ -1,15 +1,4 @@
-/**
- * Feature Registry - Single Source of Truth
- *
- * All permissionable features are defined here.
- * Each feature can be toggled per-user by admin.
- *
- * Pattern follows PROVIDER_REGISTRY in lib/providers/registry.ts
- */
 
-// ============================================
-// Types
-// ============================================
 
 export interface FeatureMetadata {
   id: string;
@@ -18,17 +7,11 @@ export interface FeatureMetadata {
   category: "view" | "action" | "data";
   defaultEnabled: boolean;
   adminOnly?: boolean;
-  implemented?: boolean; // false = coming soon, cannot be toggled
+  implemented?: boolean;
 }
 
-// ============================================
-// Registry
-// ============================================
 
 export const FEATURE_REGISTRY = {
-  // ============================================
-  // Core View Features
-  // ============================================
   "event-details": {
     id: "event-details",
     displayName: "Event Details",
@@ -54,9 +37,6 @@ export const FEATURE_REGISTRY = {
     implemented: true,
   },
 
-  // ============================================
-  // Search & Filter Features
-  // ============================================
   search: {
     id: "search",
     displayName: "Text Search",
@@ -106,9 +86,6 @@ export const FEATURE_REGISTRY = {
     implemented: true,
   },
 
-  // ============================================
-  // Betting Mode Features
-  // ============================================
   "value-betting-mode": {
     id: "value-betting-mode",
     displayName: "Value Betting Mode",
@@ -118,9 +95,6 @@ export const FEATURE_REGISTRY = {
     implemented: true,
   },
 
-  // ============================================
-  // Health & Status Features
-  // ============================================
   "health-status": {
     id: "health-status",
     displayName: "Health Status",
@@ -146,9 +120,6 @@ export const FEATURE_REGISTRY = {
     implemented: true,
   },
 
-  // ============================================
-  // Action Features
-  // ============================================
   "copy-odds": {
     id: "copy-odds",
     displayName: "Copy Odds",
@@ -166,9 +137,6 @@ export const FEATURE_REGISTRY = {
     implemented: false, // Coming soon
   },
 
-  // ============================================
-  // Admin Features
-  // ============================================
   "user-management": {
     id: "user-management",
     displayName: "User Management",
@@ -198,50 +166,29 @@ export const FEATURE_REGISTRY = {
   },
 } as const;
 
-// ============================================
-// Derived Types
-// ============================================
 
 export type FeatureId = keyof typeof FEATURE_REGISTRY;
 export const FEATURE_IDS = Object.keys(FEATURE_REGISTRY) as FeatureId[];
 
-// ============================================
-// Helper Functions
-// ============================================
 
-/**
- * Get feature metadata by ID
- */
 export function getFeature(id: string): FeatureMetadata | undefined {
   return FEATURE_REGISTRY[id as FeatureId];
 }
 
-/**
- * Get display name for feature
- */
 export function getFeatureDisplayName(id: string): string {
   return FEATURE_REGISTRY[id as FeatureId]?.displayName ?? id;
 }
 
-/**
- * Check if feature is admin-only
- */
 export function isAdminOnlyFeature(id: string): boolean {
   const feature = FEATURE_REGISTRY[id as FeatureId];
   if (!feature) return false;
   return "adminOnly" in feature ? feature.adminOnly : false;
 }
 
-/**
- * Get default enabled state for feature
- */
 export function getFeatureDefaultEnabled(id: string): boolean {
   return FEATURE_REGISTRY[id as FeatureId]?.defaultEnabled ?? false;
 }
 
-/**
- * Get all features grouped by category
- */
 export function getFeaturesByCategory(): Record<string, FeatureMetadata[]> {
   const categories: Record<string, FeatureMetadata[]> = {
     view: [],
@@ -256,9 +203,6 @@ export function getFeaturesByCategory(): Record<string, FeatureMetadata[]> {
   return categories;
 }
 
-/**
- * Get user-assignable features (excludes admin-only)
- */
 export function getUserAssignableFeatures(): FeatureMetadata[] {
   return Object.values(FEATURE_REGISTRY).filter(
     (f) => !("adminOnly" in f && f.adminOnly),

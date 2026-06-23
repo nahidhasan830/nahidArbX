@@ -1,14 +1,3 @@
-/**
- * SABA direct events client.
- *
- * Browser discovery showed the sportsbook uses a provider-side token chain:
- *   1. POST ApiSiteLogin/ReGenerateToken             -> SABA API token
- *   2. GET  Config/GetBeforeOddsServerConfig         -> odds host/token
- *   3. POST BFOdds/ShowAllOdds (GameId=1, DateType)  -> soccer fixtures
- *
- * This client intentionally uses plain fetch only. Playwright stays confined
- * to the login/session capture path.
- */
 
 import { getSession } from "./session";
 
@@ -105,9 +94,6 @@ async function fetchJson<T>(
 }
 
 export async function getSabaApiToken(): Promise<string> {
-  // Ensure the BetConstruct login/session path has run. The SABA provider API
-  // currently mints the API token without sending the main access token, but
-  // this keeps auth state fresh and fails early when credentials are missing.
   await getSession();
 
   const body = {

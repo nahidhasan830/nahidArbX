@@ -1,7 +1,3 @@
-/**
- * Run migration: Create unified ai_provider_config table.
- * Run: npx tsx -T lib/db/migrations/0062_ai_provider_config.run.ts
- */
 
 import { db } from "@/lib/db/client";
 import { sql } from "drizzle-orm";
@@ -10,7 +6,6 @@ import { logger } from "@/lib/shared/logger";
 export async function run() {
   logger.info("Migration", "Running 0062_ai_provider_config_manual...");
 
-  // Create the table if not exists (raw SQL for migration safety)
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS ai_provider_config (
       name TEXT PRIMARY KEY,
@@ -30,7 +25,6 @@ export async function run() {
     )
   `);
 
-  // Create indexes
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS ai_provider_config_engine_idx ON ai_provider_config(engine_type)
   `);
@@ -38,7 +32,6 @@ export async function run() {
     CREATE INDEX IF NOT EXISTS ai_provider_config_enabled_idx ON ai_provider_config(enabled)
   `);
 
-  // Seed default providers (ignore duplicates)
   await db.execute(sql`
     INSERT INTO ai_provider_config (name, enabled, model_id, tier, label, tagline, engine_type, monthly_limit, total_usage_count, monthly_usage_count)
     VALUES
@@ -56,7 +49,6 @@ export async function run() {
   logger.info("Migration", "0062_ai_provider_config_manual complete");
 }
 
-// Only run if executed directly
 if (require.main === module) {
   run()
     .then(() => process.exit(0))
