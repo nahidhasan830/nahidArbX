@@ -388,20 +388,11 @@ describe("runAutoSettle", () => {
     await runAutoSettle();
 
     const message = vi.mocked(notify).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("Settlement sources need attention");
-    expect(message).toContain(
-      "Outcome: 1 event still unresolved; 0 events resolved this tick.",
-    );
-    expect(message).toContain(
-      "Queue: 1 bet across 1 event. Tried 1; backoff held 0.",
-    );
-    expect(message).toContain("API-Football: 10/100 left; used 6 this tick.");
-    expect(message).toContain(
-      "Waterfall: ESPN → SofaScore → API-Football.",
-    );
-    expect(message).not.toContain("Corners markets");
-    expect(message).not.toContain("Bookings markets");
-    expect(message).not.toContain("1H/2H markets");
+    expect(message).toContain("Settlement sources · 1 unresolved");
+    expect(message).toContain("📡 1 bet queued • 1 attempted • 0 backoffs");
+    expect(message).toContain("📉 API-FB quota 10/100 • 6 used");
+    expect(message).not.toContain("corner");
+    expect(message).not.toContain("booking");
   });
 
   it("includes concrete source issues in source warnings", async () => {
@@ -445,10 +436,7 @@ describe("runAutoSettle", () => {
     await runAutoSettle();
 
     const message = vi.mocked(notify).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("Blocked by:");
-    expect(message).toContain(
-      "- API-Football: plan: Free plans do not have access to this date.",
-    );
+    expect(message).toContain("• API-FB: free plan date restriction");
   });
 
   it("includes stat-market copy in source warnings only when those markets are present", async () => {
@@ -517,7 +505,6 @@ describe("runAutoSettle", () => {
     await runAutoSettle();
 
     const message = vi.mocked(notify).mock.calls[0]?.[0].message ?? "";
-    expect(message).toContain("Needs: corner stats, booking points.");
-    expect(message).not.toContain("1H/2H markets");
+    expect(message).toContain("📊 Needs: corners, bookings");
   });
 });

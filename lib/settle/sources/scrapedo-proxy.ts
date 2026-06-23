@@ -138,6 +138,15 @@ export async function fetchViaScrapeDoProxy<T>(
       );
       return null;
     }
+    if (status === 401) {
+      logger.warn(
+        "ScrapeDoProxy",
+        `Scrape.do authentication failed (HTTP 401) for ${targetUrl}. Check SCRAPE_DO_TOKEN / account status. Proxy disabled until resolved; SofaScore direct will be used when possible.`,
+      );
+      // Mark a long cooldown to avoid hammering bad auth on every tick.
+      state.lastDirect403At = Date.now(); // reuse field lightly to suppress rapid proxy
+      return null;
+    }
     logger.warn(
       "ScrapeDoProxy",
       `Proxy GET ${targetUrl} failed (HTTP ${status ?? "N/A"}): ${(err as Error).message}`,

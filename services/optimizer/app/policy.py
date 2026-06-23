@@ -53,6 +53,23 @@ class PolicyThresholdResult:
     roi_delta_pct: float
 
 
+def cap_probs_at_sharp(probs: np.ndarray, features: np.ndarray) -> np.ndarray:
+    """Cap model probabilities at the sharp's vig-removed probability.
+
+    Pinnacle is the best available probability estimate. Left uncapped, the
+    boost/edge policy selects exactly the rows where the model's probability
+    most exceeds the sharp's — i.e. the largest estimation errors (the
+    optimizer's curse), which is why boosted bets lost money on the prediction
+    audit. Capping lets the model only shrink or veto a bet, never manufacture
+    edge above the sharp. Fails open per-row when the sharp prob is missing or
+    out of (0, 1]. Mirrors capProbAtSharp in lib/ml/staker.ts.
+    """
+    sharp = features[:, SHARP_TRUE_PROB_INDEX].astype(np.float64)
+    valid = np.isfinite(sharp) & (sharp > 0.0) & (sharp <= 1.0)
+    capped = np.where(valid, np.minimum(probs.astype(np.float64), sharp), probs)
+    return capped
+
+
 def model_edge_pct(
     probs: np.ndarray,
     features: np.ndarray,
@@ -65,7 +82,8 @@ def model_edge_pct(
     odds = np.where(adjusted_odds > threshold_odds, adjusted_odds, fallback_odds)
     odds = np.where(odds > threshold_odds, odds, np.nan)
 
-    edge = (probs.astype(np.float64) * odds - 1.0) * 100.0
+    capped_probs = cap_probs_at_sharp(probs, features)
+    edge = (capped_probs * odds - 1.0) * 100.0
     return np.nan_to_num(edge, nan=-100.0, posinf=-100.0, neginf=-100.0)
 
 

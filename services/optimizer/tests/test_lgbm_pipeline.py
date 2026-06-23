@@ -135,6 +135,9 @@ class TestPolicyAlignedMetrics:
         features = np.zeros((3, FEATURE_COUNT), dtype=np.float32)
         features[:, IDX["soft_odds"]] = np.array([2.0, 2.0, 3.0], dtype=np.float32)
         features[:, IDX["adjusted_soft_odds"]] = np.array([1.9, 0.0, 2.8], dtype=np.float32)
+        # Sharp probs at/above the model probs so the cap is a no-op here and
+        # this test isolates the odds-selection logic.
+        features[:, IDX["sharp_true_prob"]] = np.array([0.60, 0.60, 0.30], dtype=np.float32)
         probs = np.array([0.55, 0.55, 0.25], dtype=np.float64)
 
         edges = model_edge_pct(probs, features)
@@ -142,6 +145,32 @@ class TestPolicyAlignedMetrics:
         assert edges[0] == pytest.approx(4.5)  # 0.55 * 1.9 - 1
         assert edges[1] == pytest.approx(10.0)  # fallback to soft_odds
         assert edges[2] == pytest.approx(-30.0)
+
+    def test_model_edge_caps_probability_at_sharp(self):
+        from app.policy import cap_probs_at_sharp
+
+        features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
+        features[:, IDX["soft_odds"]] = 2.0
+        features[:, IDX["adjusted_soft_odds"]] = 2.0
+        # Row 0: model overshoots sharp → capped to sharp.
+        # Row 1: model below sharp → untouched.
+        # Row 2: sharp missing (0) → fail open, model used as-is.
+        # Row 3: sharp invalid (>1) → fail open.
+        features[:, IDX["sharp_true_prob"]] = np.array(
+            [0.50, 0.80, 0.00, 1.50], dtype=np.float32
+        )
+        probs = np.array([0.90, 0.55, 0.60, 0.95], dtype=np.float64)
+
+        capped = cap_probs_at_sharp(probs, features)
+        assert capped[0] == pytest.approx(0.50)
+        assert capped[1] == pytest.approx(0.55)
+        assert capped[2] == pytest.approx(0.60)
+        assert capped[3] == pytest.approx(0.95)
+
+        edges = model_edge_pct(probs, features)
+        # Over-confident row 0 must use the sharp's edge, not its own 80% claim.
+        assert edges[0] == pytest.approx(0.0)  # 0.50 * 2.0 - 1 = 0
+        assert edges[1] == pytest.approx(10.0)  # 0.55 * 2.0 - 1
 
     def test_hpo_objective_scores_selected_policy_returns_only(self):
         features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
@@ -251,11 +280,18 @@ class TestPolicyAlignedMetrics:
         assert selected.tolist() == [1.0]
 
     def test_policy_keeps_best_selection_per_event_family(self):
+        # Model probabilities are capped at each atom's own sharp prob, so the
+        # per-family ranking is driven by the (sharp-capped) edge. Give atoms
+        # distinct sharp probs so the "best per family" pick is unambiguous and
+        # the cap does not collapse the ranking to a tie.
         features = np.zeros((4, FEATURE_COUNT), dtype=np.float32)
-        features[:, IDX["sharp_true_prob"]] = 0.54
+        features[:, IDX["sharp_true_prob"]] = np.array(
+            [0.55, 0.60, 0.56, 0.57], dtype=np.float32
+        )
         features[:, IDX["soft_odds"]] = 2.0
         features[:, IDX["adjusted_soft_odds"]] = 2.0
         features[:, IDX["market_type_encoded"]] = 0.0
+        # All model probs exceed the sharp → every row is capped to its sharp.
         probs = np.array([0.56, 0.62, 0.58, 0.59], dtype=np.float64)
         unit_returns = np.array([-1.0, 1.0, 0.5, 0.6], dtype=np.float64)
         metadata = pl.DataFrame(
@@ -264,7 +300,7 @@ class TestPolicyAlignedMetrics:
                 "event_id": ["event-1", "event-1", "event-1", "event-1"],
                 "family_id": ["ft_total_2_5", "ft_total_2_5", "ft_ah_0", "ft_ah_1"],
                 "soft_odds": [2.0, 2.0, 2.0, 2.0],
-                "sharp_true_prob": [0.54, 0.54, 0.54, 0.54],
+                "sharp_true_prob": [0.55, 0.60, 0.56, 0.57],
             }
         )
 
@@ -275,12 +311,16 @@ class TestPolicyAlignedMetrics:
             metadata=metadata,
         )
 
+        # b (sharp 0.60) beats a (sharp 0.55) inside ft_total_2_5; c and d are
+        # the only members of their families.
         assert mask.tolist() == [False, True, True, True]
         assert selected.tolist() == [1.0, 0.5, 0.6]
 
     def test_hpo_objective_credits_only_best_family_selection(self):
         features = np.zeros((3, FEATURE_COUNT), dtype=np.float32)
-        features[:, IDX["sharp_true_prob"]] = 0.54
+        features[:, IDX["sharp_true_prob"]] = np.array(
+            [0.55, 0.60, 0.57], dtype=np.float32
+        )
         features[:, IDX["soft_odds"]] = 2.0
         features[:, IDX["adjusted_soft_odds"]] = 2.0
         features[:, IDX["market_type_encoded"]] = 0.0

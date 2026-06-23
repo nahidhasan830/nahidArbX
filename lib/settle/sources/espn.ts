@@ -296,6 +296,25 @@ const LEAGUE_ALIASES: Record<string, string> = {
 
   // India
   "indian super league": "ind.1",
+
+  // Iceland (lower divisions often fall to SofaScore; aliases for ESPN if covered)
+  "iceland 1 deild": "ice.1",
+  "iceland 1. deild": "ice.1",
+  "1. deild": "ice.1",
+  "iceland division 1": "ice.1",
+
+  // Kuwait
+  "kuwait premier league": "kwt.1",
+  "kuwait premier": "kwt.1",
+
+  // Australia cup qualifiers (may map to cup or state leagues)
+  "australia cup qualifiers": "aus.cup",
+  "australia cup": "aus.cup",
+
+  // US lower / women leagues (WPSL etc. best-effort)
+  "usa women premier soccer league": "usa.w.1",
+  "women premier soccer league": "usa.w.1",
+  "wpsl": "usa.w.1",
 };
 
 /**
@@ -314,6 +333,19 @@ const espnSlug = (raw: string | null): string | null => {
   if (LEAGUE_ALIASES[norm]) return LEAGUE_ALIASES[norm];
   for (const [alias, slug] of Object.entries(LEAGUE_ALIASES)) {
     if (norm.includes(alias)) return slug;
+  }
+  // 3. Generalized fallback: strip common qualifiers (women, deild, division, cup, qualifiers, 1.)
+  //    so "Iceland - 1. Deild Women" or "Australia Cup Qualifiers" can hit base aliases
+  //    when a close variant is known. Helps obscure leagues without per-league rules.
+  const stripped = norm
+    .replace(/\b(women|ladies|w|division|deild|cup|qualifiers?|1\.?|first)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (stripped && stripped !== norm) {
+    if (LEAGUE_ALIASES[stripped]) return LEAGUE_ALIASES[stripped];
+    for (const [alias, slug] of Object.entries(LEAGUE_ALIASES)) {
+      if (stripped.includes(alias) || alias.includes(stripped)) return slug;
+    }
   }
   return null;
 };

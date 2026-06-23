@@ -145,7 +145,7 @@ async function main() {
     at: new Date().toISOString(),
     severity: "warn",
     message:
-      "Pinnacle token refresh failed twice in a row; falling back to cached odds for the next 5 minutes. No user action required.",
+      "Pinnacle token · refresh failed\nFalling back to cache",
   });
   console.log("✓ system warn sent");
 }

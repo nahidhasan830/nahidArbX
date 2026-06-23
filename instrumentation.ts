@@ -53,10 +53,10 @@ export async function register() {
     if (isUnifiedBoot()) {
       // Write our own payload, then give the engine process a short window
       // to publish its ready payload before sending the combined notification.
+      // (AI search is co-located with frontend; no separate payload.)
       writeBootPayload("frontend", frontendPayload);
       const payloads = await waitForBootPayloads(["engine", "frontend"]);
       const engine = payloads.find((p) => p.role === "engine");
-      const aiSearch = payloads.find((p) => p.role === "ai-search");
       const frontend = payloads.find((p) => p.role === "frontend");
 
       notify({
@@ -64,9 +64,6 @@ export async function register() {
         at: new Date().toISOString(),
         engine: engine?.data as
           | import("./lib/notifier/types").SystemBootEvent
-          | undefined,
-        aiSearch: aiSearch?.data as
-          | import("./lib/notifier/types").AiEngineStateEvent
           | undefined,
         frontend: frontend?.data as
           | import("./lib/notifier/types").SystemBootEvent

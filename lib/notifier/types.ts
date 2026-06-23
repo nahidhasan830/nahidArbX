@@ -317,12 +317,14 @@ export interface SystemBootEvent {
  * Fired when `dev:all` (unified boot) gathers all process boot payloads
  * into a single consolidated notification. Contains optional sub-sections
  * for each service that successfully wrote its boot payload.
+ *
+ * Note: AI Search is no longer a separate process (embedded in Next.js),
+ * so there is no aiSearch slot.
  */
 export interface UnifiedBootEvent {
   type: "system:unified_boot";
   at: string;
   engine?: SystemBootEvent;
-  aiSearch?: AiEngineStateEvent;
   frontend?: SystemBootEvent;
 }
 

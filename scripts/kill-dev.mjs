@@ -5,8 +5,6 @@ import { execFileSync } from "node:child_process";
 const PORTS = ["3000", "3001", "8090"];
 const PATTERNS = [
   "tsx engine.ts",
-  "tsx scripts/ai-search-supervisor.ts",
-  "uvicorn app.main:app",
   "next dev",
 ];
 const SELF_PID = process.pid;

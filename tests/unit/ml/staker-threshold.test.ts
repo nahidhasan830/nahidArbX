@@ -3,7 +3,10 @@ import { FEATURE_COUNT, FEATURE_INDEX } from "@/lib/ml/feature-contract";
 
 function makeFeatures(): number[] {
   const f = new Array(FEATURE_COUNT).fill(0);
-  f[FEATURE_INDEX.sharp_true_prob] = 0.5;
+  // Sharp prob is high enough that the staker's sharp-cap does not reduce the
+  // model probabilities used below — this test isolates the learned-threshold
+  // logic, not the cap (see staker.test.ts for cap coverage).
+  f[FEATURE_INDEX.sharp_true_prob] = 0.6;
   f[FEATURE_INDEX.soft_odds] = 2.15;
   f[FEATURE_INDEX.adjusted_soft_odds] = 2.15;
   f[FEATURE_INDEX.tick_count] = 5;

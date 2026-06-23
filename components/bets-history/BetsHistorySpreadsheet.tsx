@@ -24,6 +24,47 @@ import type { SettlementResponse } from "@/lib/bets-history/api-client";
 import type { ListFilters } from "@/lib/bets-history/api-client";
 import type { Outcome, ValueBetRow } from "@/lib/bets-history/types";
 
+const mergeUniqueRows = (
+  current: ValueBetRow[],
+  incoming?: ValueBetRow[],
+): ValueBetRow[] => {
+  if (!incoming || incoming.length === 0) return current;
+  const byId = new Map(current.map((row) => [row.id, row]));
+  for (const row of incoming) byId.set(row.id, row);
+  return Array.from(byId.values());
+};
+
+const mergeSettlementResponse = (
+  current: SettlementResponse | null,
+  incoming: SettlementResponse,
+): SettlementResponse => {
+  if (!current) return incoming;
+
+  const proposalsById = new Map(
+    current.proposals.map((proposal) => [proposal.id, proposal]),
+  );
+  for (const proposal of incoming.proposals) {
+    proposalsById.set(proposal.id, proposal);
+  }
+
+  return {
+    ...current,
+    telemetry: incoming.telemetry ?? current.telemetry,
+    unresolvedEventCount:
+      incoming.unresolvedEventCount ?? current.unresolvedEventCount,
+    proposals: Array.from(proposalsById.values()),
+    attempted: proposalsById.size,
+    missing: Array.from(new Set([...current.missing, ...incoming.missing])),
+    includedRows: mergeUniqueRows(
+      current.includedRows ?? [],
+      incoming.includedRows,
+    ),
+    expandedIds: Array.from(
+      new Set([...(current.expandedIds ?? []), ...(incoming.expandedIds ?? [])]),
+    ),
+  };
+};
+
 export function BetsHistorySpreadsheet() {
   const {
     filters,
@@ -257,7 +298,13 @@ export function BetsHistorySpreadsheet() {
     const candidates = rows.filter((r) => ids.includes(r.id));
 
     setSettleCandidates(candidates);
-    setSettleResponse({ proposals: [], attempted: 0, missing: [] });
+    setSettleResponse({
+      proposals: [],
+      attempted: 0,
+      missing: [],
+      includedRows: candidates,
+      expandedIds: ids,
+    });
     setSettleOpen(true);
 
     const chunks: string[][] = [];
@@ -275,12 +322,14 @@ export function BetsHistorySpreadsheet() {
     // batch's hits because state updates haven't been flushed yet.
     const summary = {
       resolved: 0,
+      attempted: 0,
       unresolved: 0,
       tier0: 0,
       tier1: 0,
       tier2: 0,
       durationMs: 0,
     };
+    const seenProposalIds = new Set<string>();
 
     // Worker-pool style: at most SETTLEMENT_BATCH_CONCURRENCY in flight; results
     // stream into settleResponse as each batch returns.
@@ -302,36 +351,32 @@ export function BetsHistorySpreadsheet() {
             summary.durationMs += data.telemetry.durationMs;
           }
           for (const p of data.proposals) {
+            if (seenProposalIds.has(p.id)) continue;
+            seenProposalIds.add(p.id);
+            summary.attempted++;
             if ("error" in p) continue;
             if (p.proposedOutcome !== "pending") summary.resolved++;
           }
+          setSettleCandidates((prev) =>
+            mergeUniqueRows(prev, data.includedRows),
+          );
           setSettleResponse((prev) =>
-            prev
-              ? {
-                  proposals: [...prev.proposals, ...data.proposals],
-                  attempted: prev.attempted + data.attempted,
-                  missing: [...prev.missing, ...data.missing],
-                }
-              : data,
+            mergeSettlementResponse(prev, data),
           );
         } catch (err) {
           anyErr = err as Error;
           // Record every row in this chunk as an error so the user sees what
           // happened rather than silently-missing entries.
+          const errorResponse: SettlementResponse = {
+            proposals: chunk.map((id) => ({
+              id,
+              error: (err as Error).message,
+            })),
+            attempted: chunk.length,
+            missing: [],
+          };
           setSettleResponse((prev) =>
-            prev
-              ? {
-                  proposals: [
-                    ...prev.proposals,
-                    ...chunk.map((id) => ({
-                      id,
-                      error: (err as Error).message,
-                    })),
-                  ],
-                  attempted: prev.attempted + chunk.length,
-                  missing: prev.missing,
-                }
-              : null,
+            mergeSettlementResponse(prev, errorResponse),
           );
         } finally {
           setSettlementProgress((p) => (p ? { ...p, done: p.done + 1 } : null));
@@ -351,7 +396,8 @@ export function BetsHistorySpreadsheet() {
       const err = anyErr as Error;
       toast.error("❌ Settlement failed", { description: err.message });
     } else {
-      const word = ids.length === 1 ? "bet" : "bets";
+      const attempted = summary.attempted || ids.length;
+      const word = attempted === 1 ? "bet" : "bets";
       const pieces: string[] = [];
       if (summary.tier0 > 0) pieces.push(`cache ${summary.tier0}`);
       if (summary.tier1 > 0) pieces.push(`live feed ${summary.tier1}`);
@@ -359,7 +405,7 @@ export function BetsHistorySpreadsheet() {
       if (summary.unresolved > 0)
         pieces.push(`unresolved ${summary.unresolved}`);
       const seconds = (summary.durationMs / 1000).toFixed(1);
-      toast.success(`✅ Settled ${summary.resolved} / ${ids.length} ${word}`, {
+      toast.success(`✅ Settled ${summary.resolved} / ${attempted} ${word}`, {
         description:
           pieces.length > 0
             ? `${pieces.join(" · ")} · ⏱️ ${seconds}s`
@@ -380,13 +426,20 @@ export function BetsHistorySpreadsheet() {
       return;
     }
     setSettleCandidates([row]);
-    setSettleResponse({ proposals: [], attempted: 0, missing: [] });
+    setSettleResponse({
+      proposals: [],
+      attempted: 0,
+      missing: [],
+      includedRows: [row],
+      expandedIds: [id],
+    });
     setSettleOpen(true);
     setResettlingIds(new Set([id]));
     setSettlementRunning(true);
     setSettlementProgress({ done: 0, total: 1 });
     try {
       const data = await settleBets([id], { bypassCache: true });
+      setSettleCandidates((prev) => mergeUniqueRows(prev, data.includedRows));
       setSettleResponse(data);
     } catch (err) {
       toast.error(`❌ Settlement failed: ${(err as Error).message}`);
@@ -449,12 +502,10 @@ export function BetsHistorySpreadsheet() {
         toast.error(`❌ Re-run returned no proposal for ${id}`);
         return;
       }
+      setSettleCandidates((prev) => mergeUniqueRows(prev, data.includedRows));
       setSettleResponse((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          proposals: prev.proposals.map((p) => (p.id === id ? fresh : p)),
-        };
+        if (!prev) return data;
+        return mergeSettlementResponse(prev, data);
       });
       if ("error" in fresh) {
         toast.error(`❌ Re-run failed: ${fresh.error}`);

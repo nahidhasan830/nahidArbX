@@ -127,13 +127,51 @@ describe("computeKellyMultiplier", () => {
     });
 
     it("caps at 2.0", () => {
+      // sharp_true_prob high so the sharp-cap doesn't reduce the model
+      // probability — this test isolates the 2.0 ceiling itself.
       const features = makeFeatures({
         [IDX_TICK_COUNT]: 20,
         [IDX_STEAM_SHARP]: 1,
+        [IDX_SHARP_TRUE_PROB]: 0.95,
       });
       const m = computeKellyMultiplier(1.0, features, "stake_increase");
       expect(m!).toBe(2.0);
     });
+  });
+});
+
+describe("sharp-probability cap", () => {
+  it("caps the model probability at the sharp's vig-removed prob for edge", () => {
+    // Model claims 0.9 but the sharp only prices 0.5 → edge must use 0.5.
+    const features = makeFeatures({ [IDX_SHARP_TRUE_PROB]: 0.5 });
+    // (0.5 * 2.15 - 1) * 100 = 7.5, not (0.9 * 2.15 - 1) * 100 = 93.5
+    expect(computeModelEdgePct(0.9, features)).toBeCloseTo(7.5, 6);
+  });
+
+  it("leaves the model probability untouched when it is below the sharp's", () => {
+    const features = makeFeatures({ [IDX_SHARP_TRUE_PROB]: 0.9 });
+    // model 0.5 < sharp 0.9 → use 0.5 unchanged
+    expect(computeModelEdgePct(0.5, features)).toBeCloseTo(7.5, 6);
+  });
+
+  it("fails open (no cap) when the sharp probability is missing", () => {
+    const features = makeFeatures({ [IDX_SHARP_TRUE_PROB]: 0 });
+    // sharp prob invalid → model 0.6 used as-is: (0.6 * 2.15 - 1) * 100 = 29
+    expect(computeModelEdgePct(0.6, features)).toBeCloseTo(29, 6);
+  });
+
+  it("prevents an over-confident model from boosting beyond the sharp", () => {
+    // Over-confident model (0.95) where the sharp prices only a thin edge.
+    // soft_odds 1.6, sharp 0.64 → sharp edge = (0.64*1.6-1)*100 = 2.4%.
+    const overconfident = makeFeatures({
+      [IDX_SHARP_TRUE_PROB]: 0.64,
+      [FEATURE_INDEX.soft_odds]: 1.6,
+      [FEATURE_INDEX.adjusted_soft_odds]: 1.6,
+    });
+    const capped = computeModelEdgePct(0.95, overconfident);
+    // Edge is bounded by the sharp's view, not the model's 52% claim.
+    expect(capped).toBeCloseTo(2.4, 6);
+    expect(capped).toBeLessThan(3);
   });
 });
 

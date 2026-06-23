@@ -4,7 +4,7 @@ Uses Optuna's multivariate TPE sampler + HyperbandPruner — the BOHB-style
 combo widely considered state-of-the-art for tabular HPO at this scale
 (50-100 trials, 6-7 hyperparameters).
 
-Architecture (3-tier validation, see ML_REBUILD_PLAN.md):
+Architecture (3-tier validation):
   - Stage A (this file): Optuna HPO, inner CV = purged walk-forward.
   - Stage B (trainer):   single outer holdout, last 3 months.
   - Stage C (trainer):   CPCV on the chosen config → DSR/PBO distribution.

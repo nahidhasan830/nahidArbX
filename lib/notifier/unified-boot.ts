@@ -6,6 +6,9 @@
  * of sending a Telegram notification immediately. The frontend (last
  * to start) collects all payloads and sends a single combined message.
  *
+ * Note: AI Search is now embedded inside the Next.js frontend process
+ * (via /api/ai-search). It no longer has a separate boot role/payload.
+ *
  * Individual starts (no env var) bypass this entirely — each process
  * sends its own notification as before.
  */
@@ -16,7 +19,7 @@ import { tmpdir } from "node:os";
 
 const BOOT_DIR = join(tmpdir(), "nahidarbx-boot");
 
-export type BootRole = "engine" | "ai-search" | "frontend";
+export type BootRole = "engine" | "frontend";
 
 export interface BootPayload {
   role: BootRole;

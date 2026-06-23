@@ -113,6 +113,10 @@ export type SettlementResponse = {
   proposals: Array<SettlementProposal | SettlementProposalError>;
   attempted: number;
   missing: string[];
+  /** Rows included by server-side event fan-out for review-table rendering. */
+  includedRows?: ValueBetRow[];
+  /** Requested IDs plus any pending sibling markets on the same event. */
+  expandedIds?: string[];
   telemetry?: SettlementTelemetry;
   unresolvedEventCount?: number;
 };

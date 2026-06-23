@@ -14,7 +14,7 @@
  * The settlement cascade (value_bets → placed_bets) is no longer needed
  * since outcome lives on the same row.
  */
-import { and, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../client";
 import {
   bets,
@@ -786,108 +786,30 @@ export const getBetsByIds = async (ids: string[]): Promise<BetRow[]> => {
   return db.select().from(bets).where(inArray(bets.id, ids));
 };
 
-export interface HistoricalBackfillBetRow {
-  id: string;
-  eventStartTime: string;
-  firstSeenAt: string;
-  competition: string | null;
-  marketType: string;
-  familyLine: number | null;
-  sharpProvider: string;
-  sharpOdds: number;
-  sharpTrueProb: number;
-  softProvider: string;
-  softCommissionPct: number;
-  softOdds: number;
-  oddsMovement:
-    | Record<string, import("@/lib/bets-history/types").OddsMovementData>
-    | import("@/lib/bets-history/types").OddsMovementData
-    | null;
-  mlFeatures: number[] | null;
-  mlFeatureVersion: number | null;
-  mlFeatureCount: number | null;
-  mlFeatureNamesHash: string | null;
-}
-
-export async function listHistoricalBackfillBets(args: {
-  afterId?: string;
-  limit: number;
-}): Promise<HistoricalBackfillBetRow[]> {
-  const clauses = [sql`${bets.outcome} NOT IN ('pending', 'void')`];
-  if (args.afterId) {
-    clauses.push(gt(bets.id, args.afterId));
-  }
+/**
+ * Pending rows for events that are already being resolved by the operator.
+ * A single final score can settle every supported market on the same event, so
+ * manual settlement should not leave sibling markets stranded in Needs Review.
+ */
+export const getPendingBetsByEventIds = async (
+  eventIds: string[],
+): Promise<BetRow[]> => {
+  const uniqueEventIds = Array.from(new Set(eventIds.filter(Boolean)));
+  if (uniqueEventIds.length === 0) return [];
 
   return db
-    .select({
-      id: bets.id,
-      eventStartTime: bets.eventStartTime,
-      firstSeenAt: bets.firstSeenAt,
-      competition: bets.competition,
-      marketType: bets.marketType,
-      familyLine: bets.familyLine,
-      sharpProvider: bets.sharpProvider,
-      sharpOdds: bets.sharpOdds,
-      sharpTrueProb: bets.sharpTrueProb,
-      softProvider: bets.softProvider,
-      softCommissionPct: bets.softCommissionPct,
-      softOdds: bets.softOdds,
-      oddsMovement: bets.oddsMovement,
-      mlFeatures: bets.mlFeatures,
-      mlFeatureVersion: bets.mlFeatureVersion,
-      mlFeatureCount: bets.mlFeatureCount,
-      mlFeatureNamesHash: bets.mlFeatureNamesHash,
-    })
+    .select()
     .from(bets)
-    .where(and(...clauses))
-    .orderBy(bets.id)
-    .limit(args.limit);
-}
-
-export async function updateHistoricalMlFeatures(
-  updates: Array<{
-    id: string;
-    features: number[];
-    featureVersion: number;
-    featureCount: number;
-    featureNamesHash: string;
-  }>,
-): Promise<number> {
-  if (updates.length === 0) return 0;
-
-  const payload = JSON.stringify(
-    updates.map((row) => ({
-      id: row.id,
-      features: row.features,
-      feature_version: row.featureVersion,
-      feature_count: row.featureCount,
-      feature_names_hash: row.featureNamesHash,
-    })),
-  );
-
-  const result = await db.execute(sql`
-    WITH payload AS (
-      SELECT *
-      FROM jsonb_to_recordset(${payload}::jsonb) AS p(
-        id text,
-        features real[],
-        feature_version integer,
-        feature_count integer,
-        feature_names_hash text
-      )
+    .where(
+      and(inArray(bets.eventId, uniqueEventIds), eq(bets.outcome, "pending")),
     )
-    UPDATE ${bets} b
-    SET ml_features = payload.features,
-        ml_feature_version = payload.feature_version,
-        ml_feature_count = payload.feature_count,
-        ml_feature_names_hash = payload.feature_names_hash
-    FROM payload
-    WHERE b.id = payload.id
-    RETURNING b.id
-  `);
-
-  return result.rows.length;
-}
+    .orderBy(
+      desc(bets.eventStartTime),
+      asc(bets.eventId),
+      asc(bets.marketType),
+      asc(bets.atomId),
+    );
+};
 
 // ─── Outcome / settlement ─────────────────────────────────────────────────────
 

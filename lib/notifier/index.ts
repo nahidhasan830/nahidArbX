@@ -28,7 +28,6 @@ function summarizeEvent(e: NotificationEvent): string {
     case "system:unified_boot": {
       const parts: string[] = [];
       if (e.engine) parts.push("Engine");
-      if (e.aiSearch) parts.push("AI Search");
       if (e.frontend) parts.push("Frontend");
       return `All services started · ${parts.join(" + ")}`;
     }

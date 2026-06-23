@@ -540,5 +540,13 @@ function computeModelEdgePct(
   const softOdds = features[F.soft_odds] ?? 0;
   const odds = adjustedSoftOdds > 1.01 ? adjustedSoftOdds : softOdds;
   if (!Number.isFinite(odds) || odds <= 1.01) return -100;
-  return (mlScore * odds - 1) * 100;
+  // Mirror lib/ml/staker.ts: cap the model probability at the sharp's
+  // vig-removed probability so explanations never advertise edge the sharp
+  // does not price in.
+  const sharpTrueProb = features[F.sharp_true_prob] ?? Number.NaN;
+  const cappedScore =
+    Number.isFinite(sharpTrueProb) && sharpTrueProb > 0 && sharpTrueProb <= 1
+      ? Math.min(mlScore, sharpTrueProb)
+      : mlScore;
+  return (cappedScore * odds - 1) * 100;
 }

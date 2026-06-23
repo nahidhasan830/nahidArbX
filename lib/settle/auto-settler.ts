@@ -122,14 +122,24 @@ const plural = (count: number, singular: string, pluralForm = `${singular}s`) =>
 
 const formatSourceIssue = (issue: string): string => {
   if (issue.startsWith("API-Football access issue on /fixtures:")) {
-    return issue.replace("API-Football access issue on /fixtures:", "API-Football:");
+    let msg = issue.replace("API-Football access issue on /fixtures:", "API-FB:");
+    // Shorten the common free plan restriction message
+    msg = msg.replace(
+      /plan: Free plans do not have access to this date, try from ([\d-]+) to ([\d-]+)/,
+      "free plan: no access before $1 (try $2+)",
+    );
+    // Fallback cleanup for shorter version without dates
+    msg = msg.replace(/plan: Free plans do not have access to this date\.?/, "free plan date restriction");
+    // Ensure single space after :
+    msg = msg.replace(/:\s*/, ": ");
+    return msg.trim();
   }
   if (issue.startsWith("SofaScore transport is degraded after ")) {
     return issue
       .replace("SofaScore transport is degraded after ", "SofaScore: ")
       .replace(
         " consecutive direct/proxy failures. It will retry on next settlement tick.",
-        " direct/proxy failures; retrying next tick.",
+        " failures (retrying)",
       );
   }
   return issue;
@@ -155,45 +165,35 @@ const buildSourceWarning = (
   sourceIssues: string[],
 ): string => {
   const quota = getApiFootballQuota();
-  const resolvedEvents =
-    telemetry.eventsResolvedFromCache +
-    telemetry.eventsResolvedByEspn +
-    telemetry.eventsResolvedBySofaScore +
-    telemetry.eventsResolvedByApiFootball;
-  const lines = [
-    "Settlement sources need attention",
-    "",
-    `Outcome: ${plural(telemetry.eventsStillUnresolved, "event")} still unresolved; ${plural(resolvedEvents, "event")} resolved this tick.`,
-    `Queue: ${plural(readyBets, "bet")} across ${plural(telemetry.eventsTotal, "event")}. Tried ${telemetry.eventsAttempted}; backoff held ${telemetry.eventsSkippedByBackoff}.`,
-    `API-Football: ${quota.remaining}/${quota.dailyLimit} left; used ${telemetry.apiFootballRequestsUsed} this tick.`,
+
+  const unresolved = telemetry.eventsStillUnresolved;
+  const tried = telemetry.eventsAttempted;
+  const backoff = telemetry.eventsSkippedByBackoff;
+  const used = telemetry.apiFootballRequestsUsed;
+
+  const lines: string[] = [
+    `Settlement sources · ${unresolved} unresolved`,
+    `📡 ${plural(readyBets, "bet")} queued • ${tried} attempted • ${backoff} backoffs`,
+    `📉 API-FB quota ${quota.remaining}/${quota.dailyLimit} • ${used} used`,
   ];
 
   if (sourceIssues.length > 0) {
-    lines.push("", "Blocked by:");
-    for (const issue of sourceIssues) {
-      lines.push(`- ${formatSourceIssue(issue)}`);
+    for (const issue of sourceIssues.slice(0, 2)) {
+      lines.push(`• ${formatSourceIssue(issue)}`);
+    }
+    if (sourceIssues.length > 2) {
+      lines.push(`• +${sourceIssues.length - 2} more`);
     }
   }
 
   const needs: string[] = [];
-  if (batchContainsCorners(rows)) {
-    needs.push("corner stats");
-  }
-  if (batchContainsBookings(rows)) {
-    needs.push("booking points");
-  }
-  if (batchContainsHtScope(rows)) {
-    needs.push("HT scores");
-  }
+  if (batchContainsCorners(rows)) needs.push("corners");
+  if (batchContainsBookings(rows)) needs.push("bookings");
+  if (batchContainsHtScope(rows)) needs.push("half-time scores");
   if (needs.length > 0) {
-    lines.push("", `Needs: ${needs.join(", ")}.`);
+    lines.push(`📊 Needs: ${needs.join(", ")}`);
   }
 
-  lines.push(
-    "",
-    "Waterfall: ESPN → SofaScore → API-Football.",
-    "API-Football is last resort only.",
-  );
   return lines.join("\n");
 };
 

@@ -573,16 +573,31 @@ function formatAiModelState(e: AiModelStateEvent): FormattedMessage {
 function formatSystem(e: SystemEvent): FormattedMessage {
   const severityIcon =
     e.severity === "error" ? "🚨" : e.severity === "warn" ? "⚠️" : "ℹ️";
-  const severityLabel =
-    e.severity === "error"
-      ? "System Error"
-      : e.severity === "warn"
-        ? "System Warning"
-        : "System Info";
+
+  const rawLines = e.message
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
 
   const lines: string[] = [];
-  lines.push(`${severityIcon} <b>${esc(severityLabel)}</b>`);
-  lines.push(...formatSystemMessageLines(e.message));
+  if (rawLines.length > 0) {
+    const first = rawLines[0];
+    // Support "Title · stat" pattern exactly like bet placed/settled.
+    // Bold only the title part, put · data after (outside bold).
+    const dotIdx = first.indexOf(" · ");
+    if (dotIdx > 0) {
+      const title = first.slice(0, dotIdx);
+      const data = first.slice(dotIdx); // " · stat..."
+      lines.push(`${severityIcon} <b>${esc(title)}</b>${esc(data)}`);
+    } else {
+      lines.push(`${severityIcon} <b>${esc(first)}</b>`);
+    }
+    for (const line of rawLines.slice(1)) {
+      lines.push(esc(line));
+    }
+  } else {
+    lines.push(`${severityIcon} <b>System message</b>`);
+  }
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
   return { text: lines.join("\n") };
 }
@@ -620,46 +635,41 @@ function formatEngineBoot(e: SystemBootEvent): FormattedMessage {
   const lines: string[] = [];
 
   const envEmoji = e.env === "production" ? "🟢" : "🟡";
-  lines.push(`⚙️ <b>Engine started</b>`);
-  lines.push(`${envEmoji} ${esc(e.env)} · Node ${esc(e.nodeVersion)}`);
-  if (e.pid)
-    lines.push(
-      `🔧 PID <code>${e.pid}</code> · HTTP :${e.enginePort ?? 3001}`,
-    );
+  const envShort = e.env === "production" ? "prod" : "dev";
+  const port = e.enginePort ?? 3001;
 
-  lines.push(
-    `${e.syncScheduler ? "✅" : "❌"} Sync ${e.syncScheduler ? "running" : "stopped"}`,
-  );
-  if (e.autoSettleIntervalSec) {
-    lines.push(
-      `${e.autoSettle ? "✅" : "❌"} Auto-settle ${e.autoSettle ? "running" : "stopped"} · every ${esc(durationLabel(e.autoSettleIntervalSec * 1000))}`,
-    );
+  // Title line like bet settlement: icon <b>Title</b> · key info
+  lines.push(`⚙️ <b>Engine started</b> · ${envShort} :${port}`);
+
+  lines.push(`${envEmoji} Node ${esc(e.nodeVersion)} · PID <code>${e.pid ?? "-"}</code>`);
+
+  // Compact subsystems on one or two lines
+  const subs: string[] = [];
+  if (typeof e.syncScheduler === "boolean") {
+    subs.push(`sync ${e.syncScheduler ? "on" : "off"}`);
   }
-
+  if (e.autoSettleIntervalSec) {
+    subs.push(`settle ${e.autoSettle ? "on" : "off"} ${durationLabel(e.autoSettleIntervalSec * 1000)}`);
+  }
   if (e.autoPlace && e.autoPlace.length > 0) {
-    for (const ap of e.autoPlace) {
-      const icon = ap.enabled ? "✅" : "⏸";
-      lines.push(
-        `${icon} Auto-place ${esc(ap.displayName)} ${ap.enabled ? "on" : "off"}`,
-      );
-    }
+    const on = e.autoPlace.filter((ap) => ap.enabled).length;
+    subs.push(`place ${on}/${e.autoPlace.length} on`);
+  }
+  if (subs.length > 0) {
+    lines.push(`✅ ${subs.join(" · ")}`);
   }
 
   if (e.dataSources && e.dataSources.length > 0) {
-    lines.push(`📡 Sources: ${esc(e.dataSources.join(", "))}`);
+    lines.push(`📡 ${esc(e.dataSources.join(", "))}`);
+  }
+
+  if (e.mlRetrainJob) {
+    const ml = `☁️ ML <code>${esc(e.mlRetrainJob)}</code>` + (e.mlRetrainRegion ? ` ${esc(e.mlRetrainRegion)}` : "");
+    lines.push(ml);
   }
 
   if (e.detectorDebounceMs) {
-    lines.push(`⚡ Detector debounce ${e.detectorDebounceMs}ms`);
-  }
-
-  if (e.mlRetrainJob || e.mlRetrainRegion) {
-    if (e.mlRetrainJob) {
-      lines.push(`☁️ ML job <code>${esc(e.mlRetrainJob)}</code>`);
-    }
-    if (e.mlRetrainRegion) {
-      lines.push(`🌏 Region <code>${esc(e.mlRetrainRegion)}</code>`);
-    }
+    lines.push(`⚡ ${e.detectorDebounceMs}ms`);
   }
 
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
@@ -671,13 +681,12 @@ function formatFrontendBoot(e: SystemBootEvent): FormattedMessage {
   const lines: string[] = [];
 
   const envEmoji = e.env === "production" ? "🟢" : "🟡";
-  const reachIcon = e.engineReachable ? "✅" : "❌";
-  const reachLabel = e.engineReachable ? "engine connected" : "engine unreachable";
+  const envShort = e.env === "production" ? "prod" : "dev";
+  const reach = e.engineReachable ? "✅ connected" : "❌ unreachable";
 
-  lines.push(`🌐 <b>Frontend started</b>`);
-  lines.push(`${envEmoji} ${esc(e.env)} · Node ${esc(e.nodeVersion)}`);
-  lines.push(`${reachIcon} ${reachLabel}`);
-  if (e.pid) lines.push(`🔧 PID <code>${e.pid}</code>`);
+  lines.push(`🌐 <b>Frontend started</b> · ${envShort}`);
+  lines.push(`${envEmoji} Node ${esc(e.nodeVersion)} · PID <code>${e.pid ?? "-"}</code>`);
+  lines.push(`${reach}`);
   if (e.engineUrl) lines.push(`🔗 <code>${esc(e.engineUrl)}</code>`);
 
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
@@ -694,71 +703,72 @@ function formatUnifiedBoot(e: UnifiedBootEvent): FormattedMessage {
 
   const missing = [
     e.engine ? null : "engine",
-    e.aiSearch ? null : "AI search",
     e.frontend ? null : "frontend",
   ].filter((part): part is string => !!part);
-  lines.push(
-    missing.length > 0
-      ? `⚠️ <b>Services started with missing boot payloads</b>`
-      : `🚀 <b>All services started</b>`,
-  );
+
+  if (missing.length > 0) {
+    lines.push(`⚠️ <b>Services started</b> · missing ${missing.join(", ")}`);
+  } else {
+    lines.push(`🚀 <b>All services started</b>`);
+  }
 
   if (e.engine) {
     const eng = e.engine;
-    const engineBits: string[] = [];
-    if (typeof eng.syncScheduler === "boolean") {
-      engineBits.push(`sync ${eng.syncScheduler ? "on" : "off"}`);
+    const envShort = eng.env === "production" ? "prod" : "dev";
+    const port = eng.enginePort ?? 3001;
+
+    lines.push(`⚙️ <b>Engine</b> · ${envShort} :${port}`);
+
+    const nodeShort = eng.nodeVersion ? eng.nodeVersion.replace(/^v?(\d+\.\d+).*/, "v$1") : null;
+    const pid = eng.pid ? `PID <code>${eng.pid}</code>` : null;
+    if (nodeShort || pid) {
+      lines.push(`🟡 ${[nodeShort ? `Node ${nodeShort}` : null, pid].filter(Boolean).join(" · ")}`);
     }
-    if (eng.autoPlace && eng.autoPlace.length > 0) {
-      const enabled = eng.autoPlace.filter((ap) => ap.enabled).length;
-      engineBits.push(`auto-place ${enabled}/${eng.autoPlace.length} on`);
+
+    const subs: string[] = [];
+    if (typeof eng.syncScheduler === "boolean") {
+      subs.push(`sync ${eng.syncScheduler ? "on" : "off"}`);
     }
     if (eng.autoSettleIntervalSec) {
-      engineBits.push(
-        `settle ${eng.autoSettle ? "on" : "off"} every ${durationLabel(
-          eng.autoSettleIntervalSec * 1000,
-        )}`,
-      );
+      subs.push(`settle ${eng.autoSettle ? "on" : "off"} ${durationLabel(eng.autoSettleIntervalSec * 1000)}`);
     }
-    lines.push(`⚙️ Engine: ${esc(engineBits.join(", ") || "ready")}`);
-  }
+    if (eng.autoPlace && eng.autoPlace.length > 0) {
+      const on = eng.autoPlace.filter((ap) => ap.enabled).length;
+      subs.push(`place ${on}/${eng.autoPlace.length}`);
+    }
+    if (subs.length > 0) {
+      lines.push(`✅ ${subs.join(" · ")}`);
+    }
 
-  if (e.aiSearch) {
-    const ai = e.aiSearch;
-    const problems: string[] = [];
-    if (ai.llmHealthy === false) problems.push("LLM unhealthy");
-    if (
-      typeof ai.providersHealthy === "number" &&
-      typeof ai.providersTotal === "number" &&
-      ai.providersHealthy < ai.providersTotal
-    ) {
-      problems.push(
-        `${ai.providersHealthy}/${ai.providersTotal} search providers`,
-      );
+    if (eng.dataSources && eng.dataSources.length > 0) {
+      lines.push(`📡 ${esc(eng.dataSources.join(", "))}`);
     }
-    if (problems.length > 0) {
-      lines.push(`🤖 AI search: ${esc(problems.join(", "))}`);
-    } else {
-      const provLabel =
-        typeof ai.providersTotal === "number"
-          ? `, ${ai.providersTotal} providers`
-          : "";
-      lines.push(
-        `🤖 AI search: ${esc(formatAiEngineLabel(ai.llmEngine))} OK, ${esc(ai.configuredModel)}${provLabel}`,
-      );
+
+    if (eng.mlRetrainJob) {
+      const mlLine = `☁️ ML <code>${esc(eng.mlRetrainJob)}</code>` + (eng.mlRetrainRegion ? ` ${esc(eng.mlRetrainRegion)}` : "");
+      lines.push(mlLine);
+    }
+
+    if (eng.detectorDebounceMs) {
+      lines.push(`⚡ ${eng.detectorDebounceMs}ms`);
     }
   }
 
   if (e.frontend) {
     const fe = e.frontend;
-    lines.push(
-      `🌐 Frontend: ${fe.engineReachable ? "engine connected" : "engine unreachable"}`,
-    );
+    const envShort = fe.env === "production" ? "prod" : "dev";
+    const reachIcon = fe.engineReachable ? "✅" : "❌";
+
+    lines.push(`🌐 <b>Frontend</b> · ${envShort} ${reachIcon} ${fe.engineReachable ? "connected" : "unreachable"}`);
+
+    if (fe.engineUrl) {
+      lines.push(`🔗 <code>${esc(fe.engineUrl)}</code>`);
+    }
+    if (fe.pid) {
+      lines.push(`🔧 PID <code>${fe.pid}</code>`);
+    }
   }
 
-  if (missing.length > 0) {
-    lines.push(`🧩 Missing: ${esc(missing.join(", "))}`);
-  }
   lines.push(`🕒 ${esc(formatAbsoluteTime(e.at))}`);
 
   return { text: lines.join("\n") };
@@ -774,17 +784,7 @@ function buildButtons(dashboardUrl?: string): InlineKey[] | undefined {
   return btns.length > 0 ? btns : undefined;
 }
 
-function formatSystemMessageLines(message: string): string[] {
-  const parts = message.split("\n");
-  if (parts.length === 1) {
-    return [`🧾 ${esc(message)}`];
-  }
 
-  return parts.map((part, index) => {
-    if (part.trim() === "") return "";
-    return index === 0 ? `🧾 ${esc(part)}` : esc(part);
-  });
-}
 
 function formatAiEngineLabel(engine: string): string {
   if (engine === "huggingface") return "HuggingFace (primary)";

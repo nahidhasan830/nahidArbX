@@ -2,8 +2,10 @@
 
 import { spawn } from "node:child_process";
 import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-const bootDir = "/tmp/nahidarbx-boot";
+const bootDir = join(tmpdir(), "nahidarbx-boot");
 const children = new Set();
 const processGroups = new Map();
 let shuttingDown = false;

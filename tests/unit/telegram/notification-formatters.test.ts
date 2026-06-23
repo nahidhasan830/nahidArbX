@@ -132,7 +132,7 @@ describe("Telegram notification formatters", () => {
       at: "2026-06-12T15:10:00.000Z",
       severity: "warn",
       message:
-        "Odds drift after placement\n\nArsenal vs Chelsea\nRequested: 500 @ 1.90\nBooked: 500 @ 1.85",
+        "Odds drift · worse\nArsenal vs Chelsea\nHome 500@1.90 → 1.85",
     });
 
     await notify({
@@ -225,17 +225,6 @@ describe("Telegram notification formatters", () => {
           },
         ],
       },
-      aiSearch: {
-        type: "ai:engine_state",
-        at: "2026-06-12T15:14:00.000Z",
-        state: "started",
-        serviceUrl: "http://localhost:3002",
-        configuredModel: "gemma-4-26b",
-        llmEngine: "groq",
-        llmHealthy: true,
-        providersHealthy: 2,
-        providersTotal: 2,
-      },
       frontend: {
         type: "system:boot",
         at: "2026-06-12T15:14:00.000Z",
@@ -257,9 +246,9 @@ describe("Telegram notification formatters", () => {
     ] =
       fetchBodies().map((body) => String(body.text));
 
-    expect(system).toContain("System Warning");
-    expect(system).toContain("Odds drift after placement");
-    expect(system).toContain("Requested: 500 @ 1.90");
+    expect(system).toContain("<b>Odds drift</b> · worse");
+    expect(system).toContain("Arsenal vs Chelsea");
+    expect(system).toContain("1.85");
 
     expect(provider).toContain("Pinnacle needs attention");
     expect(provider).toContain("3 consecutive failures");
@@ -274,18 +263,19 @@ describe("Telegram notification formatters", () => {
     expect(aiModel).toContain("HuggingFace (primary)");
 
     expect(engineBoot).toContain("Engine started");
-    expect(engineBoot).toContain("Auto-settle running · every 5m");
-    expect(engineBoot).toContain("Auto-place Velki off");
-    expect(engineBoot).toContain("Sources: Pinnacle, Saba");
+    expect(engineBoot).toContain("settle on 5m");
+    expect(engineBoot).toContain("place 1/2");
+    expect(engineBoot).toContain("Pinnacle, Saba");
 
     expect(frontendBoot).toContain("Frontend started");
-    expect(frontendBoot).toContain("engine unreachable");
-    expect(frontendBoot).toContain("http://localhost:3001");
+    expect(frontendBoot).toContain("unreachable");
+    expect(frontendBoot).toContain("localhost:3001");
 
     expect(unifiedBoot).toContain("All services started");
-    expect(unifiedBoot).toContain("Engine: sync on, auto-place 1/1 on");
-    expect(unifiedBoot).toContain("AI search: Groq (fallback) OK");
-    expect(unifiedBoot).toContain("Frontend: engine connected");
+    expect(unifiedBoot).toContain("Engine</b> · dev :3001");
+    expect(unifiedBoot).toContain("settle on 5m · place 1/1");
+    expect(unifiedBoot).toContain("Frontend</b> · dev");
+    expect(unifiedBoot).not.toContain("Missing");
   });
 
   it("formats ML training lifecycle notifications", async () => {

@@ -513,14 +513,10 @@ async function finaliseConfirmed(
         at: new Date().toISOString(),
         severity: "warn",
         message:
-          `Odds drift after placement\n\n` +
+          `Odds drift · ${driftAlert.actualOdds < driftAlert.requestedOdds ? "worse" : "better"}\n` +
           `${attempt.eventName}\n` +
-          `${attempt.marketType} -> ${attempt.atomLabel}\n` +
-          `Requested: ${driftAlert.requestedStake} @ ${driftAlert.requestedOdds}\n` +
-          `Booked: ${driftAlert.actualStake} @ ${driftAlert.actualOdds}\n` +
-          `Delta: odds ${driftAlert.oddsDrift.toFixed(3)}, stake ${driftAlert.stakeDrift.toFixed(2)}\n` +
-          `Ticket: ${ticketId}\n` +
-          `DB row uses the booked value.`,
+          `${attempt.atomLabel} ${driftAlert.requestedStake}@${driftAlert.requestedOdds} → ${driftAlert.actualOdds}\n` +
+          `Ticket ${ticketId}`,
       }).catch(() => {
         // Best effort — drift detection is not worth a second failure.
       });

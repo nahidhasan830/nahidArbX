@@ -48,6 +48,30 @@ const MODEL_EDGE_FULL_SCALE_PCT = 10;
 const SIMPLE_RULE_MIN_EV_PCT = 3;
 const SIMPLE_RULE_MARKET_TYPE_CODES = new Set([0, 2]);
 
+/**
+ * Cap the model's calibrated win probability at the sharp's vig-removed
+ * probability before it is allowed to size or boost a stake.
+ *
+ * Pinnacle (the sharp) is the best available probability estimate — proven
+ * empirically: on the prediction audit the sharp's Brier score beats the
+ * model's (0.222 vs 0.284) and the sharp is well-calibrated where the model
+ * overshoots. The boost rule, left uncapped, selects exactly the rows where
+ * the model's probability most exceeds the sharp's — i.e. the largest
+ * estimation errors (the optimizer's/winner's curse), which is why boosted
+ * bets lost. Capping at the sharp lets the model only *shrink* or *veto* a
+ * bet's size, never manufacture edge the sharp does not see.
+ *
+ * Returns the model score unchanged when the sharp probability is missing or
+ * out of range, so the cap fails open rather than zeroing every bet.
+ */
+export function capProbAtSharp(mlScore: number, features: number[]): number {
+  const sharpTrueProb = features[F.sharp_true_prob] ?? Number.NaN;
+  if (!Number.isFinite(sharpTrueProb) || sharpTrueProb <= 0 || sharpTrueProb > 1) {
+    return mlScore;
+  }
+  return Math.min(mlScore, sharpTrueProb);
+}
+
 // ============================================
 // Public API
 // ============================================
@@ -222,7 +246,12 @@ export function computeModelEdgePct(
   const adjustedSoftOdds = features[F.adjusted_soft_odds] ?? 0;
   const softOdds = features[F.soft_odds] ?? 0;
   const odds = adjustedSoftOdds > 1.01 ? adjustedSoftOdds : softOdds;
-  return computeModelEdgePctAtEffectiveOdds(mlScore, odds);
+  // Cap the model probability at the sharp's so the model can never claim more
+  // edge than Pinnacle prices in. See capProbAtSharp for the empirical proof.
+  return computeModelEdgePctAtEffectiveOdds(
+    capProbAtSharp(mlScore, features),
+    odds,
+  );
 }
 
 /**
