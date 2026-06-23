@@ -17,6 +17,17 @@ const tag = "MLCloudTrain";
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const TRAINING_ESTIMATE_MS = 20 * 60 * 1000;
 const NOTIFY_TIMEOUT_MS = 10_000;
+const MAX_FAILURE_CONTEXT_LINES = 6;
+const MAX_FAILURE_REASON_LENGTH = 700;
+const FAILURE_CONTEXT_PATTERNS = [
+  /error/i,
+  /failed/i,
+  /runtimeerror/i,
+  /cannot install/i,
+  /no solution/i,
+  /non-zero code/i,
+  /status: failed/i,
+];
 
 export type TrainingTrigger = "manual" | "auto";
 
@@ -48,6 +59,28 @@ async function withTimeout<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function stripAnsi(line: string): string {
+  return line.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
+function recordFailureContext(lines: string[], line: string): void {
+  const clean = stripAnsi(line).replace(/\s+/g, " ").trim();
+  if (!clean || !FAILURE_CONTEXT_PATTERNS.some((pattern) => pattern.test(clean))) {
+    return;
+  }
+  lines.push(clean);
+  if (lines.length > MAX_FAILURE_CONTEXT_LINES) lines.shift();
+}
+
+function failureReason(base: string, lines: string[]): string {
+  if (lines.length === 0) return base;
+  const detail = lines.join(" | ");
+  const reason = `${base}: ${detail}`;
+  return reason.length > MAX_FAILURE_REASON_LENGTH
+    ? `${reason.slice(0, MAX_FAILURE_REASON_LENGTH - 3)}...`
+    : reason;
 }
 
 export async function triggerCloudTraining(
@@ -140,12 +173,14 @@ export async function triggerCloudTraining(
     detached: true,
   });
   let terminalMarked = false;
+  const failureContext: string[] = [];
 
   child.stdout.on("data", (chunk: Buffer) => {
     for (const line of chunk.toString().split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       logger.info(tag, trimmed);
+      recordFailureContext(failureContext, trimmed);
       const progress = progressMessageFromCloudTrainLog(trimmed);
       if (progress) {
         void writeCloudTrainingProgress(
@@ -161,6 +196,7 @@ export async function triggerCloudTraining(
       const trimmed = line.trim();
       if (!trimmed) continue;
       logger.warn(tag, trimmed);
+      recordFailureContext(failureContext, trimmed);
       const progress = progressMessageFromCloudTrainLog(trimmed);
       if (progress) {
         void writeCloudTrainingProgress(
@@ -235,7 +271,10 @@ export async function triggerCloudTraining(
     terminalMarked = true;
     clearInterval(heartbeat);
     removeShutdownHandlers();
-    const reason = `Cloud Build + Run pipeline failed to spawn: ${err.message}`;
+    const reason = failureReason(
+      `Cloud Build + Run pipeline failed to spawn: ${err.message}`,
+      failureContext,
+    );
     logger.warn(tag, reason);
     void markTrainingRunFailed(modelId, reason, {
       trainingSamples: accounting.trainerExpectedSamples,
@@ -250,7 +289,10 @@ export async function triggerCloudTraining(
     if (code !== 0 && code !== null) {
       logger.warn(tag, `Pipeline exited with code ${code}`);
       try {
-        const reason = `Cloud Build + Run pipeline failed (exit code ${code})`;
+        const reason = failureReason(
+          `Cloud Build + Run pipeline failed (exit code ${code})`,
+          failureContext,
+        );
         await markTrainingRunFailed(modelId, reason, {
           trainingSamples: accounting.trainerExpectedSamples,
         });

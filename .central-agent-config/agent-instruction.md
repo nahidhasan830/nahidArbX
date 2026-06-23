@@ -12,23 +12,21 @@ No branches. Everything lands on the working branch (treat as `master`). Commit 
 
 Dual-process on **localhost** (`nahidarbx.store` is inactive). Bangladesh IP required for NineWickets/Velki providers.
 
-**Dev machine:** MacBook Pro 14″ (Nov 2024), Apple M4 Pro, 24 GB unified memory. Supports local Gemma 4 26B (MoE) via Ollama.
-
 | Component         | Where                                                        | Notes                                                                          |
 | ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| Engine            | `npm run engine` (tsx)                                       | 13 background subsystems. `NAHIDARBX_ENGINE=1`                                 |
-| Next.js           | `http://localhost:3000`                                      | `npm run dev` — web-only, read-only UI + API                                   |
+| Engine            | `npm run engine` (tsx)                                       | Owns background subsystems and Engine HTTP API on `ENGINE_PORT` (default 3001) |
+| Next.js           | `http://localhost:3000`                                      | `npm run dev` — web UI plus thin API proxy/client endpoints                    |
 | Optimizer sidecar | Cloud Run **Job** `nahidarbx-optimizer-job`                  | ML training sidecar (LightGBM). Project `nahidarbx-6e73`, region `asia-south1` |
-| Database          | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | Via Cloud SQL Connector (no local proxy needed)                                |
+| Database          | Cloud SQL Postgres `nahidarbx-6e73:asia-south1:nahidarbx-db` | App DB via Postgres/Drizzle and Cloud SQL Connector                            |
 
 ## Commands
 
 ```bash
 npm run engine       # Start background engine (tsx engine.ts)
-npm run dev          # Start Next.js web-only (Turbopack)
+npm run dev          # Start Next.js web process (Turbopack)
 npm run dev:all      # Start both in one terminal
 npm run engine:stop  # Stop engine gracefully
-npm run kill         # Force-kill port 3000
+npm run kill         # Stop local dev servers on ports 3000, 3001, and 8090
 npm run build        # Production build — always run after changes
 npm run lint         # ESLint
 npm run test:unit    # Node built-in runner: node --import tsx --test lib/**/*.test.ts
@@ -42,9 +40,9 @@ Two separate test systems: Vitest (`tests/unit/`) and Node built-in runner (`lib
 
 ## Architecture
 
-NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWickets Exchange/Sportsbook, BetConstruct) against Pinnacle (sharp) and flags positive-EV opportunities. Detected bets persist to Postgres for review + settlement on `/bets`.
+NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWickets Exchange/Sportsbook, Velki, SABA, BetConstruct when enabled) against Pinnacle (sharp) and flags positive-EV opportunities. Detected bets persist to Postgres for review + settlement on `/bets`.
 
-**Dual-process architecture:** `engine.ts` runs all background subsystems (sync, WebSockets, detection, auto-place, auto-settle, Telegram). Next.js (`npm run dev`) is a thin read-only web server. `NAHIDARBX_ENGINE=1` env var signals both processes. `instrumentation.ts` calls `ensureDbReady()` first, then skips background tasks when engine flag is set.
+**Dual-process architecture:** `engine.ts` runs all background subsystems (sync, WebSockets, detection, auto-place, auto-settle, Telegram, log retention) and exposes the Engine HTTP API. Next.js (`npm run dev`) is the web UI plus thin API proxy/client endpoints. `instrumentation.ts` initializes the DB for the web process and handles boot notification coordination; it must not start background subsystems.
 
 **DB initialization:** `ensureDbReady()` in `lib/db/client.ts` creates the Pool asynchronously via Cloud SQL Connector. Called by `instrumentation.ts` (Next.js) and `engine.ts` (standalone) before any DB access. The `db` export is a transparent Proxy that forwards to the initialized Drizzle instance.
 
@@ -54,42 +52,52 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 
 ## Routes
 
-| Route                   | Purpose                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------- |
-| `/dashboard`            | Central betting-account dashboard                                                |
-| `/value-bets`           | Value-bet / arb finder                                                           |
-| `/bets`                 | Bets history — settlement + review                                               |
-| `/lab/ml`               | ML Optimizer — LightGBM pipeline dashboard with current-contract corpus progress |
-| `/api/value-bets`       | GET: arb data, POST: manual sync                                                 |
-| `/api/ml/pipeline`      | GET: ML pipeline stats plus current-contract corpus counters                     |
-| `/api/ml/training-data` | GET: trainer drill-down rows plus shared current-contract corpus summary         |
-| `/api/ml/retrain`       | POST: trigger Cloud Run training job                                             |
+| Route                    | Purpose                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| `/dashboard`             | Central betting-account dashboard                                                |
+| `/value-bets`            | Value-bet / arb finder                                                           |
+| `/bets`                  | Bets history — settlement + review                                               |
+| `/matcher-lab`           | Event matcher runs, candidates, decisions, and scheduler controls                |
+| `/lab/ml`                | ML Optimizer — LightGBM pipeline dashboard with current-contract corpus progress |
+| `/ai-engine`             | AI provider health and configuration                                             |
+| `/ai-playground`         | Manual AI/search playground                                                      |
+| `/logs/auto-placer`      | Auto-placement log                                                               |
+| `/logs/ai-activity`      | AI activity log                                                                  |
+| `/logs/memory`           | Memory diagnostics                                                               |
+| `/telegram`              | Telegram bot/control status                                                      |
+| `/api/value-bets`        | GET: arb data, POST: engine manual sync proxy                                    |
+| `/api/value-bets/stream` | Server-sent event proxy for engine value-bet updates                             |
+| `/api/ml/pipeline`       | GET: ML pipeline stats plus current-contract corpus counters                     |
+| `/api/ml/learning`       | GET/POST: ML learning observatory                                                |
+| `/api/ml/retrain`        | POST: trigger Cloud Run training job                                             |
+| `/api/matcher-lab/*`     | Matcher lab reads, jobs, run stream, scheduler, and stats                        |
 
 ## Critical Rules
 
 ### Architecture & data
 
-- **`engine.ts`** is the standalone background process. **`instrumentation.ts`** is the Next.js boot hook — inits DB, skips background tasks when `NAHIDARBX_ENGINE=1`.
+- **`engine.ts`** is the standalone background process. **`instrumentation.ts`** is the Next.js boot hook — it initializes DB state for the web process and must not start background tasks.
 - **`bets` is the only settlement table.** `value_bets` and `placed_bets` are dropped legacy.
 - **Settlement pipeline is shared.** All paths converge on `settleBatch` / `applySettlementOutcomes`.
 - **`singleton()` from `lib/util/singleton.ts`** for HMR-safe state. Module-level `let` breaks under Turbopack.
+- **No code comments.** When writing code, do not add comments of any kind. Preserve only syntax-required directives such as `"use client"`, `"use server"`, shebangs, and tool-mandated pragmas that cannot be replaced with code.
 - **`better-sqlite3` is auth-only.** App DB is Postgres via Drizzle (`snake_case` casing).
 - **`lib/shared/constants.ts`** is the single source for magic numbers (not `lib/config.ts`).
 - **Single `.env` file** at repo root. No `.env.local` or `.env.example`.
 - **Middleware uses `jose`** (Edge Runtime), not `jsonwebtoken`.
 - **All external data validated with Zod.**
-- **Current-contract corpus accounting lives in `lib/ml/training-sample-accounting.ts`.** `/api/ml/pipeline`, `/api/ml/training-data`, and `/lab/ml` must reuse that shared source and keep raw settled/current-contract/win/loss progress separate from stricter trainer-readiness counts.
+- **Current-contract corpus accounting lives in `lib/ml/training-sample-accounting.ts`.** `/api/ml/pipeline`, `/api/ml/retrain`, optimizer scheduler code, and `/lab/ml` must reuse that shared source and keep raw settled/current-contract/win/loss progress separate from stricter trainer-readiness counts.
 - **ML runtime must stay Google Cloud managed.** Do not add local inference, Hugging Face runtime/fallbacks, or Hugging Face token/config paths. When changing ML, entity matching, embeddings, or scoring, prefer managed Google Cloud inference and remove local/Hugging Face runtime paths where the change scope allows.
 
 ### Settlement
 
-- **No automated settlement AI.** Settlement uses source-only tiers: cache → ESPN/API-Football/SofaScore. Unresolved rows stay pending for manual review.
+- **No automated settlement AI.** Settlement uses source-only tiers: cache → ESPN → SofaScore → API-Football. Unresolved rows stay pending for manual review.
 - **Manual Google AI Mode is only a human verification link.** It must not feed backend settlement or auto-apply outcomes.
 - **Manual re-settle bypasses cache.** Operator-triggered `/api/bets-history/settle` calls default to `bypassCache: true`; the automatic scheduler calls `settleBatch` directly and keeps Tier 0 enabled.
 - **Prefer deterministic settlement.** `settleBet(row, score)` handles 80%+ of markets with zero AI.
 - **Telegram notifications only for placed bets** — if `placedAt` is null, settle silently.
 - **Auto-place stakes snap to 100 BDT multiples** (`AUTO_PLACE_STAKE_BUCKET`), min 200 BDT.
-- **Prefilled AI prompts** are the preferred pattern for heavy discovery — generate a pre-built prompt for manual copy-paste rather than automated Gemini calls.
+- **Prefilled AI prompts** are the preferred pattern for settlement discovery — generate a pre-built prompt for manual copy-paste rather than automated settlement AI calls.
 
 ### UI rules
 
@@ -98,7 +106,7 @@ NahidArbX is a real-time value-bet finder. Compares soft-book prices (NineWicket
 - **Toolbar/filter components are reused** across spreadsheet surfaces. Standard: `h-7` / `px-3 py-1.5` / `bg-muted/40` / `text-[11px]` buttons.
 - **Typography tiers:** **Prose** (sentences to read — tooltips, descriptions, help text) → `text-sm` (14px min). **Chrome** (labels to scan — buttons, badges, table cells) → `text-[11px]`/`text-xs`. Never put full sentences at `text-[11px]`.
 - **Tooltips are foundational.** Use `<Tooltip>`/`<TooltipTrigger>`/`<TooltipContent>` from `components/ui/tooltip.tsx` — never plain `title=""`. Wrap panel root in `<TooltipProvider delayDuration={200}>`. State-aware tooltips must reflect current state. AI-triggering controls must say "AI calls cost money."
-- **Explanatory copy: plain language + one example.** Headline (plain English, no acronyms) + body (explanation woven with concrete betting example using real providers/markets/numbers). No "Why this matters" labels. Glossary at `lib/lab/glossary.ts` is reference impl (`short`/`example`/`objective` fields; `long` is deprecated). See vocabulary cheatsheet below.
+- **Explanatory copy: plain language + one example.** Headline (plain English, no acronyms) + body (explanation woven with concrete betting example using real providers/markets/numbers). No "Why this matters" labels. Use `components/lab/HelpBanner.tsx` and `lib/lab/param-labels.ts` as the reference pattern. See vocabulary cheatsheet below.
 
 **Copy vocabulary cheatsheet:**
 
@@ -128,16 +136,18 @@ Postgres-backed alias system replacing legacy JSON files. Core tables: `entities
 
 **Auto-resolver** (`lib/matching/entities/auto-resolve.ts`, triggered by observations):
 
-- **Tier 0** — deterministic gates: gender mismatch, team-variant mismatch (U17/U19/U20/U21/U23/Reserves/Academy/Futsal/etc.), group conflict, competing-candidate
-- **Tier 1** — Bayesian evidence with provider/source weights
-- **Tier 2** — Vertex embedding cosine for surface/entity similarity
-- **Tier 3** — unresolved candidates stay for operator review
+- **Gates** — reject retired entities, gender mismatch, and team-variant mismatch (U17/U19/U20/U21/U23/Reserves/Academy/Futsal/etc.)
+- **Blocklist** — respect recent operator overrides before auto-confirming
+- **Bayesian evidence** — promote high-weight repeated observations
+- **Bi-encoder** — Vertex embedding cosine for surface/entity similarity
+- **Cross-encoder** — optional calibrated scorer when available
+- **Escalation** — unresolved candidates stay for operator review
 
 **Event Matcher Lab:** `/matcher-lab` reads the Node event matcher tables (`event_matcher_runs`, `matcher_candidates`, `matcher_decisions`, `matcher_impact_daily`). The old Python-backed `match_pairs`/`matcher_config`/`matcher_runs` lab tables are dropped.
 
 **UI:** `Matcher Lab` is run-centric and table-first; every decision review table uses `<DataTable>`.
 
-**Env vars:** `ENTITY_CLASSIFIER_URL`, `ENTITY_RESOLVER_JOB_NAME`, `EMBEDDING_LOOKUP_ENABLED`.
+**Env vars:** Vertex-backed embedding paths use `GCP_PROJECT_ID`, `GCP_REGION`, and `VERTEX_EMBEDDING_MODEL`.
 
 ## Value-Bet Detection
 
@@ -154,31 +164,35 @@ Flag as value bet when: sharp odds exist + fresh, soft odds exist + fresh, `evPc
 ## Event Matching
 
 ```
-score = 0.6 * teamSimilarity + 0.2 * competitionSimilarity + 0.2 * timeScore
-timeScore = max(0, 1 - timeDiff / 7200000)   // 2hr window
-match if score >= 0.85
+score = 0.7 * orientationAwareTeamSimilarity + 0.3 * competitionSimilarity
+match if same kickoff bucket, normal orientation, passes competition gate, and score >= MATCH_THRESHOLD
 ```
 
 Competition names normalized (country adjectives → nouns).
 
 ## File Structure
 
-| Path                              | Purpose                                                                  |
-| --------------------------------- | ------------------------------------------------------------------------ |
-| `engine.ts`                       | Standalone background engine entry point                                 |
-| `instrumentation.ts`              | Next.js boot hook — DB init + conditional background tasks               |
-| `lib/db/client.ts`                | Async DB pool init (`ensureDbReady()`) + Proxy `db` export               |
-| `lib/types.ts`                    | Core types (Provider, NormalizedEvent)                                   |
-| `lib/providers/registry.ts`       | Single source of truth for provider metadata                             |
-| `lib/store.ts`                    | Events store + SyncStatus                                                |
-| `lib/adapters/*.ts`               | Provider event adapters                                                  |
-| `lib/atoms/`                      | Family/atom types, registry, store, fetcher, value-detector, vig-removal |
-| `lib/db/schema.ts`                | Postgres `bets` + settlement tables                                      |
-| `lib/db/repositories/bets.ts`     | Upsert/list/place/settle repository                                      |
-| `lib/auth/token-manager.ts`       | Pinnacle token capture (via cloudflare-bridge)                           |
-| `lib/shared/cloudflare-bridge.ts` | Shared CF-solve + in-page-fetch pipeline                                 |
-| `lib/matching/matcher.ts`         | Event matching with string-similarity                                    |
-| `lib/background/fetcher.ts`       | Sync scheduler                                                           |
+| Path                               | Purpose                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `engine.ts`                        | Standalone background engine entry point                                   |
+| `instrumentation.ts`               | Next.js boot hook — web-process DB init and boot notification coordination |
+| `lib/shared/engine-http.ts`        | Engine HTTP API                                                            |
+| `lib/engine-proxy.ts`              | Next.js API proxy client for engine endpoints                              |
+| `lib/db/client.ts`                 | Async DB pool init (`ensureDbReady()`) + Proxy `db` export                 |
+| `lib/db/schema.ts`                 | Postgres schema                                                            |
+| `lib/db/repositories/`             | Database access boundaries                                                 |
+| `lib/providers/registry.ts`        | Single source of truth for provider metadata                               |
+| `lib/adapters/unified-registry.ts` | Event and atoms adapter registry                                           |
+| `lib/adapters/*.ts`                | Provider fixture/event adapters                                            |
+| `lib/atoms/`                       | Family/atom types, mappings, odds store, fetcher, value detector           |
+| `lib/betting/`                     | Placement/account/session adapters                                         |
+| `lib/settle/`                      | Shared settlement pipeline and score sources                               |
+| `lib/event-matcher/`               | Matcher Lab run pipeline, candidates, scoring, jobs, and repository        |
+| `lib/matching/entities/`           | Entity observation, alias, resolver, and embedding logic                   |
+| `lib/ml/`                          | Feature contract, scorer, training accounting, learning, and audit logic   |
+| `services/optimizer/`              | Cloud Run LightGBM training sidecar                                        |
+| `lib/shared/cloudflare-bridge.ts`  | Shared CF-solve + in-page-fetch pipeline                                   |
+| `lib/background/fetcher.ts`        | Sync scheduler                                                             |
 
 ## Provider Adapter Pattern
 
@@ -193,35 +207,22 @@ interface AtomsProviderAdapter {
   fetchAndStoreOdds(
     providerEventId: string,
     normalizedEventId: string,
+    homeTeam: string,
+    awayTeam: string,
+    options?: AtomsFetchOptions,
   ): Promise<number>;
 }
 ```
 
 ## Environment Variables
 
-```bash
-# Pinnacle (via Betjili)
-BETJILI_USERNAME=  BETJILI_PASSWORD=  TOKEN_HEADLESS=true
-
-# Pinnacle Config
-PINNACLE_DAYS_AHEAD=2  PINNACLE_PAGE_SIZE=1000
-
-# NineWickets
-NINEWICKETS_API_KEY=  NINEWICKETS_BASE_URL=
-
-# App
-FETCH_INTERVAL_MS=60000
-
-# Gemini
-GEMINI_API_KEY=  GEMINI_DEFAULT_MODEL=gemini-3-flash-preview
-GEMINI_PRO_MODEL=gemini-3.1-pro-preview  GEMINI_LITE_MODEL=gemini-3.1-flash-lite-preview
-
-# Database (Cloud SQL Postgres)
-DATABASE_URL=postgresql://nahidarbx_app:<pw>@127.0.0.1:5432/nahidarbx
-
-# Optimizer (Cloud Run Job)
-GCP_PROJECT_ID=nahidarbx-6e73  GCP_REGION=asia-south1  OPTIMIZER_JOB_NAME=nahidarbx-optimizer-job
-```
+- **Core:** `DATABASE_URL`, `JWT_SECRET`, `ENGINE_PORT`, `FETCH_INTERVAL_MS`
+- **Pinnacle via Betjili:** `BETJILI_USERNAME`, `BETJILI_PASSWORD`, `BETJILI_URL`, `TOKEN_HEADLESS`, `PINNACLE_DAYS_AHEAD`, `PINNACLE_PAGE_SIZE`
+- **Soft-book sessions:** `NINEWICKETS_USERNAME`, `NINEWICKETS_PASSWORD`, `VELKI_USERNAME`, `VELKI_PASSWORD`, `FANCYWIN_USERNAME`/`SABA_USERNAME`, `FANCYWIN_PASSWORD`/`SABA_PASSWORD`
+- **AI/search:** `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_PRO_MODEL`, `GEMINI_API_KEY`, `GEMINI_FLASH_MODEL`, `GEMINI_PRO_MODEL`, `GEMINI_LITE_MODEL`, `VERTEX_ENGINE_ID`
+- **Google Cloud / ML:** `GCP_PROJECT_ID`, `GCP_REGION`, `OPTIMIZER_JOB_NAME`, `VERTEX_MODEL_BUCKET`/`ML_MODEL_BUCKET`, `VERTEX_SERVING_IMAGE`, `VERTEX_PREDICTION_ENDPOINT`, `VERTEX_EMBEDDING_MODEL`
+- **Settlement:** `API_FOOTBALL_KEY`, `SCRAPE_DO_TOKEN`
+- **Telegram:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_FULL_COMMAND_MENU`
 
 ## Database
 
@@ -229,4 +230,4 @@ Cloud SQL Postgres 16 — project `nahidarbx-6e73`, instance `nahidarbx-db` (db-
 
 ## Cloudflare Bridge (Shared Auth Pipeline)
 
-Both Pinnacle (`lib/auth/token-manager.ts`) and 9W Sportsbook (`lib/betting/ninewickets/session.ts`) use the shared `lib/shared/cloudflare-bridge.ts` pipeline: Playwright solves CF challenge (~4s), then `page.evaluate(fetch())` runs login + getGameUrl — zero UI automation. Retry with backoff (3 attempts), auto-healing (browser disposal on failure). Session files in `sessions/` (gitignored): `betjili/pinnacle-token.json`, `9wkts/session.json`.
+Pinnacle (`lib/auth/token-manager.ts`), 9W Sportsbook (`lib/betting/ninewickets/session.ts`), SABA (`lib/betting/saba/session.ts`), and Velki (`lib/betting/velki/session.ts`) use the shared `lib/shared/cloudflare-bridge.ts` pipeline where applicable: Playwright solves CF challenge, then `page.evaluate(fetch())` runs login/get-game-url flows with retry/backoff and browser disposal on failure. Session files live in `sessions/` (gitignored): `betjili/pinnacle-token.json`, `9wkts/session.json`, `saba/session.json`, and `velki/session.json`.
