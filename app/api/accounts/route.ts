@@ -14,12 +14,7 @@ import {
 } from "@/lib/betting/velki/session";
 import { readPlayerInfoWithRecapture } from "@/lib/betting/velki/balance";
 import { resetCircuitBreaker } from "@/lib/shared/circuit-breaker";
-import { DEMO_ACCOUNT } from "@/lib/betting/dummy-data";
 import { isAutoPlaceEnabled } from "@/lib/betting/auto-place-config";
-import {
-  buildDemoDashboardAccounts,
-  isDashboardDemoRequest,
-} from "@/lib/dashboard/demo-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,7 +32,6 @@ export interface BettingAccount {
   suspended: boolean;
   lastSyncedAt: string;
   error: string | null;
-  isDemo: boolean;
   autoPlaceEnabled: boolean;
   session: {
     health: SessionHealth;
@@ -49,16 +43,12 @@ const SESSION_FILE_9W = path.join("sessions", "9wkts", "session.json");
 const SESSION_FILE_VELKI = path.join("sessions", "velki", "session.json");
 const EXPIRING_WINDOW_MS = 10 * 60 * 1000;
 
-export async function GET(req: Request) {
-  if (isDashboardDemoRequest(req)) {
-    return NextResponse.json({ accounts: buildDemoDashboardAccounts() });
-  }
-
+export async function GET() {
   const [nineW, velki] = await Promise.all([
     fetch9wktsAccount(),
     fetchVelkiAccount(),
   ]);
-  const accounts: BettingAccount[] = [nineW, velki, buildDemoAccount()];
+  const accounts: BettingAccount[] = [nineW, velki];
   return NextResponse.json({ accounts });
 }
 
@@ -141,7 +131,6 @@ async function fetch9wktsAccount(): Promise<BettingAccount> {
     suspended: false,
     lastSyncedAt: new Date().toISOString(),
     error: null,
-    isDemo: false,
     autoPlaceEnabled: isAutoPlaceEnabled("ninewickets-sportsbook"),
     session: buildSessionStatus(stored.exp, stored.capturedAt),
   };
@@ -182,7 +171,6 @@ async function fetchVelkiAccount(): Promise<BettingAccount> {
     suspended: false,
     lastSyncedAt: new Date().toISOString(),
     error: null,
-    isDemo: false,
     autoPlaceEnabled: isAutoPlaceEnabled("velki-sportsbook"),
     session: buildVelkiSessionStatus(stored.capturedAt),
   };
@@ -206,27 +194,6 @@ async function fetchVelkiAccount(): Promise<BettingAccount> {
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-function buildDemoAccount(): BettingAccount {
-  return {
-    provider: DEMO_ACCOUNT.provider,
-    providerDisplayName: DEMO_ACCOUNT.providerDisplayName,
-    username: DEMO_ACCOUNT.username,
-    currency: DEMO_ACCOUNT.currency,
-    balance: DEMO_ACCOUNT.balance,
-    exposure: DEMO_ACCOUNT.exposure,
-    minBet: DEMO_ACCOUNT.minBet,
-    suspended: DEMO_ACCOUNT.suspended,
-    lastSyncedAt: new Date().toISOString(),
-    error: null,
-    isDemo: true,
-    autoPlaceEnabled: false,
-    session: {
-      health: "unknown",
-      capturedAt: null,
-    },
-  };
 }
 
 function read9wSessionMeta(): {

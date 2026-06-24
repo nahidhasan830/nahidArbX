@@ -43,7 +43,6 @@ export interface BettingAccount {
   suspended: boolean;
   lastSyncedAt: string;
   error: string | null;
-  isDemo: boolean;
   autoPlaceEnabled: boolean;
   session: {
     health: SessionHealth;
@@ -203,13 +202,11 @@ function AccountCard({
   };
 
   const hasError = !!account.error;
-  const dim = account.isDemo;
   const isInactive =
     !hasError &&
     (account.balance === null || account.balance === 0) &&
     (account.exposure === null || account.exposure === 0);
   const canRelogin =
-    !account.isDemo &&
     (hasError ||
       account.session.health === "expired" ||
       account.session.health === "expiring");
@@ -227,7 +224,6 @@ function AccountCard({
         autoLogin &&
           !autoLogin.enabled &&
           "border-amber-400/30 bg-amber-400/[0.02]",
-        dim && "opacity-60",
       )}
     >
       <div className="flex items-center justify-between gap-3 px-4 py-3 bg-white/[0.02] border-b border-white/[0.04]">
@@ -343,7 +339,7 @@ function AccountCard({
 
       <div className="flex items-center justify-between gap-2 px-4 pt-1.5 pb-2.5 border-t border-white/[0.05] bg-black/10">
         <div className="flex items-center gap-1.5 flex-wrap">
-          {autoLogin && !account.isDemo && (
+          {autoLogin && (
             <AutoLoginToggle
               state={autoLogin}
               busy={autoLoginBusy}
@@ -373,7 +369,7 @@ function AccountCard({
         <AutoPlaceToggle
           provider={account.provider}
           enabled={account.autoPlaceEnabled}
-          disabled={account.isDemo || hasError}
+          disabled={hasError}
           onChange={onToggleAutoPlace}
         />
       </div>

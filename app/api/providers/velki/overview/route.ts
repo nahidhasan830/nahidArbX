@@ -1,19 +1,11 @@
 import { NextResponse } from "next/server";
 import { readPlayerInfoWithRecapture } from "@/lib/betting/velki/balance";
 import { getVelkiAutoLoginConfig } from "@/lib/betting/velki/auto-login-config";
-import {
-  buildDemoVelkiOverview,
-  isDashboardDemoRequest,
-} from "@/lib/dashboard/demo-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(req: Request) {
-  if (isDashboardDemoRequest(req)) {
-    return NextResponse.json(buildDemoVelkiOverview());
-  }
-
+export async function GET() {
   const at = new Date().toISOString();
   const errors: Record<string, string> = {};
 

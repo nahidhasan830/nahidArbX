@@ -29,6 +29,17 @@
 .DS_Store
 *.pem
 
+# Local AI agent/tooling
+/.codex/
+/.claude/
+/.cursor/
+/.windsurf/
+/.central-agent-config/
+/.mcp*.json
+.aider*
+AGENTS.md
+CLAUDE.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*

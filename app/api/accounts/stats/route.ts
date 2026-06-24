@@ -3,10 +3,6 @@ import { listPlacedBets } from "@/lib/db/repositories/bets";
 import { BETTING_PROVIDERS } from "@/lib/betting/registry";
 import type { BetRow } from "@/lib/db/schema";
 import { addDays, format, getDay, getHours, parseISO } from "date-fns";
-import {
-  buildDemoDashboardRows,
-  isDashboardDemoRequest,
-} from "@/lib/dashboard/demo-data";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,14 +26,11 @@ export interface PnlPoint {
   expected: number;
 }
 
-export async function GET(req: Request) {
-  const demo = isDashboardDemoRequest(req);
-  const rows = demo
-    ? buildDemoDashboardRows()
-    : await listPlacedBets(1000);
+export async function GET() {
+  const rows = await listPlacedBets(1000);
   const stats = deriveStats(rows, {
-    startingBankroll: demo ? 5_110 : 10_000,
-    includeExpected: demo,
+    startingBankroll: 10_000,
+    includeExpected: false,
   });
   return NextResponse.json(stats);
 }

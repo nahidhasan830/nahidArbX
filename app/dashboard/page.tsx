@@ -113,7 +113,6 @@ interface BettingAccount {
   suspended: boolean;
   lastSyncedAt: string;
   error: string | null;
-  isDemo: boolean;
   autoPlaceEnabled: boolean;
   session: {
     health: SessionHealth;
@@ -201,11 +200,6 @@ interface Stats {
 
 
 const REFRESH_MS = 15_000;
-const DASHBOARD_DEMO_DATA = true;
-
-function dashboardDataUrl(path: string): string {
-  return DASHBOARD_DEMO_DATA ? `${path}?demo=1` : path;
-}
 
 
 export default function DashboardPage() {
@@ -252,7 +246,7 @@ export default function DashboardPage() {
 
     const loadAccounts = (async () => {
       try {
-        const res = await timeoutFetch(dashboardDataUrl("/api/accounts"));
+        const res = await timeoutFetch("/api/accounts");
         if (!res) return;
         if (!res.ok) throw new Error(`accounts HTTP ${res.status}`);
         const a = (await res.json()) as { accounts: BettingAccount[] };
@@ -266,9 +260,7 @@ export default function DashboardPage() {
 
     const loadStats = (async () => {
       try {
-        const res = await timeoutFetch(
-          dashboardDataUrl("/api/accounts/stats"),
-        );
+        const res = await timeoutFetch("/api/accounts/stats");
         if (!res) return;
         if (!res.ok) throw new Error(`betting-stats HTTP ${res.status}`);
         const s = (await res.json()) as Stats;
@@ -283,7 +275,7 @@ export default function DashboardPage() {
     const loadOverview = (async () => {
       try {
         const res = await timeoutFetch(
-          dashboardDataUrl("/api/providers/9w/overview"),
+          "/api/providers/9w/overview",
           15_000,
         );
         if (!res || !res.ok) return;
@@ -295,7 +287,7 @@ export default function DashboardPage() {
     const loadOverviewVelki = (async () => {
       try {
         const res = await timeoutFetch(
-          dashboardDataUrl("/api/providers/velki/overview"),
+          "/api/providers/velki/overview",
           15_000,
         );
         if (!res || !res.ok) return;
@@ -320,21 +312,6 @@ export default function DashboardPage() {
 
   const handleAutoLoginToggle = useCallback(
     async (provider: string, enabled: boolean) => {
-      if (DASHBOARD_DEMO_DATA) {
-        const autoLogin = {
-          enabled,
-          reason: enabled ? null : "paused via dashboard",
-          updatedAt: new Date().toISOString(),
-        };
-        if (provider === "ninewickets-sportsbook") {
-          setOverview9W((prev) => (prev ? { ...prev, autoLogin } : prev));
-        }
-        if (provider === "velki-sportsbook") {
-          setOverviewVelki((prev) => (prev ? { ...prev, autoLogin } : prev));
-        }
-        return;
-      }
-
       const route =
         provider === "ninewickets-sportsbook"
           ? "/api/providers/9w/auto-login"
@@ -377,19 +354,6 @@ export default function DashboardPage() {
 
   const handleRelogin = useCallback(
     async (provider: string) => {
-      if (DASHBOARD_DEMO_DATA) {
-        setAccounts((prev) =>
-          prev
-            ? prev.map((a) =>
-                a.provider === provider
-                  ? { ...a, error: null, lastSyncedAt: new Date().toISOString() }
-                  : a,
-              )
-            : prev,
-        );
-        return;
-      }
-
       setReloginInProgress((prev) => new Set(prev).add(provider));
       try {
         const res = await fetch("/api/accounts", {
@@ -459,7 +423,6 @@ export default function DashboardPage() {
             )
           : prev,
       );
-      if (DASHBOARD_DEMO_DATA) return;
       try {
         const res = await fetch("/api/auto-place", {
           method: "POST",

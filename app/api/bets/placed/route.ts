@@ -33,7 +33,6 @@ export async function GET() {
       status: mapOutcome(r.outcome),
       pnl: r.pnl === null ? null : Number(r.pnl),
       currency: r.currency,
-      isDemo: false,
       mode: r.mode,
     };
   });
