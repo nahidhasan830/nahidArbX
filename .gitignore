@@ -30,9 +30,12 @@
 *.pem
 
 # Local AI agent/tooling
+/.agents/
 /.codex/
 /.claude/
+/.commandcode/
 /.cursor/
+/.grok/
 /.windsurf/
 /.central-agent-config/
 /.mcp*.json
