@@ -29,7 +29,7 @@
 .DS_Store
 *.pem
 
-# Local AI agent/tooling
+# Local AI agent/tooling state (project agent contract is tracked)
 /.agents/
 /.codex/
 /.claude/
@@ -37,11 +37,8 @@
 /.cursor/
 /.grok/
 /.windsurf/
-/.central-agent-config/
 /.mcp*.json
 .aider*
-AGENTS.md
-CLAUDE.md
 
 # debug
 npm-debug.log*

@@ -1,0 +1,7 @@
+[mcp_servers.postgres]
+type = "stdio"
+command = "node"
+args = ["--import", "tsx", ".central-agent-config/mcp/postgres-cloud.ts"]
+cwd = "."
+startup_timeout_sec = 20
+tool_timeout_sec = 60

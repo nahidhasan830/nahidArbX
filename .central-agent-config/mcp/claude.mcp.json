@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--import",
+        "tsx",
+        ".central-agent-config/mcp/postgres-cloud.ts"
+      ],
+      "cwd": "."
+    }
+  }
+}
